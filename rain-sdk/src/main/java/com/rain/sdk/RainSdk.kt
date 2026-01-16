@@ -19,7 +19,7 @@ object RainSdk {
     val portal: Portal
         @Throws(RainError::class)
         get() {
-            return _portal ?: throw RainError.PortalNotInitialized
+            return _portal ?: throw RainError.SdkNotInitialized()
         }
 
     /**
@@ -38,7 +38,7 @@ object RainSdk {
         try {
             // Validate token
             if (portalSessionToken.isBlank()) {
-                throw RainError.InvalidPortalToken(portalSessionToken)
+                throw RainError.InvalidConfig("Portal session token cannot be blank")
             }
 
             // Validate and Map RPC endpoints
@@ -56,7 +56,7 @@ object RainSdk {
 
             for ((chainId, url) in rpcEndpoints) {
                 if (!URLUtil.isValidUrl(url)) {
-                    throw RainError.InvalidRPCUrl(chainId, url)
+                    throw RainError.InvalidConfig("Invalid RPC URL for chainId $chainId: $url")
                 }
                 eip155RpcEndpointsConfig["eip155:$chainId"] = url
             }
@@ -76,7 +76,7 @@ object RainSdk {
             throw e
         } catch (e: Throwable) {
             Timber.e(e, "Rain SDK: Portal SDK error")
-            throw RainError.PortalError(e)
+            throw RainError.ProviderError(e)
         }
     }
 }
