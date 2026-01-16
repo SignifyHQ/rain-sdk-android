@@ -1,4 +1,4 @@
-package com.rain.sdk
+package com.rain.sdk.utils
 
 object RainUtils {
   /**
