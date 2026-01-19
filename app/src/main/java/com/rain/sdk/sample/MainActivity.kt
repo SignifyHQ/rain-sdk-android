@@ -3,14 +3,17 @@ package com.rain.sdk.sample
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,6 +63,36 @@ fun SampleApp(viewModel: SampleViewModel = viewModel()) {
                 .padding(bottom = 16.dp),
             singleLine = true
         )
+
+        Text(
+            text = "RPC Configuration",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+        )
+
+        Column(modifier = Modifier.padding(bottom = 16.dp)) {
+            RpcOption.values().forEach { option ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = !viewModel.isInitialized) { viewModel.onRpcOptionChanged(option) }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = viewModel.selectedRpcOption == option,
+                        onClick = { viewModel.onRpcOptionChanged(option) },
+                        enabled = !viewModel.isInitialized
+                    )
+                    Text(
+                        text = option.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+            }
+        
+        }
 
         Button(
             onClick = { viewModel.initializeSdk() },

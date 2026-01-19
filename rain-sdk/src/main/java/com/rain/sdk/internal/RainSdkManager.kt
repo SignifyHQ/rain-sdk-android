@@ -41,6 +41,9 @@ internal class RainSdkManager : RainSdk {
             val eip155RpcEndpointsConfig = mutableMapOf<String, String>()
             
             for ((id, url) in rpcEndpoints) {
+                if (id <= 0) {
+                    throw RainError.InvalidConfig("Invalid Chain ID: $id. Must be a positive integer.")
+                }
                 if (!URLUtil.isValidUrl(url)) {
                     throw RainError.InvalidConfig("Invalid RPC URL for chainId $id: $url")
                 }
@@ -55,7 +58,7 @@ internal class RainSdkManager : RainSdk {
             }
 
             // Initialize Portal instance
-            _portal = Portal(
+            _portal = createPortal(
                 apiKey = portalSessionToken,
                 legacyEthChainId = legacyChainId,
                 rpcConfig = eip155RpcEndpointsConfig,
@@ -71,5 +74,21 @@ internal class RainSdkManager : RainSdk {
             Timber.e(e, "Rain SDK: Portal SDK error")
             throw RainError.ProviderError(e)
         }
+    }
+
+    internal fun createPortal(
+        apiKey: String,
+        legacyEthChainId: Int,
+        rpcConfig: Map<String, String>,
+        featureFlags: FeatureFlags,
+        autoApprove: Boolean
+    ): Portal {
+        return Portal(
+            apiKey = apiKey,
+            legacyEthChainId = legacyEthChainId,
+            rpcConfig = rpcConfig,
+            featureFlags = featureFlags,
+            autoApprove = autoApprove
+        )
     }
 }

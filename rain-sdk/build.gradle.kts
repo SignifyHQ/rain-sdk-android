@@ -48,4 +48,9 @@ dependencies {
     
     // Timber
     implementation(libs.timber)
+
+    // Testing
+    testImplementation(libs.junit)
+    testImplementation(libs.mockk)
+    testImplementation(libs.truth)
 }

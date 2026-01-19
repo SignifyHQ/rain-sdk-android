@@ -10,6 +10,10 @@ import com.rain.sdk.RainChain
 import io.portalhq.android.storage.mobile.PortalNamespace
 import kotlinx.coroutines.launch
 
+enum class RpcOption {
+    MAINNET, TESTNET
+}
+
 class SampleViewModel : ViewModel() {
     
     var sessionToken by mutableStateOf("")
@@ -20,25 +24,37 @@ class SampleViewModel : ViewModel() {
 
     var statusText by mutableStateOf("Ready")
         private set
+    
+    var selectedRpcOption by mutableStateOf(RpcOption.MAINNET)
+        private set
 
     fun onTokenChanged(newToken: String) {
         sessionToken = newToken
+    }
+    
+    fun onRpcOptionChanged(option: RpcOption) {
+        selectedRpcOption = option
     }
 
     fun initializeSdk() {
         if (sessionToken.isBlank()) return
 
         try {
-            val rpcConfig = mapOf(RainChain.AVALANCHE_MAINNET to "https://api.avax.network/ext/bc/C/rpc")
+            val (chainId, rpcUrl) = when (selectedRpcOption) {
+                RpcOption.MAINNET -> RainChain.AVALANCHE_MAINNET to "https://api.avax.network/ext/bc/C/rpc"
+                RpcOption.TESTNET -> RainChain.AVALANCHE_TESTNET to "https://api.avax-test.network/ext/bc/C/rpc"
+            }
+            
+            val rpcConfig = mapOf(chainId to rpcUrl)
             
             Rain.instance.initializePortal(
                 portalSessionToken = sessionToken,
                 rpcEndpoints = rpcConfig,
-                chainId = RainChain.AVALANCHE_MAINNET
+                chainId = chainId
             )
             
             isInitialized = Rain.instance.isInitialized
-            statusText = "SDK Initialized Successfully!"
+            statusText = "SDK Initialized Successfully ($selectedRpcOption)!"
         } catch (e: Exception) {
             statusText = "Error: ${e.message}"
             isInitialized = false
