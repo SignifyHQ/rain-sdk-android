@@ -33,8 +33,8 @@ android {
 }
 
 dependencies {
-    // Portal SDK
-    implementation(libs.portal.android)
+    // Portal SDK (Use api to expose Portal classes to consumers)
+    api(libs.portal.android)
 
     // Web3j for ABI Encoding
     implementation(libs.web3j.core)
