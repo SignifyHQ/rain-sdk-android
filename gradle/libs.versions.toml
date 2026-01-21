@@ -28,6 +28,8 @@ androidx-compose-bom = "2025.01.00"
 junit = "4.13.2"
 androidx-junit = "1.2.1"
 androidx-espresso = "3.6.1"
+mockk = "1.13.10"
+truth = "1.4.2"
 
 [libraries]
 # -- Rain SDK Core --
@@ -60,6 +62,8 @@ androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "a
 androidx-test-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "androidx-espresso" }
 androidx-compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
 androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
+mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
+truth = { module = "com.google.truth:truth", version.ref = "truth" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "android-gradle-plugin" }
