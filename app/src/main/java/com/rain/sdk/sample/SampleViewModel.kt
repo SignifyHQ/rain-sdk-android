@@ -5,7 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.rain.sdk.Rain
+import com.rain.sdk.RainSdk
 import com.rain.sdk.RainChain
 import io.portalhq.android.storage.mobile.PortalNamespace
 import kotlinx.coroutines.launch
@@ -46,14 +46,14 @@ class SampleViewModel : ViewModel() {
             }
             
             val rpcConfig = mapOf(chainId to rpcUrl)
-            
-            Rain.instance.initializePortal(
+
+          RainSdk.instance.initializePortal(
                 portalSessionToken = sessionToken,
                 rpcEndpoints = rpcConfig,
                 chainId = chainId
             )
             
-            isInitialized = Rain.instance.isInitialized
+            isInitialized = RainSdk.instance.isInitialized
             statusText = "SDK Initialized Successfully ($selectedRpcOption)!"
         } catch (e: Exception) {
             statusText = "Error: ${e.message}"
@@ -66,7 +66,7 @@ class SampleViewModel : ViewModel() {
         
         viewModelScope.launch {
             try {
-                val address = Rain.instance.portal.getAddress(PortalNamespace.EIP155) ?: "Address not found"
+                val address = RainSdk.instance.portal.getAddress(PortalNamespace.EIP155) ?: "Address not found"
                 statusText = "Address fetched: $address"
             } catch (e: Exception) {
                 statusText = "Failed to get address: ${e.message}"

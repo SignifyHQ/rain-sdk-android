@@ -3,12 +3,12 @@ package com.rain.sdk.internal
 import android.webkit.URLUtil
 import com.rain.sdk.RainChain
 import com.rain.sdk.RainError
-import com.rain.sdk.RainSdk
+import com.rain.sdk.interfaces.RainClient
 import io.portalhq.android.Portal
 import io.portalhq.android.mpc.data.FeatureFlags
 import timber.log.Timber
 
-internal class RainSdkManager : RainSdk {
+internal class RainSdkManager : RainClient {
 
     private var _portal: Portal? = null
 

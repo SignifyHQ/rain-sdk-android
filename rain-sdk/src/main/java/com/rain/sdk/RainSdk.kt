@@ -1,32 +1,20 @@
 package com.rain.sdk
 
-import io.portalhq.android.Portal
+import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.interfaces.RainTransactionBuilder
+import com.rain.sdk.internal.RainSdkManager
+import com.rain.sdk.internal.RainTransactionBuilderImpl
 
-interface RainSdk {
+object RainSdk {
     /**
-     * Checks if the SDK has been successfully initialized.
+     * The main instance of Rain SDK.
+     * Use this for full wallet functionality (powered by Portal).
      */
-    val isInitialized: Boolean
-
-    /**
-     * Computed property to safely access the Portal instance.
-     * Throws RainError.SdkNotInitialized if not initialized.
-     */
-    val portal: Portal
+    val instance: RainClient by lazy { RainSdkManager() }
 
     /**
-     * Initializes the SDK with a Portal token and chain-specific RPC endpoints.
-     *
-     * @param portalSessionToken A valid Portal session token
-     * @param rpcEndpoints Map mapping numeric chain IDs to RPC URLs
-     * Example: mapOf(43114 to "https://avalanche-c-chain-rpc.publicnode.com")
-     * @param chainId Optional default Chain ID. If not provided, SDK will attempt to select a suitable one from rpcEndpoints.
-     * @throws RainError if initialization fails
+     * Wallet Agnostic Transaction Builder.
+     * Use these methods to build transaction payloads without using the built-in Portal wallet.
      */
-    @Throws(RainError::class)
-    fun initializePortal(
-        portalSessionToken: String,
-        rpcEndpoints: Map<Int, String>,
-        chainId: Int? = null
-    )
+    val TransactionBuilder: RainTransactionBuilder = RainTransactionBuilderImpl
 }

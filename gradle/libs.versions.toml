@@ -11,7 +11,7 @@ ksp = "2.2.20-2.0.3"
 
 # -- Core SDK Dependencies --
 portal-android = "6.0.0"
-web3j = "4.12.3-android"
+web3j = "4.10.0"
 timber = "5.0.1"
 
 # -- Kotlin Ecosystem --
