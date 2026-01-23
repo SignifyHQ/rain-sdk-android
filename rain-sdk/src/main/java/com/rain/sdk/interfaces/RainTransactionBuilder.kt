@@ -27,7 +27,6 @@ interface RainTransactionBuilder {
         decimals: Int,
         recipientAddress: String,
         nonce: BigInteger? = null,
-        rpcUrl: String? = null
     ): Pair<String, String>
 
     /**

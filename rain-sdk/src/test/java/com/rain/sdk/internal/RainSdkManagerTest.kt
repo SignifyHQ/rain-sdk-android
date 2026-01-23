@@ -4,6 +4,7 @@ import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.RainChain
 import com.rain.sdk.RainError
+import com.rain.sdk.internal.config.RainConfig
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -14,6 +15,7 @@ import io.portalhq.android.Portal
 import io.portalhq.android.storage.mobile.PortalNamespace
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 
@@ -24,6 +26,9 @@ class RainSdkManagerTest {
 
     @Before
     fun setUp() {
+        // Reset RainConfig state
+        RainConfig.clear()
+
         sdkManager = spyk(RainSdkManager())
         mockPortal = mockk(relaxed = true)
 
@@ -40,14 +45,26 @@ class RainSdkManagerTest {
     @After
     fun tearDown() {
         unmockkAll()
+        RainConfig.clear()
     }
 
-    @Test(expected = RainError.InvalidConfig::class)
-    fun `initializePortal throws error when token is blank`() {
+    @Test
+    fun `initializePortal succeeds with empty token but portal access fails`() {
         sdkManager.initializePortal(
             portalSessionToken = "",
             rpcEndpoints = mapOf(RainChain.AVALANCHE_MAINNET to "https://rpc.com")
         )
+        
+        // Should be initialized (for TxBuilder)
+        assertThat(sdkManager.isInitialized).isTrue()
+        
+        // But portal access should throw exception because Portal is not initialized
+        try {
+            sdkManager.portal
+            fail("Expected RainError.SdkNotInitialized")
+        } catch (e: Exception) {
+             assertThat(e).isInstanceOf(RainError.SdkNotInitialized::class.java)
+        }
     }
 
     @Test(expected = RainError.InvalidConfig::class)

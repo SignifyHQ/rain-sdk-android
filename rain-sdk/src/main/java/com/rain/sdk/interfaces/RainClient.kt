@@ -26,7 +26,7 @@ interface RainClient {
      */
     @Throws(RainError::class)
     fun initializePortal(
-        portalSessionToken: String,
+        portalSessionToken: String = "",
         rpcEndpoints: Map<Int, String>,
         chainId: Int? = null
     )
