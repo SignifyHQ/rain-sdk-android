@@ -21,7 +21,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.rain.sdk.RainSdk
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,8 +42,21 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+class SampleViewModelFactory : ViewModelProvider.Factory {
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(SampleViewModel::class.java)) {
+            return SampleViewModel(RainSdk.instance) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class")
+    }
+}
+
 @Composable
-fun SampleApp(viewModel: SampleViewModel = viewModel()) {
+fun SampleApp() {
+    // Instantiate ViewModel with Factory to explicitly inject RainSdk.instance
+    val viewModel: SampleViewModel = viewModel(factory = SampleViewModelFactory())
+
     Column(
         modifier = Modifier
             .fillMaxSize()

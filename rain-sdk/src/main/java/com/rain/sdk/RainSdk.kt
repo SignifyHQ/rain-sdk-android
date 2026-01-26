@@ -2,6 +2,7 @@ package com.rain.sdk
 
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.interfaces.RainTransactionBuilder
+import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.RainSdkManager
 import com.rain.sdk.internal.RainTransactionBuilderImpl
 
@@ -15,6 +16,13 @@ object RainSdk {
     /**
      * Wallet Agnostic Transaction Builder.
      * Use these methods to build transaction payloads without using the built-in Portal wallet.
+     * Note: You must initialize the SDK via [instance.initializePortal] before accessing this builder.
      */
-    val TransactionBuilder: RainTransactionBuilder = RainTransactionBuilderImpl
+    val transactionBuilder: RainTransactionBuilder
+        get() {
+            if (!RainConfig.isInitialized) {
+                throw RainError.SdkNotInitialized()
+            }
+            return RainTransactionBuilderImpl
+        }
 }
