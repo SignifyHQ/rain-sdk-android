@@ -33,7 +33,12 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
   // Delegate for Web3j creation, allowing injection during tests
   internal var web3jFactory: (String) -> Web3j = { url -> Web3jProvider.getOrCreate(url) }
 
-  override suspend fun getWithdrawalNonce(
+  internal fun resetFactory() {
+    // Use real network for this test
+    web3jFactory = { url -> Web3jProvider.getOrCreate(url) }
+  }
+
+  override suspend fun getLatestNonce(
     rpcUrl: String,
     proxyAddress: String
   ): BigInteger {

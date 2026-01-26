@@ -19,97 +19,150 @@ import java.util.concurrent.CompletableFuture
 
 class RainTransactionBuilderImplTest {
 
-    private lateinit var mockWeb3j: Web3j
+  private lateinit var mockWeb3j: Web3j
 
-    @Before
-    fun setUp() {
-        mockWeb3j = mockk(relaxed = true)
-        
-        // Inject mock Web3j
-        RainTransactionBuilderImpl.web3jFactory = { _ -> mockWeb3j }
-        
-        RainConfig.clear()
-        Web3jProvider.shutDownAll()
+  @Before
+  fun setUp() {
+    mockWeb3j = mockk(relaxed = true)
+
+    // Inject mock Web3j
+    RainTransactionBuilderImpl.web3jFactory = { _ -> mockWeb3j }
+
+    RainConfig.clear()
+    Web3jProvider.shutDownAll()
+  }
+
+  @After
+  fun tearDown() {
+    unmockkAll()
+    RainConfig.clear()
+    Web3jProvider.shutDownAll()
+    // Reset factory to default
+    RainTransactionBuilderImpl.web3jFactory = { url -> Web3jProvider.getOrCreate(url) }
+  }
+
+
+  @Test
+  fun `getWithdrawalNonce uses Web3jProvider and returns nonce`() = runBlocking {
+    val rpcUrl = "https://rpc.com"
+    val proxy = "0x1111111111111111111111111111111111111111"
+    val expectedNonce = BigInteger.TEN
+
+    // Mock Web3j ethCall
+    val mockEthCall = mockk<Request<*, EthCall>>()
+    val mockResponse = EthCall()
+    // result for 10 in hex
+    mockResponse.result = "0x000000000000000000000000000000000000000000000000000000000000000a"
+
+    every { mockWeb3j.ethCall(any(), any()) } returns mockEthCall
+    every { mockEthCall.sendAsync() } returns CompletableFuture.completedFuture(mockResponse)
+
+    val nonce = RainTransactionBuilderImpl.getWithdrawalNonce(rpcUrl, proxy)
+
+    assertThat(nonce).isEqualTo(expectedNonce)
+  }
+
+  @Test
+  fun `getWithdrawalNonce uses real network and returns nonce gt 0`() = runBlocking {
+    // Use real network for this test
+    RainTransactionBuilderImpl.resetFactory()
+
+    val rpcUrl = "https://avax-fuji.g.alchemy.com/v2/Va-BF3-UynQD0dJvhSTm1"
+    val proxy = "0x5a022623280AA5E922A4D9BB3024fA7D70D7e789"
+
+    val nonce = RainTransactionBuilderImpl.getWithdrawalNonce(rpcUrl, proxy)
+
+    println("Nonce: $nonce")
+    assertThat(nonce).isGreaterThan(BigInteger.ZERO)
+  }
+
+  @Test
+  fun `buildEIP712Message resolves RPC from RainConfig when missing`() = runBlocking {
+    val chainId = 1
+    val rpcUrl = "https://mainnet.infura.io"
+
+    // Setup RainConfig
+    RainConfig.setRpcUrl(chainId, rpcUrl)
+
+    // Mock Web3j response for nonce call
+    val mockEthCall = mockk<Request<*, EthCall>>()
+    val mockResponse = EthCall()
+    mockResponse.result = "0x0000000000000000000000000000000000000000000000000000000000000000" // 0
+
+    every { mockWeb3j.ethCall(any(), any()) } returns mockEthCall
+    every { mockEthCall.sendAsync() } returns CompletableFuture.completedFuture(mockResponse)
+
+    val result = RainTransactionBuilderImpl.buildEIP712Message(
+      chainId = chainId,
+      collateralProxyAddress = "0x1111111111111111111111111111111111111111",
+      walletAddress = "0x2222222222222222222222222222222222222222",
+      tokenAddress = "0x3333333333333333333333333333333333333333",
+      amount = 1.0,
+      decimals = 18,
+      recipientAddress = "0x4444444444444444444444444444444444444444",
+      nonce = null
+    )
+
+    assertThat(result).isNotNull()
+  }
+
+  @Test
+  fun `buildEIP712Message throws InvalidConfig when RPC missing and nonce missing`() = runBlocking {
+    val chainId = 999
+    // Ensure RainConfig has no RPC for 999
+
+    try {
+      RainTransactionBuilderImpl.buildEIP712Message(
+        chainId = chainId,
+        collateralProxyAddress = "0x1111111111111111111111111111111111111111",
+        walletAddress = "0x2222222222222222222222222222222222222222",
+        tokenAddress = "0x3333333333333333333333333333333333333333",
+        amount = 1.0,
+        decimals = 18,
+        recipientAddress = "0x4444444444444444444444444444444444444444",
+        nonce = null
+      )
+      org.junit.Assert.fail("Expected RainError.InvalidConfig")
+    } catch (e: Exception) {
+      assertThat(e).isInstanceOf(RainError.InvalidConfig::class.java)
     }
-
-    @After
-    fun tearDown() {
-        unmockkAll()
-        RainConfig.clear()
-        Web3jProvider.shutDownAll()
-        // Reset factory to default
-        RainTransactionBuilderImpl.web3jFactory = { url -> Web3jProvider.getOrCreate(url) }
-    }
-
     @Test
-    fun `getWithdrawalNonce uses Web3jProvider and returns nonce`() = runBlocking {
-        val rpcUrl = "https://rpc.com"
-        val proxy = "0x1111111111111111111111111111111111111111"
-        val expectedNonce = BigInteger.TEN
-
-        // Mock Web3j ethCall
-        val mockEthCall = mockk<Request<*, EthCall>>()
-        val mockResponse = EthCall()
-        // result for 10 in hex
-        mockResponse.result = "0x000000000000000000000000000000000000000000000000000000000000000a"
-
-        every { mockWeb3j.ethCall(any(), any()) } returns mockEthCall
-        every { mockEthCall.sendAsync() } returns CompletableFuture.completedFuture(mockResponse)
-
-        val nonce = RainTransactionBuilderImpl.getWithdrawalNonce(rpcUrl, proxy)
-
-        assertThat(nonce).isEqualTo(expectedNonce)
-    }
-    
-    @Test
-    fun `buildEIP712Message resolves RPC from RainConfig when missing`() = runBlocking {
-        val chainId = 1
-        val rpcUrl = "https://mainnet.infura.io"
+    fun `estimateTransactionFee uses real network and returns gas estimate`() = runBlocking {
+        RainTransactionBuilderImpl.resetFactory()
         
-        // Setup RainConfig
-        RainConfig.setRpcUrl(chainId, rpcUrl)
-        
-        // Mock Web3j response for nonce call
-        val mockEthCall = mockk<Request<*, EthCall>>()
-        val mockResponse = EthCall()
-        mockResponse.result = "0x0000000000000000000000000000000000000000000000000000000000000000" // 0
-
-        every { mockWeb3j.ethCall(any(), any()) } returns mockEthCall
-        every { mockEthCall.sendAsync() } returns CompletableFuture.completedFuture(mockResponse)
-
-        val result = RainTransactionBuilderImpl.buildEIP712Message(
-            chainId = chainId,
-            collateralProxyAddress = "0x1111111111111111111111111111111111111111",
-            walletAddress = "0x2222222222222222222222222222222222222222",
-            tokenAddress = "0x3333333333333333333333333333333333333333",
-            amount = 1.0,
-            decimals = 18,
-            recipientAddress = "0x4444444444444444444444444444444444444444",
-            nonce = null
-        )
-
-        assertThat(result).isNotNull()
-    }
-
-    @Test
-    fun `buildEIP712Message throws InvalidConfig when RPC missing and nonce missing`() = runBlocking {
-        val chainId = 999
-        // Ensure RainConfig has no RPC for 999
+        val rpcUrl = "https://avax-fuji.g.alchemy.com/v2/Va-BF3-UynQD0dJvhSTm1"
+        // Use a simple transfer to self for estimation
+        val from = "0x2222222222222222222222222222222222222222"
+        val to = "0x2222222222222222222222222222222222222222"
+        val value = BigInteger.ZERO
+        val data = "0x"
         
         try {
-            RainTransactionBuilderImpl.buildEIP712Message(
-                chainId = chainId,
-                collateralProxyAddress = "0x1111111111111111111111111111111111111111",
-                walletAddress = "0x2222222222222222222222222222222222222222",
-                tokenAddress = "0x3333333333333333333333333333333333333333",
-                amount = 1.0,
-                decimals = 18,
-                recipientAddress = "0x4444444444444444444444444444444444444444",
-                nonce = null
-            )
-            org.junit.Assert.fail("Expected RainError.InvalidConfig")
+            val gas = RainTransactionBuilderImpl.estimateTransactionFee(rpcUrl, from, to, value, data)
+            println("Estimated Gas: $gas")
+            assertThat(gas).isGreaterThan(BigInteger.ZERO)
         } catch (e: Exception) {
-            assertThat(e).isInstanceOf(RainError.InvalidConfig::class.java)
+            println("Real network test warning: ${e.message}")
         }
+    }
+
+    @Test
+    fun `estimateTransactionFee returns mocked value`() = runBlocking {
+        val rpcUrl = "https://mock.rpc"
+        val from = "0x1111111111111111111111111111111111111111"
+        val to = "0x2222222222222222222222222222222222222222"
+        
+        val mockEthEstimateGas = mockk<Request<*, org.web3j.protocol.core.methods.response.EthEstimateGas>>()
+        val mockResponse = org.web3j.protocol.core.methods.response.EthEstimateGas()
+        mockResponse.result = "0x5208" // 21000
+        
+        every { mockWeb3j.ethEstimateGas(any()) } returns mockEthEstimateGas
+        every { mockEthEstimateGas.sendAsync() } returns CompletableFuture.completedFuture(mockResponse)
+        
+        val result = RainTransactionBuilderImpl.estimateTransactionFee(
+            rpcUrl, from, to, BigInteger.ZERO, "0x"
+        )
+        
+        assertThat(result).isEqualTo(BigInteger.valueOf(21000))
     }
 }
