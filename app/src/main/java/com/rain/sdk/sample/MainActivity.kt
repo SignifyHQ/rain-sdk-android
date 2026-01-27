@@ -46,7 +46,7 @@ class SampleViewModelFactory : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(SampleViewModel::class.java)) {
-            return SampleViewModel(RainSdk.instance) as T
+            return SampleViewModel(RainSdk.getInstance().client) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
@@ -54,7 +54,7 @@ class SampleViewModelFactory : ViewModelProvider.Factory {
 
 @Composable
 fun SampleApp() {
-    // Instantiate ViewModel with Factory to explicitly inject RainSdk.instance
+    // Instantiate ViewModel with Factory to explicitly inject RainSdk.getInstance().client
     val viewModel: SampleViewModel = viewModel(factory = SampleViewModelFactory())
 
     Column(

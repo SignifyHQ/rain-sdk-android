@@ -1,9 +1,9 @@
-package com.rain.sdk.utils
+package com.rain.sdk.internal.utils
 
 import org.web3j.crypto.Keys
 import org.web3j.utils.Numeric
 
-object RainHexUtils {
+internal object RainHexUtils {
     private const val ADDRESS_LENGTH_IN_HEX = 40
 
     /**

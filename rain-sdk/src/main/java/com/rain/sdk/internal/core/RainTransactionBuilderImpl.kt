@@ -1,13 +1,13 @@
-package com.rain.sdk.internal
+package com.rain.sdk.internal.core
 
 import com.rain.sdk.RainError
 import com.rain.sdk.interfaces.RainTransactionBuilder
-import com.rain.sdk.utils.RainAmountUtils
-import com.rain.sdk.utils.RainEip712Utils
+import com.rain.sdk.internal.utils.RainAmountUtils
+import com.rain.sdk.internal.utils.RainEip712Utils
 import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.constants.RainConstants
 import com.rain.sdk.internal.network.Web3jProvider
-import com.rain.sdk.utils.RainHexUtils
+import com.rain.sdk.internal.utils.RainHexUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.web3j.abi.FunctionEncoder
@@ -70,7 +70,7 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
 
     } catch (e: Exception) {
       if (e is RainError) throw e
-      throw RainError.NetworkError(e)
+      throw RainError.NetworkError(cause = e)
     }
   }
 
@@ -89,11 +89,11 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
     val validToken = validateAndChecksumAddress(tokenAddress, "tokenAddress")
     val validRecipient = validateAndChecksumAddress(recipientAddress, "recipientAddress")
 
-    val rpcUrl = RainConfig.getRpcUrl(chainId)
+    val rpcUrl = RainConfig.getInstance().getRpcUrl(chainId)
 
     // 1. Resolve Nonce
     val finalNonce = nonce ?: rpcUrl?.let {
-      getWithdrawalNonce(it, validProxy)
+      getLatestNonce(it, validProxy)
     } ?: throw RainError.InvalidConfig("Either nonce must be provided or RPC URL configured for chainId $chainId")
 
     // 2. Generate Salt

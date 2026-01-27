@@ -42,8 +42,8 @@ sealed class RainError(
     RainError(RainErrorCode.UNAUTHORIZED, details)
 
   // --- 3xx Network ---
-  class NetworkError(cause: Throwable? = null) :
-    RainError(RainErrorCode.NETWORK_ERROR, cause = cause)
+  class NetworkError(message: String? = null, cause: Throwable? = null) :
+    RainError(RainErrorCode.NETWORK_ERROR, message, cause)
 
   // --- 4xx User Action ---
   class UserRejected : RainError(RainErrorCode.USER_REJECTED)

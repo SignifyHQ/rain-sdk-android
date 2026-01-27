@@ -43,15 +43,4 @@ interface RainTransactionBuilder {
         adminSalt: String,
         adminSignature: String
     ): String
-
-    /**
-     * Estimates the gas fee for a transaction.
-     */
-    suspend fun estimateTransactionFee(
-        rpcUrl: String,
-        fromAddress: String,
-        toAddress: String,
-        value: BigInteger,
-        data: String
-    ): BigInteger
 }
