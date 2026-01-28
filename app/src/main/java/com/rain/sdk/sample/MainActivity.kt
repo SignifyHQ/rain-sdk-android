@@ -131,6 +131,19 @@ fun SampleApp() {
         }
 
         Button(
+            onClick = { viewModel.testWithdraw() },
+            enabled = viewModel.isInitialized,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
+            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.secondary
+            )
+        ) {
+            Text(text = "Test Withdraw Collateral")
+        }
+
+        Button(
             onClick = { viewModel.clearSession() },
             modifier = Modifier
                 .fillMaxWidth()

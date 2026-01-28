@@ -52,7 +52,6 @@ class RainSdkManagerTest {
   fun `initializePortal succeeds with empty token but portal access fails`() {
     sdkManager.initializePortal(
       portalSessionToken = "",
-      rainApiUrl = "https://service-platform.dev.liquidity-financial.com/",
       rpcEndpoints = mapOf(RainChain.AVALANCHE_MAINNET to "https://rpc.com"),
       chainId = null
     )
@@ -73,7 +72,6 @@ class RainSdkManagerTest {
   fun `initializePortal throws error when rpcEndpoints is empty`() {
     sdkManager.initializePortal(
       portalSessionToken = "token",
-      rainApiUrl = "https://service-platform.dev.liquidity-financial.com/",
       rpcEndpoints = emptyMap(),
       chainId = null
     )
@@ -83,7 +81,6 @@ class RainSdkManagerTest {
   fun `initializePortal throws error when chainId is negative`() {
     sdkManager.initializePortal(
       portalSessionToken = "token",
-      rainApiUrl = "https://service-platform.dev.liquidity-financial.com/",
       rpcEndpoints = mapOf(-1 to "https://rpc.com"),
       chainId = null
     )
@@ -95,7 +92,6 @@ class RainSdkManagerTest {
 
     sdkManager.initializePortal(
       portalSessionToken = "token",
-      rainApiUrl = "https://service-platform.dev.liquidity-financial.com/",
       rpcEndpoints = mapOf(RainChain.AVALANCHE_MAINNET to "invalid-url"),
       chainId = null
     )
@@ -108,7 +104,6 @@ class RainSdkManagerTest {
 
     sdkManager.initializePortal(
       portalSessionToken = "valid-token",
-      rainApiUrl = "https://service-platform.dev.liquidity-financial.com/",
       rpcEndpoints = mapOf(RainChain.AVALANCHE_MAINNET to "https://rpc.com"),
       chainId = null
     )

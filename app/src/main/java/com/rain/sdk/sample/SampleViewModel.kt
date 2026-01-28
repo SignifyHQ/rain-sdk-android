@@ -77,6 +77,37 @@ class SampleViewModel(
         }
     }
 
+    fun testWithdraw() {
+        if (!isInitialized) return
+        
+        viewModelScope.launch {
+            try {
+                statusText = "Processing withdrawal..."
+                
+                // Test parameters - Using Avalanche Testnet for safety
+                val txHash = rainClient.withdrawCollateral(
+                    chainId = when (selectedRpcOption) {
+                        RpcOption.MAINNET -> 43114 // Avalanche Mainnet
+                        RpcOption.TESTNET -> 43113 // Avalanche Testnet
+                    },
+                    collateralProxyAddress = "0xA23c083FE7ab3ba7D07Ded50081e4E8d7249603b", // TODO: Replace with actual test contract
+                    tokenAddress = "0xD856a0585Da55e83d03ccb49Ef09D180494CfBAD", // USDC on Avalanche
+                    amount = 1.0, // Small test amount
+                    decimals = 6, // USDC decimals
+                    recipientAddress = "0xA23c083FE7ab3ba7D07Ded50081e4E8d7249603b", // TODO: Replace with test recipient
+                    expiresAt = ((System.currentTimeMillis() / 1000) + 3600).toString(), // 1 hour from now
+                    adminSalt = "0x0000000000000000000000000000000000000000000000000000000000000000", // TODO: Get from backend
+                    adminSignature = "0x00", // TODO: Get from backend
+                    nonce = null // Let SDK resolve
+                )
+                
+                statusText = "Withdrawal successful!\nTx: ${txHash.take(16)}..."
+            } catch (e: Exception) {
+                statusText = "Withdrawal failed: ${e.message}"
+            }
+        }
+    }
+
     fun clearSession() {
         sessionToken = ""
         statusText = "Session Cleared"
