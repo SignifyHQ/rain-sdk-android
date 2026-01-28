@@ -10,7 +10,7 @@ interface RainTransactionBuilder {
     /**
      * Get the latest nonce for a given proxy address.
      */
-    suspend fun getWithdrawalNonce(
+    suspend fun getLatestNonce(
         rpcUrl: String,
         proxyAddress: String
     ): BigInteger

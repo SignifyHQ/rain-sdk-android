@@ -1,10 +1,10 @@
-package com.rain.sdk.utils
+package com.rain.sdk.internal.utils
 
 import com.rain.sdk.RainError
 import java.math.BigDecimal
 import java.math.BigInteger
 
-object RainAmountUtils {
+internal object RainAmountUtils {
     /**
      * Converts a decimal amount (Double) to BigInteger (Wei/Base Units) with precision safety.
      * Throws an error if the amount has more decimal places than the token allows.

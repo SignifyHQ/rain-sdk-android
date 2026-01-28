@@ -1,4 +1,4 @@
-package com.rain.sdk.internal
+package com.rain.sdk.internal.core
 
 import android.webkit.URLUtil
 import com.rain.sdk.RainChain
@@ -18,7 +18,7 @@ internal class RainSdkManager : RainClient {
   }
 
   override val isInitialized: Boolean
-    get() = RainConfig.isInitialized
+    get() = RainConfig.getInstance().isInitialized
 
   override val portal: Portal
     get() = _portal ?: throw RainError.SdkNotInitialized()
@@ -26,13 +26,15 @@ internal class RainSdkManager : RainClient {
   override fun initializePortal(
     portalSessionToken: String,
     rpcEndpoints: Map<Int, String>,
-    chainId: Int?
+    chainId: Int?,
   ) {
     try {
       // Validate and Map RPC endpoints
       if (rpcEndpoints.isEmpty()) {
         throw RainError.InvalidConfig("At least one RPC endpoint is required")
       }
+
+      val config = RainConfig.getInstance()
 
       val eip155RpcEndpointsConfig = mutableMapOf<String, String>()
 
@@ -44,7 +46,7 @@ internal class RainSdkManager : RainClient {
           throw RainError.InvalidConfig("Invalid RPC URL for chainId $id: $url")
         }
         eip155RpcEndpointsConfig["$EIP155_PREFIX:$id"] = url
-        RainConfig.setRpcUrl(id, url)
+        config.setRpcUrl(id, url)
       }
 
       // Determine Legacy Chain ID (Use provided one, or infer from endpoints)
@@ -67,7 +69,7 @@ internal class RainSdkManager : RainClient {
         Timber.d("Rain SDK: Registered Portal instance successfully")
       }
       
-      RainConfig.isInitialized = true
+      config.markInitialized()
     } catch (e: RainError) {
       Timber.e(e, "Rain SDK: Initialization error")
       throw e

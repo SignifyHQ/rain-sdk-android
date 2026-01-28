@@ -1,8 +1,8 @@
-package com.rain.sdk.utils
+package com.rain.sdk.internal.utils
 
 import java.math.BigInteger
 
-object RainEip712Utils {
+internal object RainEip712Utils {
     fun createEIP712Json(
         chainId: Long,
         verifyingContract: String,
