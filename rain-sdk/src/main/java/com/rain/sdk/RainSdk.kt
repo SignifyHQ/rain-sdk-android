@@ -6,6 +6,7 @@ import com.rain.sdk.interfaces.RainTransactionBuilder
 import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.core.RainSdkManager
 import com.rain.sdk.internal.core.RainTransactionBuilderImpl
+import com.rain.sdk.internal.error.RainError
 import io.portalhq.android.Portal
 
 /**
@@ -42,7 +43,7 @@ class RainSdk private constructor(
     /**
      * Transaction builder for wallet-agnostic operations.
      * 
-     * @throws RainError.SdkNotInitialized if SDK hasn't been initialized
+     * @throws com.rain.sdk.internal.error.RainError.SdkNotInitialized if SDK hasn't been initialized
      */
     val transactionBuilder: RainTransactionBuilder
         get() {

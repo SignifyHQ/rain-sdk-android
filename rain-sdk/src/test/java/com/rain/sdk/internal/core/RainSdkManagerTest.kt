@@ -3,7 +3,7 @@ package com.rain.sdk.internal.core
 import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.RainChain
-import com.rain.sdk.RainError
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.config.RainConfig
 import io.mockk.coEvery
 import io.mockk.every
@@ -23,23 +23,30 @@ class RainSdkManagerTest {
 
   private lateinit var sdkManager: RainSdkManager
   private lateinit var mockPortal: Portal
+  private lateinit var mockPortalManager: PortalManager
 
   @Before
   fun setUp() {
     // Reset RainConfig state
     RainConfig.reset()
 
-    sdkManager = spyk(RainSdkManager())
-    mockPortal = mockk(relaxed = true)
-
     // Mock Android classes (URLUtil is static)
     mockkStatic(URLUtil::class)
     every { URLUtil.isValidUrl(any()) } returns true
 
-    // Mock createPortal to avoid real Portal instantiation
+    // Create mock Portal and PortalManager
+    mockPortal = mockk(relaxed = true)
+    mockPortalManager = spyk(PortalManager())
+
+    // Mock PortalManager's createPortal to avoid real Portal instantiation
     every {
-      sdkManager.createPortal(any(), any(), any(), any(), any())
+      mockPortalManager.createPortal(any(), any(), any(), any(), any())
     } returns mockPortal
+
+    // Create SdkManager with mocked PortalManager
+    sdkManager = RainSdkManager(
+      portalManager = mockPortalManager
+    )
   }
 
   @After

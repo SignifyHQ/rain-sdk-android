@@ -80,6 +80,16 @@ fun SampleApp() {
             singleLine = true
         )
 
+        OutlinedTextField(
+            value = viewModel.accessToken,
+            onValueChange = { viewModel.onAccessTokenChanged(it) },
+            label = { Text("Rain Access Token") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            singleLine = true
+        )
+
         Text(
             text = "RPC Configuration",
             style = MaterialTheme.typography.titleMedium,
@@ -130,8 +140,9 @@ fun SampleApp() {
             Text(text = "Get Wallet Address")
         }
 
+        val context = androidx.compose.ui.platform.LocalContext.current
         Button(
-            onClick = { viewModel.testWithdraw() },
+            onClick = { viewModel.testWithdraw(context) },
             enabled = viewModel.isInitialized,
             modifier = Modifier
                 .fillMaxWidth()
