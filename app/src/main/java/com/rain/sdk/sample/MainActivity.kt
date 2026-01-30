@@ -80,6 +80,16 @@ fun SampleApp() {
             singleLine = true
         )
 
+        OutlinedTextField(
+            value = viewModel.accessToken,
+            onValueChange = { viewModel.onAccessTokenChanged(it) },
+            label = { Text("Rain Access Token") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            singleLine = true
+        )
+
         Text(
             text = "RPC Configuration",
             style = MaterialTheme.typography.titleMedium,
@@ -128,6 +138,20 @@ fun SampleApp() {
                 .padding(bottom = 12.dp)
         ) {
             Text(text = "Get Wallet Address")
+        }
+
+        val context = androidx.compose.ui.platform.LocalContext.current
+        Button(
+            onClick = { viewModel.testWithdraw(context) },
+            enabled = viewModel.isInitialized,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
+            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.secondary
+            )
+        ) {
+            Text(text = "Test Withdraw Collateral")
         }
 
         Button(

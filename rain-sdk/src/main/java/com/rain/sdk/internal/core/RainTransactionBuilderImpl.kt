@@ -1,6 +1,6 @@
 package com.rain.sdk.internal.core
 
-import com.rain.sdk.RainError
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.interfaces.RainTransactionBuilder
 import com.rain.sdk.internal.utils.RainAmountUtils
 import com.rain.sdk.internal.utils.RainEip712Utils
@@ -23,7 +23,6 @@ import org.web3j.abi.datatypes.generated.Uint256
 import org.web3j.protocol.Web3j
 import org.web3j.protocol.core.DefaultBlockParameterName
 import org.web3j.protocol.core.methods.request.Transaction
-import org.web3j.protocol.http.HttpService
 import org.web3j.utils.Numeric
 import java.math.BigInteger
 import java.security.SecureRandom

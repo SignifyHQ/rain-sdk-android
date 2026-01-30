@@ -1,4 +1,4 @@
-package com.rain.sdk
+package com.rain.sdk.internal.error
 
 /**
  * Standardized Error Codes for Rain SDK.

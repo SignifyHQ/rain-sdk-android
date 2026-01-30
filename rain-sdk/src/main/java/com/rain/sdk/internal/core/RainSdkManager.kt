@@ -1,27 +1,39 @@
 package com.rain.sdk.internal.core
 
-import android.webkit.URLUtil
-import com.rain.sdk.RainChain
-import com.rain.sdk.RainError
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.interfaces.RainClient
-import com.rain.sdk.internal.config.RainConfig
+import com.rain.sdk.internal.error.ErrorMapper
+import com.rain.sdk.internal.transaction.TransactionCoordinator
+import com.rain.sdk.internal.transaction.TransactionExecutor
+import com.rain.sdk.internal.transaction.TransactionSigner
+import com.rain.sdk.internal.transaction.TransactionValidator
+import com.rain.sdk.internal.transaction.WithdrawCollateralRequest
 import io.portalhq.android.Portal
 import io.portalhq.android.mpc.data.FeatureFlags
 import timber.log.Timber
+import java.math.BigInteger
 
-internal class RainSdkManager : RainClient {
-
-  private var _portal: Portal? = null
-
-  companion object {
-    private const val EIP155_PREFIX = "eip155"
-  }
+/**
+ * Internal implementation of RainClient.
+ * 
+ * This class acts as a thin facade that delegates to specialized components:
+ * - PortalManager: Manages Portal SDK interactions
+ * - ConfigManager: Handles configuration and validation
+ * - TransactionCoordinator: Orchestrates transaction flows
+ * 
+ * This architecture provides better separation of concerns, testability, and maintainability.
+ */
+internal class RainSdkManager(
+  private val portalManager: PortalManager = PortalManager(),
+  private val configManager: ConfigManager = ConfigManager(),
+  private val transactionCoordinator: TransactionCoordinator = createTransactionCoordinator(portalManager)
+) : RainClient {
 
   override val isInitialized: Boolean
-    get() = RainConfig.getInstance().isInitialized
+    get() = configManager.isInitialized
 
   override val portal: Portal
-    get() = _portal ?: throw RainError.SdkNotInitialized()
+    get() = portalManager.getPortalInstance()
 
   override fun initializePortal(
     portalSessionToken: String,
@@ -29,47 +41,27 @@ internal class RainSdkManager : RainClient {
     chainId: Int?,
   ) {
     try {
-      // Validate and Map RPC endpoints
-      if (rpcEndpoints.isEmpty()) {
-        throw RainError.InvalidConfig("At least one RPC endpoint is required")
-      }
+      // Validate and setup RPC endpoints
+      val eip155RpcConfig = configManager.validateAndSetupRpcEndpoints(rpcEndpoints)
 
-      val config = RainConfig.getInstance()
+      // Determine legacy chain ID
+      val legacyChainId = configManager.determineLegacyChainId(chainId, rpcEndpoints)
 
-      val eip155RpcEndpointsConfig = mutableMapOf<String, String>()
-
-      for ((id, url) in rpcEndpoints) {
-        if (id <= 0) {
-          throw RainError.InvalidConfig("Invalid Chain ID: $id. Must be a positive integer.")
-        }
-        if (!URLUtil.isValidUrl(url)) {
-          throw RainError.InvalidConfig("Invalid RPC URL for chainId $id: $url")
-        }
-        eip155RpcEndpointsConfig["$EIP155_PREFIX:$id"] = url
-        config.setRpcUrl(id, url)
-      }
-
-      // Determine Legacy Chain ID (Use provided one, or infer from endpoints)
-      val legacyChainId = chainId ?: if (rpcEndpoints.containsKey(RainChain.AVALANCHE_MAINNET)) {
-        RainChain.AVALANCHE_MAINNET
-      } else {
-        rpcEndpoints.keys.first()
-      }
-
-      // Initialize Portal instance
+      // Initialize Portal instance if token is provided
       if (portalSessionToken.isNotEmpty()) {
-        _portal = createPortal(
+        portalManager.initialize(
           apiKey = portalSessionToken,
           legacyEthChainId = legacyChainId,
-          rpcConfig = eip155RpcEndpointsConfig,
+          rpcConfig = eip155RpcConfig,
           featureFlags = FeatureFlags(isMultiBackupEnabled = true),
           autoApprove = true
         )
-
-        Timber.d("Rain SDK: Registered Portal instance successfully")
       }
+
+      // Mark SDK as initialized
+      configManager.markInitialized()
       
-      config.markInitialized()
+      Timber.d("Rain SDK: Initialized successfully")
     } catch (e: RainError) {
       Timber.e(e, "Rain SDK: Initialization error")
       throw e
@@ -79,19 +71,57 @@ internal class RainSdkManager : RainClient {
     }
   }
 
-  internal fun createPortal(
-    apiKey: String,
-    legacyEthChainId: Int,
-    rpcConfig: Map<String, String>,
-    featureFlags: FeatureFlags,
-    autoApprove: Boolean
-  ): Portal {
-    return Portal(
-      apiKey = apiKey,
-      legacyEthChainId = legacyEthChainId,
-      rpcConfig = rpcConfig,
-      featureFlags = featureFlags,
-      autoApprove = autoApprove
+  override suspend fun withdrawCollateral(
+    chainId: Int,
+    collateralProxyAddress: String,
+    tokenAddress: String,
+    amount: Double,
+    decimals: Int,
+    recipientAddress: String,
+    expiresAt: String,
+    adminSalt: String,
+    adminSignature: String,
+    nonce: BigInteger?
+  ): String {
+    if (!isInitialized) {
+      throw RainError.SdkNotInitialized()
+    }
+
+    // Get wallet address from Portal
+    val walletAddress = portalManager.getAddress()
+
+    // Create request object
+    val request = WithdrawCollateralRequest(
+      chainId = chainId,
+      collateralProxyAddress = collateralProxyAddress,
+      tokenAddress = tokenAddress,
+      amount = amount,
+      decimals = decimals,
+      recipientAddress = recipientAddress,
+      expiresAt = expiresAt,
+      adminSalt = adminSalt,
+      adminSignature = adminSignature,
+      walletAddress = walletAddress,
+      nonce = nonce
     )
+
+    // Delegate to coordinator
+    return transactionCoordinator.executeWithdrawCollateral(request)
+  }
+
+  companion object {
+    /**
+     * Creates a TransactionCoordinator with all required dependencies.
+     * Separated for testability and clean initialization.
+     */
+    private fun createTransactionCoordinator(portalManager: PortalManager): TransactionCoordinator {
+      val errorMapper = ErrorMapper()
+      
+      return TransactionCoordinator(
+        validator = TransactionValidator(),
+        signer = TransactionSigner(portalManager, errorMapper),
+        executor = TransactionExecutor(portalManager, errorMapper)
+      )
+    }
   }
 }

@@ -1,6 +1,6 @@
 package com.rain.sdk.internal.utils
 
-import com.rain.sdk.RainError
+import com.rain.sdk.internal.error.RainError
 import java.math.BigDecimal
 import java.math.BigInteger
 

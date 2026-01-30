@@ -1,8 +1,9 @@
-package com.rain.sdk.internal.core
+package com.rain.sdk.internal.transaction
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.RainError
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.config.RainConfig
+import com.rain.sdk.internal.core.RainTransactionBuilderImpl
 import com.rain.sdk.internal.network.Web3jProvider
 import io.mockk.every
 import io.mockk.mockk
@@ -23,6 +24,10 @@ class RainTransactionBuilderImplTest {
 
   @Before
   fun setUp() {
+    // Mock Android classes (URLUtil is static)
+    io.mockk.mockkStatic(android.webkit.URLUtil::class)
+    io.mockk.every { android.webkit.URLUtil.isValidUrl(any()) } returns true
+
     mockWeb3j = mockk(relaxed = true)
 
     // Inject mock Web3j

@@ -1,6 +1,6 @@
 package com.rain.sdk.interfaces
 
-import com.rain.sdk.RainError
+import com.rain.sdk.internal.error.RainError
 import io.portalhq.android.Portal
 
 interface RainClient {
@@ -30,4 +30,18 @@ interface RainClient {
         rpcEndpoints: Map<Int, String>,
         chainId: Int? = null
     )
+
+    @Throws(RainError::class)
+    suspend fun withdrawCollateral(
+        chainId: Int,
+        collateralProxyAddress: String,
+        tokenAddress: String,
+        amount: Double,
+        decimals: Int,
+        recipientAddress: String,
+        expiresAt: String,
+        adminSalt: String,
+        adminSignature: String,
+        nonce: java.math.BigInteger? = null
+    ): String
 }
