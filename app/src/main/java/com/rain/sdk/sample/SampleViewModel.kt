@@ -8,6 +8,8 @@ import androidx.lifecycle.viewModelScope
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.RainSdk
 import com.rain.sdk.RainChain
+import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.RainWithdrawAddresses
 import io.portalhq.android.mpc.data.BackupConfigs
 import io.portalhq.android.mpc.data.BackupMethods
 import io.portalhq.android.mpc.data.PasswordStorageConfig
@@ -186,15 +188,19 @@ class SampleViewModel(
 
         val txHash = rainClient.withdrawCollateral(
           chainId = chainId,
-          collateralProxyAddress = contract.address,
-          controllerAddress = contract.controllerAddress,
-          tokenAddress = tokenAddress,
+          addresses = RainWithdrawAddresses(
+            proxyAddress = contract.address,
+            controllerAddress = contract.controllerAddress,
+            tokenAddress = tokenAddress,
+            recipientAddress = recipientAddress
+          ),
           amount = amount,
           decimals = decimals,
-          recipientAddress = recipientAddress,
-          expiresAt = expiresAt, // Use expiry from API
-          adminSalt = signature.salt,
-          adminSignature = signature.data,
+          adminSignature = RainAdminSignature(
+            salt = signature.salt,
+            signature = signature.data,
+            expiresAt = expiresAt
+          ),
           nonce = null // Let SDK resolve
         )
 

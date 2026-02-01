@@ -8,6 +8,8 @@ import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.constants.RainConstants
 import com.rain.sdk.internal.network.Web3jProvider
 import com.rain.sdk.internal.utils.RainHexUtils
+import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.RainWithdrawAddresses
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.web3j.abi.FunctionEncoder
@@ -46,7 +48,7 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
   ): BigInteger {
     val web3j = web3jFactory(rpcUrl)
     try {
-      val validProxyAddress = validateAndChecksumAddress(proxyAddress, "proxyAddress")
+      val validProxyAddress = RainHexUtils.validateAndChecksum(proxyAddress, "proxyAddress")
 
       val function = Web3jFunction(
         RainConstants.FUNC_ADMIN_NONCE,
@@ -78,24 +80,20 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
 
   override suspend fun buildEIP712Message(
     chainId: Int,
-    collateralProxyAddress: String,
+    addresses: RainWithdrawAddresses,
     walletAddress: String,
-    tokenAddress: String,
     amount: Double,
     decimals: Int,
-    recipientAddress: String,
     nonce: BigInteger?
   ): Pair<String, ByteArray> {
-    val validProxy = validateAndChecksumAddress(collateralProxyAddress, "collateralProxyAddress")
-    val validWallet = validateAndChecksumAddress(walletAddress, "walletAddress")
-    val validToken = validateAndChecksumAddress(tokenAddress, "tokenAddress")
-    val validRecipient = validateAndChecksumAddress(recipientAddress, "recipientAddress")
+    val validatedAddresses = addresses.validated()
+    val validWallet = RainHexUtils.validateAndChecksum(walletAddress, "walletAddress")
 
     val rpcUrl = RainConfig.getInstance().getRpcUrl(chainId)
 
     // 1. Resolve Nonce
     val finalNonce = nonce ?: rpcUrl?.let {
-      getLatestNonce(it, validProxy)
+      getLatestNonce(it, validatedAddresses.proxyAddress)
     } ?: throw RainError.InvalidConfig("Either nonce must be provided or RPC URL configured for chainId $chainId")
 
     // 2. Generate Salt
@@ -110,11 +108,11 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
     // 4. Build EIP-712 JSON
     val jsonString = RainEip712Utils.createEIP712Json(
       chainId = chainId.toLong(),
-      verifyingContract = validProxy,
+      verifyingContract = validatedAddresses.proxyAddress,
       saltHex = saltHex,
       walletAddress = validWallet,
-      tokenAddress = validToken,
-      recipientAddress = validRecipient,
+      tokenAddress = validatedAddresses.tokenAddress,
+      recipientAddress = validatedAddresses.recipientAddress,
       amount = amountBaseUnits,
       nonce = finalNonce
     )
@@ -122,40 +120,34 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
   }
 
   override fun buildWithdrawTransactionData(
-    proxyAddress: String,
-    tokenAddress: String,
+    addresses: RainWithdrawAddresses,
     amount: Double,
     decimals: Int,
-    recipientAddress: String,
-    expiresAt: String,
     saltBytes: ByteArray,
     signatureData: String,
-    adminSalt: String,
-    adminSignature: String
+    adminSignature: RainAdminSignature
   ): String {
     try {
-      val validProxy = validateAndChecksumAddress(proxyAddress, "proxyAddress")
-      val validToken = validateAndChecksumAddress(tokenAddress, "tokenAddress")
-      val validRecipient = validateAndChecksumAddress(recipientAddress, "recipientAddress")
+      val validatedAddresses = addresses.validated()
 
       val amountBaseUnits = RainAmountUtils.toBaseUnits(amount, decimals)
 
       val expiryTimestamp = try {
-        Instant.parse(expiresAt).toEpochMilli() / 1000
-      } catch (e: NumberFormatException) {
-        throw RainError.InvalidConfig("Invalid expiresAt format. Expected unix timestamp string.")
+        Instant.parse(adminSignature.expiresAt).toEpochMilli() / 1000
+      } catch (e: Exception) {
+        throw RainError.InvalidConfig("Invalid expiresAt format: ${adminSignature.expiresAt}. Exception: $e")
       }
 
       val function = Web3jFunction(
         RainConstants.FUNC_WITHDRAW_ASSET,
         listOf(
-          Address(validProxy),
-          Address(validToken),
+          Address(validatedAddresses.proxyAddress),
+          Address(validatedAddresses.tokenAddress),
           Uint256(amountBaseUnits),
-          Address(validRecipient),
+          Address(validatedAddresses.recipientAddress),
           Uint256(expiryTimestamp),
-          Bytes32(Base64.getDecoder().decode(adminSalt)),
-          DynamicBytes(RainHexUtils.hexToBytes(adminSignature)),
+          Bytes32(Base64.getDecoder().decode(adminSignature.salt)),
+          DynamicBytes(RainHexUtils.hexToBytes(adminSignature.signature)),
           DynamicArray(Bytes32(saltBytes)),
           DynamicArray(DynamicBytes(RainHexUtils.hexToBytes(signatureData))),
           Bool(true)
@@ -170,10 +162,4 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
     }
   }
 
-  private fun validateAndChecksumAddress(address: String, paramName: String): String {
-    if (!RainHexUtils.isValidAddress(address)) {
-      throw RainError.InvalidConfig("Invalid $paramName format: $address")
-    }
-    return RainHexUtils.toChecksumAddress(address)
-  }
 }

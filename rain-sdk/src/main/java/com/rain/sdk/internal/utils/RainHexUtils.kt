@@ -1,10 +1,22 @@
 package com.rain.sdk.internal.utils
 
+import com.rain.sdk.internal.error.RainError
 import org.web3j.crypto.Keys
 import org.web3j.utils.Numeric
 
 internal object RainHexUtils {
     private const val ADDRESS_LENGTH_IN_HEX = 40
+
+    /**
+     * Validates and checksums an Ethereum address.
+     * Throws [RainError.InvalidConfig] if the address is invalid.
+     */
+    fun validateAndChecksum(address: String, paramName: String): String {
+        if (!isValidAddress(address)) {
+            throw RainError.InvalidConfig("Invalid $paramName format: $address")
+        }
+        return toChecksumAddress(address)
+    }
 
     /**
      * Converts a hex string to a byte array.

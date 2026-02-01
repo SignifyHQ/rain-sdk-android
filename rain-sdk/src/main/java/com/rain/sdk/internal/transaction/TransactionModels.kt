@@ -1,6 +1,8 @@
 package com.rain.sdk.internal.transaction
 
 import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.RainWithdrawAddresses
 import java.math.BigInteger
 
 /**
@@ -10,15 +12,10 @@ import java.math.BigInteger
  */
 internal data class WithdrawCollateralRequest(
     val chainId: Int,
-    val collateralProxyAddress: String,
-    val controllerAddress: String,
-    val tokenAddress: String,
+    val addresses: RainWithdrawAddresses,
     val amount: Double,
     val decimals: Int,
-    val recipientAddress: String,
-    val expiresAt: String,
-    val adminSalt: String,
-    val adminSignature: String,
+    val adminSignature: RainAdminSignature,
     val walletAddress: String,
     val nonce: BigInteger?
 )

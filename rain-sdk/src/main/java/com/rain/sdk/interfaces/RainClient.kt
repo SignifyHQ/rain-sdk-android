@@ -1,5 +1,7 @@
 package com.rain.sdk.interfaces
 
+import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.internal.error.RainError
 import io.portalhq.android.Portal
 import io.portalhq.android.mpc.data.BackupConfigs
@@ -35,15 +37,10 @@ interface RainClient {
     @Throws(RainError::class)
     suspend fun withdrawCollateral(
         chainId: Int,
-        collateralProxyAddress: String,
-        controllerAddress: String,
-        tokenAddress: String,
+        addresses: RainWithdrawAddresses,
         amount: Double,
         decimals: Int,
-        recipientAddress: String,
-        expiresAt: String,
-        adminSalt: String,
-        adminSignature: String,
+        adminSignature: RainAdminSignature,
         nonce: java.math.BigInteger? = null
     ): String
 }

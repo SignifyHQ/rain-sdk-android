@@ -12,6 +12,9 @@ import io.portalhq.android.storage.mobile.PortalNamespace
 import timber.log.Timber
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -30,7 +33,7 @@ internal class PortalManager {
   val isInitialized: Boolean
     get() = _portal != null
 
-  private val scope = CoroutineScope(Dispatchers.Main)
+  private var scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
   /**
    * Initializes the Portal instance with provided configuration.
@@ -49,6 +52,10 @@ internal class PortalManager {
     featureFlags: FeatureFlags,
     autoApprove: Boolean
   ) {
+    destroy()
+
+    scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
     val portal = createPortal(
       apiKey = apiKey,
       legacyEthChainId = legacyEthChainId,
@@ -60,8 +67,10 @@ internal class PortalManager {
     // Setup auto-signing handler matching InitPortalUseCase logic
     portal.on(PortalEvents.PortalSigningRequested) { data ->
       Timber.d("Rain SDK: Auto-approving signing request")
-      scope.launch {
-        portal.emit(PortalEvents.PortalSigningApproved, data)
+      if (scope.isActive) {
+        scope.launch {
+          portal.emit(PortalEvents.PortalSigningApproved, data)
+        }
       }
     }
 
@@ -192,5 +201,11 @@ internal class PortalManager {
       featureFlags = featureFlags,
       autoApprove = autoApprove
     )
+  }
+
+  fun destroy() {
+    scope.cancel()
+    _portal = null
+    Timber.d("Rain SDK: PortalManager destroyed and coroutines cancelled")
   }
 }

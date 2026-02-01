@@ -8,6 +8,8 @@ import com.rain.sdk.internal.transaction.TransactionExecutor
 import com.rain.sdk.internal.transaction.TransactionSigner
 import com.rain.sdk.internal.transaction.TransactionValidator
 import com.rain.sdk.internal.transaction.WithdrawCollateralRequest
+import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.RainWithdrawAddresses
 import io.portalhq.android.Portal
 import io.portalhq.android.mpc.data.BackupConfigs
 import io.portalhq.android.mpc.data.FeatureFlags
@@ -61,7 +63,7 @@ internal class RainSdkManager(
 
       // Mark SDK as initialized
       configManager.markInitialized()
-      
+
       Timber.d("Rain SDK: Initialized successfully")
     } catch (e: RainError) {
       Timber.e(e, "Rain SDK: Initialization error")
@@ -74,15 +76,10 @@ internal class RainSdkManager(
 
   override suspend fun withdrawCollateral(
     chainId: Int,
-    collateralProxyAddress: String,
-    controllerAddress: String,
-    tokenAddress: String,
+    addresses: RainWithdrawAddresses,
     amount: Double,
     decimals: Int,
-    recipientAddress: String,
-    expiresAt: String,
-    adminSalt: String,
-    adminSignature: String,
+    adminSignature: RainAdminSignature,
     nonce: BigInteger?
   ): String {
     if (!isInitialized) {
@@ -95,14 +92,9 @@ internal class RainSdkManager(
     // Create request object
     val request = WithdrawCollateralRequest(
       chainId = chainId,
-      collateralProxyAddress = collateralProxyAddress,
-      controllerAddress = controllerAddress,
-      tokenAddress = tokenAddress,
+      addresses = addresses,
       amount = amount,
       decimals = decimals,
-      recipientAddress = recipientAddress,
-      expiresAt = expiresAt,
-      adminSalt = adminSalt,
       adminSignature = adminSignature,
       walletAddress = walletAddress,
       nonce = nonce

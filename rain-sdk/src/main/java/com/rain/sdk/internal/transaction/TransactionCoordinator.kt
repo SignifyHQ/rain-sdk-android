@@ -41,12 +41,10 @@ internal class TransactionCoordinator(
       // Step 2: Build EIP-712 message
       val (typedDataJson, saltBytes) = RainTransactionBuilderImpl.buildEIP712Message(
         chainId = request.chainId,
-        collateralProxyAddress = request.collateralProxyAddress,
+        addresses = request.addresses,
         walletAddress = request.walletAddress,
-        tokenAddress = request.tokenAddress,
         amount = request.amount,
         decimals = request.decimals,
-        recipientAddress = request.recipientAddress,
         nonce = request.nonce
       )
 
@@ -59,15 +57,11 @@ internal class TransactionCoordinator(
 
       // Step 4: Build transaction data
       val transactionData = RainTransactionBuilderImpl.buildWithdrawTransactionData(
-        proxyAddress = request.collateralProxyAddress,
-        tokenAddress = request.tokenAddress,
+        addresses = request.addresses,
         amount = request.amount,
         decimals = request.decimals,
-        recipientAddress = request.recipientAddress,
-        expiresAt = request.expiresAt,
-        signatureData = userSignature,
         saltBytes = saltBytes,
-        adminSalt = request.adminSalt,
+        signatureData = userSignature,
         adminSignature = request.adminSignature
       )
 
@@ -75,7 +69,7 @@ internal class TransactionCoordinator(
       executor.sendTransaction(
         chainId = request.chainId,
         from = request.walletAddress,
-        to = request.controllerAddress,
+        to = request.addresses.controllerAddress,
         data = transactionData,
         value = "0x0"
       )
