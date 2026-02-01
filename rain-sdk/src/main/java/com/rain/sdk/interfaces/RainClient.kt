@@ -2,6 +2,7 @@ package com.rain.sdk.interfaces
 
 import com.rain.sdk.internal.error.RainError
 import io.portalhq.android.Portal
+import io.portalhq.android.mpc.data.BackupConfigs
 
 interface RainClient {
     /**
@@ -35,6 +36,7 @@ interface RainClient {
     suspend fun withdrawCollateral(
         chainId: Int,
         collateralProxyAddress: String,
+        controllerAddress: String,
         tokenAddress: String,
         amount: Double,
         decimals: Int,

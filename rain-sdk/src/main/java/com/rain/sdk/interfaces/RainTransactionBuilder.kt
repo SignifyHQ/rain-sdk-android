@@ -27,7 +27,7 @@ interface RainTransactionBuilder {
         decimals: Int,
         recipientAddress: String,
         nonce: BigInteger? = null,
-    ): Pair<String, String>
+    ): Pair<String, ByteArray>
 
     /**
      * Builds the encoded transaction call data required to execute a withdrawal.
@@ -39,6 +39,7 @@ interface RainTransactionBuilder {
         decimals: Int,
         recipientAddress: String,
         expiresAt: String,
+        saltBytes: ByteArray,
         signatureData: String,
         adminSalt: String,
         adminSignature: String

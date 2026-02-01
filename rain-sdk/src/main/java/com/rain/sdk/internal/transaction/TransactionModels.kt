@@ -11,6 +11,7 @@ import java.math.BigInteger
 internal data class WithdrawCollateralRequest(
     val chainId: Int,
     val collateralProxyAddress: String,
+    val controllerAddress: String,
     val tokenAddress: String,
     val amount: Double,
     val decimals: Int,

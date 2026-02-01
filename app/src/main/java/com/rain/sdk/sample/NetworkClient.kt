@@ -13,7 +13,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 
 object NetworkClient {
   // TODO: add base url
-  private const val BASE_URL = "https://service-platform.dev..."
+  private const val BASE_URL = "https://service-platform.dev.liquidity-financial.com"
 
   private val client = OkHttpClient.Builder()
     .connectTimeout(30, TimeUnit.SECONDS)
@@ -29,7 +29,7 @@ object NetworkClient {
     token: String,
     amount: Long,
     recipientAddress: String
-  ): NetworkResponse = suspendCancellableCoroutine { continuation ->
+  ): NetworkResponse<Pair<SignatureDetails, String>> = suspendCancellableCoroutine { continuation ->
 
     data class SignatureData(
       val chainId: Long,
@@ -44,7 +44,7 @@ object NetworkClient {
     // Matches WithdrawAssetSignature.Succeed
     data class SignatureResponse(
       val signature: SignatureDetails,
-      val expiresAt: String // API likely returns String or Number, checking RainWithdrawSignaturePolymorphicSerializer would be precise but let's assume standard JSON
+      val expiresAt: String 
     )
 
     val payload = SignatureRequest(
@@ -53,13 +53,14 @@ object NetworkClient {
 
     val requestBody = gson.toJson(payload).toRequestBody(jsonMediaType)
 
-    val PRODUCT_ID = "fb352b08..."
+    val PRODUCT_ID = "fb352b08-c759-4a6c-8a63-d9d190265447"
     
     val deviceId = "f28e7e83ac19d565"
 
     val request = Request.Builder()
       .url("$BASE_URL/v1/rain/person/withdrawal/signature")
       .addHeader("Authorization", "Bearer $accessToken")
+      .addHeader("Content-Type", "application/json")
       .addHeader("accept", "application/json")
       .addHeader("productId", PRODUCT_ID)
       .addHeader("ld-device-id", deviceId)
@@ -103,6 +104,75 @@ object NetworkClient {
   }
 
 
+  suspend fun fetchCollateralContract(
+    accessToken: String
+  ): NetworkResponse<CollateralContractData> = suspendCancellableCoroutine { continuation ->
+    val productId = "fb352b08-c759-4a6c-8a63-d9d190265447"
+    val deviceId = "f28e7e83ac19d565"
+
+    val request = Request.Builder()
+      .url("$BASE_URL/v1/rain/person/credit-contracts")
+      .addHeader("Authorization", "Bearer $accessToken")
+      .addHeader("productId", productId)
+      .addHeader("ld-device-id", deviceId)
+      .get()
+      .build()
+
+    val curl = request.toCurl()
+    client.newCall(request).enqueue(object : okhttp3.Callback {
+      override fun onFailure(call: okhttp3.Call, e: IOException) {
+        continuation.resume(NetworkResponse(curl, Result.failure(e)))
+      }
+
+      override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+        response.use {
+          if (response.isSuccessful) {
+            try {
+              val body = response.body?.string() ?: ""
+              val data = gson.fromJson(body, CollateralContractData::class.java)
+              continuation.resume(NetworkResponse(curl, Result.success(data)))
+            } catch (e: Exception) {
+              continuation.resume(NetworkResponse(curl, Result.failure(e)))
+            }
+          } else {
+            continuation.resume(NetworkResponse(curl, Result.failure(IOException("Error ${response.code}"))))
+          }
+        }
+      }
+    })
+  }
+
+  data class CollateralContractData(
+    val address: String,
+    val controllerAddress: String,
+    val chainId: Long
+  )
+
+  suspend fun fetchBackupShare(accessToken: String): NetworkResponse<String> = suspendCancellableCoroutine { continuation ->
+    val request = Request.Builder()
+      .url("$BASE_URL/v1/portal/backup?backupMethod=PASSWORD")
+      .addHeader("Authorization", "Bearer $accessToken")
+      .get()
+      .build()
+
+    val curl = request.toCurl()
+    client.newCall(request).enqueue(object : okhttp3.Callback {
+      override fun onFailure(call: okhttp3.Call, e: IOException) {
+        continuation.resume(NetworkResponse(curl, Result.failure(e)))
+      }
+      override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+        response.use {
+          if (response.isSuccessful) {
+            val body = response.body?.string() ?: ""
+            val data = gson.fromJson(body, Map::class.java)
+            val cipherText = data["cipherText"] as? String ?: ""
+            continuation.resume(NetworkResponse(curl, Result.success(cipherText)))
+          } else continuation.resume(NetworkResponse(curl, Result.failure(IOException("Error ${response.code}"))))
+        }
+      }
+    })
+  }
+
   private fun Request.toCurl(): String {
     val builder = StringBuilder("curl -X ${method} \"${url}\"")
     headers.forEach { pair ->
@@ -121,9 +191,9 @@ object NetworkClient {
     return builder.toString()
   }
 
-  data class NetworkResponse(
+  data class NetworkResponse<T>(
     val curl: String,
-    val result: Result<Pair<SignatureDetails, String>>
+    val result: Result<T>
   )
 
   data class SignatureDetails(

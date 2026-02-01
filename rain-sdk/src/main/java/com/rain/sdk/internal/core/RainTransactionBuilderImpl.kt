@@ -26,6 +26,9 @@ import org.web3j.protocol.core.methods.request.Transaction
 import org.web3j.utils.Numeric
 import java.math.BigInteger
 import java.security.SecureRandom
+import java.time.Instant
+import java.util.Base64
+import kotlin.time.ExperimentalTime
 
 internal object RainTransactionBuilderImpl : RainTransactionBuilder {
 
@@ -82,7 +85,7 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
     decimals: Int,
     recipientAddress: String,
     nonce: BigInteger?
-  ): Pair<String, String> {
+  ): Pair<String, ByteArray> {
     val validProxy = validateAndChecksumAddress(collateralProxyAddress, "collateralProxyAddress")
     val validWallet = validateAndChecksumAddress(walletAddress, "walletAddress")
     val validToken = validateAndChecksumAddress(tokenAddress, "tokenAddress")
@@ -115,7 +118,7 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
       amount = amountBaseUnits,
       nonce = finalNonce
     )
-    return Pair(jsonString, saltHex)
+    return Pair(jsonString, saltBytes)
   }
 
   override fun buildWithdrawTransactionData(
@@ -125,6 +128,7 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
     decimals: Int,
     recipientAddress: String,
     expiresAt: String,
+    saltBytes: ByteArray,
     signatureData: String,
     adminSalt: String,
     adminSignature: String
@@ -137,7 +141,7 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
       val amountBaseUnits = RainAmountUtils.toBaseUnits(amount, decimals)
 
       val expiryTimestamp = try {
-        expiresAt.toLong()
+        Instant.parse(expiresAt).toEpochMilli() / 1000
       } catch (e: NumberFormatException) {
         throw RainError.InvalidConfig("Invalid expiresAt format. Expected unix timestamp string.")
       }
@@ -150,10 +154,10 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
           Uint256(amountBaseUnits),
           Address(validRecipient),
           Uint256(expiryTimestamp),
-          Bytes32(RainHexUtils.hexToBytes(adminSalt)),
-          DynamicBytes(RainHexUtils.hexToBytes(signatureData)),
-          DynamicArray(Bytes32(RainHexUtils.hexToBytes(adminSalt))),
-          DynamicArray(DynamicBytes(RainHexUtils.hexToBytes(adminSignature))),
+          Bytes32(Base64.getDecoder().decode(adminSalt)),
+          DynamicBytes(RainHexUtils.hexToBytes(adminSignature)),
+          DynamicArray(Bytes32(saltBytes)),
+          DynamicArray(DynamicBytes(RainHexUtils.hexToBytes(signatureData))),
           Bool(true)
         ),
         emptyList()

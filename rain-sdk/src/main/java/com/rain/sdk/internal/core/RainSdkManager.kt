@@ -9,6 +9,7 @@ import com.rain.sdk.internal.transaction.TransactionSigner
 import com.rain.sdk.internal.transaction.TransactionValidator
 import com.rain.sdk.internal.transaction.WithdrawCollateralRequest
 import io.portalhq.android.Portal
+import io.portalhq.android.mpc.data.BackupConfigs
 import io.portalhq.android.mpc.data.FeatureFlags
 import timber.log.Timber
 import java.math.BigInteger
@@ -74,6 +75,7 @@ internal class RainSdkManager(
   override suspend fun withdrawCollateral(
     chainId: Int,
     collateralProxyAddress: String,
+    controllerAddress: String,
     tokenAddress: String,
     amount: Double,
     decimals: Int,
@@ -94,6 +96,7 @@ internal class RainSdkManager(
     val request = WithdrawCollateralRequest(
       chainId = chainId,
       collateralProxyAddress = collateralProxyAddress,
+      controllerAddress = controllerAddress,
       tokenAddress = tokenAddress,
       amount = amount,
       decimals = decimals,
