@@ -1,5 +1,7 @@
 package com.rain.sdk.interfaces
 
+import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.RainWithdrawAddresses
 import java.math.BigInteger
 
 /**
@@ -20,27 +22,22 @@ interface RainTransactionBuilder {
      */
     suspend fun buildEIP712Message(
         chainId: Int,
-        collateralProxyAddress: String,
+        addresses: RainWithdrawAddresses,
         walletAddress: String,
-        tokenAddress: String,
         amount: Double,
         decimals: Int,
-        recipientAddress: String,
         nonce: BigInteger? = null,
-    ): Pair<String, String>
+    ): Pair<String, ByteArray>
 
     /**
      * Builds the encoded transaction call data required to execute a withdrawal.
      */
     fun buildWithdrawTransactionData(
-        proxyAddress: String,
-        tokenAddress: String,
+        addresses: RainWithdrawAddresses,
         amount: Double,
         decimals: Int,
-        recipientAddress: String,
-        expiresAt: String,
+        saltBytes: ByteArray,
         signatureData: String,
-        adminSalt: String,
-        adminSignature: String
+        adminSignature: RainAdminSignature
     ): String
 }

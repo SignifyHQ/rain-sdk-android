@@ -4,6 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.core.RainTransactionBuilderImpl
+import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.internal.network.Web3jProvider
 import io.mockk.every
 import io.mockk.mockk
@@ -97,14 +98,19 @@ class RainTransactionBuilderImplTest {
     every { mockWeb3j.ethCall(any(), any()) } returns mockEthCall
     every { mockEthCall.sendAsync() } returns CompletableFuture.completedFuture(mockResponse)
 
+    val addresses = RainWithdrawAddresses(
+      proxyAddress = "0x1111111111111111111111111111111111111111",
+      controllerAddress = "0x5555555555555555555555555555555555555555",
+      tokenAddress = "0x3333333333333333333333333333333333333333",
+      recipientAddress = "0x4444444444444444444444444444444444444444"
+    )
+
     val result = RainTransactionBuilderImpl.buildEIP712Message(
       chainId = chainId,
-      collateralProxyAddress = "0x1111111111111111111111111111111111111111",
+      addresses = addresses,
       walletAddress = "0x2222222222222222222222222222222222222222",
-      tokenAddress = "0x3333333333333333333333333333333333333333",
       amount = 1.0,
       decimals = 18,
-      recipientAddress = "0x4444444444444444444444444444444444444444",
       nonce = null
     )
 
@@ -117,14 +123,19 @@ class RainTransactionBuilderImplTest {
     // Ensure RainConfig has no RPC for 999
 
     try {
+      val addresses = RainWithdrawAddresses(
+        proxyAddress = "0x1111111111111111111111111111111111111111",
+        controllerAddress = "0x5555555555555555555555555555555555555555",
+        tokenAddress = "0x3333333333333333333333333333333333333333",
+        recipientAddress = "0x4444444444444444444444444444444444444444"
+      )
+
       RainTransactionBuilderImpl.buildEIP712Message(
         chainId = chainId,
-        collateralProxyAddress = "0x1111111111111111111111111111111111111111",
+        addresses = addresses,
         walletAddress = "0x2222222222222222222222222222222222222222",
-        tokenAddress = "0x3333333333333333333333333333333333333333",
         amount = 1.0,
         decimals = 18,
-        recipientAddress = "0x4444444444444444444444444444444444444444",
         nonce = null
       )
       org.junit.Assert.fail("Expected RainError.InvalidConfig")

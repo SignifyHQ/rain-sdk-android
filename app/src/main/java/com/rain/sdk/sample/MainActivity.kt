@@ -5,6 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,8 +62,9 @@ fun SampleApp() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.Top,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
@@ -69,7 +72,14 @@ fun SampleApp() {
             style = MaterialTheme.typography.headlineMedium,
             modifier = Modifier.padding(bottom = 24.dp)
         )
-        
+
+        // --- 2. Configuration Section ---
+        Text(
+            text = "2. Configuration (Manual entry allowed)",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+        )
+
         OutlinedTextField(
             value = viewModel.sessionToken,
             onValueChange = { viewModel.onTokenChanged(it) },
@@ -90,44 +100,50 @@ fun SampleApp() {
             singleLine = true
         )
 
-        Text(
-            text = "RPC Configuration",
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-        )
-
-        Column(modifier = Modifier.padding(bottom = 16.dp)) {
-            RpcOption.values().forEach { option ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = !viewModel.isInitialized) { viewModel.onRpcOptionChanged(option) }
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(
-                        selected = viewModel.selectedRpcOption == option,
-                        onClick = { viewModel.onRpcOptionChanged(option) },
-                        enabled = !viewModel.isInitialized
-                    )
-                    Text(
-                        text = option.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(start = 8.dp)
-                    )
-                }
-            }
-        
-        }
-
         Button(
             onClick = { viewModel.initializeSdk() },
             enabled = viewModel.sessionToken.isNotBlank() && !viewModel.isInitialized,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 12.dp)
+                .padding(bottom = 24.dp)
         ) {
-            Text(text = if (viewModel.isInitialized) "SDK Initialized" else "Initialize SDK")
+            Text(text = if (viewModel.isInitialized) "SDK Initialized" else "3. Initialize SDK")
+        }
+
+        // --- 3. Recovery Section (Conditional) ---
+        if (viewModel.needsRecovery) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
+                shape = MaterialTheme.shapes.medium,
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Wallet Recovery Required",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    OutlinedTextField(
+                        value = viewModel.pin,
+                        onValueChange = { viewModel.onPinChanged(it) },
+                        label = { Text("Enter PIN") },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        singleLine = true
+                    )
+                    Button(
+                        onClick = { viewModel.recoverWithPin() },
+                        enabled = viewModel.pin.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text("Recover Wallet")
+                    }
+                }
+            }
         }
 
         Button(
@@ -137,7 +153,7 @@ fun SampleApp() {
                 .fillMaxWidth()
                 .padding(bottom = 12.dp)
         ) {
-            Text(text = "Get Wallet Address")
+            Text(text = "4. Get Wallet Address")
         }
 
         val context = androidx.compose.ui.platform.LocalContext.current
@@ -151,7 +167,7 @@ fun SampleApp() {
                 containerColor = MaterialTheme.colorScheme.secondary
             )
         ) {
-            Text(text = "Test Withdraw Collateral")
+            Text(text = "5. Test Withdraw Collateral")
         }
 
         Button(
@@ -169,7 +185,8 @@ fun SampleApp() {
         Text(
             text = "Status: ${viewModel.statusText}",
             style = MaterialTheme.typography.bodyLarge,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(bottom = 32.dp)
         )
     }
 }
