@@ -43,4 +43,12 @@ interface RainClient {
         adminSignature: RainAdminSignature,
         nonce: java.math.BigInteger? = null
     ): String
+
+    /**
+     * Gets the current wallet address from the underlying provider.
+     * @return Hex-encoded wallet address
+     * @throws RainError if the address cannot be retrieved
+     */
+    @Throws(RainError::class)
+    suspend fun getAddress(): String
 }
