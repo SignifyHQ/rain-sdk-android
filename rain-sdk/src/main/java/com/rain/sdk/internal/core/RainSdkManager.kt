@@ -104,6 +104,13 @@ internal class RainSdkManager(
     return transactionCoordinator.executeWithdrawCollateral(request)
   }
 
+  override suspend fun getAddress(): String {
+    if (!isInitialized) {
+      throw RainError.SdkNotInitialized()
+    }
+    return portalManager.getAddress()
+  }
+
   companion object {
     /**
      * Creates a TransactionCoordinator with all required dependencies.

@@ -4,10 +4,15 @@ minSdk = "26"
 compileSdk = "36"
 targetSdk = "36"
 
+# -- Project --
+rain-sdk = "1.0.1"
+
 # -- Plugins --
 android-gradle-plugin = "8.11.2"
 kotlin = "2.2.20"
 ksp = "2.2.20-2.0.3"
+dokka = "1.9.20"
+maven-publish = "0.30.0"
 
 # -- Core SDK Dependencies --
 portal-android = "6.0.0"
@@ -78,3 +83,5 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
+vanniktech-maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "maven-publish" }
