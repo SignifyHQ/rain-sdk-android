@@ -2,6 +2,7 @@ package com.rain.sdk.interfaces
 
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainWithdrawAddresses
+import com.rain.sdk.models.RainWithdrawResult
 import com.rain.sdk.internal.error.RainError
 import io.portalhq.android.Portal
 import io.portalhq.android.mpc.data.BackupConfigs
@@ -34,6 +35,18 @@ interface RainClient {
         chainId: Int? = null
     )
 
+    /**
+     * Withdraws collateral from the Rain system.
+     *
+     * @param chainId The chain ID for the transaction
+     * @param addresses All required addresses for the withdrawal
+     * @param amount The amount to withdraw
+     * @param decimals Token decimals
+     * @param adminSignature Admin signature for authorization
+     * @param nonce Optional nonce for the transaction
+     * @param autoSend If true, automatically sends the transaction and returns hash. If false, returns prepared transaction data.
+     * @return RainWithdrawResult containing either transactionHash (if autoSend=true) or transactionData (if autoSend=false)
+     */
     @Throws(RainError::class)
     suspend fun withdrawCollateral(
         chainId: Int,
@@ -41,8 +54,9 @@ interface RainClient {
         amount: Double,
         decimals: Int,
         adminSignature: RainAdminSignature,
-        nonce: java.math.BigInteger? = null
-    ): String
+        nonce: java.math.BigInteger? = null,
+        autoSend: Boolean = false
+    ): RainWithdrawResult
 
     /**
      * Gets the current wallet address from the underlying provider.
@@ -51,4 +65,22 @@ interface RainClient {
      */
     @Throws(RainError::class)
     suspend fun getAddress(): String
+
+    /**
+     * Estimates the gas fee required for a transaction.
+     *
+     * @param chainId The chain ID for the transaction
+     * @param from The sender address
+     * @param to The target contract address
+     * @param data The transaction data (hex-encoded)
+     * @return Estimated gas fee in ETH
+     * @throws RainError if estimation fails
+     */
+    @Throws(RainError::class)
+    suspend fun estimateGas(
+        chainId: Int,
+        from: String,
+        to: String,
+        data: String
+    ): Double
 }

@@ -156,6 +156,19 @@ fun SampleApp() {
             Text(text = "4. Get Wallet Address")
         }
 
+        Button(
+            onClick = { viewModel.estimateGas() },
+            enabled = viewModel.isInitialized,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
+            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.tertiary
+            )
+        ) {
+            Text(text = "5a. Estimate Withdraw Gas")
+        }
+
         val context = androidx.compose.ui.platform.LocalContext.current
         Button(
             onClick = { viewModel.testWithdraw(context) },
@@ -167,7 +180,7 @@ fun SampleApp() {
                 containerColor = MaterialTheme.colorScheme.secondary
             )
         ) {
-            Text(text = "5. Test Withdraw Collateral")
+            Text(text = "5b. Test Withdraw Collateral")
         }
 
         Button(

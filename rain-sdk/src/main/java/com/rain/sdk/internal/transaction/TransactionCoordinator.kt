@@ -2,8 +2,16 @@ package com.rain.sdk.internal.transaction
 
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.core.RainTransactionBuilderImpl
+import com.rain.sdk.internal.core.PortalManager
+import com.rain.sdk.internal.transaction.WithdrawCollateralRequest
+import com.rain.sdk.utils.EthereumConverter
+import io.portalhq.android.provider.data.EthTransactionParam
+import io.portalhq.android.storage.mobile.PortalNamespace
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import java.math.BigInteger
 
 /**
  * Orchestrates the complete transaction flow.
@@ -12,6 +20,7 @@ import kotlinx.coroutines.withContext
  * to handle the entire lifecycle of a transaction from validation to execution.
  */
 internal class TransactionCoordinator(
+  private val portalManager: PortalManager,
   private val validator: TransactionValidator,
   private val signer: TransactionSigner,
   private val executor: TransactionExecutor
@@ -25,15 +34,17 @@ internal class TransactionCoordinator(
    * 2. Build EIP-712 typed data message
    * 3. Sign the message
    * 4. Build transaction data
-   * 5. Execute transaction
+   * 5. Execute transaction (if autoSend=true) or return transaction data (if autoSend=false)
    *
    * @param request The withdraw collateral request
-   * @return The transaction hash
+   * @param autoSend If true, sends the transaction and returns hash. If false, returns transaction data only.
+   * @return Pair of (transactionHash, transactionData) where one will be null depending on autoSend
    * @throws RainError if any step fails
    */
   suspend fun executeWithdrawCollateral(
-    request: WithdrawCollateralRequest
-  ): String = withContext(Dispatchers.IO) {
+    request: WithdrawCollateralRequest,
+    autoSend: Boolean = true
+  ): Pair<String?, String?> = withContext(Dispatchers.IO) {
     try {
       // Step 1: Validate
       validator.validateWithdrawRequest(request)
@@ -65,14 +76,19 @@ internal class TransactionCoordinator(
         adminSignature = request.adminSignature
       )
 
-      // Step 5: Execute transaction
-      executor.sendTransaction(
-        chainId = request.chainId,
-        from = request.walletAddress,
-        to = request.addresses.controllerAddress,
-        data = transactionData,
-        value = "0x0"
-      )
+      // Step 5: Execute transaction or return data
+      if (autoSend) {
+        val txHash = executor.sendTransaction(
+          chainId = request.chainId,
+          from = request.walletAddress,
+          to = request.addresses.controllerAddress,
+          data = transactionData,
+          value = "0x0"
+        )
+        Pair(txHash, null)
+      } else {
+        Pair(null, transactionData)
+      }
 
     } catch (e: RainError) {
       // Re-throw RainError as-is
@@ -80,6 +96,67 @@ internal class TransactionCoordinator(
     } catch (e: Exception) {
       // Wrap unexpected errors
       throw RainError.InternalError("Withdraw collateral failed: ${e.message}", e)
+    }
+  }
+
+  /**
+   * Estimates gas for any transaction.
+   *
+   * @param chainId The chain ID
+   * @param from Sender address
+   * @param to Target contract address
+   * @param data Transaction data (hex-encoded)
+   * @return Estimated gas fee in ETH
+   */
+  suspend fun estimateGas(
+    chainId: Int,
+    from: String,
+    to: String,
+    data: String
+  ): Double = withContext(Dispatchers.IO) {
+    try {
+      val portal = portalManager.getPortalInstance()
+      
+      val ethParams = EthTransactionParam(
+        from = from,
+        to = to,
+        gas = null,
+        gasPrice = null,
+        maxFeePerGas = null,
+        maxPriorityFeePerGas = null,
+        data = data,
+        value = "0x0",
+        nonce = null
+      )
+
+      val chainIdString = "${PortalNamespace.EIP155.value}:$chainId"
+      
+      val (gasHex, gasPriceHex) = coroutineScope {
+        val gasLimitDeferred = async { portal.ethEstimateGas(chainIdString, ethParams) }
+        val gasPriceDeferred = async { portal.ethGasPrice(chainIdString) }
+        
+        val gasLimitResult = gasLimitDeferred.await()
+        val gasPriceResult = gasPriceDeferred.await()
+        
+        val gasHex = EthereumConverter.convertPortalResultToHexString(gasLimitResult)
+        val gasPriceHex = EthereumConverter.convertPortalResultToHexString(gasPriceResult)
+        
+        Pair(gasHex, gasPriceHex)
+      }
+      
+      // Fee = gasLimit * gasPrice
+      val gasLimit = BigInteger(gasHex.removePrefix("0x"), 16)
+      val gasPrice = BigInteger(gasPriceHex.removePrefix("0x"), 16)
+      
+      val feeWei = gasLimit.multiply(gasPrice)
+      
+      // Convert Wei to ETH (Double) using EthereumConverter
+      EthereumConverter.convertWeiToEth(feeWei)
+
+    } catch (e: RainError) {
+      throw e
+    } catch (e: Exception) {
+      throw RainError.InternalError("Gas estimation failed: ${e.message}", e)
     }
   }
 }

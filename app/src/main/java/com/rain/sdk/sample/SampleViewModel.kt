@@ -139,6 +139,93 @@ class SampleViewModel(
     }
   }
 
+  fun estimateGas() {
+    if (!isInitialized) return
+    if (accessToken.isBlank()) {
+      statusText = "Error: Access Token is required"
+      return
+    }
+
+    viewModelScope.launch {
+      try {
+        statusText = "Fetching Admin Signature for Gas Estimation..."
+        val contractResponse = NetworkClient.fetchCollateralContract(accessToken)
+        if (contractResponse.result.isFailure) {
+          statusText = "Fetch contract failed: ${contractResponse.result.exceptionOrNull()?.message}"
+          return@launch
+        }
+        val contract = contractResponse.result.getOrThrow()
+
+        val chainId = contract.chainId.toInt()
+        val tokenAddress = "0xD856a0585Da55e83d03ccb49Ef09D180494CfBAD"
+        val amount = 0.1
+        val decimals = 6
+        val amountLong = (amount * Math.pow(10.0, decimals.toDouble())).toLong()
+        val recipientAddress = "0x3cA8ac240F6ebeA8684b3E629A8e8C1f0E3bC0Ff"
+
+        val response = NetworkClient.fetchAdminSignature(
+          accessToken = accessToken,
+          chainId = chainId.toLong(),
+          token = tokenAddress.lowercase(),
+          amount = amountLong,
+          recipientAddress = recipientAddress
+        )
+
+        if (response.result.isFailure) {
+          statusText = "Fetch failed: ${response.result.exceptionOrNull()?.message}"
+          return@launch
+        }
+
+        val resultSignature = response.result.getOrThrow()
+        val signature = resultSignature.first
+        val expiresAt = resultSignature.second
+
+        statusText = "Preparing transaction data..."
+
+        // Step 1: Get transaction data without sending
+        val withdrawResult = rainClient.withdrawCollateral(
+          chainId = chainId,
+          addresses = com.rain.sdk.models.RainWithdrawAddresses(
+            proxyAddress = contract.address,
+            controllerAddress = contract.controllerAddress,
+            tokenAddress = tokenAddress,
+            recipientAddress = recipientAddress
+          ),
+          amount = amount,
+          decimals = decimals,
+          adminSignature = com.rain.sdk.models.RainAdminSignature(
+            salt = signature.salt,
+            signature = signature.data,
+            expiresAt = expiresAt
+          ),
+          autoSend = false // Get transaction data only
+        )
+
+        val transactionData = withdrawResult.transactionData
+        if (transactionData == null) {
+          statusText = "Error: Failed to get transaction data"
+          return@launch
+        }
+
+        statusText = "Estimating gas..."
+
+        // Step 2: Estimate gas with transaction data
+        val fromAddress = rainClient.getAddress()
+        val fee = rainClient.estimateGas(
+          chainId = chainId,
+          from = fromAddress,
+          to = contract.controllerAddress,
+          data = transactionData
+        )
+
+        statusText = "Estimated Gas Fee: $fee ETH"
+      } catch (e: Exception) {
+        statusText = "Gas estimation failed: ${e.message}"
+        e.printStackTrace()
+      }
+    }
+  }
+
   fun testWithdraw(context: android.content.Context) {
     if (!isInitialized) return
     if (accessToken.isBlank()) {
@@ -180,13 +267,13 @@ class SampleViewModel(
           return@launch
         }
 
-        val result = response.result.getOrThrow()
-        val signature = result.first
-        val expiresAt = result.second
+        val resultSignature = response.result.getOrThrow()
+        val signature = resultSignature.first
+        val expiresAt = resultSignature.second
 
         statusText = "Signature fetched! Processing withdrawal..."
 
-        val txHash = rainClient.withdrawCollateral(
+        val result = rainClient.withdrawCollateral(
           chainId = chainId,
           addresses = RainWithdrawAddresses(
             proxyAddress = contract.address,
@@ -201,10 +288,15 @@ class SampleViewModel(
             signature = signature.data,
             expiresAt = expiresAt
           ),
-          nonce = null // Let SDK resolve
+          nonce = null, // Let SDK resolve
+          autoSend = true // Auto send transaction
         )
 
-        statusText = "Withdrawal successful!\nTx: ${txHash.take(16)}..."
+        statusText = if (result.isAutoSent) {
+          "Withdrawal successful!\nTx: ${result.transactionHash?.take(16)}..."
+        } else {
+          "Transaction data: ${result.transactionData?.take(32)}..."
+        }
       } catch (e: Exception) {
         statusText = "Withdrawal failed: ${e.message}"
         e.printStackTrace()
