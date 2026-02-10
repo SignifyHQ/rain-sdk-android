@@ -1,0 +1,73 @@
+package com.rain.sdk.utils
+
+import io.portalhq.android.provider.data.PortalProviderResult
+import io.portalhq.android.provider.data.PortalProviderRpcResponse
+import io.portalhq.android.utils.ethRequests.EthRequestUtils
+import java.math.BigInteger
+
+/**
+ * Utility for converting between different Ethereum units and formats.
+ */
+object EthereumConverter {
+
+  /**
+   * Extracts a hex string from a Portal provider result.
+   */
+  fun convertPortalResultToHexString(portalResult: Any): String {
+    val providerResult = portalResult as? PortalProviderResult
+    val rpcResponse = providerResult?.result as? PortalProviderRpcResponse
+    val hex = rpcResponse?.result as? String
+
+    return return hex
+      ?.takeIf { it.startsWith("0x") && it.length > 2 }
+      ?: "0x0"
+  }
+
+  /**
+   * Extracts a transaction hash from a Portal provider result.
+   */
+  fun convertPortalResultToTransactionHash(portalResult: Any): String {
+    return (portalResult as? PortalProviderResult)?.result as String
+  }
+
+  /**
+   * Converts a Wei hex string to ETH (Double).
+   */
+  fun convertWeiHexToEth(ethBalanceHexValue: String): Double {
+    return try {
+      EthRequestUtils().hexStringToNumber(ethBalanceHexValue)
+    } catch (ex: Exception) {
+      // Manual conversion fallback
+      val cleanedHex = ethBalanceHexValue.removePrefix("0x")
+      val decimalValue = BigInteger(cleanedHex, 16).toBigDecimal()
+      return decimalValue.movePointLeft(18).toDouble()
+    }
+  }
+
+  /**
+   * Converts a Wei hex string to its unit-less Double value.
+   */
+  fun convertWeiHexToDouble(ethBalanceHexValue: String): Double {
+    return try {
+      EthRequestUtils().hexStringToNumber(ethBalanceHexValue)
+    } catch (ex: Exception) {
+      val cleanedHex = ethBalanceHexValue.removePrefix("0x")
+      return BigInteger(cleanedHex, 16).toDouble()
+    }
+  }
+
+  /**
+   * Converts a Wei BigInteger to ETH (Double).
+   */
+  fun convertWeiToEth(wei: BigInteger): Double {
+    return wei.toBigDecimal().movePointLeft(18).toDouble()
+  }
+
+  /**
+   * Converts a ETH Double value to a Wei hex string.
+   */
+  fun convertEthToWeiHex(ethBalance: Double): String {
+    val wei = (ethBalance.toBigDecimal().multiply(1e18.toBigDecimal())).toBigInteger()
+    return "0x${wei.toString(16)}"
+  }
+}

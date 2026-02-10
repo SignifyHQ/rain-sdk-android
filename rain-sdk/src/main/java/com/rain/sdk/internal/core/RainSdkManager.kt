@@ -10,6 +10,7 @@ import com.rain.sdk.internal.transaction.TransactionValidator
 import com.rain.sdk.internal.transaction.WithdrawCollateralRequest
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainWithdrawAddresses
+import com.rain.sdk.models.RainWithdrawResult
 import io.portalhq.android.Portal
 import io.portalhq.android.mpc.data.BackupConfigs
 import io.portalhq.android.mpc.data.FeatureFlags
@@ -80,8 +81,9 @@ internal class RainSdkManager(
     amount: Double,
     decimals: Int,
     adminSignature: RainAdminSignature,
-    nonce: BigInteger?
-  ): String {
+    nonce: BigInteger?,
+    autoSend: Boolean
+  ): RainWithdrawResult {
     if (!isInitialized) {
       throw RainError.SdkNotInitialized()
     }
@@ -100,8 +102,31 @@ internal class RainSdkManager(
       nonce = nonce
     )
 
-    // Delegate to coordinator
-    return transactionCoordinator.executeWithdrawCollateral(request)
+    // Delegate to coordinator with autoSend parameter
+    val (txHash, txData) = transactionCoordinator.executeWithdrawCollateral(request, autoSend)
+    
+    return RainWithdrawResult(
+      transactionHash = txHash,
+      transactionData = txData
+    )
+  }
+
+  override suspend fun estimateGas(
+    chainId: Int,
+    from: String,
+    to: String,
+    data: String
+  ): Double {
+    if (!isInitialized) {
+      throw RainError.SdkNotInitialized()
+    }
+
+    return transactionCoordinator.estimateGas(
+      chainId = chainId,
+      from = from,
+      to = to,
+      data = data
+    )
   }
 
   override suspend fun getAddress(): String {
@@ -120,6 +145,7 @@ internal class RainSdkManager(
       val errorMapper = ErrorMapper()
       
       return TransactionCoordinator(
+        portalManager = portalManager,
         validator = TransactionValidator(),
         signer = TransactionSigner(portalManager, errorMapper),
         executor = TransactionExecutor(portalManager, errorMapper)
