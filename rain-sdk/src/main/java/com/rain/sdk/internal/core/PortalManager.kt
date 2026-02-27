@@ -10,6 +10,7 @@ import io.portalhq.android.utils.events.PortalEvents
 import io.portalhq.android.provider.data.PortalRequestMethod
 import io.portalhq.android.storage.mobile.PortalNamespace
 import timber.log.Timber
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -91,6 +92,7 @@ internal class PortalManager {
       portal.getAddress(PortalNamespace.EIP155)
         ?: throw RainError.ProviderError(IllegalStateException("Portal returned null address"))
     } catch (e: Exception) {
+      if (e is CancellationException) throw e
       throw RainError.ProviderError(e)
     }
   }
@@ -119,6 +121,7 @@ internal class PortalManager {
       )
       response.result.toString()
     } catch (e: Exception) {
+      if (e is CancellationException) throw e
       Timber.e(e, "Rain SDK: Failed to sign typed data")
       throw e
     }

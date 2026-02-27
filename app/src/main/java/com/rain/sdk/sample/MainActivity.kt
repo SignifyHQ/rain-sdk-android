@@ -183,6 +183,101 @@ fun SampleApp() {
             Text(text = "5b. Test Withdraw Collateral")
         }
 
+        // --- 4. Send Native Token Section ---
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 24.dp),
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.1f),
+            shape = MaterialTheme.shapes.medium
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "6. Send Native Token (AVAX)",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                OutlinedTextField(
+                    value = viewModel.nativeRecipientAddress,
+                    onValueChange = { viewModel.nativeRecipientAddress = it },
+                    label = { Text("Recipient Address") },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = viewModel.nativeAmount,
+                    onValueChange = { viewModel.nativeAmount = it },
+                    label = { Text("Amount (AVAX)") },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                    singleLine = true
+                )
+
+                Button(
+                    onClick = { viewModel.sendNativeToken() },
+                    enabled = viewModel.isInitialized,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(text = "Send AVAX")
+                }
+            }
+        }
+
+        // --- 5. Send ERC-20 Token Section ---
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.1f),
+            shape = MaterialTheme.shapes.medium
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "7. Send ERC-20 Token",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                OutlinedTextField(
+                    value = viewModel.tokenContractAddress,
+                    onValueChange = { viewModel.tokenContractAddress = it },
+                    label = { Text("Contract Address") },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = viewModel.tokenRecipientAddress,
+                    onValueChange = { viewModel.tokenRecipientAddress = it },
+                    label = { Text("Recipient Address") },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    singleLine = true
+                )
+
+                Row(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                    OutlinedTextField(
+                        value = viewModel.tokenAmount,
+                        onValueChange = { viewModel.tokenAmount = it },
+                        label = { Text("Amount") },
+                        modifier = Modifier.weight(2f).padding(end = 8.dp),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = viewModel.tokenDecimals,
+                        onValueChange = { viewModel.tokenDecimals = it },
+                        label = { Text("Decimals") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                }
+
+                Button(
+                    onClick = { viewModel.sendToken() },
+                    enabled = viewModel.isInitialized,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(text = "Send Token")
+                }
+            }
+        }
+
         Button(
             onClick = { viewModel.clearSession() },
             modifier = Modifier

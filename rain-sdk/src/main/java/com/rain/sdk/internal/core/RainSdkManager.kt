@@ -9,12 +9,16 @@ import com.rain.sdk.internal.transaction.TransactionSigner
 import com.rain.sdk.internal.transaction.TransactionValidator
 import com.rain.sdk.internal.transaction.WithdrawCollateralRequest
 import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.RainTokenTransferResult
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.models.RainWithdrawResult
+import com.rain.sdk.internal.provider.WalletProvider
+import com.rain.sdk.internal.provider.PortalWalletProvider
 import io.portalhq.android.Portal
 import io.portalhq.android.mpc.data.BackupConfigs
 import io.portalhq.android.mpc.data.FeatureFlags
 import timber.log.Timber
+import kotlinx.coroutines.CancellationException
 import java.math.BigInteger
 
 /**
@@ -32,6 +36,8 @@ internal class RainSdkManager(
   private val configManager: ConfigManager = ConfigManager(),
   private val transactionCoordinator: TransactionCoordinator = createTransactionCoordinator(portalManager)
 ) : RainClient {
+
+  private var walletProvider: WalletProvider? = null
 
   override val isInitialized: Boolean
     get() = configManager.isInitialized
@@ -60,6 +66,9 @@ internal class RainSdkManager(
           featureFlags = FeatureFlags(isMultiBackupEnabled = true),
           autoApprove = true
         )
+
+        // Initialize wallet provider - Default to Portal
+        walletProvider = PortalWalletProvider(portalManager)
       }
 
       // Mark SDK as initialized
@@ -69,7 +78,8 @@ internal class RainSdkManager(
     } catch (e: RainError) {
       Timber.e(e, "Rain SDK: Initialization error")
       throw e
-    } catch (e: Throwable) {
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
       Timber.e(e, "Rain SDK: Portal SDK error")
       throw RainError.ProviderError(e)
     }
@@ -134,6 +144,50 @@ internal class RainSdkManager(
       throw RainError.SdkNotInitialized()
     }
     return portalManager.getAddress()
+  }
+
+  override suspend fun sendNativeToken(
+    chainId: Int,
+    toAddress: String,
+    amount: Double
+  ): RainTokenTransferResult {
+    if (!isInitialized) {
+      throw RainError.SdkNotInitialized()
+    }
+
+    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
+
+    return try {
+      val txHash = provider.sendNativeToken(chainId, toAddress, amount)
+      RainTokenTransferResult(transactionHash = txHash)
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      Timber.e(e, "Rain SDK: Failed to send native token")
+      throw RainError.ProviderError(e)
+    }
+  }
+
+  override suspend fun sendToken(
+    chainId: Int,
+    contractAddress: String,
+    toAddress: String,
+    amount: Double,
+    decimals: Int
+  ): RainTokenTransferResult {
+    if (!isInitialized) {
+      throw RainError.SdkNotInitialized()
+    }
+
+    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
+
+    return try {
+      val txHash = provider.sendToken(chainId, contractAddress, toAddress, amount, decimals)
+      RainTokenTransferResult(transactionHash = txHash)
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      Timber.e(e, "Rain SDK: Failed to send ERC-20 token")
+      throw RainError.ProviderError(e)
+    }
   }
 
   companion object {
