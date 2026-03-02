@@ -30,9 +30,19 @@ object EthereumConverter {
 
   /**
    * Extracts a transaction hash from a Portal provider result.
+   *
+   * @param portalResult The result object from Portal SDK
+   * @return The transaction hash as String
+   * @throws com.rain.sdk.internal.error.RainError.ProviderError if the result is not a valid transaction hash string
    */
   fun convertPortalResultToTransactionHash(portalResult: Any): String {
-    return (portalResult as? PortalProviderResult)?.result as String
+    val result = (portalResult as? PortalProviderResult)?.result
+    if (result !is String) {
+      throw com.rain.sdk.internal.error.RainError.ProviderError(
+        IllegalStateException("Portal returned invalid transaction result: $result")
+      )
+    }
+    return result
   }
 
   /**

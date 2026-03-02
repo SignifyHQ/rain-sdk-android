@@ -118,4 +118,45 @@ interface RainClient {
         amount: Double,
         decimals: Int
     ): RainTokenTransferResult
+
+    /**
+     * Gets the native token balance (e.g. AVAX) for the current wallet.
+     *
+     * @param chainId The numeric chain ID (e.g. 43114 for Avalanche Mainnet)
+     * @return Native token balance in Ether units (Double)
+     * @throws RainError if the balance cannot be retrieved
+     */
+    @Throws(RainError::class)
+    suspend fun getNativeBalance(chainId: Int): Double
+
+    /**
+     * Gets the balance of a specific ERC20 token for the current wallet.
+     *
+     * @param chainId The numeric chain ID (e.g. 43114 for Avalanche Mainnet)
+     * @param tokenAddress The contract address of the ERC20 token
+     * @return Token balance as a Double (with decimals already applied), or null if the token is not found in the balance list
+     * @throws RainError if the balance cannot be retrieved
+     */
+    @Throws(RainError::class)
+    suspend fun getERC20Balance(chainId: Int, tokenAddress: String): Double?
+
+    /**
+     * Gets all ERC20 token balances for the current wallet on the given network.
+     *
+     * @param chainId The numeric chain ID
+     * @return Map of token contract address to balance (Double)
+     * @throws RainError if balances cannot be retrieved
+     */
+    @Throws(RainError::class)
+    suspend fun getERC20Balances(chainId: Int): Map<String, Double>
+
+    /**
+     * Gets all balances (native + ERC20) for the current wallet on the given network.
+     *
+     * @param chainId The numeric chain ID
+     * @return Map of token contract address to balance (Double). Native token is stored under key "".
+     * @throws RainError if balances cannot be retrieved
+     */
+    @Throws(RainError::class)
+    suspend fun getBalances(chainId: Int): Map<String, Double>
 }

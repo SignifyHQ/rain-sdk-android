@@ -41,4 +41,24 @@ internal interface WalletProvider {
         amount: Double,
         decimals: Int
     ): String
+
+    /**
+     * Gets the native token balance.
+     */
+    suspend fun getNativeBalance(chainId: Int): Double
+
+    /**
+     * Gets the ERC-20 token balance.
+     */
+    suspend fun getERC20Balance(chainId: Int, tokenAddress: String): Double?
+
+    /**
+     * Gets all ERC-20 token balances.
+     */
+    suspend fun getERC20Balances(chainId: Int): Map<String, Double>
+
+    /**
+     * Gets both native and ERC-20 token balances.
+     */
+    suspend fun getBalances(chainId: Int): Map<String, Double>
 }

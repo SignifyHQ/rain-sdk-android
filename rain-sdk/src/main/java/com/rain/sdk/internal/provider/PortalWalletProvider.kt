@@ -68,4 +68,20 @@ internal class PortalWalletProvider(
             value = "0x0"
         )
     }
+
+    override suspend fun getNativeBalance(chainId: Int): Double {
+        return portalManager.getNativeBalance(chainId)
+    }
+
+    override suspend fun getERC20Balance(chainId: Int, tokenAddress: String): Double? {
+        return portalManager.getERC20Balance(chainId, tokenAddress)
+    }
+
+    override suspend fun getERC20Balances(chainId: Int): Map<String, Double> {
+        return portalManager.getERC20Balances(chainId)
+    }
+
+    override suspend fun getBalances(chainId: Int): Map<String, Double> {
+        return portalManager.getBalances(chainId)
+    }
 }

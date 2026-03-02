@@ -12,6 +12,8 @@ import io.mockk.mockkStatic
 import io.mockk.spyk
 import io.mockk.unmockkAll
 import io.portalhq.android.Portal
+import io.portalhq.android.api.data.GetAssetsByChainResponse
+import io.portalhq.android.api.data.TokenBalance
 import io.portalhq.android.storage.mobile.PortalNamespace
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -117,5 +119,169 @@ class RainSdkManagerTest {
 
     val address = sdkManager.portal.getAddress(PortalNamespace.EIP155)
     assertThat(address).isEqualTo(expectedAddress)
+  }
+
+  @Test
+  fun `getNativeBalance returns correct value from portal api assets`() = runBlocking {
+    val chainId = 43114
+    val expectedEth = 5.234
+
+    // Mock Portal API getAssets response
+    val mockResponse = mockk<GetAssetsByChainResponse>()
+    every { mockResponse.nativeBalance } returns "5.234"
+
+    coEvery {
+      mockPortal.api.getAssets("${PortalNamespace.EIP155.value}:$chainId")
+    } returns Result.success(mockResponse)
+
+    sdkManager.initializePortal(
+      portalSessionToken = "valid-token",
+      rpcEndpoints = mapOf(chainId to "https://rpc.com"),
+      chainId = null
+    )
+
+    val balance = sdkManager.getNativeBalance(chainId)
+    assertThat(balance).isEqualTo(expectedEth)
+  }
+
+  @Test
+  fun `getNativeBalance falls back to RPC if assets fails`() = runBlocking {
+    val chainId = 43114
+    val hexBalance = "0x48a27ad571340000" // 5.234 ETH in Wei hex
+    val expectedEth = 5.234
+
+    // Mock Portal API getAssets to fail
+    coEvery {
+      mockPortal.api.getAssets("${PortalNamespace.EIP155.value}:$chainId")
+    } returns Result.failure(Exception("Assets not available"))
+
+    // Mock Portal RPC request for eth_getBalance fallback
+    val mockResult = mockk<io.portalhq.android.provider.data.PortalProviderResult>()
+    val mockRpcResponse = mockk<io.portalhq.android.provider.data.PortalProviderRpcResponse>()
+    every { mockResult.result } returns mockRpcResponse
+    every { mockRpcResponse.result } returns hexBalance
+
+    coEvery {
+      mockPortal.getAddress(PortalNamespace.EIP155)
+    } returns "0xAddress"
+
+    coEvery {
+      mockPortal.request("${PortalNamespace.EIP155.value}:$chainId", PortalRequestMethod.eth_getBalance, any())
+    } returns mockResult
+
+    sdkManager.initializePortal(
+      portalSessionToken = "valid-token",
+      rpcEndpoints = mapOf(chainId to "https://rpc.com"),
+      chainId = null
+    )
+
+    val balance = sdkManager.getNativeBalance(chainId)
+    assertThat(balance).isEqualTo(expectedEth)
+  }
+
+  @Test
+  fun `getERC20Balance returns correct value from portal api assets`() = runBlocking {
+    val chainId = 43114
+    val tokenAddress = "0xToken"
+    val expectedBalance = 150.5
+
+    // Mock Portal API getAssets response
+    val mockResponse = mockk<GetAssetsByChainResponse>()
+    val mockAsset = mockk<TokenBalance>()
+    
+    every { mockAsset.contractAddress } returns tokenAddress
+    every { mockAsset.balance } returns "150.5"
+    every { mockResponse.tokenBalances } returns listOf(mockAsset)
+
+    coEvery {
+      mockPortal.api.getAssets("${PortalNamespace.EIP155.value}:$chainId")
+    } returns Result.success(mockResponse)
+
+    sdkManager.initializePortal(
+      portalSessionToken = "valid-token",
+      rpcEndpoints = mapOf(chainId to "https://rpc.com"),
+      chainId = null
+    )
+
+    val balance = sdkManager.getERC20Balance(chainId, tokenAddress)
+    assertThat(balance).isEqualTo(expectedBalance)
+  }
+
+  @Test
+  fun `getERC20Balance returns null when token not found`() = runBlocking {
+    val chainId = 43114
+    val tokenAddress = "0xUnknown"
+
+    // Mock Portal API getAssets response with empty token list
+    val mockResponse = mockk<GetAssetsByChainResponse>()
+    every { mockResponse.tokenBalances } returns emptyList()
+
+    coEvery {
+      mockPortal.api.getAssets(any())
+    } returns Result.success(mockResponse)
+
+    sdkManager.initializePortal(
+      portalSessionToken = "valid-token",
+      rpcEndpoints = mapOf(chainId to "https://rpc.com"),
+      chainId = null
+    )
+
+    val balance = sdkManager.getERC20Balance(chainId, tokenAddress)
+    assertThat(balance).isNull()
+  }
+
+  @Test
+  fun `getERC20Balances returns map of all tokens`() = runBlocking {
+    val chainId = 43114
+    
+    val mockResponse = mockk<GetAssetsByChainResponse>()
+    val asset1 = mockk<TokenBalance>()
+    val asset2 = mockk<TokenBalance>()
+    
+    every { asset1.contractAddress } returns "0x1"
+    every { asset1.balance } returns "10.0"
+    every { asset2.contractAddress } returns "0x2"
+    every { asset2.balance } returns "20.5"
+    every { mockResponse.tokenBalances } returns listOf(asset1, asset2)
+
+    coEvery {
+      mockPortal.api.getAssets(any())
+    } returns Result.success(mockResponse)
+
+    sdkManager.initializePortal(
+      portalSessionToken = "valid-token",
+      rpcEndpoints = mapOf(chainId to "https://rpc.com")
+    )
+
+    val balances = sdkManager.getERC20Balances(chainId)
+    assertThat(balances).hasSize(2)
+    assertThat(balances["0x1"]).isEqualTo(10.0)
+    assertThat(balances["0x2"]).isEqualTo(20.5)
+  }
+
+  @Test
+  fun `getBalances returns native and erc20 combined`() = runBlocking {
+    val chainId = 43114
+    
+    val mockResponse = mockk<GetAssetsByChainResponse>()
+    val asset1 = mockk<TokenBalance>()
+    
+    every { mockResponse.nativeBalance } returns "1.5"
+    every { asset1.contractAddress } returns "0x1"
+    every { asset1.balance } returns "10.0"
+    every { mockResponse.tokenBalances } returns listOf(asset1)
+
+    coEvery {
+      mockPortal.api.getAssets(any())
+    } returns Result.success(mockResponse)
+
+    sdkManager.initializePortal(
+      portalSessionToken = "valid-token",
+      rpcEndpoints = mapOf(chainId to "https://rpc.com")
+    )
+
+    val balances = sdkManager.getBalances(chainId)
+    assertThat(balances[""]).isEqualTo(1.5)
+    assertThat(balances["0x1"]).isEqualTo(10.0)
   }
 }

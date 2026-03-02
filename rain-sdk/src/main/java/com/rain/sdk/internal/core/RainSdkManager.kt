@@ -190,6 +190,30 @@ internal class RainSdkManager(
     }
   }
 
+  override suspend fun getNativeBalance(chainId: Int): Double {
+    if (!isInitialized) throw RainError.SdkNotInitialized()
+    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
+    return provider.getNativeBalance(chainId)
+  }
+
+  override suspend fun getERC20Balance(chainId: Int, tokenAddress: String): Double? {
+    if (!isInitialized) throw RainError.SdkNotInitialized()
+    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
+    return provider.getERC20Balance(chainId, tokenAddress)
+  }
+
+  override suspend fun getERC20Balances(chainId: Int): Map<String, Double> {
+    if (!isInitialized) throw RainError.SdkNotInitialized()
+    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
+    return provider.getERC20Balances(chainId)
+  }
+
+  override suspend fun getBalances(chainId: Int): Map<String, Double> {
+    if (!isInitialized) throw RainError.SdkNotInitialized()
+    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
+    return provider.getBalances(chainId)
+  }
+
   companion object {
     /**
      * Creates a TransactionCoordinator with all required dependencies.
