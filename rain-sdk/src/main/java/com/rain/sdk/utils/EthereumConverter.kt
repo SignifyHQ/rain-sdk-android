@@ -15,10 +15,15 @@ object EthereumConverter {
    */
   fun convertPortalResultToHexString(portalResult: Any): String {
     val providerResult = portalResult as? PortalProviderResult
-    val rpcResponse = providerResult?.result as? PortalProviderRpcResponse
-    val hex = rpcResponse?.result as? String
+    val result = providerResult?.result
+    
+    val hex = when (result) {
+      is String -> result
+      is PortalProviderRpcResponse -> result.result as? String
+      else -> null
+    }
 
-    return return hex
+    return hex
       ?.takeIf { it.startsWith("0x") && it.length > 2 }
       ?: "0x0"
   }

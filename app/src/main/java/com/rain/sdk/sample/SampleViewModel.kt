@@ -43,6 +43,15 @@ class SampleViewModel(
   var needsRecovery by mutableStateOf(false)
     private set
 
+  var nativeRecipientAddress by mutableStateOf("0x3cA8ac240F6ebeA8684b3E629A8e8C1f0E3bC0Ff")
+  var nativeAmount by mutableStateOf("0.001")
+
+  // ERC-20 token send
+  var tokenContractAddress by mutableStateOf("0x5425890298aed601595a70AB815c96711a31Bc65") // USDC on Fuji Testnet
+  var tokenRecipientAddress by mutableStateOf("0x3cA8ac240F6ebeA8684b3E629A8e8C1f0E3bC0Ff")
+  var tokenAmount by mutableStateOf("0.01")
+  var tokenDecimals by mutableStateOf("6")
+
   fun onPinChanged(newValue: String) {
     pin = newValue
   }
@@ -310,5 +319,65 @@ class SampleViewModel(
     pin = ""
     statusText = "Session Cleared"
     isInitialized = false
+  }
+
+  fun sendNativeToken() {
+    if (!isInitialized) return
+    val amountDouble = nativeAmount.toDoubleOrNull() ?: 0.0
+    if (amountDouble <= 0.0) {
+      statusText = "Error: Invalid amount"
+      return
+    }
+
+    if (nativeRecipientAddress.isBlank()) {
+      statusText = "Error: Recipient address is required"
+      return
+    }
+
+    statusText = "Sending Native Token..."
+    viewModelScope.launch {
+      try {
+        val result = rainClient.sendNativeToken(
+          chainId = RainChain.AVALANCHE_TESTNET,
+          toAddress = nativeRecipientAddress,
+          amount = amountDouble
+        )
+        statusText = "Send successful! Tx: ${result.transactionHash}"
+      } catch (e: Exception) {
+        statusText = "Send failed: ${e.message}"
+        e.printStackTrace()
+      }
+    }
+  }
+
+  fun sendToken() {
+    if (!isInitialized) return
+    val amountDouble = tokenAmount.toDoubleOrNull() ?: 0.0
+    val decimalsInt = tokenDecimals.toIntOrNull() ?: 6
+    if (amountDouble <= 0.0) {
+      statusText = "Error: Invalid amount"
+      return
+    }
+    if (tokenContractAddress.isBlank() || tokenRecipientAddress.isBlank()) {
+      statusText = "Error: Contract and recipient addresses are required"
+      return
+    }
+
+    statusText = "Sending ERC-20 Token..."
+    viewModelScope.launch {
+      try {
+        val result = rainClient.sendToken(
+          chainId = RainChain.AVALANCHE_TESTNET,
+          contractAddress = tokenContractAddress,
+          toAddress = tokenRecipientAddress,
+          amount = amountDouble,
+          decimals = decimalsInt
+        )
+        statusText = "Send successful! Tx: ${result.transactionHash}"
+      } catch (e: Exception) {
+        statusText = "Send failed: ${e.message}"
+        e.printStackTrace()
+      }
+    }
   }
 }

@@ -1,6 +1,7 @@
 package com.rain.sdk.interfaces
 
 import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.RainTokenTransferResult
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.models.RainWithdrawResult
 import com.rain.sdk.internal.error.RainError
@@ -83,4 +84,38 @@ interface RainClient {
         to: String,
         data: String
     ): Double
+
+    /**
+     * Sends native token (e.g., AVAX).
+     *
+     * @param chainId Network ID
+     * @param toAddress Recipient's wallet address
+     * @param amount Amount of token to send
+     * @return RainTokenTransferResult containing the transaction hash
+     */
+    @Throws(RainError::class)
+    suspend fun sendNativeToken(
+        chainId: Int,
+        toAddress: String,
+        amount: Double
+    ): RainTokenTransferResult
+
+    /**
+     * Sends an ERC-20 token.
+     *
+     * @param chainId Network ID
+     * @param contractAddress ERC-20 token contract address
+     * @param toAddress Recipient's wallet address
+     * @param amount Amount to send (in human-readable unit, e.g. 1.5 USDC)
+     * @param decimals Number of decimals the token uses (e.g. 6 for USDC, 18 for most tokens)
+     * @return RainTokenTransferResult containing the transaction hash
+     */
+    @Throws(RainError::class)
+    suspend fun sendToken(
+        chainId: Int,
+        contractAddress: String,
+        toAddress: String,
+        amount: Double,
+        decimals: Int
+    ): RainTokenTransferResult
 }
