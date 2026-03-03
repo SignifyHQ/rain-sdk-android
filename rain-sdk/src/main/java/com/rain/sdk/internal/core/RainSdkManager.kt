@@ -15,7 +15,6 @@ import com.rain.sdk.models.RainWithdrawResult
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.provider.PortalWalletProvider
 import io.portalhq.android.Portal
-import io.portalhq.android.mpc.data.BackupConfigs
 import io.portalhq.android.mpc.data.FeatureFlags
 import timber.log.Timber
 import kotlinx.coroutines.CancellationException
@@ -196,22 +195,16 @@ internal class RainSdkManager(
     return provider.getNativeBalance(chainId)
   }
 
-  override suspend fun getERC20Balance(chainId: Int, tokenAddress: String): Double? {
+  override suspend fun getERC20Balance(chainId: Int, tokenAddress: String, decimals: Int?): Double {
     if (!isInitialized) throw RainError.SdkNotInitialized()
     val provider = walletProvider ?: throw RainError.SdkNotInitialized()
-    return provider.getERC20Balance(chainId, tokenAddress)
+    return provider.getERC20Balance(chainId, tokenAddress, decimals)
   }
 
   override suspend fun getERC20Balances(chainId: Int): Map<String, Double> {
     if (!isInitialized) throw RainError.SdkNotInitialized()
     val provider = walletProvider ?: throw RainError.SdkNotInitialized()
     return provider.getERC20Balances(chainId)
-  }
-
-  override suspend fun getBalances(chainId: Int): Map<String, Double> {
-    if (!isInitialized) throw RainError.SdkNotInitialized()
-    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
-    return provider.getBalances(chainId)
   }
 
   companion object {

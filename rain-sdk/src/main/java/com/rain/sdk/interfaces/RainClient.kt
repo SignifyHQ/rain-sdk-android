@@ -134,11 +134,16 @@ interface RainClient {
      *
      * @param chainId The numeric chain ID (e.g. 43114 for Avalanche Mainnet)
      * @param tokenAddress The contract address of the ERC20 token
-     * @return Token balance as a Double (with decimals already applied), or null if the token is not found in the balance list
+     * @param decimals Number of decimals the token uses. Defaults to [DEFAULT_ERC20_DECIMALS].
+     * @return Token balance as a Double (with decimals already applied)
      * @throws RainError if the balance cannot be retrieved
      */
     @Throws(RainError::class)
-    suspend fun getERC20Balance(chainId: Int, tokenAddress: String): Double?
+    suspend fun getERC20Balance(
+        chainId: Int,
+        tokenAddress: String,
+        decimals: Int? = DEFAULT_ERC20_DECIMALS
+    ): Double
 
     /**
      * Gets all ERC20 token balances for the current wallet on the given network.
@@ -150,13 +155,10 @@ interface RainClient {
     @Throws(RainError::class)
     suspend fun getERC20Balances(chainId: Int): Map<String, Double>
 
-    /**
-     * Gets all balances (native + ERC20) for the current wallet on the given network.
-     *
-     * @param chainId The numeric chain ID
-     * @return Map of token contract address to balance (Double). Native token is stored under key "".
-     * @throws RainError if balances cannot be retrieved
-     */
-    @Throws(RainError::class)
-    suspend fun getBalances(chainId: Int): Map<String, Double>
+    companion object {
+        /**
+         * Default number of decimals for ERC20 tokens if not specified.
+         */
+        const val DEFAULT_ERC20_DECIMALS = 18
+    }
 }

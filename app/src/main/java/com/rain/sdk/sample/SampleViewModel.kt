@@ -389,7 +389,8 @@ class SampleViewModel(
       try {
         val nativeBalance = rainClient.getNativeBalance(RainChain.AVALANCHE_TESTNET)
         val tokenAddress = tokenContractAddress.ifBlank { "0x5425890298aed601595a70AB815c96711a31Bc65" }
-        val erc20Balance = rainClient.getERC20Balance(RainChain.AVALANCHE_TESTNET, tokenAddress) ?: 0.0
+        val decimals = 6
+        val erc20Balance = rainClient.getERC20Balance(RainChain.AVALANCHE_TESTNET, tokenAddress, decimals)
         
         statusText = """
           Balances fetched!

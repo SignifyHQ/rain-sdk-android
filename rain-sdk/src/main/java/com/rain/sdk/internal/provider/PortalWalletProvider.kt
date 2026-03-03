@@ -7,8 +7,6 @@ import org.web3j.abi.TypeReference
 import org.web3j.abi.datatypes.Address
 import org.web3j.abi.datatypes.Function
 import org.web3j.abi.datatypes.generated.Uint256
-import java.math.BigInteger
-import kotlin.math.pow
 
 /**
  * WalletProvider implementation using Portal SDK.
@@ -73,15 +71,11 @@ internal class PortalWalletProvider(
         return portalManager.getNativeBalance(chainId)
     }
 
-    override suspend fun getERC20Balance(chainId: Int, tokenAddress: String): Double? {
-        return portalManager.getERC20Balance(chainId, tokenAddress)
+    override suspend fun getERC20Balance(chainId: Int, tokenAddress: String, decimals: Int?): Double {
+        return portalManager.getERC20Balance(chainId, tokenAddress, decimals)
     }
 
     override suspend fun getERC20Balances(chainId: Int): Map<String, Double> {
         return portalManager.getERC20Balances(chainId)
-    }
-
-    override suspend fun getBalances(chainId: Int): Map<String, Double> {
-        return portalManager.getBalances(chainId)
     }
 }
