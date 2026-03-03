@@ -278,6 +278,35 @@ fun SampleApp() {
             }
         }
 
+        // --- 6. Check Balances Section ---
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+            color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.1f),
+            shape = MaterialTheme.shapes.medium
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "8. Check Balances",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                Text(
+                    text = "Test native and ERC-20 balances using the contract address above.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+
+                Button(
+                    onClick = { viewModel.getBalances() },
+                    enabled = viewModel.isInitialized,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(text = "Get Balances")
+                }
+            }
+        }
+
         Button(
             onClick = { viewModel.clearSession() },
             modifier = Modifier
