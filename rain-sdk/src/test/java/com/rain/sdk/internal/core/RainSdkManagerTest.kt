@@ -180,22 +180,26 @@ class RainSdkManagerTest {
   }
 
   @Test
-  fun `getERC20Balance returns correct value from portal api assets`() = runBlocking {
+  fun `getERC20Balance returns correct value from RPC`() = runBlocking {
     val chainId = 43114
     val tokenAddress = "0xToken"
-    val expectedBalance = 150.5
+    val decimals = 6
+    val hexBalance = "0x0000000000000000000000000000000000000000000000000000000008f0d180" // 150.0 * 10^6
+    val expectedBalance = 150.0
 
-    // Mock Portal API getAssets response
-    val mockResponse = mockk<GetAssetsByChainResponse>()
-    val mockAsset = mockk<TokenBalance>()
-    
-    every { mockAsset.contractAddress } returns tokenAddress
-    every { mockAsset.balance } returns "150.5"
-    every { mockResponse.tokenBalances } returns listOf(mockAsset)
+    // Mock Portal RPC request for eth_call
+    val mockResult = mockk<io.portalhq.android.provider.data.PortalProviderResult>()
+    val mockRpcResponse = mockk<io.portalhq.android.provider.data.PortalProviderRpcResponse>()
+    every { mockResult.result } returns mockRpcResponse
+    every { mockRpcResponse.result } returns hexBalance
 
     coEvery {
-      mockPortal.api.getAssets("${PortalNamespace.EIP155.value}:$chainId")
-    } returns Result.success(mockResponse)
+      mockPortal.getAddress(PortalNamespace.EIP155)
+    } returns "0xAddress"
+
+    coEvery {
+      mockPortal.request("${PortalNamespace.EIP155.value}:$chainId", PortalRequestMethod.eth_call, any())
+    } returns mockResult
 
     sdkManager.initializePortal(
       portalSessionToken = "valid-token",
@@ -203,22 +207,23 @@ class RainSdkManagerTest {
       chainId = null
     )
 
-    val balance = sdkManager.getERC20Balance(chainId, tokenAddress)
+    val balance = sdkManager.getERC20Balance(chainId, tokenAddress, decimals)
     assertThat(balance).isEqualTo(expectedBalance)
   }
 
   @Test
-  fun `getERC20Balance returns null when token not found`() = runBlocking {
+  fun `getERC20Balance returns 0.0 when RPC fails`() = runBlocking {
     val chainId = 43114
     val tokenAddress = "0xUnknown"
 
-    // Mock Portal API getAssets response with empty token list
-    val mockResponse = mockk<GetAssetsByChainResponse>()
-    every { mockResponse.tokenBalances } returns emptyList()
-
     coEvery {
-      mockPortal.api.getAssets(any())
-    } returns Result.success(mockResponse)
+      mockPortal.getAddress(PortalNamespace.EIP155)
+    } returns "0xAddress"
+
+    // Mock Portal RPC request to fail
+    coEvery {
+      mockPortal.request("${PortalNamespace.EIP155.value}:$chainId", PortalRequestMethod.eth_call, any())
+    } throws Exception("RPC Error")
 
     sdkManager.initializePortal(
       portalSessionToken = "valid-token",
@@ -227,7 +232,7 @@ class RainSdkManagerTest {
     )
 
     val balance = sdkManager.getERC20Balance(chainId, tokenAddress)
-    assertThat(balance).isNull()
+    assertThat(balance).isEqualTo(0.0)
   }
 
   @Test

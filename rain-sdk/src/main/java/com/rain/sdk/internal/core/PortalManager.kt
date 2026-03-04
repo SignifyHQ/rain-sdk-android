@@ -1,15 +1,19 @@
 package com.rain.sdk.internal.core
 
+import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.internal.error.RainError
 import io.portalhq.android.Portal
-import io.portalhq.android.mpc.data.BackupConfigs
 import io.portalhq.android.mpc.data.FeatureFlags
 import io.portalhq.android.provider.data.EthTransactionParam
-import io.portalhq.android.provider.data.PortalProviderResult
 import io.portalhq.android.utils.events.PortalEvents
-import io.portalhq.android.provider.data.PortalRequestMethod
-import io.portalhq.android.storage.mobile.PortalNamespace
 import com.rain.sdk.utils.EthereumConverter
+import io.portalhq.android.storage.mobile.PortalNamespace
+import io.portalhq.android.provider.data.PortalRequestMethod
+import org.web3j.abi.FunctionEncoder
+import org.web3j.abi.TypeReference
+import org.web3j.abi.datatypes.Address
+import org.web3j.abi.datatypes.Function
+import org.web3j.abi.datatypes.generated.Uint256
 import timber.log.Timber
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -117,7 +121,7 @@ internal class PortalManager {
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       Timber.w(e, "Rain SDK: portal.api.getAssets failed for native balance, falling back to RPC for chainId=$chainId")
-      
+
       // Fallback to RPC if getAssets fails (common on testnets or indexing delays)
       getNativeBalanceViaRpc(chainId)
     }
@@ -130,7 +134,7 @@ internal class PortalManager {
     val portal = getPortalInstance()
     val walletAddress = getAddress()
     val eip155ChainId = "${PortalNamespace.EIP155.value}:$chainId"
-    
+
     val result = portal.request(
       chainId = eip155ChainId,
       method = PortalRequestMethod.eth_getBalance,
@@ -145,25 +149,37 @@ internal class PortalManager {
    *
    * @param chainId The numeric chain ID (e.g. 43114)
    * @param tokenAddress The ERC20 contract address
-   * @return Token balance as a Double, or null if the token is not found
+   * @param decimals Number of decimals the token uses
+   * @return Token balance as a Double
    */
-  suspend fun getERC20Balance(chainId: Int, tokenAddress: String): Double? {
+  suspend fun getERC20Balance(chainId: Int, tokenAddress: String, decimals: Int?): Double {
     val portal = getPortalInstance()
+    val walletAddress = getAddress()
     val eip155ChainId = "${PortalNamespace.EIP155.value}:$chainId"
 
+    val function = Function(
+      "balanceOf",
+      listOf(Address(walletAddress)),
+      listOf(object : TypeReference<Uint256>() {})
+    )
+    val encodedFunction = FunctionEncoder.encode(function)
+
+    val callParams = mapOf(
+      "to" to tokenAddress,
+      "data" to encodedFunction
+    )
+
     return try {
-      val response = portal.api.getAssets(eip155ChainId).getOrThrow()
-      response.tokenBalances
-        .find {
-          //TODO: will update after clarify with portal team
-//          val address = it.contractAddress
-//          address?.equals(tokenAddress, ignoreCase = true) == true
-          false
-        }
-        ?.balance?.toDoubleOrNull()
+      val result = portal.request(
+        chainId = eip155ChainId,
+        method = PortalRequestMethod.eth_call,
+        params = listOf(callParams, "latest")
+      )
+      val hex = EthereumConverter.convertPortalResultToHexString(result)
+      EthereumConverter.convertHexToDouble(hex, decimals ?: RainClient.DEFAULT_ERC20_DECIMALS)
     } catch (e: Exception) {
       if (e is CancellationException) throw e
-      Timber.e(e, "Rain SDK: Failed to get ERC20 balance for token=$tokenAddress chainId=$chainId")
+      Timber.e(e, "Rain SDK: Failed to get ERC20 balance via RPC for token=$tokenAddress chainId=$chainId")
       throw RainError.ProviderError(e)
     }
   }
@@ -188,35 +204,6 @@ internal class PortalManager {
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       Timber.e(e, "Rain SDK: Failed to get ERC20 balances for chainId=$chainId")
-      throw RainError.ProviderError(e)
-    }
-  }
-
-  /**
-   * Gets all balances (native + ERC20) for the current wallet on the given network.
-   *
-   * @param chainId The numeric chain ID
-   * @return Map of token contract address to balance (Double). Native token is stored under key "".
-   */
-  suspend fun getBalances(chainId: Int): Map<String, Double> {
-    val portal = getPortalInstance()
-    val eip155ChainId = "${PortalNamespace.EIP155.value}:$chainId"
-
-    return try {
-      val response = portal.api.getAssets(eip155ChainId).getOrThrow()
-      
-      val balances = response.tokenBalances.associate {
-        //TODO: will update after clarify with portal team
-        (null ?: "") to (it.balance?.toDoubleOrNull() ?: 0.0)
-      }.toMutableMap()
-      
-      val nativeBalance = response.nativeBalance.balance.toDoubleOrNull() ?: 0.0
-      balances[""] = nativeBalance
-      
-      balances.filterKeys { it.isNotEmpty() || it == "" }
-    } catch (e: Exception) {
-      if (e is CancellationException) throw e
-      Timber.e(e, "Rain SDK: Failed to get combined balances for chainId=$chainId")
       throw RainError.ProviderError(e)
     }
   }
