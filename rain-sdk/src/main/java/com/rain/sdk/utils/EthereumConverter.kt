@@ -4,6 +4,7 @@ import io.portalhq.android.provider.data.PortalProviderResult
 import io.portalhq.android.provider.data.PortalProviderRpcResponse
 import io.portalhq.android.utils.ethRequests.EthRequestUtils
 import java.math.BigInteger
+import com.rain.sdk.internal.error.RainError
 
 /**
  * Utility for converting between different Ethereum units and formats.
@@ -31,12 +32,12 @@ object EthereumConverter {
    *
    * @param portalResult The result object from Portal SDK
    * @return The transaction hash as String
-   * @throws com.rain.sdk.internal.error.RainError.ProviderError if the result is not a valid transaction hash string
+   * @throws RainError.ProviderError if the result is not a valid transaction hash string
    */
   fun convertPortalResultToTransactionHash(portalResult: Any): String {
     val result = (portalResult as? PortalProviderResult)?.result
     if (result !is String) {
-      throw com.rain.sdk.internal.error.RainError.ProviderError(
+      throw RainError.ProviderError(
         IllegalStateException("Portal returned invalid transaction result: $result")
       )
     }

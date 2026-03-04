@@ -6,15 +6,14 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rain.sdk.interfaces.RainClient
-import com.rain.sdk.RainSdk
 import com.rain.sdk.RainChain
+import android.graphics.Bitmap
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainWithdrawAddresses
 import io.portalhq.android.mpc.data.BackupConfigs
 import io.portalhq.android.mpc.data.BackupMethods
 import io.portalhq.android.mpc.data.PasswordStorageConfig
 import io.portalhq.android.storage.mobile.PortalNamespace
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class RpcOption {
@@ -41,6 +40,9 @@ class SampleViewModel(
     private set
 
   var needsRecovery by mutableStateOf(false)
+    private set
+
+  var qrBitmap by mutableStateOf<Bitmap?>(null)
     private set
 
   var nativeRecipientAddress by mutableStateOf("0x3cA8ac240F6ebeA8684b3E629A8e8C1f0E3bC0Ff")
@@ -144,6 +146,20 @@ class SampleViewModel(
         statusText = "Address fetched: $address"
       } catch (e: Exception) {
         statusText = "Failed to get address: ${e.message}"
+      }
+    }
+  }
+
+  fun generateAddressQRCode() {
+    if (!isInitialized) return
+
+    statusText = "Generating QR Code..."
+    viewModelScope.launch {
+      try {
+        qrBitmap = rainClient.generateAddressQRCode()
+        statusText = "QR Code Generated Successfully!"
+      } catch (e: Exception) {
+        statusText = "Failed to generate QR Code: ${e.message}"
       }
     }
   }

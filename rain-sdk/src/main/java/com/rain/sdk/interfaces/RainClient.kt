@@ -6,7 +6,8 @@ import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.models.RainWithdrawResult
 import com.rain.sdk.internal.error.RainError
 import io.portalhq.android.Portal
-import io.portalhq.android.mpc.data.BackupConfigs
+import android.graphics.Bitmap
+import java.math.BigInteger
 
 interface RainClient {
     /**
@@ -55,7 +56,7 @@ interface RainClient {
         amount: Double,
         decimals: Int,
         adminSignature: RainAdminSignature,
-        nonce: java.math.BigInteger? = null,
+        nonce: BigInteger? = null,
         autoSend: Boolean = false
     ): RainWithdrawResult
 
@@ -154,6 +155,22 @@ interface RainClient {
      */
     @Throws(RainError::class)
     suspend fun getERC20Balances(chainId: Int): Map<String, Double>
+
+    /**
+     * Generates an Android Bitmap containing a QR code for a wallet address.
+     * 
+     * @param address Optional address to generate the QR code for. If null, the configured provider's wallet address will be retrieved and used.
+     * @param width The width of the generated QR code bitmap in pixels. Defaults to 500.
+     * @param height The height of the generated QR code bitmap in pixels. Defaults to 500.
+     * @return A Bitmap containing the QR code.
+     * @throws RainError If [address] is null and the provider's address cannot be retrieved.
+     */
+    @Throws(RainError::class)
+    suspend fun generateAddressQRCode(
+        address: String? = null,
+        width: Int = 500,
+        height: Int = 500
+    ): Bitmap
 
     companion object {
         /**
