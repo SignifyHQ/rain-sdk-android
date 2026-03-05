@@ -18,7 +18,11 @@ import io.portalhq.android.Portal
 import io.portalhq.android.mpc.data.FeatureFlags
 import timber.log.Timber
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.math.BigInteger
+import android.graphics.Bitmap
+import com.rain.sdk.utils.QRGenerator
 
 /**
  * Internal implementation of RainClient.
@@ -205,6 +209,22 @@ internal class RainSdkManager(
     if (!isInitialized) throw RainError.SdkNotInitialized()
     val provider = walletProvider ?: throw RainError.SdkNotInitialized()
     return provider.getERC20Balances(chainId)
+  }
+
+  override suspend fun generateAddressQRCode(address: String?, width: Int, height: Int): Bitmap {
+    if (!isInitialized) throw RainError.SdkNotInitialized()
+    
+    val targetAddress = address ?: getAddress()
+    
+    return withContext(Dispatchers.Default) {
+        try {
+            QRGenerator.generateQRCode(targetAddress, width, height)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Timber.e(e, "Rain SDK: Failed to generate QR code")
+            throw RainError.ProviderError(e)
+        }
+    }
   }
 
   companion object {

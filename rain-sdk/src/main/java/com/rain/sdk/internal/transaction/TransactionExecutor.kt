@@ -4,6 +4,7 @@ import com.rain.sdk.internal.error.ErrorMapper
 import com.rain.sdk.internal.core.PortalManager
 import kotlinx.coroutines.CancellationException
 import timber.log.Timber
+import com.rain.sdk.internal.error.RainError
 
 /**
  * Handles transaction execution operations.
@@ -24,7 +25,7 @@ internal class TransactionExecutor(
      * @param data The transaction data (encoded function call)
      * @param value The value to send (default "0x0")
      * @return The transaction hash
-     * @throws com.rain.sdk.internal.error.RainError if transaction fails
+     * @throws RainError if transaction fails
      */
     suspend fun sendTransaction(
         chainId: Int,

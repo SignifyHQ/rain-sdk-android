@@ -20,9 +20,12 @@ web3j = "4.10.0"
 timber = "5.0.1"
 okhttp = "4.12.0"
 
-# -- Kotlin Ecosystem --
+# -- Kotlin --
 coroutines = "1.10.2"
 kotlinx-serialization = "1.9.0"
+
+# -- Tooling --
+zxing = "3.5.3"
 
 # -- AndroidX & Compose --
 androidx-annotation = "1.9.1"
@@ -39,6 +42,9 @@ mockk = "1.13.10"
 truth = "1.4.2"
 
 [libraries]
+# -- Build Tools --
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
+
 # -- Rain SDK Core --
 portal-android = { module = "io.portalhq.android:portal-android", version.ref = "portal-android" }
 web3j-core = { module = "org.web3j:core", version.ref = "web3j" }

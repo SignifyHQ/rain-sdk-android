@@ -7,6 +7,7 @@ import org.web3j.abi.TypeReference
 import org.web3j.abi.datatypes.Address
 import org.web3j.abi.datatypes.Function
 import org.web3j.abi.datatypes.generated.Uint256
+import java.math.BigDecimal
 
 /**
  * WalletProvider implementation using Portal SDK.
@@ -48,7 +49,7 @@ internal class PortalWalletProvider(
 
         // Encode ERC-20 transfer(address, uint256) function call
         val tokenAmount = amount.toBigDecimal()
-            .multiply(java.math.BigDecimal.TEN.pow(decimals))
+            .multiply(BigDecimal.TEN.pow(decimals))
             .toBigInteger()
         val function = Function(
             "transfer",
