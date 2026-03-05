@@ -344,6 +344,27 @@ fun SampleApp() {
             Text(text = "Clear Session")
         }
 
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = MaterialTheme.shapes.medium
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Button(
+                    onClick = { viewModel.getTransactions() },
+                    enabled = viewModel.isInitialized,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(text = "9. Get Recent Transactions")
+                }
+                Text(
+                    text = viewModel.transactionsText,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
+            }
+        }
+
         Text(
             text = "Status: ${viewModel.statusText}",
             style = MaterialTheme.typography.bodyLarge,

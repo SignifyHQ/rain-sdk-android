@@ -7,6 +7,10 @@ import io.portalhq.android.mpc.data.FeatureFlags
 import io.portalhq.android.provider.data.EthTransactionParam
 import io.portalhq.android.utils.events.PortalEvents
 import com.rain.sdk.utils.EthereumConverter
+import com.rain.sdk.models.RainTransaction
+import com.rain.sdk.models.RainTransactionOrder
+import com.rain.sdk.models.RainTransactionResult
+import io.portalhq.android.api.data.GetTransactionsOrder
 import io.portalhq.android.storage.mobile.PortalNamespace
 import io.portalhq.android.provider.data.PortalRequestMethod
 import org.web3j.abi.FunctionEncoder
@@ -204,6 +208,61 @@ internal class PortalManager {
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       Timber.e(e, "Rain SDK: Failed to get ERC20 balances for chainId=$chainId")
+      throw RainError.ProviderError(e)
+    }
+  }
+
+  /**
+   * Gets the transaction history for the specified chain.
+   *
+   * @param chainId Numerical chain ID (e.g. 43114)
+   * @param limit Optional maximum number of transactions to return
+   * @param offset Optional number of transactions to skip for pagination
+   * @param order Optional sort order (ASC or DESC)
+   * @return RainTransactionResult containing the list of transactions
+   */
+  suspend fun getTransactions(
+    chainId: Int,
+    limit: Int? = null,
+    offset: Int? = null,
+    order: RainTransactionOrder? = null
+  ): RainTransactionResult {
+    val portal = getPortalInstance()
+    val eip155ChainId = "${PortalNamespace.EIP155.value}:$chainId"
+
+    return try {
+      val portalOrder = when (order) {
+        RainTransactionOrder.ASC -> GetTransactionsOrder.ASC
+        RainTransactionOrder.DESC -> GetTransactionsOrder.DESC
+        null -> null
+      }
+
+      val portalTransactions = portal.api.getTransactions(
+        chainId = eip155ChainId,
+        limit = limit,
+        offset = offset,
+        order = portalOrder
+      ).getOrThrow()
+
+      val rainTransactions = portalTransactions.map { tx ->
+        RainTransaction(
+          hash = tx.hash,
+          blockNumber = tx.blockNum,
+          blockTimestamp = tx.metadata.blockTimestamp,
+          from = tx.from,
+          to = tx.to,
+          value = tx.value.toString(),
+          gas = null,
+          gasPrice = null,
+          chainId = tx.chainId.toString(),
+          metadata = null
+        )
+      }
+
+      RainTransactionResult(transactions = rainTransactions)
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      Timber.e(e, "Rain SDK: Failed to get transactions for chainId=$chainId")
       throw RainError.ProviderError(e)
     }
   }

@@ -1,5 +1,8 @@
 package com.rain.sdk.internal.provider
 
+import com.rain.sdk.models.RainTransactionOrder
+import com.rain.sdk.models.RainTransactionResult
+
 /**
  * Interface for abstracting wallet operations.
  * Allows the SDK to support multiple wallet providers (Portal, Magic, Web3Auth, etc.).
@@ -56,4 +59,14 @@ internal interface WalletProvider {
      * Gets all ERC-20 token balances.
      */
     suspend fun getERC20Balances(chainId: Int): Map<String, Double>
+
+    /**
+     * Gets the transaction history for the specified chain.
+     */
+    suspend fun getTransactions(
+        chainId: Int,
+        limit: Int? = null,
+        offset: Int? = null,
+        order: RainTransactionOrder? = null
+    ): RainTransactionResult
 }

@@ -4,6 +4,8 @@ import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainTokenTransferResult
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.models.RainWithdrawResult
+import com.rain.sdk.models.RainTransactionOrder
+import com.rain.sdk.models.RainTransactionResult
 import com.rain.sdk.internal.error.RainError
 import io.portalhq.android.Portal
 import android.graphics.Bitmap
@@ -171,6 +173,24 @@ interface RainClient {
         width: Int = 500,
         height: Int = 500
     ): Bitmap
+
+    /**
+     * Retrieves the transaction history for the specified chain.
+     *
+     * @param chainId The numeric chain ID
+     * @param limit Optional maximum number of transactions to return
+     * @param offset Optional number of transactions to skip for pagination
+     * @param order Optional sort order (ASC or DESC)
+     * @return RainTransactionResult containing a list of transactions
+     * @throws RainError if the transaction history cannot be retrieved
+     */
+    @Throws(RainError::class)
+    suspend fun getTransactions(
+        chainId: Int,
+        limit: Int? = null,
+        offset: Int? = null,
+        order: RainTransactionOrder? = null
+    ): RainTransactionResult
 
     companion object {
         /**
