@@ -12,6 +12,8 @@ import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainTokenTransferResult
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.models.RainWithdrawResult
+import com.rain.sdk.models.RainTransactionOrder
+import com.rain.sdk.models.RainTransactionResult
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.provider.PortalWalletProvider
 import io.portalhq.android.Portal
@@ -26,12 +28,12 @@ import com.rain.sdk.utils.QRGenerator
 
 /**
  * Internal implementation of RainClient.
- * 
+ *
  * This class acts as a thin facade that delegates to specialized components:
  * - PortalManager: Manages Portal SDK interactions
  * - ConfigManager: Handles configuration and validation
  * - TransactionCoordinator: Orchestrates transaction flows
- * 
+ *
  * This architecture provides better separation of concerns, testability, and maintainability.
  */
 internal class RainSdkManager(
@@ -117,7 +119,7 @@ internal class RainSdkManager(
 
     // Delegate to coordinator with autoSend parameter
     val (txHash, txData) = transactionCoordinator.executeWithdrawCollateral(request, autoSend)
-    
+
     return RainWithdrawResult(
       transactionHash = txHash,
       transactionData = txData
@@ -227,6 +229,17 @@ internal class RainSdkManager(
     }
   }
 
+  override suspend fun getTransactions(
+    chainId: Int,
+    limit: Int?,
+    offset: Int?,
+    order: RainTransactionOrder?
+  ): RainTransactionResult {
+    if (!isInitialized) throw RainError.SdkNotInitialized()
+    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
+    return provider.getTransactions(chainId, limit, offset, order)
+  }
+
   companion object {
     /**
      * Creates a TransactionCoordinator with all required dependencies.
@@ -234,7 +247,7 @@ internal class RainSdkManager(
      */
     private fun createTransactionCoordinator(portalManager: PortalManager): TransactionCoordinator {
       val errorMapper = ErrorMapper()
-      
+
       return TransactionCoordinator(
         portalManager = portalManager,
         validator = TransactionValidator(),

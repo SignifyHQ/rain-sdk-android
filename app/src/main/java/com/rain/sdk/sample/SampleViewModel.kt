@@ -54,6 +54,9 @@ class SampleViewModel(
   var tokenAmount by mutableStateOf("0.01")
   var tokenDecimals by mutableStateOf("6")
 
+  var transactionsText by mutableStateOf("No transactions loaded")
+    private set
+
   fun onPinChanged(newValue: String) {
     pin = newValue
   }
@@ -415,6 +418,33 @@ class SampleViewModel(
         """.trimIndent()
       } catch (e: Exception) {
         statusText = "Failed to fetch balances: ${e.message}"
+        e.printStackTrace()
+      }
+    }
+  }
+
+  fun getTransactions() {
+    if (!isInitialized) return
+
+    statusText = "Fetching transactions..."
+    transactionsText = "Loading..."
+    viewModelScope.launch {
+      try {
+        val result = rainClient.getTransactions(
+          chainId = RainChain.AVALANCHE_TESTNET,
+          limit = 5 // Fetch only latest 5 for sample
+        )
+        statusText = "Transactions fetched successfully!"
+        if (result.transactions.isEmpty()) {
+          transactionsText = "No transactions found."
+        } else {
+          transactionsText = result.transactions.joinToString(separator = "\n\n") { tx ->
+            "Hash: ${tx.hash}\nTo: ${tx.to}\nValue: ${tx.value}\nTime: ${tx.blockTimestamp}"
+          }
+        }
+      } catch (e: Exception) {
+        statusText = "Failed to fetch transactions: ${e.message}"
+        transactionsText = "Error: ${e.message}"
         e.printStackTrace()
       }
     }
