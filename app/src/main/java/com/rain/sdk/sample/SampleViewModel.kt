@@ -45,6 +45,18 @@ class SampleViewModel(
   var qrBitmap by mutableStateOf<Bitmap?>(null)
     private set
 
+  var collateralAddress by mutableStateOf("")
+    private set
+
+  var collateralQrBitmap by mutableStateOf<Bitmap?>(null)
+    private set
+
+  var portalAddress by mutableStateOf("")
+    private set
+
+  var portalQrBitmap by mutableStateOf<Bitmap?>(null)
+    private set
+
   var nativeRecipientAddress by mutableStateOf("0x3cA8ac240F6ebeA8684b3E629A8e8C1f0E3bC0Ff")
   var nativeAmount by mutableStateOf("0.001")
 
@@ -142,27 +154,35 @@ class SampleViewModel(
 
   fun getWalletAddress() {
     if (!isInitialized) return
-
-    viewModelScope.launch {
-      try {
-        val address = rainClient.portal.getAddress(PortalNamespace.EIP155) ?: "Address not found"
-        statusText = "Address fetched: $address"
-      } catch (e: Exception) {
-        statusText = "Failed to get address: ${e.message}"
-      }
+    if (accessToken.isBlank()) {
+      statusText = "Error: Access Token is required to fetch collateral address"
+      return
     }
-  }
 
-  fun generateAddressQRCode() {
-    if (!isInitialized) return
-
-    statusText = "Generating QR Code..."
+    statusText = "Fetching addresses..."
     viewModelScope.launch {
       try {
-        qrBitmap = rainClient.generateAddressQRCode()
-        statusText = "QR Code Generated Successfully!"
+        // 1. Fetch Collateral Contract & Address
+        val contractResponse = NetworkClient.fetchCollateralContract(accessToken)
+        if (contractResponse.result.isFailure) {
+           statusText = "Failed to fetch collateral contract: ${contractResponse.result.exceptionOrNull()?.message}"
+           return@launch
+        }
+        val contract = contractResponse.result.getOrThrow()
+        collateralAddress = contract.address
+        
+        // Generate QR for Collateral Address
+        collateralQrBitmap = rainClient.generateAddressQRCode(collateralAddress)
+
+        // 2. Fetch Portal Address
+        portalAddress = rainClient.portal.getAddress(PortalNamespace.EIP155) ?: "Address not found"
+
+        // Generate QR for Portal Address
+        portalQrBitmap = rainClient.generateAddressQRCode(portalAddress)
+
+        statusText = "Addresses and QR Codes generated successfully!"
       } catch (e: Exception) {
-        statusText = "Failed to generate QR Code: ${e.message}"
+        statusText = "Failed to get addresses: ${e.message}"
       }
     }
   }
