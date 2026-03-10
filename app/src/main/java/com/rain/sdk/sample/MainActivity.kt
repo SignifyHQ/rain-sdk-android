@@ -158,23 +158,39 @@ fun SampleApp() {
                 .fillMaxWidth()
                 .padding(bottom = 12.dp)
         ) {
-            Text(text = "4. Get Wallet Address")
+            Text(text = "4. Get Wallet Address & QR Codes")
         }
 
-        Button(
-            onClick = { viewModel.generateAddressQRCode() },
-            enabled = viewModel.isInitialized,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 12.dp)
-        ) {
-            Text(text = "4b. Generate Address QR Code")
+        if (viewModel.collateralAddress.isNotEmpty()) {
+            Text(
+                text = "Collateral Address: ${viewModel.collateralAddress}",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
         }
 
-        viewModel.qrBitmap?.let { bitmap ->
+        viewModel.collateralQrBitmap?.let { bitmap ->
             Image(
                 bitmap = bitmap.asImageBitmap(),
-                contentDescription = "Wallet Address QR Code",
+                contentDescription = "Collateral Address QR Code",
+                modifier = Modifier
+                    .size(200.dp)
+                    .padding(bottom = 16.dp)
+            )
+        }
+
+        if (viewModel.portalAddress.isNotEmpty()) {
+            Text(
+                text = "Portal Address: ${viewModel.portalAddress}",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
+
+        viewModel.portalQrBitmap?.let { bitmap ->
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = "Portal Address QR Code",
                 modifier = Modifier
                     .size(200.dp)
                     .padding(bottom = 12.dp)
