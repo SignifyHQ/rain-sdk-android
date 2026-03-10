@@ -38,6 +38,9 @@ graph TD
   - **Full Mode**: Uses the integrated Portal MPC wallet.
   - **Utility Mode**: Use the internal builders to generate data for your own wallet implementation.
 - **Unified Withdrawal Flow**: A single method call handles validation, EIP-712 signing, and transaction submission.
+- **Token Operations**: Built-in support for sending native and ERC-20 tokens.
+- **Balances & History**: Seamlessly retrieve wallet balances and full transaction history.
+- **Smart Utilities**: Integrated QR code generation and gas estimation for better UX.
 - **Thread Safety**: Built using Kotlin Coroutines for efficient, non-blocking operations.
 
 ## Core Components
@@ -47,7 +50,16 @@ graph TD
 The primary entry point. Accessed via `RainSdk.getInstance().client`.
 
 - `initializePortal(...)`: Sets up the MPC wallet.
+- `getAddress()`: Retrieves the hex-encoded wallet address.
+- `getNativeBalance(chainId)`: Gets the native token balance.
+- `getERC20Balance(chainId, tokenAddress, decimals)`: Gets specific ERC-20 balance.
+- `getERC20Balances(chainId)`: Gets all ERC-20 balances for the wallet.
+- `sendNativeToken(...)`: Transfers native cryptocurrency.
+- `sendToken(...)`: Transfers ERC-20 tokens.
+- `getTransactions(...)`: Fetches transaction history for a specific chain.
 - `withdrawCollateral(...)`: Orchestrates the full withdrawal flow.
+- `estimateGas(...)`: Estimates gas fees for any transaction data.
+- `generateAddressQRCode(...)`: Generates a Bitmap QR code for a wallet address.
 
 ### `RainTransactionBuilder`
 
@@ -80,6 +92,32 @@ data class RainAdminSignature(
     val salt: String,
     val signature: String,
     val expiresAt: String // ISO-8601 format
+)
+```
+
+### `RainTransaction`
+
+Represents a single blockchain transaction.
+
+```kotlin
+data class RainTransaction(
+    val hash: String,
+    val blockNumber: String?,
+    val blockTimestamp: String?,
+    val from: String,
+    val to: String?,
+    val value: String?,
+    val chainId: String?
+)
+```
+
+### `RainTokenTransferResult`
+
+Result of a token transfer operation.
+
+```kotlin
+data class RainTokenTransferResult(
+    val transactionHash: String
 )
 ```
 
