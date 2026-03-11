@@ -248,7 +248,7 @@ internal class PortalManager {
         RainTransaction(
           hash = tx.hash,
           blockNumber = tx.blockNum,
-          blockTimestamp = tx.metadata.blockTimestamp,
+          blockTimestamp = tx.metadata?.blockTimestamp,
           from = tx.from,
           to = tx.to,
           value = tx.value.toString(),
