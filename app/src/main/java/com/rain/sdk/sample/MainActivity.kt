@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.rain.sdk.sample.screens.BalancesScreen
 import com.rain.sdk.sample.screens.HomeScreen
 
 class MainActivity : ComponentActivity() {
@@ -40,6 +41,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun SampleApp() {
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
+    var accessToken by remember { mutableStateOf("") }
 
     Scaffold(
         modifier = Modifier.fillMaxSize()
@@ -47,16 +49,17 @@ fun SampleApp() {
         when (currentScreen) {
             Screen.Home -> HomeScreen(
                 innerPadding = innerPadding,
-                onNavigate = { currentScreen = it }
+                onNavigate = { currentScreen = it },
+                onAccessTokenChanged = { accessToken = it }
             )
             Screen.WalletInfo -> PlaceholderScreen(
                 title = "Wallet & QR",
                 innerPadding = innerPadding,
                 onBack = { currentScreen = Screen.Home }
             )
-            Screen.Balances -> PlaceholderScreen(
-                title = "Balances",
+            Screen.Balances -> BalancesScreen(
                 innerPadding = innerPadding,
+                accessToken = accessToken,
                 onBack = { currentScreen = Screen.Home }
             )
             Screen.SendTokens -> PlaceholderScreen(
