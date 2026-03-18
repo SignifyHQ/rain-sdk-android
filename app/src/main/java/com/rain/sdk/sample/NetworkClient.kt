@@ -14,6 +14,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 object NetworkClient {
   // TODO: add base url
   private const val BASE_URL = "https://service-platform.dev.liquidity-financial.com"
+  private const val PRODUCT_ID = "fb352b08-c759-4a6c-8a63-d9d190265447"
+  private const val DEVICE_ID = "f28e7e83ac19d565"
 
   private val client = OkHttpClient.Builder()
     .connectTimeout(30, TimeUnit.SECONDS)
@@ -53,9 +55,7 @@ object NetworkClient {
 
     val requestBody = gson.toJson(payload).toRequestBody(jsonMediaType)
 
-    val PRODUCT_ID = "fb352b08-c759-4a6c-8a63-d9d190265447"
-    
-    val deviceId = "f28e7e83ac19d565"
+
 
     val request = Request.Builder()
       .url("$BASE_URL/v1/rain/person/withdrawal/signature")
@@ -63,7 +63,7 @@ object NetworkClient {
       .addHeader("Content-Type", "application/json")
       .addHeader("accept", "application/json")
       .addHeader("productId", PRODUCT_ID)
-      .addHeader("ld-device-id", deviceId)
+      .addHeader("ld-device-id", DEVICE_ID)
       .post(requestBody)
       .build()
 
@@ -107,14 +107,13 @@ object NetworkClient {
   suspend fun fetchCollateralContract(
     accessToken: String
   ): NetworkResponse<CollateralContractData> = suspendCancellableCoroutine { continuation ->
-    val productId = "fb352b08-c759-4a6c-8a63-d9d190265447"
-    val deviceId = "f28e7e83ac19d565"
+
 
     val request = Request.Builder()
       .url("$BASE_URL/v1/rain/person/credit-contracts")
       .addHeader("Authorization", "Bearer $accessToken")
-      .addHeader("productId", productId)
-      .addHeader("ld-device-id", deviceId)
+      .addHeader("productId", PRODUCT_ID)
+      .addHeader("ld-device-id", DEVICE_ID)
       .get()
       .build()
 
@@ -145,7 +144,19 @@ object NetworkClient {
   data class CollateralContractData(
     val address: String,
     val controllerAddress: String,
-    val chainId: Long
+    val chainId: Long,
+    val tokens: List<CollateralTokenData> = emptyList()
+  )
+
+  data class CollateralTokenData(
+    val name: String? = null,
+    val address: String,
+    val symbol: String? = null,
+    val logo: String? = null,
+    val decimals: Int? = null,
+    val balance: Double = 0.0,
+    val exchangeRate: Double = 0.0,
+    val advanceRate: Double = 0.0
   )
 
   suspend fun fetchBackupShare(accessToken: String): NetworkResponse<String> = suspendCancellableCoroutine { continuation ->

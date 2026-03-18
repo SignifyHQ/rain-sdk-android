@@ -5,15 +5,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -25,6 +23,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -52,8 +52,11 @@ private val featureActions = listOf(
 fun HomeScreen(
     innerPadding: PaddingValues,
     onNavigate: (Screen) -> Unit,
+    onAccessTokenChanged: (String) -> Unit = {},
     viewModel: HomeViewModel = viewModel(factory = HomeViewModelFactory())
 ) {
+    val state by viewModel.state.collectAsState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -71,18 +74,30 @@ fun HomeScreen(
         )
 
         // --- Configuration Section ---
-        ConfigurationSection(viewModel)
+        ConfigurationSection(
+            state = state,
+            onSessionTokenChanged = viewModel::onSessionTokenChanged,
+            onAccessTokenChanged = { value ->
+                viewModel.onAccessTokenChanged(value)
+                onAccessTokenChanged(value)
+            },
+            onInitializeSdk = viewModel::initializeSdk
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
         // --- Recovery Section (Conditional) ---
-        if (viewModel.needsRecovery) {
-            RecoverySection(viewModel)
+        if (state.needsRecovery) {
+            RecoverySection(
+                state = state,
+                onPinChanged = viewModel::onPinChanged,
+                onRecover = viewModel::recoverWithPin
+            )
             Spacer(modifier = Modifier.height(16.dp))
         }
 
         // --- Feature Grid ---
-        if (viewModel.isInitialized) {
+        if (state.isRecovered) {
             Text(
                 text = "SDK Features",
                 style = MaterialTheme.typography.titleMedium,
@@ -101,7 +116,7 @@ fun HomeScreen(
         }
 
         // --- Clear Session ---
-        if (viewModel.isInitialized) {
+        if (state.isRecovered) {
             Button(
                 onClick = { viewModel.clearSession() },
                 modifier = Modifier.fillMaxWidth(),
@@ -122,7 +137,7 @@ fun HomeScreen(
             shape = MaterialTheme.shapes.medium
         ) {
             Text(
-                text = "Status: ${viewModel.statusText}",
+                text = "Status: ${state.statusText}",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(16.dp)
             )
@@ -131,7 +146,12 @@ fun HomeScreen(
 }
 
 @Composable
-private fun ConfigurationSection(viewModel: HomeViewModel) {
+private fun ConfigurationSection(
+    state: HomeUiState,
+    onSessionTokenChanged: (String) -> Unit,
+    onAccessTokenChanged: (String) -> Unit,
+    onInitializeSdk: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -147,8 +167,8 @@ private fun ConfigurationSection(viewModel: HomeViewModel) {
             )
 
             OutlinedTextField(
-                value = viewModel.sessionToken,
-                onValueChange = { viewModel.onSessionTokenChanged(it) },
+                value = state.sessionToken,
+                onValueChange = onSessionTokenChanged,
                 label = { Text("Portal Session Token") },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -157,8 +177,8 @@ private fun ConfigurationSection(viewModel: HomeViewModel) {
             )
 
             OutlinedTextField(
-                value = viewModel.accessToken,
-                onValueChange = { viewModel.onAccessTokenChanged(it) },
+                value = state.accessToken,
+                onValueChange = onAccessTokenChanged,
                 label = { Text("Rain Access Token") },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -167,12 +187,12 @@ private fun ConfigurationSection(viewModel: HomeViewModel) {
             )
 
             Button(
-                onClick = { viewModel.initializeSdk() },
-                enabled = viewModel.sessionToken.isNotBlank() && !viewModel.isInitialized,
+                onClick = onInitializeSdk,
+                enabled = state.sessionToken.isNotBlank() && !state.isInitialized,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = if (viewModel.isInitialized) "✅ SDK Initialized" else "Initialize SDK"
+                    text = if (state.isInitialized) "✅ SDK Initialized" else "Initialize SDK"
                 )
             }
         }
@@ -180,7 +200,11 @@ private fun ConfigurationSection(viewModel: HomeViewModel) {
 }
 
 @Composable
-private fun RecoverySection(viewModel: HomeViewModel) {
+private fun RecoverySection(
+    state: HomeUiState,
+    onPinChanged: (String) -> Unit,
+    onRecover: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -198,8 +222,8 @@ private fun RecoverySection(viewModel: HomeViewModel) {
             )
 
             OutlinedTextField(
-                value = viewModel.pin,
-                onValueChange = { viewModel.onPinChanged(it) },
+                value = state.pin,
+                onValueChange = onPinChanged,
                 label = { Text("Enter PIN") },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -208,19 +232,19 @@ private fun RecoverySection(viewModel: HomeViewModel) {
             )
 
             Button(
-                onClick = { viewModel.recoverWithPin() },
-                enabled = viewModel.pin.isNotBlank(),
+                onClick = onRecover,
+                enabled = state.pin.isNotBlank() && !state.isLoading,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.error
                 )
             ) {
-                Text("Recover Wallet")
+                Text(if (state.isLoading) "Recovering..." else "Recover Wallet")
             }
 
-            if (viewModel.statusText != "Ready") {
+            if (state.statusText != "Ready") {
                 Text(
-                    text = viewModel.statusText,
+                    text = state.statusText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onErrorContainer,
                     modifier = Modifier.padding(top = 8.dp)
@@ -242,7 +266,7 @@ private fun FeatureGrid(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         chunked.forEach { row ->
-            androidx.compose.foundation.layout.Row(
+            Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
