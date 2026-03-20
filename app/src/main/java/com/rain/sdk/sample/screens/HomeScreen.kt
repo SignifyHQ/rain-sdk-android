@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.Screen
 
 data class FeatureAction(
@@ -51,9 +52,10 @@ private val featureActions = listOf(
 @Composable
 fun HomeScreen(
     innerPadding: PaddingValues,
+    rainClient: RainClient,
     onNavigate: (Screen) -> Unit,
     onAccessTokenChanged: (String) -> Unit = {},
-    viewModel: HomeViewModel = viewModel(factory = HomeViewModelFactory())
+    viewModel: HomeViewModel = viewModel(factory = HomeViewModelFactory(rainClient))
 ) {
     val state by viewModel.state.collectAsState()
 
