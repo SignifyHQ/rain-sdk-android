@@ -77,10 +77,11 @@ object NetworkClient {
       override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
         response.use {
           if (!response.isSuccessful) {
+            val errorBody = response.body?.string() ?: ""
             continuation.resume(
                 NetworkResponse(
                     curlCommand, 
-                    Result.failure(IOException("API Error: ${response.code} ${response.message}"))
+                    Result.failure(IOException("API Error ${response.code}: $errorBody"))
                 )
             )
             return

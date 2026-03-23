@@ -1,10 +1,10 @@
 package com.rain.sdk.sample
 
-sealed class Screen {
-    data object Home : Screen()
-    data object WalletInfo : Screen()
-    data object Balances : Screen()
-    data object SendTokens : Screen()
-    data object CollateralWithdraw : Screen()
-    data object TransactionHistory : Screen()
+sealed class Screen(val route: String) {
+    data object Home : Screen("home")
+    data object WalletInfo : Screen("wallet_info")
+    data object Balances : Screen("balances")
+    data object SendTokens : Screen("send_tokens")
+    data object CollateralWithdraw : Screen("collateral_withdraw")
+    data object TransactionHistory : Screen("transaction_history")
 }
