@@ -31,6 +31,7 @@ import com.rain.sdk.RainSdk
 import com.rain.sdk.sample.screens.BalancesScreen
 import com.rain.sdk.sample.screens.CollateralWithdrawScreen
 import com.rain.sdk.sample.screens.HomeScreen
+import com.rain.sdk.sample.screens.SendTokensScreen
 import com.rain.sdk.sample.screens.TransactionHistoryScreen
 import com.rain.sdk.sample.screens.WalletInfoScreen
 
@@ -85,9 +86,9 @@ fun SampleApp() {
                 )
             }
             composable(Screen.SendTokens.route) {
-                PlaceholderScreen(
-                    title = "Send Tokens",
+                SendTokensScreen(
                     innerPadding = innerPadding,
+                    rainClient = rainClient,
                     onBack = { navController.popBackStack() }
                 )
             }
