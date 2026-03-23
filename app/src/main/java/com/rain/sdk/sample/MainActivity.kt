@@ -24,8 +24,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.rain.sdk.RainSdk
 import com.rain.sdk.sample.screens.BalancesScreen
 import com.rain.sdk.sample.screens.HomeScreen
+import com.rain.sdk.sample.screens.TransactionHistoryScreen
+import com.rain.sdk.sample.screens.WalletInfoScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,6 +45,7 @@ class MainActivity : ComponentActivity() {
 fun SampleApp() {
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
     var accessToken by remember { mutableStateOf("") }
+    val rainClient = remember { RainSdk.getInstance().client }
 
     Scaffold(
         modifier = Modifier.fillMaxSize()
@@ -49,17 +53,20 @@ fun SampleApp() {
         when (currentScreen) {
             Screen.Home -> HomeScreen(
                 innerPadding = innerPadding,
+                rainClient = rainClient,
                 onNavigate = { currentScreen = it },
                 onAccessTokenChanged = { accessToken = it }
             )
-            Screen.WalletInfo -> PlaceholderScreen(
-                title = "Wallet & QR",
+            Screen.WalletInfo -> WalletInfoScreen(
                 innerPadding = innerPadding,
+                accessToken = accessToken,
+                rainClient = rainClient,
                 onBack = { currentScreen = Screen.Home }
             )
             Screen.Balances -> BalancesScreen(
                 innerPadding = innerPadding,
                 accessToken = accessToken,
+                rainClient = rainClient,
                 onBack = { currentScreen = Screen.Home }
             )
             Screen.SendTokens -> PlaceholderScreen(
@@ -72,9 +79,9 @@ fun SampleApp() {
                 innerPadding = innerPadding,
                 onBack = { currentScreen = Screen.Home }
             )
-            Screen.TransactionHistory -> PlaceholderScreen(
-                title = "Transaction History",
+            Screen.TransactionHistory -> TransactionHistoryScreen(
                 innerPadding = innerPadding,
+                rainClient = rainClient,
                 onBack = { currentScreen = Screen.Home }
             )
         }

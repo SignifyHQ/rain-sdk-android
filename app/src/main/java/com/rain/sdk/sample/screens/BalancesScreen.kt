@@ -32,13 +32,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.rain.sdk.interfaces.RainClient
 
 @Composable
 fun BalancesScreen(
     innerPadding: PaddingValues,
     accessToken: String,
+    rainClient: RainClient,
     onBack: () -> Unit,
-    viewModel: BalancesViewModel = viewModel(factory = BalancesViewModelFactory())
+    viewModel: BalancesViewModel = viewModel(factory = BalancesViewModelFactory(rainClient))
 ) {
     val state by viewModel.state.collectAsState()
 

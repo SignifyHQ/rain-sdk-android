@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.rain.sdk.RainChain
-import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.NetworkClient
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -165,11 +164,13 @@ data class BalancesUiState(
     val collateralError: String? = null
 )
 
-class BalancesViewModelFactory : ViewModelProvider.Factory {
+class BalancesViewModelFactory(
+    private val rainClient: RainClient
+) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(BalancesViewModel::class.java)) {
-            return BalancesViewModel(RainSdk.getInstance().client) as T
+            return BalancesViewModel(rainClient) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

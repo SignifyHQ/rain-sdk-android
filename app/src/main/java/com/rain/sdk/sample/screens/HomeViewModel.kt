@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.rain.sdk.RainChain
-import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.NetworkClient
 import io.portalhq.android.mpc.data.BackupConfigs
@@ -150,11 +149,13 @@ data class HomeUiState(
     val statusText: String = "Ready"
 )
 
-class HomeViewModelFactory : ViewModelProvider.Factory {
+class HomeViewModelFactory(
+    private val rainClient: RainClient
+) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(HomeViewModel::class.java)) {
-            return HomeViewModel(RainSdk.getInstance().client) as T
+            return HomeViewModel(rainClient) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
