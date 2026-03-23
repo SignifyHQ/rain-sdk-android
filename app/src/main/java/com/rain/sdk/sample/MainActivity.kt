@@ -24,8 +24,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.rain.sdk.RainSdk
 import com.rain.sdk.sample.screens.BalancesScreen
+import com.rain.sdk.sample.screens.CollateralWithdrawScreen
 import com.rain.sdk.sample.screens.HomeScreen
 import com.rain.sdk.sample.screens.TransactionHistoryScreen
 import com.rain.sdk.sample.screens.WalletInfoScreen
@@ -43,47 +47,65 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun SampleApp() {
-    var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
+    val navController = rememberNavController()
     var accessToken by remember { mutableStateOf("") }
     val rainClient = remember { RainSdk.getInstance().client }
 
     Scaffold(
         modifier = Modifier.fillMaxSize()
     ) { innerPadding ->
-        when (currentScreen) {
-            Screen.Home -> HomeScreen(
-                innerPadding = innerPadding,
-                rainClient = rainClient,
-                onNavigate = { currentScreen = it },
-                onAccessTokenChanged = { accessToken = it }
-            )
-            Screen.WalletInfo -> WalletInfoScreen(
-                innerPadding = innerPadding,
-                accessToken = accessToken,
-                rainClient = rainClient,
-                onBack = { currentScreen = Screen.Home }
-            )
-            Screen.Balances -> BalancesScreen(
-                innerPadding = innerPadding,
-                accessToken = accessToken,
-                rainClient = rainClient,
-                onBack = { currentScreen = Screen.Home }
-            )
-            Screen.SendTokens -> PlaceholderScreen(
-                title = "Send Tokens",
-                innerPadding = innerPadding,
-                onBack = { currentScreen = Screen.Home }
-            )
-            Screen.CollateralWithdraw -> PlaceholderScreen(
-                title = "Collateral Withdraw",
-                innerPadding = innerPadding,
-                onBack = { currentScreen = Screen.Home }
-            )
-            Screen.TransactionHistory -> TransactionHistoryScreen(
-                innerPadding = innerPadding,
-                rainClient = rainClient,
-                onBack = { currentScreen = Screen.Home }
-            )
+        NavHost(
+            navController = navController,
+            startDestination = Screen.Home.route
+        ) {
+            composable(Screen.Home.route) {
+                HomeScreen(
+                    innerPadding = innerPadding,
+                    rainClient = rainClient,
+                    onNavigate = { screen ->
+                        navController.navigate(screen.route)
+                    },
+                    onAccessTokenChanged = { accessToken = it }
+                )
+            }
+            composable(Screen.WalletInfo.route) {
+                WalletInfoScreen(
+                    innerPadding = innerPadding,
+                    accessToken = accessToken,
+                    rainClient = rainClient,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Screen.Balances.route) {
+                BalancesScreen(
+                    innerPadding = innerPadding,
+                    accessToken = accessToken,
+                    rainClient = rainClient,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Screen.SendTokens.route) {
+                PlaceholderScreen(
+                    title = "Send Tokens",
+                    innerPadding = innerPadding,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Screen.CollateralWithdraw.route) {
+                CollateralWithdrawScreen(
+                    innerPadding = innerPadding,
+                    accessToken = accessToken,
+                    rainClient = rainClient,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Screen.TransactionHistory.route) {
+                TransactionHistoryScreen(
+                    innerPadding = innerPadding,
+                    rainClient = rainClient,
+                    onBack = { navController.popBackStack() }
+                )
+            }
         }
     }
 }
