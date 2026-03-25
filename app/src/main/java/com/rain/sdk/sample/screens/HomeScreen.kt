@@ -243,15 +243,6 @@ private fun RecoverySection(
             ) {
                 Text(if (state.isLoading) "Recovering..." else "Recover Wallet")
             }
-
-            if (state.statusText != "Ready") {
-                Text(
-                    text = state.statusText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
         }
     }
 }
