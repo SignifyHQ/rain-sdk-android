@@ -11,6 +11,7 @@ import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionResult
 import io.portalhq.android.api.data.GetTransactionsOrder
+import io.portalhq.android.api.data.Transaction
 import io.portalhq.android.storage.mobile.PortalNamespace
 import io.portalhq.android.provider.data.PortalRequestMethod
 import org.web3j.abi.FunctionEncoder
@@ -23,7 +24,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -244,19 +248,24 @@ internal class PortalManager {
         order = portalOrder
       ).getOrThrow()
 
-      val rainTransactions = portalTransactions.map { tx ->
-        RainTransaction(
-          hash = tx.hash,
-          blockNumber = tx.blockNum,
-          blockTimestamp = tx.metadata?.blockTimestamp,
-          from = tx.from,
-          to = tx.to,
-          value = tx.value.toString(),
-          gas = null,
-          gasPrice = null,
-          chainId = tx.chainId.toString(),
-          metadata = null
-        )
+      val rainTransactions = coroutineScope {
+        portalTransactions.map { tx ->
+          async {
+            val resolvedValue = resolveTransactionValue(tx, portal, eip155ChainId)
+            RainTransaction(
+              hash = tx.hash,
+              blockNumber = tx.blockNum,
+              blockTimestamp = tx.metadata?.blockTimestamp,
+              from = tx.from,
+              to = tx.to,
+              value = resolvedValue,
+              gas = null,
+              gasPrice = null,
+              chainId = tx.chainId.toString(),
+              metadata = null
+            )
+          }
+        }.awaitAll()
       }
 
       RainTransactionResult(transactions = rainTransactions)
@@ -333,6 +342,61 @@ internal class PortalManager {
     val txHash = EthereumConverter.convertPortalResultToTransactionHash(result)
 
     return txHash
+  }
+
+  /**
+   * Resolves a human-readable value for a transaction.
+   * Prefers tx.value (Double), falls back to rawContract hex value / decimal.
+   * If rawContract.decimal is null, fetches it on-chain via ERC20 decimals().
+   */
+  private suspend fun resolveTransactionValue(
+    tx: Transaction,
+    portal: Portal,
+    eip155ChainId: String
+  ): String? {
+    // If Portal already provides a parsed value, use it
+    tx.value?.let { return it.toString() }
+
+    // Fallback: parse rawContract hex value with its decimal
+    val rawContract = tx.rawContract ?: return null
+    val hexValue = rawContract.value ?: return null
+
+    // Get decimal: from rawContract first, then on-chain call
+    val decimal = rawContract.decimal?.toIntOrNull()
+      ?: rawContract.address?.let { fetchErc20Decimals(portal, eip155ChainId, it) }
+      ?: return null
+
+    return try {
+      EthereumConverter.convertHexToDouble(hexValue, decimal).toString()
+    } catch (e: Exception) {
+      Timber.w(e, "Rain SDK: Failed to parse rawContract value=$hexValue decimal=$decimal")
+      null
+    }
+  }
+
+  /**
+   * Fetches ERC20 decimals from contract via eth_call.
+   */
+  private suspend fun fetchErc20Decimals(
+    portal: Portal,
+    eip155ChainId: String,
+    contractAddress: String
+  ): Int? {
+    return try {
+      val function = Function("decimals", emptyList(), listOf(object : TypeReference<Uint256>() {}))
+      val encodedFunction = FunctionEncoder.encode(function)
+      val callParams = mapOf("to" to contractAddress, "data" to encodedFunction)
+      val result = portal.request(
+        chainId = eip155ChainId,
+        method = PortalRequestMethod.eth_call,
+        params = listOf(callParams, "latest")
+      )
+      val hex = EthereumConverter.convertPortalResultToHexString(result)
+      hex.removePrefix("0x").toBigInteger(16).toInt()
+    } catch (e: Exception) {
+      Timber.w(e, "Rain SDK: Failed to fetch decimals for contract=$contractAddress")
+      null
+    }
   }
 
   fun getPortalInstance(): Portal {
