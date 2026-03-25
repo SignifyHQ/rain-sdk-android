@@ -127,7 +127,7 @@ fun BalancesScreen(
                         BalanceCard(
                             emoji = "🪙",
                             label = token.symbol,
-                            value = "%.6f".format(token.balance),
+                            value = "%.2f".format(token.balance),
                             subtitle = token.displayAddress
                         )
                         Spacer(modifier = Modifier.height(8.dp))
