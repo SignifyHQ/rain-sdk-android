@@ -33,6 +33,8 @@ data class RainTransaction(
     val gas: String? = null,
     val gasPrice: String? = null,
     val chainId: String? = null,
+    val symbol: String? = null,
+    val tokenAddress: String? = null,
     val metadata: Map<String, Any?>? = null
 )
 

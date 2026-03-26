@@ -252,6 +252,7 @@ internal class PortalManager {
         portalTransactions.map { tx ->
           async {
             val resolvedValue = resolveTransactionValue(tx, portal, eip155ChainId)
+            val resolvedSymbol = resolveTransactionSymbol(tx, portal, eip155ChainId)
             RainTransaction(
               hash = tx.hash,
               blockNumber = tx.blockNum,
@@ -262,6 +263,8 @@ internal class PortalManager {
               gas = null,
               gasPrice = null,
               chainId = tx.chainId.toString(),
+              symbol = resolvedSymbol,
+              tokenAddress = tx.rawContract?.address,
               metadata = null
             )
           }
@@ -395,6 +398,53 @@ internal class PortalManager {
       hex.removePrefix("0x").toBigInteger(16).toInt()
     } catch (e: Exception) {
       Timber.w(e, "Rain SDK: Failed to fetch decimals for contract=$contractAddress")
+      null
+    }
+  }
+
+  /**
+   * Resolves the token symbol for a transaction.
+   * If it's a native transfer (no rawContract), returns "AVAX".
+   * Otherwise fetches the token symbol via eth_call.
+   */
+  private suspend fun resolveTransactionSymbol(
+    tx: Transaction,
+    portal: Portal,
+    eip155ChainId: String
+  ): String {
+    val rawContract = tx.rawContract ?: return "AVAX"
+    val contractAddress = rawContract.address ?: return "AVAX"
+    return fetchErc20Symbol(portal, eip155ChainId, contractAddress) ?: "AVAX"
+  }
+
+  /**
+   * Fetches ERC20 symbol from contract via eth_call.
+   */
+  private suspend fun fetchErc20Symbol(
+    portal: Portal,
+    eip155ChainId: String,
+    contractAddress: String
+  ): String? {
+    return try {
+      val function = Function("symbol", emptyList(), listOf(object : TypeReference<org.web3j.abi.datatypes.Utf8String>() {}))
+      val encodedFunction = FunctionEncoder.encode(function)
+      val callParams = mapOf("to" to contractAddress, "data" to encodedFunction)
+      val result = portal.request(
+        chainId = eip155ChainId,
+        method = PortalRequestMethod.eth_call,
+        params = listOf(callParams, "latest")
+      )
+      val hex = EthereumConverter.convertPortalResultToHexString(result)
+      if (hex.length > 2) {
+        val decoded = org.web3j.abi.FunctionReturnDecoder.decode(hex, function.outputParameters)
+        if (decoded.isNotEmpty()) {
+          (decoded[0] as org.web3j.abi.datatypes.Utf8String).value
+        } else null
+      } else {
+        null
+      }
+    } catch (e: Exception) {
+      Timber.w(e, "Rain SDK: Failed to fetch symbol for contract=$contractAddress")
       null
     }
   }
