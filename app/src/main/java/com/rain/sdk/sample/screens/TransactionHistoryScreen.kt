@@ -1,9 +1,15 @@
 package com.rain.sdk.sample.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,7 +19,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -27,11 +35,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.interfaces.RainClient
@@ -121,15 +130,30 @@ fun TransactionHistoryScreen(
 
         // Transaction list
         state.transactions.forEach { tx ->
-            TransactionCard(tx)
+            TransactionCard(tx, state.walletAddress)
             Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
 
 @Composable
-private fun TransactionCard(tx: RainTransaction) {
+private fun TransactionCard(tx: RainTransaction, walletAddress: String?) {
     val context = LocalContext.current
+
+    val isSend = walletAddress?.let { tx.from.equals(it, ignoreCase = true) } ?: false
+    val isReceive = walletAddress?.let { tx.to?.equals(it, ignoreCase = true) == true } ?: false
+    val badgeStr = when {
+        isSend && isReceive -> "SELF"
+        isSend -> "SEND"
+        isReceive -> "RECEIVE"
+        else -> ""
+    }
+    val badgeColor = when {
+        isSend && isReceive -> Color.Gray
+        isSend -> Color(0xFFE57373)
+        isReceive -> Color(0xFF81C784)
+        else -> Color.Transparent
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -141,33 +165,42 @@ private fun TransactionCard(tx: RainTransaction) {
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            // Hash
+            // Hash and Badge
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Tx Hash",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                tx.blockTimestamp?.let { timestamp ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = formatTimestamp(timestamp),
+                        text = "Tx Hash",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (badgeStr.isNotEmpty()) {
+                        Spacer(modifier = Modifier.size(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(badgeColor)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = badgeStr,
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color.White
+                            )
+                        }
+                    }
                 }
             }
             Text(
-                text = tx.hash,
+                text = truncateHash(tx.hash),
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.primary,
                 textDecoration = TextDecoration.Underline,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.clickable {
                     val url = "https://testnet.snowtrace.io/tx/${tx.hash}"
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -211,23 +244,49 @@ private fun TransactionCard(tx: RainTransaction) {
             tx.value?.let { value ->
                 if (value != "0") {
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Value: $value",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val symbolText = tx.symbol?.let { " $it" } ?: ""
+                        Text(
+                            text = "Value: $value$symbolText",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        
+                        tx.tokenAddress?.let { tokenAddr ->
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "(${truncateAddress(tokenAddr)})",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "⧉",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .clickable {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val clip = ClipData.newPlainText("Contract Address", tokenAddr)
+                                        clipboard.setPrimaryClip(clip)
+                                        Toast.makeText(context, "Copied Contract Address", Toast.LENGTH_SHORT).show()
+                                    }
+                            )
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-private fun truncateAddress(address: String): String {
-    return if (address.length > 12) "${address.take(6)}...${address.takeLast(4)}" else address
+private fun truncateHash(hash: String): String {
+    return if (hash.length > 20) "${hash.take(12)}...${hash.takeLast(6)}" else hash
 }
 
-private fun formatTimestamp(timestamp: String): String {
-    // Simple display — take date part if ISO-8601 format
-    return timestamp.take(19).replace("T", " ")
+private fun truncateAddress(address: String): String {
+    return if (address.length > 14) "${address.take(6)}...${address.takeLast(6)}" else address
 }
+
+

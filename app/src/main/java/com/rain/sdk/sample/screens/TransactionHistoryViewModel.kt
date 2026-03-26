@@ -14,54 +14,63 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class TransactionHistoryViewModel(
-    private val rainClient: RainClient
+  private val rainClient: RainClient
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(TransactionHistoryUiState())
-    val state: StateFlow<TransactionHistoryUiState> = _state.asStateFlow()
+  private val _state = MutableStateFlow(TransactionHistoryUiState())
+  val state: StateFlow<TransactionHistoryUiState> = _state.asStateFlow()
 
-    fun fetchTransactions() {
-        _state.update { it.copy(isLoading = true, errorText = null) }
+  fun fetchTransactions() {
+    _state.update { it.copy(isLoading = true, errorText = null) }
 
-        viewModelScope.launch {
-            try {
-                val result = rainClient.getTransactions(
-                    chainId = RainChain.AVALANCHE_TESTNET,
-                    limit = 20,
-                    order = RainTransactionOrder.DESC
-                )
-                _state.update {
-                    it.copy(
-                        transactions = result.transactions,
-                        isLoading = false
-                    )
-                }
-            } catch (e: Exception) {
-                _state.update {
-                    it.copy(
-                        isLoading = false,
-                        errorText = e.message ?: "Unknown error"
-                    )
-                }
-            }
+    viewModelScope.launch {
+      try {
+        // Fetch wallet address to determine send/receive direction
+        val address = try {
+          rainClient.getAddress()
+        } catch (e: Exception) {
+          null
         }
+
+        val result = rainClient.getTransactions(
+          chainId = RainChain.AVALANCHE_TESTNET,
+          limit = 20,
+          order = RainTransactionOrder.DESC
+        )
+        _state.update {
+          it.copy(
+            transactions = result.transactions,
+            walletAddress = address,
+            isLoading = false
+          )
+        }
+      } catch (e: Exception) {
+        _state.update {
+          it.copy(
+            isLoading = false,
+            errorText = e.message ?: "Unknown error"
+          )
+        }
+      }
     }
+  }
 }
 
 data class TransactionHistoryUiState(
-    val transactions: List<RainTransaction> = emptyList(),
-    val isLoading: Boolean = false,
-    val errorText: String? = null
+  val transactions: List<RainTransaction> = emptyList(),
+  val walletAddress: String? = null,
+  val isLoading: Boolean = false,
+  val errorText: String? = null
 )
 
 class TransactionHistoryViewModelFactory(
-    private val rainClient: RainClient
+  private val rainClient: RainClient
 ) : ViewModelProvider.Factory {
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(TransactionHistoryViewModel::class.java)) {
-            return TransactionHistoryViewModel(rainClient) as T
-        }
-        throw IllegalArgumentException("Unknown ViewModel class")
+  @Suppress("UNCHECKED_CAST")
+  override fun <T : ViewModel> create(modelClass: Class<T>): T {
+    if (modelClass.isAssignableFrom(TransactionHistoryViewModel::class.java)) {
+      return TransactionHistoryViewModel(rainClient) as T
     }
+    throw IllegalArgumentException("Unknown ViewModel class")
+  }
 }
