@@ -101,6 +101,8 @@ class BalancesViewModel(
 
                 val contract = contractResponse.result.getOrThrow()
                 val tokens = contract.tokens
+                
+                val collateralAddress = contract.address
 
                 // Collateral balances come from the API, not on-chain.
                 // Tokens are deposited into the smart contract, so the user's
@@ -118,6 +120,7 @@ class BalancesViewModel(
 
                 _state.update {
                     it.copy(
+                        collateralWalletAddress = collateralAddress,
                         collateralBalances = collateralBalances,
                         isCollateralLoading = false
                     )
@@ -132,6 +135,24 @@ class BalancesViewModel(
             }
         }
     }
+    
+    fun loadWalletAddresses() {
+        if (rainClient.isInitialized) {
+            viewModelScope.launch {
+                try {
+                    val address = rainClient.getAddress()
+                    _state.update { it.copy(internalWalletAddress = address) }
+                } catch (_: Exception) {
+                    // Ignore if not initialized properly
+                }
+            }
+        }
+    }
+}
+
+fun formatAddress(address: String): String {
+    if (address.length <= 10) return address
+    return "${address.take(6)}...${address.takeLast(4)}"
 }
 
 data class CollateralTokenBalance(
@@ -152,6 +173,7 @@ data class CollateralTokenBalance(
 data class BalancesUiState(
     val accessToken: String = "",
     // Manual query section
+    val internalWalletAddress: String = "",
     val tokenContractAddress: String = "0x5425890298aed601595a70AB815c96711a31Bc65",
     val tokenDecimals: String = "6",
     val isLoading: Boolean = false,
@@ -159,6 +181,7 @@ data class BalancesUiState(
     val erc20Balance: String? = null,
     val errorMessage: String? = null,
     // Collateral balances section (from API)
+    val collateralWalletAddress: String = "",
     val isCollateralLoading: Boolean = false,
     val collateralBalances: List<CollateralTokenBalance> = emptyList(),
     val collateralError: String? = null

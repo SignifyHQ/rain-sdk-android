@@ -160,7 +160,7 @@ fun CollateralWithdrawScreen(
                                         fontWeight = FontWeight.Medium
                                     )
                                     Text(
-                                        text = "Balance: ${token.balance}",
+                                        text = "Balance: ${"%.2f".format(token.balance)}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -185,7 +185,7 @@ fun CollateralWithdrawScreen(
                 singleLine = true,
                 supportingText = {
                     state.selectedToken?.let { token ->
-                        Text("Available: ${token.balance} ${token.symbol}")
+                        Text("Available: ${"%.2f".format(token.balance)} ${token.symbol}")
                     }
                 }
             )
