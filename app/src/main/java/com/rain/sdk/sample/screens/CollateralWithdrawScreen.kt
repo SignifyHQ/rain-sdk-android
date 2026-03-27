@@ -176,6 +176,17 @@ fun CollateralWithdrawScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Recipient Address
+            OutlinedTextField(
+                value = state.recipientAddress,
+                onValueChange = { viewModel.onRecipientChanged(it) },
+                label = { Text("Recipient Address") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             // Amount Input
             OutlinedTextField(
                 value = state.amount,
