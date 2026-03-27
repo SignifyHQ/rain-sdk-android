@@ -14,6 +14,7 @@ enum class RainErrorCode(val code: String) {
 
   USER_REJECTED("RAIN_401"),
   INSUFFICIENT_FUNDS("RAIN_402"),
+  TRANSACTION_SIMULATION_FAILED("RAIN_403"),
 
   PROVIDER_ERROR("RAIN_501"),
   INTERNAL_LOGIC_ERROR("RAIN_502")
@@ -49,6 +50,9 @@ sealed class RainError(
   class UserRejected : RainError(RainErrorCode.USER_REJECTED)
 
   class InsufficientFunds : RainError(RainErrorCode.INSUFFICIENT_FUNDS)
+
+  class TransactionSimulationFailed(cause: Throwable?) :
+    RainError(RainErrorCode.TRANSACTION_SIMULATION_FAILED, "Transaction simulation failed: ${cause?.message}", cause)
 
   // --- 5xx Internal ---
   class ProviderError(cause: Throwable?) :
