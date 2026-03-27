@@ -328,6 +328,29 @@ internal class PortalManager {
     value: String = "0x0"
   ): String {
     val portal = getPortalInstance()
+    val eip155ChainId = "${PortalNamespace.EIP155.value}:$chainId"
+
+    val ethParam = mapOf(
+      "from" to from,
+      "to" to to,
+      "data" to data,
+      "value" to value
+    )
+
+    // Simulate the transaction first via eth_call to catch failures
+    // (e.g. insufficient funds, contract reverts) — no balance fetch needed,
+    // the node validates it for free.
+    try {
+      portal.request(
+        chainId = eip155ChainId,
+        method = PortalRequestMethod.eth_call,
+        params = listOf(ethParam, "latest")
+      )
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      Timber.e(e, "Rain SDK: Transaction simulation failed (eth_call)")
+      throw RainError.TransactionSimulationFailed(e)
+    }
 
     val params = EthTransactionParam(
       from = from,
@@ -341,7 +364,7 @@ internal class PortalManager {
       nonce = null
     )
 
-    val result = portal.ethSendTransaction("${PortalNamespace.EIP155.value}:$chainId", params)
+    val result = portal.ethSendTransaction(eip155ChainId, params)
     val txHash = EthereumConverter.convertPortalResultToTransactionHash(result)
 
     return txHash
