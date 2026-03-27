@@ -167,6 +167,7 @@ internal class RainSdkManager(
       RainTokenTransferResult(transactionHash = txHash)
     } catch (e: Exception) {
       if (e is CancellationException) throw e
+      if (e is RainError) throw e
       Timber.e(e, "Rain SDK: Failed to send native token")
       throw RainError.ProviderError(e)
     }
@@ -190,6 +191,7 @@ internal class RainSdkManager(
       RainTokenTransferResult(transactionHash = txHash)
     } catch (e: Exception) {
       if (e is CancellationException) throw e
+      if (e is RainError) throw e
       Timber.e(e, "Rain SDK: Failed to send ERC-20 token")
       throw RainError.ProviderError(e)
     }
