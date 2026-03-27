@@ -56,6 +56,7 @@ class CollateralWithdrawViewModel(
                 _state.update {
                     it.copy(
                         walletAddress = walletAddress,
+                        recipientAddress = walletAddress,
                         proxyAddress = contract.address,
                         controllerAddress = contract.controllerAddress,
                         chainId = contract.chainId,
@@ -81,6 +82,10 @@ class CollateralWithdrawViewModel(
 
     fun onAmountChanged(value: String) {
         _state.update { it.copy(amount = value) }
+    }
+
+    fun onRecipientChanged(value: String) {
+        _state.update { it.copy(recipientAddress = value) }
     }
 
     fun estimateGas(accessToken: String) {
@@ -134,7 +139,7 @@ class CollateralWithdrawViewModel(
                     proxyAddress = current.proxyAddress,
                     controllerAddress = current.controllerAddress,
                     tokenAddress = token.address,
-                    recipientAddress = current.walletAddress
+                    recipientAddress = current.recipientAddress
                 )
 
                 val withdrawResult = rainClient.withdrawCollateral(
@@ -213,7 +218,7 @@ class CollateralWithdrawViewModel(
                     proxyAddress = current.proxyAddress,
                     controllerAddress = current.controllerAddress,
                     tokenAddress = token.address,
-                    recipientAddress = current.walletAddress
+                    recipientAddress = current.recipientAddress
                 )
 
                 val result = rainClient.withdrawCollateral(
@@ -256,6 +261,7 @@ data class WithdrawTokenOption(
 
 data class CollateralWithdrawUiState(
     val walletAddress: String = "",
+    val recipientAddress: String = "",
     val proxyAddress: String = "",
     val controllerAddress: String = "",
     val chainId: Long = 0,
