@@ -11,6 +11,7 @@ import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionResult
 import io.portalhq.android.api.data.GetTransactionsOrder
+import io.portalhq.android.api.data.Transaction
 import io.portalhq.android.storage.mobile.PortalNamespace
 import io.portalhq.android.provider.data.PortalRequestMethod
 import org.web3j.abi.FunctionEncoder
@@ -23,7 +24,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -244,19 +248,27 @@ internal class PortalManager {
         order = portalOrder
       ).getOrThrow()
 
-      val rainTransactions = portalTransactions.map { tx ->
-        RainTransaction(
-          hash = tx.hash,
-          blockNumber = tx.blockNum,
-          blockTimestamp = tx.metadata?.blockTimestamp,
-          from = tx.from,
-          to = tx.to,
-          value = tx.value.toString(),
-          gas = null,
-          gasPrice = null,
-          chainId = tx.chainId.toString(),
-          metadata = null
-        )
+      val rainTransactions = coroutineScope {
+        portalTransactions.map { tx ->
+          async {
+            val resolvedValue = resolveTransactionValue(tx, portal, eip155ChainId)
+            val resolvedSymbol = resolveTransactionSymbol(tx, portal, eip155ChainId)
+            RainTransaction(
+              hash = tx.hash,
+              blockNumber = tx.blockNum,
+              blockTimestamp = tx.metadata?.blockTimestamp,
+              from = tx.from,
+              to = tx.to,
+              value = resolvedValue,
+              gas = null,
+              gasPrice = null,
+              chainId = tx.chainId.toString(),
+              symbol = resolvedSymbol,
+              tokenAddress = tx.rawContract?.address,
+              metadata = null
+            )
+          }
+        }.awaitAll()
       }
 
       RainTransactionResult(transactions = rainTransactions)
@@ -335,6 +347,107 @@ internal class PortalManager {
     return txHash
   }
 
+  /**
+   * Resolves a human-readable value for a transaction.
+   * Prefers tx.value (Double), falls back to rawContract hex value / decimal.
+   * If rawContract.decimal is null, fetches it on-chain via ERC20 decimals().
+   */
+  private suspend fun resolveTransactionValue(
+    tx: Transaction,
+    portal: Portal,
+    eip155ChainId: String
+  ): String? {
+    // If Portal already provides a parsed value, use it
+    tx.value?.let { return it.toString() }
+
+    // Fallback: parse rawContract hex value with its decimal
+    val rawContract = tx.rawContract ?: return null
+    val hexValue = rawContract.value ?: return null
+
+    // Get decimal: from rawContract first, then on-chain call
+    val decimal = rawContract.decimal?.toIntOrNull()
+      ?: rawContract.address?.let { fetchErc20Decimals(portal, eip155ChainId, it) }
+      ?: return null
+
+    return try {
+      EthereumConverter.convertHexToDouble(hexValue, decimal).toString()
+    } catch (e: Exception) {
+      Timber.w(e, "Rain SDK: Failed to parse rawContract value=$hexValue decimal=$decimal")
+      null
+    }
+  }
+
+  /**
+   * Fetches ERC20 decimals from contract via eth_call.
+   */
+  private suspend fun fetchErc20Decimals(
+    portal: Portal,
+    eip155ChainId: String,
+    contractAddress: String
+  ): Int? {
+    return try {
+      val function = Function("decimals", emptyList(), listOf(object : TypeReference<Uint256>() {}))
+      val encodedFunction = FunctionEncoder.encode(function)
+      val callParams = mapOf("to" to contractAddress, "data" to encodedFunction)
+      val result = portal.request(
+        chainId = eip155ChainId,
+        method = PortalRequestMethod.eth_call,
+        params = listOf(callParams, "latest")
+      )
+      val hex = EthereumConverter.convertPortalResultToHexString(result)
+      hex.removePrefix("0x").toBigInteger(16).toInt()
+    } catch (e: Exception) {
+      Timber.w(e, "Rain SDK: Failed to fetch decimals for contract=$contractAddress")
+      null
+    }
+  }
+
+  /**
+   * Resolves the token symbol for a transaction.
+   * If it's a native transfer (no rawContract), returns "AVAX".
+   * Otherwise fetches the token symbol via eth_call.
+   */
+  private suspend fun resolveTransactionSymbol(
+    tx: Transaction,
+    portal: Portal,
+    eip155ChainId: String
+  ): String {
+    val rawContract = tx.rawContract ?: return "AVAX"
+    val contractAddress = rawContract.address ?: return "AVAX"
+    return fetchErc20Symbol(portal, eip155ChainId, contractAddress) ?: "AVAX"
+  }
+
+  /**
+   * Fetches ERC20 symbol from contract via eth_call.
+   */
+  private suspend fun fetchErc20Symbol(
+    portal: Portal,
+    eip155ChainId: String,
+    contractAddress: String
+  ): String? {
+    return try {
+      val function = Function("symbol", emptyList(), listOf(object : TypeReference<org.web3j.abi.datatypes.Utf8String>() {}))
+      val encodedFunction = FunctionEncoder.encode(function)
+      val callParams = mapOf("to" to contractAddress, "data" to encodedFunction)
+      val result = portal.request(
+        chainId = eip155ChainId,
+        method = PortalRequestMethod.eth_call,
+        params = listOf(callParams, "latest")
+      )
+      val hex = EthereumConverter.convertPortalResultToHexString(result)
+      if (hex.length > 2) {
+        val decoded = org.web3j.abi.FunctionReturnDecoder.decode(hex, function.outputParameters)
+        if (decoded.isNotEmpty()) {
+          (decoded[0] as org.web3j.abi.datatypes.Utf8String).value
+        } else null
+      } else {
+        null
+      }
+    } catch (e: Exception) {
+      Timber.w(e, "Rain SDK: Failed to fetch symbol for contract=$contractAddress")
+      null
+    }
+  }
   fun getPortalInstance(): Portal {
     return _portal ?: throw RainError.SdkNotInitialized()
   }
