@@ -10,7 +10,6 @@ import com.rain.sdk.internal.network.Web3jProvider
 import com.rain.sdk.internal.utils.RainHexUtils
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainWithdrawAddresses
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.web3j.abi.FunctionEncoder
@@ -74,7 +73,6 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
         .firstOrNull()?.value as? BigInteger ?: BigInteger.ZERO
 
     } catch (e: Exception) {
-      if (e is CancellationException) throw e
       if (e is RainError) throw e
       throw RainError.NetworkError(cause = e)
     }

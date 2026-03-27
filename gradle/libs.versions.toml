@@ -15,17 +15,14 @@ dokka = "1.9.20"
 maven-publish = "0.30.0"
 
 # -- Core SDK Dependencies --
-portal-android = "8.0.0"
+portal-android = "6.0.0"
 web3j = "4.10.0"
 timber = "5.0.1"
 okhttp = "4.12.0"
 
-# -- Kotlin --
+# -- Kotlin Ecosystem --
 coroutines = "1.10.2"
 kotlinx-serialization = "1.9.0"
-
-# -- Tooling --
-zxing = "3.5.3"
 
 # -- AndroidX & Compose --
 androidx-annotation = "1.9.1"
@@ -33,7 +30,6 @@ androidx-core-ktx = "1.15.0"
 androidx-lifecycle = "2.8.7"
 androidx-activity-compose = "1.10.0"
 androidx-compose-bom = "2025.01.00" 
-androidx-navigation-compose = "2.9.7"
 
 # -- Testing --
 junit = "4.13.2"
@@ -43,9 +39,6 @@ mockk = "1.13.10"
 truth = "1.4.2"
 
 [libraries]
-# -- Build Tools --
-zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
-
 # -- Rain SDK Core --
 portal-android = { module = "io.portalhq.android:portal-android", version.ref = "portal-android" }
 web3j-core = { module = "org.web3j:core", version.ref = "web3j" }
@@ -73,7 +66,6 @@ androidx-compose-ui-graphics = { module = "androidx.compose.ui:ui-graphics" }
 androidx-compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 androidx-compose-material3 = { module = "androidx.compose.material3:material3" }
-androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "androidx-navigation-compose" }
 
 # -- Testing --
 junit = { module = "junit:junit", version.ref = "junit" }

@@ -6,14 +6,15 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.RainSdk
 import com.rain.sdk.RainChain
-import android.graphics.Bitmap
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainWithdrawAddresses
 import io.portalhq.android.mpc.data.BackupConfigs
 import io.portalhq.android.mpc.data.BackupMethods
 import io.portalhq.android.mpc.data.PasswordStorageConfig
 import io.portalhq.android.storage.mobile.PortalNamespace
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class RpcOption {
@@ -40,33 +41,6 @@ class SampleViewModel(
     private set
 
   var needsRecovery by mutableStateOf(false)
-    private set
-
-  var qrBitmap by mutableStateOf<Bitmap?>(null)
-    private set
-
-  var collateralAddress by mutableStateOf("")
-    private set
-
-  var collateralQrBitmap by mutableStateOf<Bitmap?>(null)
-    private set
-
-  var portalAddress by mutableStateOf("")
-    private set
-
-  var portalQrBitmap by mutableStateOf<Bitmap?>(null)
-    private set
-
-  var nativeRecipientAddress by mutableStateOf("0x3cA8ac240F6ebeA8684b3E629A8e8C1f0E3bC0Ff")
-  var nativeAmount by mutableStateOf("0.001")
-
-  // ERC-20 token send
-  var tokenContractAddress by mutableStateOf("0x5425890298aed601595a70AB815c96711a31Bc65") // USDC on Fuji Testnet
-  var tokenRecipientAddress by mutableStateOf("0x3cA8ac240F6ebeA8684b3E629A8e8C1f0E3bC0Ff")
-  var tokenAmount by mutableStateOf("0.01")
-  var tokenDecimals by mutableStateOf("6")
-
-  var transactionsText by mutableStateOf("No transactions loaded")
     private set
 
   fun onPinChanged(newValue: String) {
@@ -154,35 +128,13 @@ class SampleViewModel(
 
   fun getWalletAddress() {
     if (!isInitialized) return
-    if (accessToken.isBlank()) {
-      statusText = "Error: Access Token is required to fetch collateral address"
-      return
-    }
 
-    statusText = "Fetching addresses..."
     viewModelScope.launch {
       try {
-        // 1. Fetch Collateral Contract & Address
-        val contractResponse = NetworkClient.fetchCollateralContract(accessToken)
-        if (contractResponse.result.isFailure) {
-           statusText = "Failed to fetch collateral contract: ${contractResponse.result.exceptionOrNull()?.message}"
-           return@launch
-        }
-        val contract = contractResponse.result.getOrThrow()
-        collateralAddress = contract.address
-        
-        // Generate QR for Collateral Address
-        collateralQrBitmap = rainClient.generateAddressQRCode(collateralAddress)
-
-        // 2. Fetch Portal Address
-        portalAddress = rainClient.portal.getAddress(PortalNamespace.EIP155) ?: "Address not found"
-
-        // Generate QR for Portal Address
-        portalQrBitmap = rainClient.generateAddressQRCode(portalAddress)
-
-        statusText = "Addresses and QR Codes generated successfully!"
+        val address = rainClient.portal.getAddress(PortalNamespace.EIP155) ?: "Address not found"
+        statusText = "Address fetched: $address"
       } catch (e: Exception) {
-        statusText = "Failed to get addresses: ${e.message}"
+        statusText = "Failed to get address: ${e.message}"
       }
     }
   }
@@ -358,115 +310,5 @@ class SampleViewModel(
     pin = ""
     statusText = "Session Cleared"
     isInitialized = false
-  }
-
-  fun sendNativeToken() {
-    if (!isInitialized) return
-    val amountDouble = nativeAmount.toDoubleOrNull() ?: 0.0
-    if (amountDouble <= 0.0) {
-      statusText = "Error: Invalid amount"
-      return
-    }
-
-    if (nativeRecipientAddress.isBlank()) {
-      statusText = "Error: Recipient address is required"
-      return
-    }
-
-    statusText = "Sending Native Token..."
-    viewModelScope.launch {
-      try {
-        val result = rainClient.sendNativeToken(
-          chainId = RainChain.AVALANCHE_TESTNET,
-          toAddress = nativeRecipientAddress,
-          amount = amountDouble
-        )
-        statusText = "Send successful! Tx: ${result.transactionHash}"
-      } catch (e: Exception) {
-        statusText = "Send failed: ${e.message}"
-        e.printStackTrace()
-      }
-    }
-  }
-
-  fun sendToken() {
-    if (!isInitialized) return
-    val amountDouble = tokenAmount.toDoubleOrNull() ?: 0.0
-    val decimalsInt = tokenDecimals.toIntOrNull() ?: 6
-    if (amountDouble <= 0.0) {
-      statusText = "Error: Invalid amount"
-      return
-    }
-    if (tokenContractAddress.isBlank() || tokenRecipientAddress.isBlank()) {
-      statusText = "Error: Contract and recipient addresses are required"
-      return
-    }
-
-    statusText = "Sending ERC-20 Token..."
-    viewModelScope.launch {
-      try {
-        val result = rainClient.sendToken(
-          chainId = RainChain.AVALANCHE_TESTNET,
-          contractAddress = tokenContractAddress,
-          toAddress = tokenRecipientAddress,
-          amount = amountDouble,
-          decimals = decimalsInt
-        )
-        statusText = "Send successful! Tx: ${result.transactionHash}"
-      } catch (e: Exception) {
-        statusText = "Send failed: ${e.message}"
-        e.printStackTrace()
-      }
-    }
-  }
-
-  fun getBalances() {
-    if (!isInitialized) return
-
-    statusText = "Fetching balances..."
-    viewModelScope.launch {
-      try {
-        val nativeBalance = rainClient.getNativeBalance(RainChain.AVALANCHE_TESTNET)
-        val tokenAddress = tokenContractAddress.ifBlank { "0x5425890298aed601595a70AB815c96711a31Bc65" }
-        val decimals = 6
-        val erc20Balance = rainClient.getERC20Balance(RainChain.AVALANCHE_TESTNET, tokenAddress, decimals)
-        
-        statusText = """
-          Balances fetched!
-          Native (AVAX): $nativeBalance
-          ERC20 ($tokenAddress): $erc20Balance
-        """.trimIndent()
-      } catch (e: Exception) {
-        statusText = "Failed to fetch balances: ${e.message}"
-        e.printStackTrace()
-      }
-    }
-  }
-
-  fun getTransactions() {
-    if (!isInitialized) return
-
-    statusText = "Fetching transactions..."
-    transactionsText = "Loading..."
-    viewModelScope.launch {
-      try {
-        val result = rainClient.getTransactions(
-          chainId = RainChain.AVALANCHE_TESTNET,
-          limit = 5 // Fetch only latest 5 for sample
-        )
-        statusText = "Transactions fetched successfully!"
-        if (result.transactions.isEmpty()) {
-          transactionsText = "No transactions found."
-        } else {
-          transactionsText = result.transactions.joinToString(separator = "\n\n") { tx ->
-            "Hash: ${tx.hash}\nTo: ${tx.to}\nValue: ${tx.value}\nTime: ${tx.blockTimestamp}"
-          }
-        }
-      } catch (e: Exception) {
-        statusText = "Failed to fetch transactions: ${e.message}"
-        transactionsText = "Error: ${e.message}"
-        e.printStackTrace()
-      }
-    }
   }
 }

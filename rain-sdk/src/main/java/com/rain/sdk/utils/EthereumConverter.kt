@@ -4,7 +4,6 @@ import io.portalhq.android.provider.data.PortalProviderResult
 import io.portalhq.android.provider.data.PortalProviderRpcResponse
 import io.portalhq.android.utils.ethRequests.EthRequestUtils
 import java.math.BigInteger
-import com.rain.sdk.internal.error.RainError
 
 /**
  * Utility for converting between different Ethereum units and formats.
@@ -16,32 +15,19 @@ object EthereumConverter {
    */
   fun convertPortalResultToHexString(portalResult: Any): String {
     val providerResult = portalResult as? PortalProviderResult
-    val hex = when (val result = providerResult?.result) {
-      is String -> result
-      is PortalProviderRpcResponse -> result.result as? String
-      else -> null
-    }
+    val rpcResponse = providerResult?.result as? PortalProviderRpcResponse
+    val hex = rpcResponse?.result as? String
 
-    return hex
+    return return hex
       ?.takeIf { it.startsWith("0x") && it.length > 2 }
       ?: "0x0"
   }
 
   /**
    * Extracts a transaction hash from a Portal provider result.
-   *
-   * @param portalResult The result object from Portal SDK
-   * @return The transaction hash as String
-   * @throws RainError.ProviderError if the result is not a valid transaction hash string
    */
   fun convertPortalResultToTransactionHash(portalResult: Any): String {
-    val result = (portalResult as? PortalProviderResult)?.result
-    if (result !is String) {
-      throw RainError.ProviderError(
-        IllegalStateException("Portal returned invalid transaction result: $result")
-      )
-    }
-    return result
+    return (portalResult as? PortalProviderResult)?.result as String
   }
 
   /**
@@ -83,18 +69,5 @@ object EthereumConverter {
   fun convertEthToWeiHex(ethBalance: Double): String {
     val wei = (ethBalance.toBigDecimal().multiply(1e18.toBigDecimal())).toBigInteger()
     return "0x${wei.toString(16)}"
-  }
-
-  /**
-   * Converts a hex string to a Double with the specified number of decimals.
-   *
-   * @param hex The hex string (e.g. "0x...")
-   * @param decimals The number of decimals
-   * @return The Double value
-   */
-  fun convertHexToDouble(hex: String, decimals: Int): Double {
-    val cleanedHex = hex.removePrefix("0x")
-    val decimalValue = BigInteger(cleanedHex, 16).toBigDecimal()
-    return decimalValue.movePointLeft(decimals).toDouble()
   }
 }

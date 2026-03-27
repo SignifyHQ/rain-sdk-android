@@ -8,7 +8,6 @@ import com.rain.sdk.utils.EthereumConverter
 import io.portalhq.android.provider.data.EthTransactionParam
 import io.portalhq.android.storage.mobile.PortalNamespace
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
@@ -95,7 +94,6 @@ internal class TransactionCoordinator(
       // Re-throw RainError as-is
       throw e
     } catch (e: Exception) {
-      if (e is CancellationException) throw e
       // Wrap unexpected errors
       throw RainError.InternalError("Withdraw collateral failed: ${e.message}", e)
     }
@@ -158,7 +156,6 @@ internal class TransactionCoordinator(
     } catch (e: RainError) {
       throw e
     } catch (e: Exception) {
-      if (e is CancellationException) throw e
       throw RainError.InternalError("Gas estimation failed: ${e.message}", e)
     }
   }

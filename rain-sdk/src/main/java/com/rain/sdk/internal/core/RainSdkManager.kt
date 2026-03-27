@@ -9,31 +9,22 @@ import com.rain.sdk.internal.transaction.TransactionSigner
 import com.rain.sdk.internal.transaction.TransactionValidator
 import com.rain.sdk.internal.transaction.WithdrawCollateralRequest
 import com.rain.sdk.models.RainAdminSignature
-import com.rain.sdk.models.RainTokenTransferResult
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.models.RainWithdrawResult
-import com.rain.sdk.models.RainTransactionOrder
-import com.rain.sdk.models.RainTransactionResult
-import com.rain.sdk.internal.provider.WalletProvider
-import com.rain.sdk.internal.provider.PortalWalletProvider
 import io.portalhq.android.Portal
+import io.portalhq.android.mpc.data.BackupConfigs
 import io.portalhq.android.mpc.data.FeatureFlags
 import timber.log.Timber
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.math.BigInteger
-import android.graphics.Bitmap
-import com.rain.sdk.utils.QRGenerator
 
 /**
  * Internal implementation of RainClient.
- *
+ * 
  * This class acts as a thin facade that delegates to specialized components:
  * - PortalManager: Manages Portal SDK interactions
  * - ConfigManager: Handles configuration and validation
  * - TransactionCoordinator: Orchestrates transaction flows
- *
+ * 
  * This architecture provides better separation of concerns, testability, and maintainability.
  */
 internal class RainSdkManager(
@@ -41,8 +32,6 @@ internal class RainSdkManager(
   private val configManager: ConfigManager = ConfigManager(),
   private val transactionCoordinator: TransactionCoordinator = createTransactionCoordinator(portalManager)
 ) : RainClient {
-
-  private var walletProvider: WalletProvider? = null
 
   override val isInitialized: Boolean
     get() = configManager.isInitialized
@@ -71,9 +60,6 @@ internal class RainSdkManager(
           featureFlags = FeatureFlags(isMultiBackupEnabled = true),
           autoApprove = true
         )
-
-        // Initialize wallet provider - Default to Portal
-        walletProvider = PortalWalletProvider(portalManager)
       }
 
       // Mark SDK as initialized
@@ -83,8 +69,7 @@ internal class RainSdkManager(
     } catch (e: RainError) {
       Timber.e(e, "Rain SDK: Initialization error")
       throw e
-    } catch (e: Exception) {
-      if (e is CancellationException) throw e
+    } catch (e: Throwable) {
       Timber.e(e, "Rain SDK: Portal SDK error")
       throw RainError.ProviderError(e)
     }
@@ -119,7 +104,7 @@ internal class RainSdkManager(
 
     // Delegate to coordinator with autoSend parameter
     val (txHash, txData) = transactionCoordinator.executeWithdrawCollateral(request, autoSend)
-
+    
     return RainWithdrawResult(
       transactionHash = txHash,
       transactionData = txData
@@ -151,95 +136,6 @@ internal class RainSdkManager(
     return portalManager.getAddress()
   }
 
-  override suspend fun sendNativeToken(
-    chainId: Int,
-    toAddress: String,
-    amount: Double
-  ): RainTokenTransferResult {
-    if (!isInitialized) {
-      throw RainError.SdkNotInitialized()
-    }
-
-    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
-
-    return try {
-      val txHash = provider.sendNativeToken(chainId, toAddress, amount)
-      RainTokenTransferResult(transactionHash = txHash)
-    } catch (e: Exception) {
-      if (e is CancellationException) throw e
-      Timber.e(e, "Rain SDK: Failed to send native token")
-      throw RainError.ProviderError(e)
-    }
-  }
-
-  override suspend fun sendToken(
-    chainId: Int,
-    contractAddress: String,
-    toAddress: String,
-    amount: Double,
-    decimals: Int
-  ): RainTokenTransferResult {
-    if (!isInitialized) {
-      throw RainError.SdkNotInitialized()
-    }
-
-    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
-
-    return try {
-      val txHash = provider.sendToken(chainId, contractAddress, toAddress, amount, decimals)
-      RainTokenTransferResult(transactionHash = txHash)
-    } catch (e: Exception) {
-      if (e is CancellationException) throw e
-      Timber.e(e, "Rain SDK: Failed to send ERC-20 token")
-      throw RainError.ProviderError(e)
-    }
-  }
-
-  override suspend fun getNativeBalance(chainId: Int): Double {
-    if (!isInitialized) throw RainError.SdkNotInitialized()
-    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
-    return provider.getNativeBalance(chainId)
-  }
-
-  override suspend fun getERC20Balance(chainId: Int, tokenAddress: String, decimals: Int?): Double {
-    if (!isInitialized) throw RainError.SdkNotInitialized()
-    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
-    return provider.getERC20Balance(chainId, tokenAddress, decimals)
-  }
-
-  override suspend fun getERC20Balances(chainId: Int): Map<String, Double> {
-    if (!isInitialized) throw RainError.SdkNotInitialized()
-    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
-    return provider.getERC20Balances(chainId)
-  }
-
-  override suspend fun generateAddressQRCode(address: String?, width: Int, height: Int): Bitmap {
-    if (!isInitialized) throw RainError.SdkNotInitialized()
-    
-    val targetAddress = address ?: getAddress()
-    
-    return withContext(Dispatchers.Default) {
-        try {
-            QRGenerator.generateQRCode(targetAddress, width, height)
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            Timber.e(e, "Rain SDK: Failed to generate QR code")
-            throw RainError.ProviderError(e)
-        }
-    }
-  }
-
-  override suspend fun getTransactions(
-    chainId: Int,
-    limit: Int?,
-    offset: Int?,
-    order: RainTransactionOrder?
-  ): RainTransactionResult {
-    if (!isInitialized) throw RainError.SdkNotInitialized()
-    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
-    return provider.getTransactions(chainId, limit, offset, order)
-  }
-
   companion object {
     /**
      * Creates a TransactionCoordinator with all required dependencies.
@@ -247,7 +143,7 @@ internal class RainSdkManager(
      */
     private fun createTransactionCoordinator(portalManager: PortalManager): TransactionCoordinator {
       val errorMapper = ErrorMapper()
-
+      
       return TransactionCoordinator(
         portalManager = portalManager,
         validator = TransactionValidator(),
