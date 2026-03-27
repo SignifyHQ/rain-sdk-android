@@ -43,7 +43,7 @@ class RainSdk private constructor(
     /**
      * Transaction builder for wallet-agnostic operations.
      * 
-     * @throws com.rain.sdk.internal.error.RainError.SdkNotInitialized if SDK hasn't been initialized
+     * @throws RainError.SdkNotInitialized if SDK hasn't been initialized
      */
     val transactionBuilder: RainTransactionBuilder
         get() {

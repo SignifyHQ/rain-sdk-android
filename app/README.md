@@ -40,14 +40,24 @@ Since the sample app interacts with Rain's staging/production environment, you n
 1. Click **4. Get Wallet Address**. This confirms the MPC share is correctly loaded and the SDK can interact with the wallet.
 2. Observe the **Status** text to see your wallet address.
 
-### 5. Execute Withdrawal
+### 5. Utilities & Transactions
+
+1. **Generate QR Code**: Click **Generate QR Code** to see a visual QR of your address.
+2. **Estimate Gas**: Click **Estimate Gas** to calculate the fee for a sample withdrawal.
+3. **Get Balances**: Click **Get Balances** to fetch current native and ERC-20 balances.
+4. **Get Transactions**: Click **6. Get Transactions** to see recent history.
+
+### 6. Execute Tokens & Withdrawal
 
 1. Click **5. Test Withdraw Collateral**.
-2. The app will automatically:
-   - Fetch the collateral contract info using your `accessToken`.
-   - Request an admin signature from the backend.
-   - Orchestrate the withdrawal via `rainClient.withdrawCollateral`.
-3. Monitor the **Status** for the transaction hash.
+2. **Send Native Token**: Enter recipient and amount, then click **Send Native**.
+3. **Send ERC-20 Token**: Enter contract, recipient, and amount, then click **Send Token**.
+4. Monitor the **Status** for transaction hashes (`0x...`).
+
+### 6. Fetch Transaction History
+
+1. Click **6. Get Transactions**.
+2. The app will fetch the most recent transactions for the configured chain and display them in the status log.
 
 ## Key Code Snippets
 
@@ -85,4 +95,36 @@ val txHash = rainClient.withdrawCollateral(
     ),
     nonce = null // SDK auto-resolves nonce
 )
+```
+
+### Fetching Transactions
+
+```kotlin
+val result = rainClient.getTransactions(
+    chainId = chainId,
+    limit = 10,
+    offset = 0,
+    order = RainTransactionOrder.DESC
+)
+```
+
+### Token Transfers & Balances
+
+```kotlin
+// Sending Native Token
+val res = rainClient.sendNativeToken(chainId, recipient, 0.1)
+
+// Sending ERC-20 Token
+val res = rainClient.sendToken(chainId, contract, recipient, 10.0, 6)
+
+// Fetching Balances
+val native = rainClient.getNativeBalance(chainId)
+val token = rainClient.getERC20Balance(chainId, contract, 6)
+```
+
+### QR & Gas Utilities
+
+```kotlin
+val bitmap = rainClient.generateAddressQRCode()
+val gasEth = rainClient.estimateGas(chainId, from, to, txData)
 ```
