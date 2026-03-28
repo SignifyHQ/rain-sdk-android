@@ -2,6 +2,8 @@ package com.rain.sdk.internal.transaction
 
 import com.rain.sdk.internal.error.ErrorMapper
 import com.rain.sdk.internal.core.PortalManager
+import kotlinx.coroutines.CancellationException
+import com.rain.sdk.internal.error.RainError
 
 /**
  * Handles transaction signing operations.
@@ -20,7 +22,7 @@ internal class TransactionSigner(
      * @param walletAddress The wallet address to sign with
      * @param typedDataJson The EIP-712 typed data as JSON string
      * @return The signature as a hex string
-     * @throws com.rain.sdk.internal.error.RainError if signing fails
+     * @throws RainError if signing fails
      */
     suspend fun signTypedData(
         chainId: Int,
@@ -30,6 +32,7 @@ internal class TransactionSigner(
         return try {
             portalManager.signTypedData(chainId, walletAddress, typedDataJson)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             throw errorMapper.mapSigningError(e)
         }
     }

@@ -1,11 +1,15 @@
 package com.rain.sdk.interfaces
 
 import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.RainTokenTransferResult
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.models.RainWithdrawResult
+import com.rain.sdk.models.RainTransactionOrder
+import com.rain.sdk.models.RainTransactionResult
 import com.rain.sdk.internal.error.RainError
 import io.portalhq.android.Portal
-import io.portalhq.android.mpc.data.BackupConfigs
+import android.graphics.Bitmap
+import java.math.BigInteger
 
 interface RainClient {
     /**
@@ -54,7 +58,7 @@ interface RainClient {
         amount: Double,
         decimals: Int,
         adminSignature: RainAdminSignature,
-        nonce: java.math.BigInteger? = null,
+        nonce: BigInteger? = null,
         autoSend: Boolean = false
     ): RainWithdrawResult
 
@@ -83,4 +87,115 @@ interface RainClient {
         to: String,
         data: String
     ): Double
+
+    /**
+     * Sends native token (e.g., AVAX).
+     *
+     * @param chainId Network ID
+     * @param toAddress Recipient's wallet address
+     * @param amount Amount of token to send
+     * @return RainTokenTransferResult containing the transaction hash
+     */
+    @Throws(RainError::class)
+    suspend fun sendNativeToken(
+        chainId: Int,
+        toAddress: String,
+        amount: Double
+    ): RainTokenTransferResult
+
+    /**
+     * Sends an ERC-20 token.
+     *
+     * @param chainId Network ID
+     * @param contractAddress ERC-20 token contract address
+     * @param toAddress Recipient's wallet address
+     * @param amount Amount to send (in human-readable unit, e.g. 1.5 USDC)
+     * @param decimals Number of decimals the token uses (e.g. 6 for USDC, 18 for most tokens)
+     * @return RainTokenTransferResult containing the transaction hash
+     */
+    @Throws(RainError::class)
+    suspend fun sendToken(
+        chainId: Int,
+        contractAddress: String,
+        toAddress: String,
+        amount: Double,
+        decimals: Int
+    ): RainTokenTransferResult
+
+    /**
+     * Gets the native token balance (e.g. AVAX) for the current wallet.
+     *
+     * @param chainId The numeric chain ID (e.g. 43114 for Avalanche Mainnet)
+     * @return Native token balance in Ether units (Double)
+     * @throws RainError if the balance cannot be retrieved
+     */
+    @Throws(RainError::class)
+    suspend fun getNativeBalance(chainId: Int): Double
+
+    /**
+     * Gets the balance of a specific ERC20 token for the current wallet.
+     *
+     * @param chainId The numeric chain ID (e.g. 43114 for Avalanche Mainnet)
+     * @param tokenAddress The contract address of the ERC20 token
+     * @param decimals Number of decimals the token uses. Defaults to [DEFAULT_ERC20_DECIMALS].
+     * @return Token balance as a Double (with decimals already applied)
+     * @throws RainError if the balance cannot be retrieved
+     */
+    @Throws(RainError::class)
+    suspend fun getERC20Balance(
+        chainId: Int,
+        tokenAddress: String,
+        decimals: Int? = DEFAULT_ERC20_DECIMALS
+    ): Double
+
+    /**
+     * Gets all ERC20 token balances for the current wallet on the given network.
+     *
+     * @param chainId The numeric chain ID
+     * @return Map of token contract address to balance (Double)
+     * @throws RainError if balances cannot be retrieved
+     */
+    @Throws(RainError::class)
+    suspend fun getERC20Balances(chainId: Int): Map<String, Double>
+
+    /**
+     * Generates an Android Bitmap containing a QR code for a wallet address.
+     * 
+     * @param address Optional address to generate the QR code for. If null, the configured provider's wallet address will be retrieved and used.
+     * @param width The width of the generated QR code bitmap in pixels. Defaults to 500.
+     * @param height The height of the generated QR code bitmap in pixels. Defaults to 500.
+     * @return A Bitmap containing the QR code.
+     * @throws RainError If [address] is null and the provider's address cannot be retrieved.
+     */
+    @Throws(RainError::class)
+    suspend fun generateAddressQRCode(
+        address: String? = null,
+        width: Int = 500,
+        height: Int = 500
+    ): Bitmap
+
+    /**
+     * Retrieves the transaction history for the specified chain.
+     *
+     * @param chainId The numeric chain ID
+     * @param limit Optional maximum number of transactions to return
+     * @param offset Optional number of transactions to skip for pagination
+     * @param order Optional sort order (ASC or DESC)
+     * @return RainTransactionResult containing a list of transactions
+     * @throws RainError if the transaction history cannot be retrieved
+     */
+    @Throws(RainError::class)
+    suspend fun getTransactions(
+        chainId: Int,
+        limit: Int? = null,
+        offset: Int? = null,
+        order: RainTransactionOrder? = null
+    ): RainTransactionResult
+
+    companion object {
+        /**
+         * Default number of decimals for ERC20 tokens if not specified.
+         */
+        const val DEFAULT_ERC20_DECIMALS = 18
+    }
 }
