@@ -1,82 +1,126 @@
 package com.rain.sdk
 
-import android.webkit.URLUtil
+import androidx.annotation.VisibleForTesting
+import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.interfaces.RainTransactionBuilder
+import com.rain.sdk.internal.config.RainConfig
+import com.rain.sdk.internal.core.RainSdkManager
+import com.rain.sdk.internal.core.RainTransactionBuilderImpl
+import com.rain.sdk.internal.error.RainError
 import io.portalhq.android.Portal
-import io.portalhq.android.mpc.data.FeatureFlags
-import timber.log.Timber
 
-object RainSdk {
-    // Internal storage for Portal instance
-    private var _portal: Portal? = null
-
-    // Web3 Utilities (Standalone)
-    val Utils = RainUtils
-
+/**
+ * Main entry point for Rain SDK.
+ * 
+ * This class provides access to Rain SDK functionality including:
+ * - Portal MPC wallet integration (Full Mode)
+ * - Transaction builder utilities (Wallet-agnostic Mode)
+ * 
+ * Usage:
+ * ```kotlin
+ * // Initialize SDK
+ * RainSdk.getInstance().client.initializePortal(...)
+ * 
+ * // Access Portal wallet
+ * val portal = RainSdk.getInstance().portal
+ * 
+ * // Use transaction builder
+ * val txBuilder = RainSdk.getInstance().transactionBuilder
+ * ```
+ * 
+ * @see RainClient
+ * @see RainTransactionBuilder
+ */
+class RainSdk private constructor(
+    private val sdkManager: RainClient
+) {
+    
     /**
-     * Computed property to safely access the Portal instance.
-     * Throws RainError.PortalNotInitialized if not initialized.
+     * Access to Rain client operations.
      */
-    val portal: Portal
-        @Throws(RainError::class)
+    val client: RainClient get() = sdkManager
+    
+    /**
+     * Transaction builder for wallet-agnostic operations.
+     * 
+     * @throws com.rain.sdk.internal.error.RainError.SdkNotInitialized if SDK hasn't been initialized
+     */
+    val transactionBuilder: RainTransactionBuilder
         get() {
-            return _portal ?: throw RainError.PortalNotInitialized
+            if (!RainConfig.getInstance().isInitialized) {
+                throw RainError.SdkNotInitialized()
+            }
+            return RainTransactionBuilderImpl
         }
-
+    
     /**
-     * Initializes the SDK with a Portal token and chain-specific RPC endpoints.
-     *
-     * @param portalSessionToken A valid Portal session token
-     * @param rpcEndpoints Map mapping numeric chain IDs to RPC URLs
-     * Example: mapOf(43114 to "https://avalanche-c-chain-rpc.publicnode.com")
-     * @throws RainError if initialization fails
+     * Convenience property for Portal access.
+     * 
+     * @throws RainError.SdkNotInitialized if Portal hasn't been initialized
      */
-    @Throws(RainError::class)
-    fun initializePortal(
-        portalSessionToken: String,
-        rpcEndpoints: Map<Int, String>
-    ) {
-        try {
-            // Validate token
-            if (portalSessionToken.isBlank()) {
-                throw RainError.InvalidPortalToken(portalSessionToken)
+    val portal: Portal get() = sdkManager.portal
+    
+    /**
+     * Checks if the SDK has been initialized.
+     */
+    val isInitialized: Boolean get() = sdkManager.isInitialized
+    
+    companion object {
+        @Volatile
+        private var instance: RainSdk? = null
+        
+        private val lock = Any()
+        
+        /**
+         * Gets the singleton instance of Rain SDK.
+         * 
+         * The instance is created lazily on first access.
+         * Thread-safe using double-checked locking pattern.
+         * 
+         * @return The singleton RainSdk instance
+         */
+        fun getInstance(): RainSdk {
+            return instance ?: synchronized(lock) {
+                instance ?: createInstance()
             }
-
-            // Validate and Map RPC endpoints
-            val eip155RpcEndpointsConfig = mutableMapOf<String, String>()
-            
-            // We need a legacy chain ID for Portal constructor. 
-            // Prefer 43114 (Avalanche Mainnet) or take the first one available.
-            var legacyChainId = 43114 
-            if (rpcEndpoints.isNotEmpty()) {
-                legacyChainId = rpcEndpoints.keys.first()
-                if (rpcEndpoints.containsKey(43114)) {
-                    legacyChainId = 43114
-                }
+        }
+        
+        /**
+         * Internal method to create the SDK instance.
+         * Allows dependency injection for testing.
+         */
+        private fun createInstance(manager: RainClient = RainSdkManager()): RainSdk {
+            return RainSdk(manager).also { instance = it }
+        }
+        
+        /**
+         * Resets the SDK instance.
+         * 
+         * This clears all configuration and re-initializes the singleton.
+         * Use for testing or when reinitializing the SDK.
+         * 
+         * @internal For testing purposes only
+         */
+        @VisibleForTesting
+        fun reset() {
+            synchronized(lock) {
+                instance = null
+                RainConfig.reset()
             }
-
-            for ((chainId, url) in rpcEndpoints) {
-                if (!URLUtil.isValidUrl(url)) {
-                    throw RainError.InvalidRPCUrl(chainId, url)
-                }
-                eip155RpcEndpointsConfig["eip155:$chainId"] = url
+        }
+        
+        /**
+         * Internal method for dependency injection in tests.
+         * Allows injecting a mock RainClient.
+         * 
+         * @internal For testing purposes only
+         */
+        @VisibleForTesting
+        internal fun setTestInstance(manager: RainClient) {
+            synchronized(lock) {
+                instance = RainSdk(manager)
             }
-
-            // Initialize Portal instance
-            _portal = Portal(
-                apiKey = portalSessionToken,
-                legacyEthChainId = legacyChainId,
-                rpcConfig = eip155RpcEndpointsConfig,
-                featureFlags = FeatureFlags(isMultiBackupEnabled = true),
-                autoApprove = true
-            )
-
-            Timber.d("Rain SDK: Registered Portal instance successfully")
-        } catch (e: RainError) {
-            Timber.e(e, "Rain SDK: Initialization error")
-            throw e
-        } catch (e: Throwable) {
-            Timber.e(e, "Rain SDK: Portal SDK error")
-            throw RainError.PortalError(e)
         }
     }
 }
+
