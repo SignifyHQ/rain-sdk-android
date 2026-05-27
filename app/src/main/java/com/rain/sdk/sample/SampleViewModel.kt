@@ -426,15 +426,22 @@ class SampleViewModel(
     statusText = "Fetching balances..."
     viewModelScope.launch {
       try {
-        val nativeBalance = rainClient.getNativeBalance(RainChain.AVALANCHE_TESTNET)
+        val balances = rainClient.getBalances(RainChain.AVALANCHE_TESTNET)
+        val nativeBalance = balances[""] ?: 0.0
         val tokenAddress = tokenContractAddress.ifBlank { "0x5425890298aed601595a70AB815c96711a31Bc65" }
-        val decimals = 6
-        val erc20Balance = rainClient.getERC20Balance(RainChain.AVALANCHE_TESTNET, tokenAddress, decimals)
+        val erc20Balance = balances[tokenAddress.lowercase()] ?: 0.0
+        val discoveredTokens = balances
+          .filterKeys { it.isNotEmpty() }
+          .entries
+          .joinToString(separator = "\n") { (address, balance) ->
+            "${address.take(6)}...${address.takeLast(4)}: $balance"
+          }
         
         statusText = """
           Balances fetched!
           Native (AVAX): $nativeBalance
           ERC20 ($tokenAddress): $erc20Balance
+          ${if (discoveredTokens.isNotBlank()) "All ERC20:\n$discoveredTokens" else ""}
         """.trimIndent()
       } catch (e: Exception) {
         statusText = "Failed to fetch balances: ${e.message}"
