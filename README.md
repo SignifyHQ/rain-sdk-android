@@ -87,6 +87,10 @@ val usdcBalance = client.getERC20Balance(
 
 // All ERC-20 balances
 val allTokens = client.getERC20Balances(chainId = 43114)
+
+// Native + ERC-20 balances in one map
+// Native balance is stored under key ""
+val allBalances = client.getBalances(chainId = 43114)
 ```
 
 ### 5. Send Tokens

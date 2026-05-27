@@ -365,7 +365,7 @@ fun BalancesScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "ERC-20 — from config above",
+                                text = "ERC-20 — discovered from Portal assets",
                                 fontSize = 14.sp,
                                 color = Color(0xFF1D8EE6),
                                 fontWeight = FontWeight.Medium
@@ -418,12 +418,33 @@ fun BalancesScreen(
                     state.erc20Balance?.let { balance ->
                         BalanceCard(
                             emoji = "🪙",
-                            label = "ERC-20",
+                            label = "Selected ERC-20",
                             value = balance,
                             subtitle = state.tokenContractAddress.let {
                                 if (it.length > 12) "${it.take(6)}...${it.takeLast(4)}" else it
                             }
                         )
+                    }
+
+                    if (state.walletTokenBalances.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Discovered ERC-20 balances:",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            color = Color.DarkGray,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+
+                        state.walletTokenBalances.forEach { token ->
+                            BalanceCard(
+                                emoji = "🪙",
+                                label = "ERC-20",
+                                value = token.balance.toString(),
+                                subtitle = token.displayAddress
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
                     }
                 }
             }

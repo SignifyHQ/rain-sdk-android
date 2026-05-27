@@ -176,6 +176,21 @@ Fetches all ERC-20 token balances for the current wallet on the given network.
 
 ---
 
+### getBalances(chainId)
+
+Fetches all balances for the current wallet on the given network.
+
+- **Returns:** `Map<String, Double>` — token contract address → balance; native balance is stored under key `""`.
+- **Throws:** `RainError` if balances cannot be retrieved.
+- **Requires:** `initializePortal` first.
+- **Suspend:** Yes
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `chainId` | `Int` | Target network chain ID. |
+
+---
+
 ### generateAddressQRCode(address, width, height)
 
 Generates an Android `Bitmap` containing a QR code for a wallet address.

@@ -12,6 +12,7 @@ import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionResult
 import io.portalhq.android.api.data.GetTransactionsOrder
 import io.portalhq.android.api.data.Transaction
+import io.portalhq.android.api.data.ntfassetsbychain.TokenBalance
 import io.portalhq.android.storage.mobile.PortalNamespace
 import io.portalhq.android.provider.data.PortalRequestMethod
 import org.web3j.abi.FunctionEncoder
@@ -204,17 +205,24 @@ internal class PortalManager {
 
     return try {
       val response = portal.api.getAssets(eip155ChainId).getOrThrow()
-      response.tokenBalances.associate {
-        //TODO: will update after clarify with portal team
-        (null ?: "") to (it.balance?.toDoubleOrNull() ?: 0.0)
-//        (it.contractAddress ?: "") to (it.balance?.toDoubleOrNull() ?: 0.0)
-      }.filterKeys { it.isNotEmpty() }
+      response.tokenBalances.mapNotNull { tokenBalance ->
+        val tokenAddress = tokenBalance.tokenAddress()
+        val balance = tokenBalance.balance.toDoubleOrNull()
+
+        if (tokenAddress.isNullOrBlank() || balance == null) {
+          null
+        } else {
+          tokenAddress to balance
+        }
+      }.toMap()
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       Timber.e(e, "Rain SDK: Failed to get ERC20 balances for chainId=$chainId")
       throw RainError.ProviderError(e)
     }
   }
+
+  private fun TokenBalance.tokenAddress(): String? = metadata["tokenAddress"] as? String
 
   /**
    * Gets the transaction history for the specified chain.

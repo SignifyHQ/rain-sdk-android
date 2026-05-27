@@ -41,24 +41,30 @@ class BalancesViewModel(
 
         viewModelScope.launch {
             try {
-                val native = rainClient.getNativeBalance(RainChain.AVALANCHE_TESTNET)
+                val balances = rainClient.getBalances(RainChain.AVALANCHE_TESTNET)
                 val currentState = _state.value
+                val native = balances[""] ?: 0.0
 
                 var erc20: String? = null
                 if (currentState.tokenContractAddress.isNotBlank()) {
-                    val decimals = currentState.tokenDecimals.toIntOrNull() ?: 18
-                    val erc20Balance = rainClient.getERC20Balance(
-                        chainId = RainChain.AVALANCHE_TESTNET,
-                        tokenAddress = currentState.tokenContractAddress,
-                        decimals = decimals
-                    )
+                    val erc20Balance = balances[currentState.tokenContractAddress.lowercase()] ?: 0.0
                     erc20 = "$erc20Balance"
                 }
+
+                val discoveredErc20Balances = balances
+                    .filterKeys { it.isNotEmpty() }
+                    .map { (address, balance) ->
+                        WalletTokenBalance(
+                            address = address,
+                            balance = balance
+                        )
+                    }
 
                 _state.update {
                     it.copy(
                         nativeBalance = "$native AVAX",
                         erc20Balance = erc20,
+                        walletTokenBalances = discoveredErc20Balances,
                         isLoading = false
                     )
                 }
@@ -179,6 +185,7 @@ data class BalancesUiState(
     val isLoading: Boolean = false,
     val nativeBalance: String? = null,
     val erc20Balance: String? = null,
+    val walletTokenBalances: List<WalletTokenBalance> = emptyList(),
     val errorMessage: String? = null,
     // Collateral balances section (from API)
     val collateralWalletAddress: String = "",
@@ -186,6 +193,14 @@ data class BalancesUiState(
     val collateralBalances: List<CollateralTokenBalance> = emptyList(),
     val collateralError: String? = null
 )
+
+data class WalletTokenBalance(
+    val address: String,
+    val balance: Double
+) {
+    val displayAddress: String
+        get() = if (address.length > 12) "${address.take(6)}...${address.takeLast(4)}" else address
+}
 
 class BalancesViewModelFactory(
     private val rainClient: RainClient
