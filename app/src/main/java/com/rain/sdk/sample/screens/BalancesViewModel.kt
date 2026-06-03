@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.rain.sdk.RainChain
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.models.Token
 import com.rain.sdk.sample.NetworkClient
 import com.rain.sdk.sample.SampleLog
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,29 +45,29 @@ class BalancesViewModel(
 
         viewModelScope.launch {
             try {
-                val native = rainClient.getNativeBalance(RainChain.AVALANCHE_TESTNET)
-                SampleLog.d("Balances.fetch", "native=$native AVAX")
+                // The SDK resolves token decimals/symbol itself, so the rich Balance API
+                // takes only a Token discriminator (no decimals argument).
+                val native = rainClient.getBalance(RainChain.AVALANCHE_TESTNET, Token.Native)
+                SampleLog.d("Balances.fetch", "native=${native.formatted} ${native.symbol}")
                 val currentState = _state.value
 
                 var erc20: String? = null
                 if (currentState.tokenContractAddress.isNotBlank()) {
-                    val decimals = currentState.tokenDecimals.toIntOrNull() ?: 18
-                    val erc20Balance = rainClient.getERC20Balance(
+                    val erc20Balance = rainClient.getBalance(
                         chainId = RainChain.AVALANCHE_TESTNET,
-                        tokenAddress = currentState.tokenContractAddress,
-                        decimals = decimals
+                        token = Token.Contract(currentState.tokenContractAddress)
                     )
                     SampleLog.d(
                         "Balances.fetch",
-                        "erc20 token=${currentState.tokenContractAddress} balance=$erc20Balance"
+                        "erc20 token=${currentState.tokenContractAddress} balance=${erc20Balance.formatted}"
                     )
-                    erc20 = "$erc20Balance"
+                    erc20 = erc20Balance.formatted
                 }
 
                 SampleLog.i("Balances.fetch", "success")
                 _state.update {
                     it.copy(
-                        nativeBalance = "$native AVAX",
+                        nativeBalance = "${native.formatted} ${native.symbol ?: "AVAX"}",
                         erc20Balance = erc20,
                         isLoading = false
                     )

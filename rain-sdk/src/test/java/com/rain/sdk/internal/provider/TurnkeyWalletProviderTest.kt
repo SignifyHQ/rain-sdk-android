@@ -2,8 +2,10 @@ package com.rain.sdk.internal.provider
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.internal.helpers.MockChainReader
 import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.models.RainTransactionOrder
+import com.rain.sdk.models.Token
 import com.turnkey.core.models.Wallet
 import com.turnkey.types.V1AssetBalance
 import com.turnkey.types.V1HashFunction
@@ -34,7 +36,9 @@ class TurnkeyWalletProviderTest {
         turnkey = turnkey,
         rpcEndpoints = rpcEndpoints,
         walletAddressOverride = walletAddressOverride,
-        httpClient = OkHttpClient()
+        httpClient = OkHttpClient(),
+        // Inject a mock reader so unknown-token enrichment never hits the network.
+        chainReader = MockChainReader()
     )
 
     @Test
@@ -130,7 +134,7 @@ class TurnkeyWalletProviderTest {
     }
 
     @Test
-    fun `getNativeBalance parses slip44 native asset from balances`() = runBlocking {
+    fun `getBalance native parses slip44 native asset from balances`() = runBlocking {
         val turnkey = MockTurnkey()
         val client = MockTurnkeyClient(
             mockBalances = listOf(
@@ -155,12 +159,14 @@ class TurnkeyWalletProviderTest {
         turnkey.turnkeyClient = client
         val provider = makeProvider(turnkey = turnkey)
 
-        val balance = provider.getNativeBalance(chainId = 1)
-        assertThat(balance).isWithin(1e-9).of(1.5)
+        val balance = provider.getBalance(chainId = 1, token = Token.Native)
+        assertThat(balance.token).isEqualTo(Token.Native)
+        assertThat(balance.rawAmount).isEqualTo(java.math.BigInteger("1500000000000000000"))
+        assertThat(balance.decimalAmount.toDouble()).isWithin(1e-9).of(1.5)
     }
 
     @Test
-    fun `getERC20Balances maps token addresses to balances and skips native asset`() = runBlocking {
+    fun `getBalances maps token addresses to balances and includes native`() = runBlocking {
         val turnkey = MockTurnkey()
         val client = MockTurnkeyClient(
             mockBalances = listOf(
@@ -187,10 +193,16 @@ class TurnkeyWalletProviderTest {
         turnkey.turnkeyClient = client
         val provider = makeProvider(turnkey = turnkey)
 
-        val map = provider.getERC20Balances(chainId = 1)
-        assertThat(map).hasSize(2)
-        assertThat(map["0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"]).isWithin(1e-6).of(100.5)
-        assertThat(map["0x6b175474e89094c44da98b954eedeac495271d0f"]).isWithin(1e-9).of(2.0)
+        val balances = provider.getBalances(chainId = 1)
+        // Native + 2 ERC-20s.
+        assertThat(balances).hasSize(3)
+        assertThat(balances.any { it.token is Token.Native }).isTrue()
+
+        val usdc = balances.single { it.token == Token.Contract("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48") }
+        assertThat(usdc.decimalAmount.toDouble()).isWithin(1e-6).of(100.5)
+
+        val dai = balances.single { it.token == Token.Contract("0x6b175474e89094c44da98b954eedeac495271d0f") }
+        assertThat(dai.decimalAmount.toDouble()).isWithin(1e-9).of(2.0)
     }
 
     @Test

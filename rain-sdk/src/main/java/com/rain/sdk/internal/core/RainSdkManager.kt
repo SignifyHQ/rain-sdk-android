@@ -15,20 +15,28 @@ import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.models.RainWithdrawResult
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionResult
+import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.provider.PortalWalletProvider
 import com.rain.sdk.internal.provider.TurnkeyContextAdapter
 import com.rain.sdk.internal.provider.TurnkeyContextProtocol
 import com.rain.sdk.internal.provider.TurnkeyWalletProvider
 import com.rain.sdk.internal.provider.WalletProvider
+import com.rain.sdk.internal.tokenstore.TokenMetadataStore
+import com.rain.sdk.models.Balance
+import com.rain.sdk.models.Token
+import com.rain.sdk.models.TokenInfo
 import com.turnkey.core.TurnkeyContext
 import io.portalhq.android.Portal
 import io.portalhq.android.mpc.data.FeatureFlags
 import timber.log.Timber
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.math.BigInteger
 import android.graphics.Bitmap
@@ -62,6 +70,19 @@ internal class RainSdkManager(
 
   private var walletProvider: WalletProvider? = null
   private var turnkeyContext: TurnkeyContext? = null
+
+  /** Token metadata store shared with the active wallet provider. Null in wallet-agnostic mode. */
+  private var tokenStore: TokenMetadataStore? = null
+
+  /**
+   * Host-registered tokens, retained so they re-seed the store on each (re)initialization.
+   * Thread-safe because [registerTokens] is a non-suspend public API callable from any
+   * thread while `initialize*` / [reset] read or clear it.
+   */
+  private val registeredTokens = java.util.concurrent.CopyOnWriteArrayList<TokenInfo>()
+
+  /** Fire-and-forget scope for applying late `registerTokens` calls to a live store. */
+  private val tokenRegistrationScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
   /**
    * Snapshot of the chain IDs the SDK was last initialized with. Populated from the
@@ -134,8 +155,13 @@ internal class RainSdkManager(
           autoApprove = true
         )
 
-        // Initialize wallet provider - Default to Portal
-        walletProvider = PortalWalletProvider(portalManager)
+        // Initialize wallet provider - Default to Portal. The token store resolves
+        // ERC-20 metadata (decimals / symbol) and enriches unknown tokens once via a
+        // chain reader backed by the same RPC endpoints.
+        val reader = EvmChainReader(rpcEndpoints = rpcEndpoints)
+        val store = TokenMetadataStore(chainReader = reader, seedTokens = registeredTokens.toList())
+        tokenStore = store
+        walletProvider = PortalWalletProvider(portalManager, store)
         turnkeyContext = null
       }
 
@@ -166,10 +192,14 @@ internal class RainSdkManager(
       configManager.validateAndSetupRpcEndpoints(rpcEndpoints)
 
       val context = turnkeyContextFactory?.invoke(turnkey) ?: TurnkeyContextAdapter(turnkey)
+      val reader = EvmChainReader(rpcEndpoints = rpcEndpoints)
+      val store = TokenMetadataStore(chainReader = reader, seedTokens = registeredTokens.toList())
       val provider = TurnkeyWalletProvider(
         turnkey = context,
         rpcEndpoints = rpcEndpoints,
-        walletAddressOverride = walletAddress
+        walletAddressOverride = walletAddress,
+        chainReader = reader,
+        tokenStore = store
       )
 
       // Probe — ensures Turnkey has an EVM wallet available before swapping the provider in.
@@ -179,6 +209,7 @@ internal class RainSdkManager(
 
       walletProvider = provider
       turnkeyContext = turnkey
+      tokenStore = store
       configuredChainIds = rpcEndpoints.keys.toList()
       // Turnkey path doesn't use Portal — make sure stale state is cleared.
       portalManager.destroy()
@@ -310,52 +341,24 @@ internal class RainSdkManager(
     }
   }
 
-  override suspend fun getNativeBalance(chainId: Int): Double {
+  override suspend fun getBalance(chainId: Int, token: Token): Balance {
     if (!isInitialized) throw RainError.SdkNotInitialized()
     val provider = walletProvider ?: throw RainError.SdkNotInitialized()
     return try {
-      provider.getNativeBalance(chainId)
+      provider.getBalance(chainId, token)
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       if (e is RainError) throw e
-      Timber.e(e, "Rain SDK: Failed to get native balance")
+      Timber.e(e, "Rain SDK: Failed to get balance")
       throw errorMapper.mapTransactionError(e)
     }
   }
 
-  override suspend fun getERC20Balance(chainId: Int, tokenAddress: String, decimals: Int?): Double {
+  override suspend fun getBalances(chainId: Int): List<Balance> {
     if (!isInitialized) throw RainError.SdkNotInitialized()
     val provider = walletProvider ?: throw RainError.SdkNotInitialized()
     return try {
-      provider.getERC20Balance(chainId, tokenAddress, decimals)
-    } catch (e: Exception) {
-      if (e is CancellationException) throw e
-      if (e is RainError) throw e
-      Timber.e(e, "Rain SDK: Failed to get ERC-20 balance")
-      throw errorMapper.mapTransactionError(e)
-    }
-  }
-
-  override suspend fun getERC20Balances(chainId: Int): Map<String, Double> {
-    if (!isInitialized) throw RainError.SdkNotInitialized()
-    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
-    return try {
-      provider.getERC20Balances(chainId)
-    } catch (e: Exception) {
-      if (e is CancellationException) throw e
-      if (e is RainError) throw e
-      Timber.e(e, "Rain SDK: Failed to get ERC-20 balances")
-      throw errorMapper.mapTransactionError(e)
-    }
-  }
-
-  override suspend fun getBalances(chainId: Int): Map<String, Double> {
-    if (!isInitialized) throw RainError.SdkNotInitialized()
-    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
-    return try {
-      val result = provider.getERC20Balances(chainId).toMutableMap()
-      result[""] = provider.getNativeBalance(chainId)
-      result
+      provider.getBalances(chainId)
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       if (e is RainError) throw e
@@ -364,44 +367,43 @@ internal class RainSdkManager(
     }
   }
 
-  override suspend fun getAllBalances(): Map<Int, Map<String, Double>> {
+  override suspend fun getAllBalances(): List<Balance> {
     if (!isInitialized) throw RainError.SdkNotInitialized()
     val provider = walletProvider ?: throw RainError.SdkNotInitialized()
     val chainIds = configuredChainIds
-    if (chainIds.isEmpty()) return emptyMap()
+    if (chainIds.isEmpty()) return emptyList()
 
-    // Fan out across chains in parallel; within each chain, native and ERC-20 reads are
-    // fetched in parallel and their failures are independent — a single failure surfaces
-    // as a partial result, and a chain with both sides failing comes back as an empty map
-    // so a single bad RPC doesn't sink the whole call.
+    // Fan out across every configured chain in parallel, flattened into one list. Each
+    // Balance carries its own chainId. A chain that fails contributes no entries rather
+    // than failing the whole call, so one bad RPC endpoint doesn't hide the others.
     return coroutineScope {
       chainIds.map { chainId ->
         async {
-          val erc20Deferred = async {
-            runCatching { provider.getERC20Balances(chainId) }.getOrElse { e ->
-              if (e is CancellationException) throw e
-              Timber.w(e, "Rain SDK: getAllBalances erc20 failed for chainId=$chainId")
-              emptyMap()
-            }
+          runCatching { provider.getBalances(chainId) }.getOrElse { e ->
+            if (e is CancellationException) throw e
+            Timber.w(e, "Rain SDK: getAllBalances failed for chainId=$chainId")
+            emptyList()
           }
-          val nativeDeferred = async {
-            runCatching { provider.getNativeBalance(chainId) }.getOrElse { e ->
-              if (e is CancellationException) throw e
-              Timber.w(e, "Rain SDK: getAllBalances native failed for chainId=$chainId")
-              null
-            }
-          }
-          val combined = erc20Deferred.await().toMutableMap()
-          nativeDeferred.await()?.let { combined[""] = it }
-          chainId to combined.toMap()
         }
-      }.awaitAll().toMap()
+      }.awaitAll().flatten()
+    }
+  }
+
+  override fun registerTokens(tokens: List<TokenInfo>) {
+    if (tokens.isEmpty()) return
+    registeredTokens.addAll(tokens)
+    // Apply to the live store too. Fire-and-forget like iOS; the tokens are also retained
+    // in `registeredTokens` so they re-seed the store on the next (re)initialization.
+    tokenStore?.let { store ->
+      tokenRegistrationScope.launch { store.register(tokens) }
     }
   }
 
   override fun reset() {
     walletProvider = null
     turnkeyContext = null
+    tokenStore = null
+    registeredTokens.clear()
     configuredChainIds = emptyList()
     portalManager.destroy()
     // Clear the existing RainConfig instance rather than nulling the singleton —

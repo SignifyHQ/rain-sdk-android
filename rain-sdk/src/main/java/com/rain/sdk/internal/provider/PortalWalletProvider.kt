@@ -1,8 +1,11 @@
 package com.rain.sdk.internal.provider
 
 import com.rain.sdk.internal.core.PortalManager
+import com.rain.sdk.internal.tokenstore.TokenMetadataStore
+import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionResult
+import com.rain.sdk.models.Token
 import com.rain.sdk.utils.EthereumConverter
 import org.web3j.abi.FunctionEncoder
 import org.web3j.abi.TypeReference
@@ -13,9 +16,13 @@ import java.math.BigDecimal
 
 /**
  * WalletProvider implementation using Portal SDK.
+ *
+ * Balance reads build rich [Balance] values via [PortalManager], resolving token metadata
+ * (decimals / symbol / name) through the shared [tokenStore].
  */
 internal class PortalWalletProvider(
-  private val portalManager: PortalManager
+  private val portalManager: PortalManager,
+  private val tokenStore: TokenMetadataStore
 ) : WalletProvider {
 
   override suspend fun getAddress(): String {
@@ -70,16 +77,12 @@ internal class PortalWalletProvider(
     )
   }
 
-  override suspend fun getNativeBalance(chainId: Int): Double {
-    return portalManager.getNativeBalance(chainId)
+  override suspend fun getBalance(chainId: Int, token: Token): Balance {
+    return portalManager.getBalance(chainId, token, tokenStore)
   }
 
-  override suspend fun getERC20Balance(chainId: Int, tokenAddress: String, decimals: Int?): Double {
-    return portalManager.getERC20Balance(chainId, tokenAddress, decimals)
-  }
-
-  override suspend fun getERC20Balances(chainId: Int): Map<String, Double> {
-    return portalManager.getERC20Balances(chainId)
+  override suspend fun getBalances(chainId: Int): List<Balance> {
+    return portalManager.getBalances(chainId, tokenStore)
   }
 
   override suspend fun getTransactions(

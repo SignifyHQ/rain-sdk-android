@@ -6,6 +6,9 @@ import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.models.RainWithdrawResult
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionResult
+import com.rain.sdk.models.Balance
+import com.rain.sdk.models.Token
+import com.rain.sdk.models.TokenInfo
 import com.rain.sdk.internal.error.RainError
 import com.turnkey.core.TurnkeyContext
 import io.portalhq.android.Portal
@@ -152,66 +155,49 @@ interface RainClient {
     ): RainTokenTransferResult
 
     /**
-     * Gets the native token balance (e.g. AVAX) for the current wallet.
+     * Fetches a single balance (native or a contract token) for the current wallet.
      *
-     * @param chainId The numeric chain ID (e.g. 43114 for Avalanche Mainnet)
-     * @return Native token balance in Ether units (Double)
-     * @throws RainError if the balance cannot be retrieved
+     * @param chainId The numeric chain ID (e.g. 1 for Ethereum, 43114 for Avalanche).
+     * @param token [Token.Native] for the chain's gas currency, or [Token.Contract] for an
+     *              ERC-20. Contract-address comparison is case-insensitive.
+     * @return A [Balance] carrying the exact `rawAmount` plus resolved decimals / symbol / name.
+     * @throws RainError if no wallet provider is set, or if the request fails.
      */
     @Throws(RainError::class)
-    suspend fun getNativeBalance(chainId: Int): Double
+    suspend fun getBalance(chainId: Int, token: Token): Balance
 
     /**
-     * Gets the balance of a specific ERC20 token for the current wallet.
+     * Fetches all non-zero balances for the current wallet on the given network. The native
+     * balance is always included; zero-balance contract tokens are omitted.
      *
-     * @param chainId The numeric chain ID (e.g. 43114 for Avalanche Mainnet)
-     * @param tokenAddress The contract address of the ERC20 token
-     * @param decimals Number of decimals the token uses. Defaults to [DEFAULT_ERC20_DECIMALS].
-     * @return Token balance as a Double (with decimals already applied)
-     * @throws RainError if the balance cannot be retrieved
+     * @param chainId The numeric chain ID.
+     * @return One [Balance] per non-zero token plus the native balance.
+     * @throws RainError if no wallet provider is set, or if the request fails.
      */
     @Throws(RainError::class)
-    suspend fun getERC20Balance(
-        chainId: Int,
-        tokenAddress: String,
-        decimals: Int? = DEFAULT_ERC20_DECIMALS
-    ): Double
+    suspend fun getBalances(chainId: Int): List<Balance>
 
     /**
-     * Gets all ERC20 token balances for the current wallet on the given network.
+     * Fetches balances across every chain the SDK was initialized with, in parallel,
+     * flattened into a single list. Each [Balance] carries its own `chainId`.
      *
-     * @param chainId The numeric chain ID
-     * @return Map of token contract address to balance (Double)
-     * @throws RainError if balances cannot be retrieved
-     */
-    @Throws(RainError::class)
-    suspend fun getERC20Balances(chainId: Int): Map<String, Double>
-
-    /**
-     * Gets all balances (native + ERC-20) for the current wallet on the given network.
-     * The native token balance is stored under the empty-string key (`""`).
+     * Per-chain failures are tolerated — a chain that errors out contributes no entries
+     * rather than failing the whole call, so a single bad RPC endpoint doesn't hide
+     * balances on the other chains.
      *
-     * @param chainId The numeric chain ID
-     * @return Map of token contract address to balance (Double), with native under key `""`
-     * @throws RainError if balances cannot be retrieved
-     */
-    @Throws(RainError::class)
-    suspend fun getBalances(chainId: Int): Map<String, Double>
-
-    /**
-     * Fetches balances across every chain the SDK was initialized with, in parallel.
-     *
-     * Per-chain failures are tolerated — a chain that errors out is returned as an empty
-     * map rather than failing the whole call, so a single bad RPC endpoint doesn't hide
-     * balances on the other chains. Callers can detect missing chains by checking for
-     * empty inner maps.
-     *
-     * @return Map keyed by chain ID, mapping to per-chain balances in the same shape as
-     *         [getBalances]. Native balance is stored under the empty-string key.
+     * @return A flat list of balances spanning all healthy configured chains.
      * @throws RainError if the SDK was not initialized or no wallet provider is set.
      */
     @Throws(RainError::class)
-    suspend fun getAllBalances(): Map<Int, Map<String, Double>>
+    suspend fun getAllBalances(): List<Balance>
+
+    /**
+     * Registers additional tokens with the SDK so their metadata (decimals / symbol) resolves
+     * without an on-chain enrichment call. Retained across re-initialization; cleared by [reset].
+     *
+     * @param tokens Tokens to add to the SDK's token store.
+     */
+    fun registerTokens(tokens: List<TokenInfo>)
 
     /**
      * Clears all SDK state — wallet provider, Portal/Turnkey contexts, and stored chain

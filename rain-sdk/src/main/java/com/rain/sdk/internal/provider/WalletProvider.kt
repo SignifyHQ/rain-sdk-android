@@ -1,7 +1,9 @@
 package com.rain.sdk.internal.provider
 
+import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionResult
+import com.rain.sdk.models.Token
 
 /**
  * Interface for abstracting wallet operations.
@@ -46,19 +48,21 @@ internal interface WalletProvider {
     ): String
 
     /**
-     * Gets the native token balance.
+     * Fetches a single balance (native or a contract token) as a rich [Balance].
+     *
+     * @param chainId The target blockchain network identifier.
+     * @param token [Token.Native] or a [Token.Contract].
+     * @return A [Balance] with exact `rawAmount` plus resolved decimals / symbol / name.
      */
-    suspend fun getNativeBalance(chainId: Int): Double
+    suspend fun getBalance(chainId: Int, token: Token): Balance
 
     /**
-     * Gets the ERC-20 token balance.
+     * Fetches all non-zero balances for the current wallet on the given network.
+     *
+     * @param chainId The target blockchain network identifier.
+     * @return One [Balance] per non-zero token plus the native balance (always included).
      */
-    suspend fun getERC20Balance(chainId: Int, tokenAddress: String, decimals: Int?): Double
-
-    /**
-     * Gets all ERC-20 token balances.
-     */
-    suspend fun getERC20Balances(chainId: Int): Map<String, Double>
+    suspend fun getBalances(chainId: Int): List<Balance>
 
     /**
      * Gets the transaction history for the specified chain.

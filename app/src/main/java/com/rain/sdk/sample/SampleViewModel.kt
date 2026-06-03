@@ -9,6 +9,7 @@ import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.RainChain
 import android.graphics.Bitmap
 import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.Token
 import com.rain.sdk.models.RainWithdrawAddresses
 import io.portalhq.android.mpc.data.BackupConfigs
 import io.portalhq.android.mpc.data.BackupMethods
@@ -426,15 +427,14 @@ class SampleViewModel(
     statusText = "Fetching balances..."
     viewModelScope.launch {
       try {
-        val nativeBalance = rainClient.getNativeBalance(RainChain.AVALANCHE_TESTNET)
+        val nativeBalance = rainClient.getBalance(RainChain.AVALANCHE_TESTNET, Token.Native)
         val tokenAddress = tokenContractAddress.ifBlank { "0x5425890298aed601595a70AB815c96711a31Bc65" }
-        val decimals = 6
-        val erc20Balance = rainClient.getERC20Balance(RainChain.AVALANCHE_TESTNET, tokenAddress, decimals)
-        
+        val erc20Balance = rainClient.getBalance(RainChain.AVALANCHE_TESTNET, Token.Contract(tokenAddress))
+
         statusText = """
           Balances fetched!
-          Native (AVAX): $nativeBalance
-          ERC20 ($tokenAddress): $erc20Balance
+          Native (${nativeBalance.symbol ?: "AVAX"}): ${nativeBalance.formatted}
+          ERC20 ($tokenAddress): ${erc20Balance.formatted}
         """.trimIndent()
       } catch (e: Exception) {
         statusText = "Failed to fetch balances: ${e.message}"

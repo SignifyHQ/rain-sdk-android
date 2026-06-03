@@ -26,7 +26,7 @@ Rain SDK's public Turnkey surface is exactly one entry point: `RainClient.initia
 |---|---|---|
 | Authentication (pre-init) | Your app | `TurnkeyContext.initSuspend`, `initOtp`, `loginOrSignUpWithOtp`, `createWallet` |
 | Hand-off | Boundary call | `rainClient.initializeTurnkey(turnkeyContext, …)` |
-| Wallet operations (post-init) | Rain SDK | `rainClient.getAddress()`, `getNativeBalance()`, `sendNativeToken()`, `withdrawCollateral()` |
+| Wallet operations (post-init) | Rain SDK | `rainClient.getAddress()`, `getBalance()`, `sendNativeToken()`, `withdrawCollateral()` |
 
 ## Reference auth glue (sample app)
 
@@ -119,9 +119,9 @@ After `initializeTurnkey`, every wallet operation routes through Turnkey:
 | Rain operation | Turnkey API used |
 |----------------|------------------|
 | `client.getAddress()` | `TurnkeyContext.wallets` (first Ethereum account) |
-| `client.getNativeBalance(chainId)` | `TurnkeyClient.getWalletAddressBalances` (CAIP-19 `slip44:` filter) |
-| `client.getERC20Balance(chainId, token)` | RPC `eth_call` (`balanceOf`) |
-| `client.getERC20Balances(chainId)` | `TurnkeyClient.getWalletAddressBalances` (CAIP-19 `erc20:` filter) |
+| `client.getBalance(chainId, Token.Native)` | `TurnkeyClient.getWalletAddressBalances` (CAIP-19 `slip44:` filter) on supported chains; RPC `eth_getBalance` otherwise |
+| `client.getBalance(chainId, Token.Contract(...))` | RPC `eth_call` (`balanceOf`) |
+| `client.getBalances(chainId)` | `TurnkeyClient.getWalletAddressBalances` (CAIP-19) on supported chains; Multicall3 / parallel `eth_call` otherwise |
 | `client.sendNativeToken(...)` / `client.sendToken(...)` | `TurnkeyClient.ethSendTransaction` + `getSendTransactionStatus` polling |
 | `client.withdrawCollateral(...)` | `TurnkeyContext.signRawPayload` (EIP-712) + `ethSendTransaction` |
 | `client.getTransactions(...)` | `TurnkeyClient.getActivities` (filtered to `ACTIVITY_TYPE_ETH_SEND_TRANSACTION`) |

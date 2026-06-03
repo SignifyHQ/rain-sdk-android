@@ -4,9 +4,11 @@ import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.core.PortalManager
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.TestFixtures
+import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionResult
+import com.rain.sdk.models.Token
 import com.rain.sdk.utils.EthereumConverter
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -32,7 +34,9 @@ class PortalWalletProviderTest {
     @Before
     fun setUp() {
         portalManager = mockk()
-        portalWalletProvider = PortalWalletProvider(portalManager)
+        // The token store is only consulted inside PortalManager (mocked here), so a relaxed
+        // mock suffices — the provider just forwards it through.
+        portalWalletProvider = PortalWalletProvider(portalManager, mockk(relaxed = true))
     }
 
     @Test
@@ -134,60 +138,56 @@ class PortalWalletProviderTest {
     }
 
     @Test
-    fun `getNativeBalance delegates to PortalManager and returns its result`() = runBlocking {
-        coEvery { portalManager.getNativeBalance(43114) } returns 1.5
+    fun `getBalance delegates to PortalManager and returns its result`() = runBlocking {
+        val expected = Balance(
+            token = Token.Native,
+            chainId = 43114,
+            rawAmount = BigInteger("1500000000000000000"),
+            decimals = 18,
+            symbol = "AVAX",
+            name = "Avalanche"
+        )
+        coEvery { portalManager.getBalance(eq(43114), eq(Token.Native), any()) } returns expected
 
-        val balance = portalWalletProvider.getNativeBalance(chainId = 43114)
+        val balance = portalWalletProvider.getBalance(chainId = 43114, token = Token.Native)
 
-        assertThat(balance).isEqualTo(1.5)
-        coVerify { portalManager.getNativeBalance(43114) }
+        assertThat(balance).isEqualTo(expected)
+        coVerify { portalManager.getBalance(43114, Token.Native, any()) }
     }
 
     @Test
-    fun `getNativeBalance propagates PortalManager errors`() {
-        coEvery { portalManager.getNativeBalance(any()) } throws RainError.ProviderError(
+    fun `getBalance propagates PortalManager errors`() {
+        coEvery { portalManager.getBalance(any(), any(), any()) } throws RainError.ProviderError(
             RuntimeException("portal indexer failed")
         )
 
         assertThrows(RainError.ProviderError::class.java) {
-            runBlocking { portalWalletProvider.getNativeBalance(chainId = 43114) }
+            runBlocking { portalWalletProvider.getBalance(chainId = 43114, token = Token.Native) }
         }
     }
 
     @Test
-    fun `getERC20Balance forwards chainId-token-decimals and returns PortalManager result`() = runBlocking {
-        coEvery {
-            portalManager.getERC20Balance(43114, TestFixtures.USDC_ADDRESS, 6)
-        } returns 100.0
-
-        val balance = portalWalletProvider.getERC20Balance(
-            chainId = 43114,
-            tokenAddress = TestFixtures.USDC_ADDRESS,
-            decimals = 6
+    fun `getBalances delegates to PortalManager and returns its result`() = runBlocking {
+        val expected = listOf(
+            Balance(Token.Native, 1, BigInteger.ZERO, 18, "ETH", "Ether"),
+            Balance(Token.Contract(TestFixtures.USDC_ADDRESS), 1, BigInteger("25000000"), 6, "USDC", "USDC")
         )
+        coEvery { portalManager.getBalances(eq(1), any()) } returns expected
 
-        assertThat(balance).isEqualTo(100.0)
-        coVerify { portalManager.getERC20Balance(43114, TestFixtures.USDC_ADDRESS, 6) }
+        val result = portalWalletProvider.getBalances(chainId = 1)
+
+        assertThat(result).isEqualTo(expected)
+        coVerify { portalManager.getBalances(1, any()) }
     }
 
     @Test
-    fun `getERC20Balances returns whatever PortalManager returned`() = runBlocking {
-        val map = mapOf(TestFixtures.USDC_ADDRESS to 25.0, TestFixtures.TOKEN_ADDRESS to 7.5)
-        coEvery { portalManager.getERC20Balances(1) } returns map
-
-        val result = portalWalletProvider.getERC20Balances(chainId = 1)
-
-        assertThat(result).isEqualTo(map)
-    }
-
-    @Test
-    fun `getERC20Balances propagates PortalManager errors`() {
-        coEvery { portalManager.getERC20Balances(any()) } throws RainError.ProviderError(
+    fun `getBalances propagates PortalManager errors`() {
+        coEvery { portalManager.getBalances(any(), any()) } throws RainError.ProviderError(
             RuntimeException("getAssets failed")
         )
 
         assertThrows(RainError.ProviderError::class.java) {
-            runBlocking { portalWalletProvider.getERC20Balances(chainId = 1) }
+            runBlocking { portalWalletProvider.getBalances(chainId = 1) }
         }
     }
 

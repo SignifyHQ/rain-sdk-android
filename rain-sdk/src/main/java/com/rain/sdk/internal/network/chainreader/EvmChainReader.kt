@@ -1,9 +1,12 @@
 package com.rain.sdk.internal.network.chainreader
 
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.internal.constants.TokenRegistry
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.utils.isValidEthereumAddress
-import com.rain.sdk.models.TokenSpec
+import com.rain.sdk.models.Balance
+import com.rain.sdk.models.Token
+import com.rain.sdk.models.TokenInfo
 import com.rain.sdk.utils.EthereumConverter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
@@ -79,15 +82,75 @@ internal class EvmChainReader(
     override suspend fun getBalances(
         chainId: Int,
         walletAddress: String,
-        tokens: List<TokenSpec>
-    ): Map<String, Double> {
+        tokens: List<TokenInfo>
+    ): List<Balance> {
         val rpcUrl = resolveRpcUrl(chainId)
         validateAddress(walletAddress, "wallet address")
         return if (isMulticall3CanonicallyDeployed(chainId)) {
             fetchViaMulticall3(rpcUrl, chainId, walletAddress, tokens)
         } else {
-            fetchViaParallelCalls(rpcUrl, walletAddress, tokens)
+            fetchViaParallelCalls(rpcUrl, chainId, walletAddress, tokens)
         }
+    }
+
+    override suspend fun getBalance(
+        chainId: Int,
+        walletAddress: String,
+        token: Token,
+        tokenInfo: TokenInfo?
+    ): Balance {
+        val rpcUrl = resolveRpcUrl(chainId)
+        validateAddress(walletAddress, "wallet address")
+
+        return when (token) {
+            is Token.Native -> {
+                val hex = jsonRpcClient.callForHexResult(
+                    rpcUrl = rpcUrl,
+                    method = "eth_getBalance",
+                    params = listOf(walletAddress, "latest")
+                )
+                nativeBalance(chainId, hex)
+            }
+            is Token.Contract -> {
+                validateAddress(token.address, "token address")
+                val callData = Multicall3.encodeBalanceOf(walletAddress)
+                val hex = ethCall(rpcUrl, token.address, callData)
+                val info = tokenInfo ?: TokenInfo(
+                    chainId = chainId,
+                    address = token.address,
+                    symbol = null,
+                    decimals = RainClient.DEFAULT_ERC20_DECIMALS
+                )
+                tokenBalance(chainId, info, hex)
+            }
+        }
+    }
+
+    override suspend fun getDecimals(chainId: Int, tokenAddress: String): Int {
+        val rpcUrl = resolveRpcUrl(chainId)
+        validateAddress(tokenAddress, "token address")
+        val hex = ethCall(rpcUrl, tokenAddress, "0x" + ERC20Selectors.DECIMALS)
+        return EthereumConverter.parseHexToInt(hex)
+    }
+
+    override suspend fun getSymbol(chainId: Int, tokenAddress: String): String? {
+        val rpcUrl = resolveRpcUrl(chainId)
+        validateAddress(tokenAddress, "token address")
+        val hex = ethCall(rpcUrl, tokenAddress, "0x" + ERC20Selectors.SYMBOL)
+        return EthereumConverter.parseHexToString(hex)
+    }
+
+    /**
+     * Issues a raw `eth_call` and returns the hex result. For read functions with
+     * pre-encoded [data] (no-arg selectors like `decimals()` / `symbol()`, or `balanceOf`).
+     */
+    private suspend fun ethCall(rpcUrl: String, to: String, data: String): String {
+        val callParams = mapOf("to" to to, "data" to data)
+        return jsonRpcClient.callForHexResult(
+            rpcUrl = rpcUrl,
+            method = "eth_call",
+            params = listOf(callParams, "latest")
+        )
     }
 
     // ---------- Multicall3 path ----------
@@ -96,8 +159,8 @@ internal class EvmChainReader(
         rpcUrl: String,
         chainId: Int,
         walletAddress: String,
-        tokens: List<TokenSpec>
-    ): Map<String, Double> {
+        tokens: List<TokenInfo>
+    ): List<Balance> {
         // `allowFailure = true` so we get back per-call status. Native failure is fatal;
         // per-token failures are logged and omitted from the result (see decode loop below).
         val calls = buildList {
@@ -136,7 +199,6 @@ internal class EvmChainReader(
             )
         }
 
-        val output = mutableMapOf<String, Double>()
         // Index 0 is the native balance.
         val nativeResult = results[0]
         if (!nativeResult.success) {
@@ -144,22 +206,17 @@ internal class EvmChainReader(
                 "Multicall3 native balance call reverted on chain $chainId"
             )
         }
-        output[""] = EthereumConverter.convertHexToDouble(
-            nativeResult.returnData,
-            DEFAULT_NATIVE_DECIMALS
-        )
+
+        val output = mutableListOf(nativeBalance(chainId, nativeResult.returnData))
         tokens.forEachIndexed { i, token ->
             val result = results[i + 1]
             if (!result.success) {
                 Timber.w(
-                    "Rain SDK: balanceOf reverted for token ${token.symbol} (${token.address}) on chain $chainId — omitting from result"
+                    "Rain SDK: balanceOf reverted for token ${token.symbol ?: token.address} (${token.address}) on chain $chainId — omitting from result"
                 )
                 return@forEachIndexed
             }
-            output[token.address] = EthereumConverter.convertHexToDouble(
-                result.returnData,
-                token.decimals
-            )
+            output += tokenBalance(chainId, token, result.returnData)
         }
         return output
     }
@@ -173,72 +230,74 @@ internal class EvmChainReader(
      */
     private suspend fun fetchViaParallelCalls(
         rpcUrl: String,
+        chainId: Int,
         walletAddress: String,
-        tokens: List<TokenSpec>
-    ): Map<String, Double> = coroutineScope {
+        tokens: List<TokenInfo>
+    ): List<Balance> = coroutineScope {
         // Native first, on its own — its failure is fatal and shouldn't be swallowed by a
         // group that's also tolerating per-token errors.
-        val nativeBalance = fetchNativeBalance(rpcUrl, walletAddress)
+        val nativeHex = jsonRpcClient.callForHexResult(
+            rpcUrl = rpcUrl,
+            method = "eth_getBalance",
+            params = listOf(walletAddress, "latest")
+        )
+        val native = nativeBalance(chainId, nativeHex)
 
         // `balanceOf(walletAddress)` calldata is identical across every token — encode once.
         val balanceOfCallData = Multicall3.encodeBalanceOf(walletAddress)
 
-        val tokenJobs: List<Pair<TokenSpec, Deferred<Double?>>> = tokens.map { token ->
+        val tokenJobs: List<Pair<TokenInfo, Deferred<Balance?>>> = tokens.map { token ->
             token to async {
                 try {
-                    fetchCall(
-                        rpcUrl = rpcUrl,
-                        targetAddress = token.address,
-                        callData = balanceOfCallData,
-                        decimals = token.decimals
-                    )
+                    val hex = ethCall(rpcUrl, token.address, balanceOfCallData)
+                    tokenBalance(chainId, token, hex)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     Timber.w(
                         e,
-                        "Rain SDK: balanceOf failed for token ${token.symbol} (${token.address}) — omitting from result"
+                        "Rain SDK: balanceOf failed for token ${token.symbol ?: token.address} (${token.address}) — omitting from result"
                     )
                     null
                 }
             }
         }
 
-        val output = mutableMapOf<String, Double>("" to nativeBalance)
-        tokenJobs.forEach { (token, deferred) ->
-            deferred.await()?.let { output[token.address] = it }
+        val output = mutableListOf(native)
+        tokenJobs.forEach { (_, deferred) ->
+            deferred.await()?.let { output += it }
         }
         output
     }
 
-    private suspend fun fetchNativeBalance(rpcUrl: String, walletAddress: String): Double {
-        val hex = jsonRpcClient.callForHexResult(
-            rpcUrl = rpcUrl,
-            method = "eth_getBalance",
-            params = listOf(walletAddress, "latest")
-        )
-        return EthereumConverter.convertHexToDouble(hex, DEFAULT_NATIVE_DECIMALS)
-    }
+    // ---------- Balance builders ----------
 
     /**
-     * Issues a single `eth_call` against [targetAddress] with the given pre-encoded
-     * [callData] and parses the hex uint256 result as a [Double] scaled by [decimals].
-     * Not specific to ERC-20 — any read function whose return decodes as a uint256 fits.
+     * Builds a native-currency [Balance] from a raw hex wei value, pulling symbol / name /
+     * decimals from the static native-currency table.
      */
-    private suspend fun fetchCall(
-        rpcUrl: String,
-        targetAddress: String,
-        callData: String,
-        decimals: Int
-    ): Double {
-        val callParams = mapOf("to" to targetAddress, "data" to callData)
-        val hex = jsonRpcClient.callForHexResult(
-            rpcUrl = rpcUrl,
-            method = "eth_call",
-            params = listOf(callParams, "latest")
+    private fun nativeBalance(chainId: Int, hex: String): Balance {
+        val native = TokenRegistry.nativeCurrency(chainId)
+        return Balance(
+            token = Token.Native,
+            chainId = chainId,
+            rawAmount = EthereumConverter.parseHexToBigInteger(hex),
+            decimals = native.decimals,
+            symbol = native.symbol,
+            name = native.name
         )
-        return EthereumConverter.convertHexToDouble(hex, decimals)
     }
+
+    /** Builds a contract-token [Balance] from a raw hex base-unit value and the token's metadata. */
+    private fun tokenBalance(chainId: Int, token: TokenInfo, hex: String): Balance =
+        Balance(
+            token = Token.Contract(token.address),
+            chainId = chainId,
+            rawAmount = EthereumConverter.parseHexToBigInteger(hex),
+            decimals = token.decimals,
+            symbol = token.symbol,
+            name = token.name
+        )
 
     // ---------- Helpers ----------
 

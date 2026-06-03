@@ -7,22 +7,43 @@ import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers
 import com.rain.sdk.internal.helpers.assumeJdk24
+import com.rain.sdk.models.Balance
+import com.rain.sdk.models.Token
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
+import java.math.BigInteger
 
 /**
- * Manager-contract tests for balance APIs — validation, mode guards, and routing
- * through the active [WalletProvider]. Provider-specific success paths live in
- * `PortalWalletProviderTest` / `TurnkeyWalletProviderTest`.
+ * Manager-contract tests for the rich balance API — mode guards and routing through the
+ * active [com.rain.sdk.internal.provider.WalletProvider]. Provider-specific success paths
+ * live in `PortalWalletProviderTest` / `TurnkeyWalletProviderTest`.
  *
  * Note: an un-initialized manager surfaces every balance call as
  * [RainError.SdkNotInitialized] (via the `walletProvider ?: throw SdkNotInitialized()`
  * guard), not as `WalletUnavailable`.
  */
 class RainSdkManagerBalanceTest {
+
+    private val usdcBalance = Balance(
+        token = Token.Contract(TestFixtures.USDC_ADDRESS),
+        chainId = 1,
+        rawAmount = BigInteger("100000000"),
+        decimals = 6,
+        symbol = "USDC",
+        name = "USDC"
+    )
+
+    private val ethBalance = Balance(
+        token = Token.Native,
+        chainId = 1,
+        rawAmount = BigInteger("1500000000000000000"),
+        decimals = 18,
+        symbol = "ETH",
+        name = "Ether"
+    )
 
     @Before
     fun setUp() {
@@ -37,26 +58,10 @@ class RainSdkManagerBalanceTest {
     // ---- guards: not initialized --------------------------------------------------
 
     @Test
-    fun `getNativeBalance throws SdkNotInitialized before initialization`() {
+    fun `getBalance throws SdkNotInitialized before initialization`() {
         val manager = RainSdkManager()
         assertThrows(RainError.SdkNotInitialized::class.java) {
-            runBlocking { manager.getNativeBalance(chainId = 1) }
-        }
-    }
-
-    @Test
-    fun `getERC20Balance throws SdkNotInitialized before initialization`() {
-        val manager = RainSdkManager()
-        assertThrows(RainError.SdkNotInitialized::class.java) {
-            runBlocking { manager.getERC20Balance(chainId = 1, tokenAddress = TestFixtures.USDC_ADDRESS) }
-        }
-    }
-
-    @Test
-    fun `getERC20Balances throws SdkNotInitialized before initialization`() {
-        val manager = RainSdkManager()
-        assertThrows(RainError.SdkNotInitialized::class.java) {
-            runBlocking { manager.getERC20Balances(chainId = 1) }
+            runBlocking { manager.getBalance(chainId = 1, token = Token.Native) }
         }
     }
 
@@ -71,74 +76,50 @@ class RainSdkManagerBalanceTest {
     // ---- happy paths via the stub provider ----------------------------------------
 
     @Test
-    fun `getNativeBalance returns whatever the provider returned`(): Unit = runBlocking {
+    fun `getBalance forwards chainId and token and returns provider result`(): Unit = runBlocking {
         val (manager, stub) = TestManagers.stubProviderManager()
-        stub.nativeBalanceToReturn = 42.5
+        stub.balanceToReturn = ethBalance
 
-        val balance = manager.getNativeBalance(chainId = 1)
+        val balance = manager.getBalance(chainId = 1, token = Token.Native)
 
-        assertThat(balance).isEqualTo(42.5)
-        assertThat(stub.getNativeBalanceCalls).containsExactly(1)
-    }
-
-    @Test
-    fun `getERC20Balance forwards token-chain-decimals and returns provider result`(): Unit = runBlocking {
-        val (manager, stub) = TestManagers.stubProviderManager()
-        stub.erc20BalanceToReturn = 7.0
-
-        val balance = manager.getERC20Balance(
-            chainId = 1,
-            tokenAddress = TestFixtures.USDC_ADDRESS,
-            decimals = 6
-        )
-
-        assertThat(balance).isEqualTo(7.0)
-        assertThat(stub.getErc20BalanceCalls).hasSize(1)
-        val call = stub.getErc20BalanceCalls.single()
+        assertThat(balance).isEqualTo(ethBalance)
+        assertThat(stub.getBalanceCalls).hasSize(1)
+        val call = stub.getBalanceCalls.single()
         assertThat(call.chainId).isEqualTo(1)
-        assertThat(call.tokenAddress).isEqualTo(TestFixtures.USDC_ADDRESS)
-        assertThat(call.decimals).isEqualTo(6)
+        assertThat(call.token).isEqualTo(Token.Native)
     }
 
     @Test
-    fun `getERC20Balances returns whatever the provider returned`(): Unit = runBlocking {
+    fun `getBalance forwards a contract token`(): Unit = runBlocking {
         val (manager, stub) = TestManagers.stubProviderManager()
-        stub.erc20BalancesToReturn = mapOf(TestFixtures.USDC_ADDRESS to 100.0)
+        stub.balanceToReturn = usdcBalance
 
-        val balances = manager.getERC20Balances(chainId = 1)
+        val token = Token.Contract(TestFixtures.USDC_ADDRESS)
+        val balance = manager.getBalance(chainId = 1, token = token)
 
-        assertThat(balances).isEqualTo(mapOf(TestFixtures.USDC_ADDRESS to 100.0))
+        assertThat(balance).isEqualTo(usdcBalance)
+        assertThat(stub.getBalanceCalls.single().token).isEqualTo(token)
     }
 
     @Test
-    fun `getBalances merges native balance under empty key with ERC20 balances`(): Unit = runBlocking {
+    fun `getBalances returns whatever the provider returned`(): Unit = runBlocking {
         val (manager, stub) = TestManagers.stubProviderManager()
-        stub.nativeBalanceToReturn = 1.5
-        stub.erc20BalancesToReturn = mapOf(TestFixtures.USDC_ADDRESS to 100.0)
+        stub.balancesToReturn = listOf(ethBalance, usdcBalance)
 
         val balances = manager.getBalances(chainId = 1)
 
-        assertThat(balances).hasSize(2)
-        assertThat(balances[""]).isEqualTo(1.5)
-        assertThat(balances[TestFixtures.USDC_ADDRESS]).isEqualTo(100.0)
+        assertThat(balances).containsExactly(ethBalance, usdcBalance).inOrder()
+        assertThat(stub.getBalancesCalls).containsExactly(1)
     }
 
-    @Test
-    fun `getBalances still returns native under empty key when no ERC20 balances`(): Unit = runBlocking {
-        val (manager, stub) = TestManagers.stubProviderManager()
-        stub.nativeBalanceToReturn = 0.25
-        stub.erc20BalancesToReturn = emptyMap()
-
-        val balances = manager.getBalances(chainId = 1)
-
-        assertThat(balances).containsExactly("", 0.25)
-    }
+    // ---- error handling -----------------------------------------------------------
 
     @Test
     fun `getBalances wraps unexpected provider failures via ErrorMapper`() {
+        // ErrorMapper.mapTransactionError transitively loads Turnkey (JDK-24) classes.
         assumeJdk24()
         val failing = object : StubWalletProvider() {
-            override suspend fun getERC20Balances(chainId: Int): Map<String, Double> {
+            override suspend fun getBalances(chainId: Int): List<Balance> {
                 throw RuntimeException("indexer 503")
             }
         }
@@ -150,15 +131,15 @@ class RainSdkManagerBalanceTest {
     }
 
     @Test
-    fun `getNativeBalance rethrows RainError WalletUnavailable without re-wrapping`() {
+    fun `getBalance rethrows RainError WalletUnavailable without re-wrapping`() {
         val failing = object : StubWalletProvider() {
-            override suspend fun getNativeBalance(chainId: Int): Double {
+            override suspend fun getBalance(chainId: Int, token: Token): Balance {
                 throw RainError.WalletUnavailable("no wallet")
             }
         }
         val (manager, _) = TestManagers.stubProviderManager(failing)
         assertThrows(RainError.WalletUnavailable::class.java) {
-            runBlocking { manager.getNativeBalance(chainId = 1) }
+            runBlocking { manager.getBalance(chainId = 1, token = Token.Native) }
         }
     }
 }

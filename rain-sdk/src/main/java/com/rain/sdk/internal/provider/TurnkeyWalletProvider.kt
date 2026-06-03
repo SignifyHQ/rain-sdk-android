@@ -1,17 +1,18 @@
 package com.rain.sdk.internal.provider
 
-import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.internal.constants.RainConstants
-import com.rain.sdk.internal.constants.TokenRegistry
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.chainreader.ChainReader
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.network.chainreader.JsonRpcClient
+import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.internal.utils.ChainIdFormat
 import com.rain.sdk.internal.utils.strippingHexPrefix
+import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionResult
+import com.rain.sdk.models.Token
 import com.rain.sdk.utils.EthereumConverter
 import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TGetActivitiesBody
@@ -55,12 +56,16 @@ internal class TurnkeyWalletProvider(
     private val httpClient: OkHttpClient = OkHttpClient(),
     private val pollingIntervalMs: Long = POLLING_INTERVAL_MS,
     jsonRpcClient: JsonRpcClient = JsonRpcClient(httpClient),
-    chainReader: ChainReader? = null
+    chainReader: ChainReader? = null,
+    tokenStore: TokenMetadataStore? = null
 ) : WalletProvider {
 
     private val jsonRpcClient: JsonRpcClient = jsonRpcClient
     private val chainReader: ChainReader = chainReader
         ?: EvmChainReader(rpcEndpoints = rpcEndpoints, jsonRpcClient = jsonRpcClient)
+
+    // Resolves token metadata (decimals / symbol / name) and enriches unknown tokens once.
+    private val tokenStore: TokenMetadataStore = tokenStore ?: TokenMetadataStore(this.chainReader)
 
     // Once resolved, the wallet address is stable for the provider's lifetime, so cache
     // it. Mutex (rather than synchronized) so the suspend-friendly address() doesn't block
@@ -223,60 +228,90 @@ internal class TurnkeyWalletProvider(
 
     // ---------- balances ----------
 
-    override suspend fun getNativeBalance(chainId: Int): Double {
+    override suspend fun getBalance(chainId: Int, token: Token): Balance {
         val walletAddress = getAddress()
 
-        if (!usesTurnkeyForBalances(chainId)) {
-            return chainReader.getNativeBalance(chainId, walletAddress)
+        return when (token) {
+            is Token.Contract -> {
+                // `eth_call balanceOf` is the same operation everywhere — delegate to the
+                // chain reader so the SDK has one implementation rather than per-adapter copies.
+                val info = tokenStore.tokenInfo(chainId, token.address)
+                chainReader.getBalance(
+                    chainId = chainId,
+                    walletAddress = walletAddress,
+                    token = token,
+                    tokenInfo = info
+                )
+            }
+            is Token.Native -> {
+                if (!usesTurnkeyForBalances(chainId)) {
+                    chainReader.getBalance(
+                        chainId = chainId,
+                        walletAddress = walletAddress,
+                        token = Token.Native,
+                        tokenInfo = null
+                    )
+                } else {
+                    val balances = fetchBalances(chainId, walletAddress)
+                    nativeBalance(chainId, balances, ChainIdFormat.EIP155.format(chainId))
+                }
+            }
         }
-
-        val balances = fetchBalances(chainId, walletAddress)
-        val caip2 = ChainIdFormat.EIP155.format(chainId)
-        val native = balances.firstOrNull { isNativeAsset(it, caip2) }
-        return decimalStringToDouble(
-            balance = native?.balance,
-            decimals = native?.decimals?.toInt() ?: DEFAULT_NATIVE_DECIMALS
-        )
     }
 
-    override suspend fun getERC20Balance(
-        chainId: Int,
-        tokenAddress: String,
-        decimals: Int?
-    ): Double {
-        // `eth_call balanceOf` is the same operation everywhere — delegate unconditionally
-        // so the SDK has one implementation rather than per-adapter copies.
-        val walletAddress = getAddress()
-        return chainReader.getERC20Balance(
-            chainId = chainId,
-            tokenAddress = tokenAddress,
-            walletAddress = walletAddress,
-            decimals = decimals
-        )
-    }
-
-    override suspend fun getERC20Balances(chainId: Int): Map<String, Double> {
+    override suspend fun getBalances(chainId: Int): List<Balance> {
         val walletAddress = getAddress()
 
         if (!usesTurnkeyForBalances(chainId)) {
-            val tokens = TokenRegistry.tokensFor(chainId)
+            val tokens = tokenStore.registeredTokens(chainId)
             val all = chainReader.getBalances(chainId, walletAddress, tokens)
-            // This method's contract is ERC-20s only (the manager combines native +
-            // ERC-20 elsewhere), so strip the native key.
-            return all.filterKeys { it.isNotEmpty() }
+            return all.filter { balance ->
+                balance.token is Token.Native || balance.rawAmount > BigInteger.ZERO
+            }
         }
 
         val balances = fetchBalances(chainId, walletAddress)
         val caip2 = ChainIdFormat.EIP155.format(chainId)
 
-        return balances.mapNotNull { balance ->
-            val caip19 = balance.caip19 ?: return@mapNotNull null
-            val tokenAddress = tokenAddressFromCaip19(caip19, caip2) ?: return@mapNotNull null
-            tokenAddress to decimalStringToDouble(
-                balance = balance.balance,
-                decimals = balance.decimals?.toInt() ?: RainClient.DEFAULT_ERC20_DECIMALS
+        val output = mutableListOf(nativeBalance(chainId, balances, caip2))
+        for (balance in balances) {
+            val caip19 = balance.caip19 ?: continue
+            val tokenAddress = tokenAddressFromCaip19(caip19, caip2) ?: continue
+            val raw = runCatching { BigInteger(balance.balance ?: "0") }.getOrDefault(BigInteger.ZERO)
+            if (raw <= BigInteger.ZERO) continue
+            val info = tokenStore.tokenInfo(chainId, tokenAddress)
+            output += Balance(
+                token = Token.Contract(tokenAddress),
+                chainId = chainId,
+                rawAmount = raw,
+                decimals = balance.decimals?.toInt() ?: info.decimals,
+                symbol = balance.symbol ?: info.symbol,
+                name = balance.name ?: info.name
             )
-        }.toMap()
+        }
+        return output
+    }
+
+    /**
+     * Builds the native [Balance] from a Turnkey asset list. Turnkey reports balances in raw
+     * base units, so the string is parsed directly as [BigInteger] (no decimal reconstruction).
+     */
+    private suspend fun nativeBalance(
+        chainId: Int,
+        balances: List<V1AssetBalance>,
+        caip2: String
+    ): Balance {
+        val nativeAsset = balances.firstOrNull { isNativeAsset(it, caip2) }
+        val raw = runCatching { BigInteger(nativeAsset?.balance ?: "0") }.getOrDefault(BigInteger.ZERO)
+        val native = tokenStore.nativeCurrency(chainId)
+        return Balance(
+            token = Token.Native,
+            chainId = chainId,
+            rawAmount = raw,
+            decimals = nativeAsset?.decimals?.toInt() ?: native.decimals,
+            symbol = native.symbol,
+            name = native.name
+        )
     }
 
     // ---------- transactions ----------

@@ -3,17 +3,22 @@ package com.rain.sdk.internal.network.chainreader
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.MockRpcServer
-import com.rain.sdk.models.TokenSpec
+import com.rain.sdk.models.Token
+import com.rain.sdk.models.TokenInfo
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
+import java.math.BigInteger
 
 /**
  * Covers the two read paths the reader exposes:
  *  - Multicall3 batched aggregate3 (canonically-deployed chain — Ethereum mainnet, id = 1)
  *  - Parallel `eth_call` fallback (chain outside the deployment list — Avalanche Fuji 43113)
+ *
+ * Plus the rich [Token]/[com.rain.sdk.models.Balance] surface and metadata reads
+ * (`getDecimals` / `getSymbol`).
  */
 class EvmChainReaderTest {
 
@@ -36,7 +41,7 @@ class EvmChainReaderTest {
     private fun makeReader(chainId: Int): EvmChainReader =
         EvmChainReader(rpcEndpoints = mapOf(chainId to rpc.urlFor(chainId)))
 
-    // ---------- single-token paths ----------
+    // ---------- single-token Double paths ----------
 
     @Test
     fun `getNativeBalance parses eth_getBalance hex into ether units`(): Unit = runBlocking {
@@ -61,15 +66,15 @@ class EvmChainReaderTest {
         assertThat(balance).isWithin(1e-9).of(1.0)
     }
 
-    // ---------- parallel-fallback path ----------
+    // ---------- rich getBalances: parallel-fallback path ----------
 
     @Test
     fun `getBalances on a non-Multicall3 chain fans out one balanceOf per token`() = runBlocking {
         // Use a chain not in CANONICALLY_DEPLOYED_CHAIN_IDS so the parallel fallback runs.
         val chainId = 43113 // Avalanche Fuji testnet
         rpc.stub("eth_getBalance", "0x0") // native = 0
-        // 0xf4240 = 1_000_000 → 1.0 at 6 decimals. Both tokens share the same stubbed
-        // eth_call response (MockRpcServer dispatches by method, not by request body).
+        // 0xf4240 = 1_000_000 → exact raw. Both tokens share the same stubbed eth_call
+        // response (MockRpcServer dispatches by method, not by request body).
         rpc.stub("eth_call", "0x" + "0".repeat(59) + "f4240")
         val reader = EvmChainReader(rpcEndpoints = mapOf(chainId to rpc.urlFor(chainId)))
 
@@ -77,18 +82,28 @@ class EvmChainReaderTest {
             chainId = chainId,
             walletAddress = wallet,
             tokens = listOf(
-                TokenSpec(chainId, usdc, "USDC", 6),
-                TokenSpec(chainId, dai, "DAI", 6)
+                TokenInfo(chainId, usdc, "USDC", 6),
+                TokenInfo(chainId, dai, "DAI", 6)
             )
         )
 
-        assertThat(balances[""]).isEqualTo(0.0)
-        assertThat(balances[usdc]).isWithin(1e-9).of(1.0)
-        assertThat(balances[dai]).isWithin(1e-9).of(1.0)
+        assertThat(balances).hasSize(3)
+        val native = balances.single { it.token is Token.Native }
+        assertThat(native.rawAmount).isEqualTo(BigInteger.ZERO)
+        assertThat(native.decimals).isEqualTo(18)
+
+        val usdcBalance = balances.single { it.token == Token.Contract(usdc) }
+        assertThat(usdcBalance.rawAmount).isEqualTo(BigInteger("1000000"))
+        assertThat(usdcBalance.decimals).isEqualTo(6)
+        assertThat(usdcBalance.symbol).isEqualTo("USDC")
+        assertThat(usdcBalance.formatted).isEqualTo("1")
+
+        assertThat(balances.single { it.token == Token.Contract(dai) }.rawAmount)
+            .isEqualTo(BigInteger("1000000"))
     }
 
     @Test
-    fun `getBalances surfaces native failures but omits per-token failures`() = runBlocking {
+    fun `getBalances surfaces native success but omits per-token failures`() = runBlocking {
         // Native call works; the eth_call shared by both tokens returns an error.
         val chainId = 43113
         rpc.stub("eth_getBalance", "0xde0b6b3a7640000") // 1 ETH
@@ -98,11 +113,12 @@ class EvmChainReaderTest {
         val balances = reader.getBalances(
             chainId = chainId,
             walletAddress = wallet,
-            tokens = listOf(TokenSpec(chainId, usdc, "USDC", 6))
+            tokens = listOf(TokenInfo(chainId, usdc, "USDC", 6))
         )
 
-        assertThat(balances).containsKey("")
-        assertThat(balances).doesNotContainKey(usdc)
+        assertThat(balances).hasSize(1)
+        assertThat(balances.single().token).isEqualTo(Token.Native)
+        assertThat(balances.single().rawAmount).isEqualTo(BigInteger("1000000000000000000"))
     }
 
     @Test
@@ -116,11 +132,68 @@ class EvmChainReaderTest {
                 reader.getBalances(
                     chainId = chainId,
                     walletAddress = wallet,
-                    tokens = listOf(TokenSpec(chainId, usdc, "USDC", 6))
+                    tokens = listOf(TokenInfo(chainId, usdc, "USDC", 6))
                 )
             }
         }.exceptionOrNull()
         assertThat(ex).isInstanceOf(RainError.NetworkError::class.java)
+    }
+
+    // ---------- rich getBalance (single) ----------
+
+    @Test
+    fun `getBalance native builds a Balance from eth_getBalance with registry metadata`() = runBlocking {
+        rpc.stub("eth_getBalance", "0xde0b6b3a7640000") // 1 ETH
+        val reader = makeReader(chainId = 1)
+
+        val balance = reader.getBalance(1, wallet, Token.Native, tokenInfo = null)
+
+        assertThat(balance.token).isEqualTo(Token.Native)
+        assertThat(balance.rawAmount).isEqualTo(BigInteger("1000000000000000000"))
+        assertThat(balance.symbol).isEqualTo("ETH")
+        assertThat(balance.decimals).isEqualTo(18)
+    }
+
+    @Test
+    fun `getBalance contract builds a Balance from balanceOf with supplied metadata`() = runBlocking {
+        rpc.stub("eth_call", "0x" + "0".repeat(59) + "f4240") // 1_000_000
+        val reader = makeReader(chainId = 1)
+
+        val balance = reader.getBalance(
+            chainId = 1,
+            walletAddress = wallet,
+            token = Token.Contract(usdc),
+            tokenInfo = TokenInfo(1, usdc, "USDC", 6, "USD Coin")
+        )
+
+        assertThat(balance.token).isEqualTo(Token.Contract(usdc))
+        assertThat(balance.rawAmount).isEqualTo(BigInteger("1000000"))
+        assertThat(balance.decimals).isEqualTo(6)
+        assertThat(balance.symbol).isEqualTo("USDC")
+        assertThat(balance.name).isEqualTo("USD Coin")
+    }
+
+    // ---------- metadata reads ----------
+
+    @Test
+    fun `getDecimals parses the eth_call uint into an Int`() = runBlocking {
+        rpc.stub("eth_call", "0x" + "6".padStart(64, '0')) // 0x...06 = 6
+        val reader = makeReader(chainId = 1)
+
+        assertThat(reader.getDecimals(1, usdc)).isEqualTo(6)
+    }
+
+    @Test
+    fun `getSymbol decodes an ABI-encoded string`() = runBlocking {
+        // ABI string: [offset=0x20][length=4]["USDC" right-padded]
+        val symbolHex = "0x" +
+            "20".padStart(64, '0') +
+            "4".padStart(64, '0') +
+            "55534443".padEnd(64, '0') // "USDC"
+        rpc.stub("eth_call", symbolHex)
+        val reader = makeReader(chainId = 1)
+
+        assertThat(reader.getSymbol(1, usdc)).isEqualTo("USDC")
     }
 
     // ---------- guards ----------

@@ -103,21 +103,33 @@ val address = RainSdk.getInstance().client.getAddress()
 ### 4. Check Balances
 
 ```kotlin
+import com.rain.sdk.models.Token
+import com.rain.sdk.models.TokenInfo
+
 val client = RainSdk.getInstance().client
 
-// Native token balance (e.g. AVAX)
-val nativeBalance = client.getNativeBalance(chainId = 43114)
+// Native token balance (e.g. AVAX) — exact rawAmount plus resolved decimals/symbol/name
+val native = client.getBalance(chainId = 43114, token = Token.Native)
+println("${native.formatted} ${native.symbol}") // e.g. "1.5 AVAX"
 
-// Specific ERC-20 token balance (e.g. USDC)
-val usdcBalance = client.getERC20Balance(
-    chainId = 43114,
-    tokenAddress = "0x...",
-    decimals = 6
+// Specific ERC-20 token balance (e.g. USDC). The SDK resolves the token's decimals/symbol
+// itself, so you only pass the contract address (case-insensitive).
+val usdc = client.getBalance(chainId = 43114, token = Token.Contract("0x..."))
+
+// All non-zero balances on a chain (native always included)
+val balances: List<Balance> = client.getBalances(chainId = 43114)
+
+// Every configured chain, flattened into one list — each Balance carries its own chainId
+val all: List<Balance> = client.getAllBalances()
+
+// Optionally register extra tokens so their metadata resolves without an on-chain lookup
+client.registerTokens(
+    listOf(TokenInfo(chainId = 43114, address = "0x...", symbol = "FOO", decimals = 18))
 )
-
-// All ERC-20 balances
-val allTokens = client.getERC20Balances(chainId = 43114)
 ```
+
+Each `Balance` exposes `rawAmount` (`BigInteger`, exact base units), `decimals`, `symbol`,
+`name`, plus derived `decimalAmount` (`BigDecimal`) and `formatted` (`String`) for display.
 
 ### 5. Send Tokens
 

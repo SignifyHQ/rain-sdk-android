@@ -5,6 +5,7 @@ import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.MockRpcServer
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.assumeJdk24
+import com.rain.sdk.models.Token
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.After
@@ -174,54 +175,53 @@ class TurnkeyAdapterTest {
         }
     }
 
-    // ---- getERC20Balance via RPC (eth_call) --------------------------------------
+    // ---- getBalance contract via RPC (eth_call) ----------------------------------
 
     @Test
-    fun `getERC20Balance parses eth_call result using the supplied decimals`(): Unit = runBlocking {
+    fun `getBalance contract parses eth_call result using token decimals`(): Unit = runBlocking {
         // 1 USDC = 1_000_000 with 6 decimals
         rpc.stub(method = "eth_call", result = "0x0f4240")
 
         val provider = makeProvider()
-        val balance = provider.getERC20Balance(
+        val balance = provider.getBalance(
             chainId = 1,
-            tokenAddress = TestFixtures.USDC_ADDRESS,
-            decimals = 6
+            token = Token.Contract(TestFixtures.USDC_ADDRESS)
         )
 
-        assertThat(balance).isWithin(1e-12).of(1.0)
+        // USDC is in the chain-1 registry (decimals 6), so no extra metadata RPC is needed.
+        assertThat(balance.decimals).isEqualTo(6)
+        assertThat(balance.decimalAmount.toDouble()).isWithin(1e-12).of(1.0)
         assertThat(rpc.recordedMethods).containsExactly("eth_call")
     }
 
     @Test
-    fun `getERC20Balance maps RPC network failure to NetworkError`() {
+    fun `getBalance contract maps RPC network failure to NetworkError`() {
         rpc.stubNetworkFailure(method = "eth_call")
 
         val provider = makeProvider()
         assertThrows(RainError.NetworkError::class.java) {
             runBlocking {
-                provider.getERC20Balance(
+                provider.getBalance(
                     chainId = 1,
-                    tokenAddress = TestFixtures.USDC_ADDRESS,
-                    decimals = 6
+                    token = Token.Contract(TestFixtures.USDC_ADDRESS)
                 )
             }
         }
     }
 
-    // ---- getNativeBalance fallback when indexer fails ---------------------------
+    // ---- native balance on an unsupported chain reads directly via RPC ----------
 
     @Test
-    fun `getNativeBalance falls back to eth_getBalance when indexer fails`(): Unit = runBlocking {
+    fun `getBalance native on unsupported chain reads via eth_getBalance`(): Unit = runBlocking {
         // 1 ETH in wei = 0xde0b6b3a7640000
         rpc.stub(method = "eth_getBalance", result = "0xde0b6b3a7640000")
 
-        val turnkey = MockTurnkey()
-        (turnkey.turnkeyClient as MockTurnkeyClient).walletAddressBalancesError =
-            RuntimeException("indexer 403 — chain not supported")
-        val provider = makeProvider(turnkey)
+        // 43113 (Avalanche Fuji) is outside TURNKEY_SUPPORTED_CHAINS, so the balance read
+        // falls through to the chain reader / RPC rather than the Turnkey indexer.
+        val provider = makeProvider(chainId = 43113)
 
-        val balance = provider.getNativeBalance(chainId = 1)
-        assertThat(balance).isWithin(1e-12).of(1.0)
+        val balance = provider.getBalance(chainId = 43113, token = Token.Native)
+        assertThat(balance.decimalAmount.toDouble()).isWithin(1e-12).of(1.0)
         assertThat(rpc.recordedMethods).contains("eth_getBalance")
     }
 

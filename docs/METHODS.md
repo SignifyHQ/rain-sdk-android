@@ -149,50 +149,79 @@ Sends ERC-20 tokens from the current wallet.
 
 ---
 
-### getNativeBalance(chainId)
+### Balance value type
 
-Fetches the native token balance (e.g. AVAX) for the current wallet.
+All balance methods return rich `Balance` values rather than lossy `Double`s.
 
-- **Returns:** `Double` — balance in human-readable form (e.g. `1.5` for 1.5 AVAX).
-- **Throws:** `RainError` if balance cannot be retrieved.
-- **Requires:** `initializePortal` first.
+| Field | Type | Description |
+|-------|------|-------------|
+| `token` | `Token` | `Token.Native` or `Token.Contract(address)`. |
+| `chainId` | `Int` | EIP-155 chain ID the balance was read on. |
+| `rawAmount` | `BigInteger` | Exact balance in the token's smallest unit (never lossy). |
+| `decimals` | `Int` | Token decimal places (e.g. 6 for USDC, 18 for ETH). |
+| `symbol` | `String?` | Token symbol, when known. |
+| `name` | `String?` | Human-readable name, when known. |
+| `decimalAmount` | `BigDecimal` | Derived: `rawAmount / 10^decimals`. |
+| `formatted` | `String` | Derived display string (e.g. `"1.5"`). |
+
+---
+
+### getBalance(chainId, token)
+
+Fetches a single balance (native or a contract token) for the current wallet.
+
+- **Returns:** `Balance` — exact `rawAmount` plus resolved decimals / symbol / name.
+- **Throws:** `RainError` if no wallet provider is set, or if the request fails.
+- **Requires:** `initializePortal` / `initializeTurnkey` first.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `chainId` | `Int` | Target network chain ID (e.g. `43114` for Avalanche Mainnet). |
+| `token` | `Token` | `Token.Native`, or `Token.Contract(address)` (address comparison is case-insensitive). |
 
 ---
 
-### getERC20Balance(chainId, tokenAddress, decimals)
+### getBalances(chainId)
 
-Fetches the balance of a specific ERC-20 token for the current wallet.
+Fetches all non-zero balances for the current wallet on the given network. The native
+balance is always included; zero-balance contract tokens are omitted.
 
-- **Returns:** `Double` — balance in human-readable form (with decimals already applied).
-- **Throws:** `RainError` if balance cannot be retrieved.
-- **Requires:** `initializePortal` first.
+- **Returns:** `List<Balance>` — one per non-zero token plus the native balance.
+- **Throws:** `RainError` if no wallet provider is set, or if the request fails.
+- **Requires:** `initializePortal` / `initializeTurnkey` first.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `chainId` | `Int` | Target network chain ID. |
-| `tokenAddress` | `String` | ERC-20 token contract address. |
-| `decimals` | `Int?` | Token decimals. Defaults to `18`. |
 
 ---
 
-### getERC20Balances(chainId)
+### getAllBalances()
 
-Fetches all ERC-20 token balances for the current wallet on the given network.
+Fetches balances across every chain the SDK was initialized with, in parallel, flattened
+into a single list. Each `Balance` carries its own `chainId`. Per-chain failures are
+tolerated — a chain that errors out contributes no entries rather than failing the whole
+call.
 
-- **Returns:** `Map<String, Double>` — token contract address → balance.
-- **Throws:** `RainError` if balances cannot be retrieved.
-- **Requires:** `initializePortal` first.
+- **Returns:** `List<Balance>` — a flat list spanning all healthy configured chains.
+- **Throws:** `RainError` if the SDK was not initialized or no wallet provider is set.
 - **Suspend:** Yes
+
+---
+
+### registerTokens(tokens)
+
+Registers additional tokens so their metadata (decimals / symbol) resolves without an
+on-chain enrichment call. Retained across re-initialization; cleared by `reset()`.
+
+- **Returns:** `Unit`
+- **Suspend:** No
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `chainId` | `Int` | Target network chain ID. |
+| `tokens` | `List<TokenInfo>` | Tokens to add to the SDK's token store. |
 
 ---
 

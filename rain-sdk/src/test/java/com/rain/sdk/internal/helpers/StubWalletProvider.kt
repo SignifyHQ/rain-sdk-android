@@ -1,8 +1,11 @@
 package com.rain.sdk.internal.helpers
 
 import com.rain.sdk.internal.provider.WalletProvider
+import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionResult
+import com.rain.sdk.models.Token
+import java.math.BigInteger
 
 /**
  * Provider-agnostic stub for manager-contract tests. Records calls and returns
@@ -20,10 +23,9 @@ internal open class StubWalletProvider : WalletProvider {
         val decimals: Int
     )
 
-    data class GetErc20BalanceCall(
+    data class GetBalanceCall(
         val chainId: Int,
-        val tokenAddress: String,
-        val decimals: Int?
+        val token: Token
     )
 
     data class GetTransactionsCall(
@@ -56,9 +58,15 @@ internal open class StubWalletProvider : WalletProvider {
     )
 
     var addressToReturn: String = TestFixtures.WALLET_ADDRESS
-    var nativeBalanceToReturn: Double = 0.0
-    var erc20BalanceToReturn: Double = 0.0
-    var erc20BalancesToReturn: Map<String, Double> = emptyMap()
+    var balanceToReturn: Balance = Balance(
+        token = Token.Native,
+        chainId = 1,
+        rawAmount = BigInteger.ZERO,
+        decimals = 18,
+        symbol = "ETH",
+        name = "Ether"
+    )
+    var balancesToReturn: List<Balance> = emptyList()
     var transactionsToReturn: RainTransactionResult = RainTransactionResult(transactions = emptyList())
     var sendNativeTokenHashToReturn: String = "0x" + "0".repeat(64)
     var sendTokenHashToReturn: String = "0x" + "0".repeat(64)
@@ -68,9 +76,8 @@ internal open class StubWalletProvider : WalletProvider {
 
     val sendNativeTokenCalls = mutableListOf<SendTokenCall>()
     val sendTokenCalls = mutableListOf<SendTokenCall>()
-    val getNativeBalanceCalls = mutableListOf<Int>()
-    val getErc20BalanceCalls = mutableListOf<GetErc20BalanceCall>()
-    val getErc20BalancesCalls = mutableListOf<Int>()
+    val getBalanceCalls = mutableListOf<GetBalanceCall>()
+    val getBalancesCalls = mutableListOf<Int>()
     val getTransactionsCalls = mutableListOf<GetTransactionsCall>()
     val signTypedDataCalls = mutableListOf<SignTypedDataCall>()
     val sendTransactionCalls = mutableListOf<SendTransactionCall>()
@@ -104,23 +111,14 @@ internal open class StubWalletProvider : WalletProvider {
         return sendTokenHashToReturn
     }
 
-    override suspend fun getNativeBalance(chainId: Int): Double {
-        getNativeBalanceCalls += chainId
-        return nativeBalanceToReturn
+    override suspend fun getBalance(chainId: Int, token: Token): Balance {
+        getBalanceCalls += GetBalanceCall(chainId, token)
+        return balanceToReturn
     }
 
-    override suspend fun getERC20Balance(
-        chainId: Int,
-        tokenAddress: String,
-        decimals: Int?
-    ): Double {
-        getErc20BalanceCalls += GetErc20BalanceCall(chainId, tokenAddress, decimals)
-        return erc20BalanceToReturn
-    }
-
-    override suspend fun getERC20Balances(chainId: Int): Map<String, Double> {
-        getErc20BalancesCalls += chainId
-        return erc20BalancesToReturn
+    override suspend fun getBalances(chainId: Int): List<Balance> {
+        getBalancesCalls += chainId
+        return balancesToReturn
     }
 
     override suspend fun getTransactions(
