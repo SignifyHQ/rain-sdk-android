@@ -116,9 +116,14 @@ internal class TurnkeyWalletProvider(
         val sendTransactionStatusId: String?
     )
 
-    /** True when Turnkey's `get-balances` API covers [chainId]. */
+    /** True when Turnkey's `get-balances` API covers [chainId] (EVM allowlist or any Solana cluster). */
     private fun usesTurnkeyForBalances(chainId: Int): Boolean =
-        chainId in RainConstants.TURNKEY_SUPPORTED_CHAINS
+        chainId in RainConstants.TURNKEY_SUPPORTED_CHAINS || SolanaChains.isSolanaChain(chainId)
+
+    /** CAIP-2 for [chainId]: EIP-155 for EVM, genesis-hash form for Solana clusters. */
+    private fun caip2For(chainId: Int): String =
+        if (SolanaChains.isSolanaChain(chainId)) SolanaChains.caip2(chainId)
+        else ChainIdFormat.EIP155.format(chainId)
 
     // ---------- address ----------
 
@@ -291,6 +296,12 @@ internal class TurnkeyWalletProvider(
     override suspend fun getBalance(chainId: Int, token: Token): Balance {
         val walletAddress = getAddress(chainId)
 
+        // Solana has its own balance policy (Turnkey-first with an RPC fallback for native SOL),
+        // so it branches out before the EVM logic below.
+        if (SolanaChains.isSolanaChain(chainId)) {
+            return solanaBalance(chainId, walletAddress, token)
+        }
+
         return when (token) {
             is Token.Contract -> {
                 // `eth_call balanceOf` is the same operation everywhere — delegate to the
@@ -313,10 +324,51 @@ internal class TurnkeyWalletProvider(
                     )
                 } else {
                     val balances = fetchBalances(chainId, walletAddress)
-                    nativeBalance(chainId, balances, ChainIdFormat.EIP155.format(chainId))
+                    nativeBalance(chainId, balances, caip2For(chainId))
                 }
             }
         }
+    }
+
+    /**
+     * Solana balance read. Turnkey is the primary source; native SOL falls back to the Solana
+     * RPC reader if the Turnkey call fails (the RPC reader can't read SPL, so contract tokens
+     * surface the original error instead of falling back).
+     */
+    private suspend fun solanaBalance(chainId: Int, walletAddress: String, token: Token): Balance =
+        runCatching {
+            val balances = fetchBalances(chainId, walletAddress)
+            val caip2 = caip2For(chainId)
+            when (token) {
+                is Token.Native -> nativeBalance(chainId, balances, caip2)
+                is Token.Contract -> splBalance(chainId, balances, caip2, token.address)
+            }
+        }.getOrElse { error ->
+            if (token is Token.Native) {
+                chainReaderFor(chainId).getBalance(
+                    chainId = chainId,
+                    walletAddress = walletAddress,
+                    token = Token.Native,
+                    tokenInfo = null
+                )
+            } else {
+                throw error
+            }
+        }
+
+    /**
+     * Builds an SPL [Balance] for [mint] from a Turnkey asset list. Turnkey omits zero balances,
+     * so a missing mint yields a zero balance with whatever metadata we can recover.
+     */
+    private suspend fun splBalance(
+        chainId: Int,
+        balances: List<V1AssetBalance>,
+        caip2: String,
+        mint: String
+    ): Balance {
+        val asset = balances.firstOrNull { tokenAddressFromCaip19(it.caip19 ?: "", caip2) == mint }
+        val raw = runCatching { BigInteger(asset?.balance ?: "0") }.getOrDefault(BigInteger.ZERO)
+        return contractBalanceFrom(chainId, mint, raw, asset)
     }
 
     override suspend fun getBalances(chainId: Int): List<Balance> {
@@ -330,8 +382,18 @@ internal class TurnkeyWalletProvider(
             }
         }
 
-        val balances = fetchBalances(chainId, walletAddress)
-        val caip2 = ChainIdFormat.EIP155.format(chainId)
+        val caip2 = caip2For(chainId)
+        val balances =
+            if (SolanaChains.isSolanaChain(chainId)) {
+                runCatching { fetchBalances(chainId, walletAddress) }.getOrElse {
+                    // RPC fallback: SolanaChainReader.getBalances returns native SOL only.
+                    return chainReaderFor(chainId)
+                        .getBalances(chainId, walletAddress, emptyList())
+                        .filter { it.token is Token.Native || it.rawAmount > BigInteger.ZERO }
+                }
+            } else {
+                fetchBalances(chainId, walletAddress)
+            }
 
         val output = mutableListOf(nativeBalance(chainId, balances, caip2))
         for (balance in balances) {
@@ -339,17 +401,42 @@ internal class TurnkeyWalletProvider(
             val tokenAddress = tokenAddressFromCaip19(caip19, caip2) ?: continue
             val raw = runCatching { BigInteger(balance.balance ?: "0") }.getOrDefault(BigInteger.ZERO)
             if (raw <= BigInteger.ZERO) continue
-            val info = tokenStore.tokenInfo(chainId, tokenAddress)
-            output += Balance(
+            output += contractBalanceFrom(chainId, tokenAddress, raw, balance)
+        }
+        return output
+    }
+
+    /**
+     * Builds a contract-token [Balance] from a Turnkey asset entry. EVM tokens are enriched via
+     * [tokenStore] (registry / on-chain `decimals()`+`symbol()`) with Turnkey's values taking
+     * precedence; Solana SPL tokens use Turnkey's metadata directly, since the Solana reader can't
+     * enrich (`getDecimals`/`getSymbol` throw) and would only cache misleading defaults.
+     */
+    private suspend fun contractBalanceFrom(
+        chainId: Int,
+        tokenAddress: String,
+        raw: BigInteger,
+        balance: V1AssetBalance?
+    ): Balance {
+        if (SolanaChains.isSolanaChain(chainId)) {
+            return Balance(
                 token = Token.Contract(tokenAddress),
                 chainId = chainId,
                 rawAmount = raw,
-                decimals = balance.decimals?.toInt() ?: info.decimals,
-                symbol = balance.symbol ?: info.symbol,
-                name = balance.name ?: info.name
+                decimals = balance?.decimals?.toInt() ?: 0,
+                symbol = balance?.symbol,
+                name = balance?.name
             )
         }
-        return output
+        val info = tokenStore.tokenInfo(chainId, tokenAddress)
+        return Balance(
+            token = Token.Contract(tokenAddress),
+            chainId = chainId,
+            rawAmount = raw,
+            decimals = balance?.decimals?.toInt() ?: info.decimals,
+            symbol = balance?.symbol ?: info.symbol,
+            name = balance?.name ?: info.name
+        )
     }
 
     /**
@@ -544,7 +631,7 @@ internal class TurnkeyWalletProvider(
             TGetWalletAddressBalancesBody(
                 organizationId = session.organizationId,
                 address = walletAddress,
-                caip2 = ChainIdFormat.EIP155.format(chainId)
+                caip2 = caip2For(chainId)
             )
         )
         return response.balances.orEmpty()
@@ -783,7 +870,9 @@ internal class TurnkeyWalletProvider(
     }
 
     private fun tokenAddressFromCaip19(caip19: String, caip2: String): String? {
-        if (!caip19.startsWith("$caip2/erc20:")) return null
+        // EVM tokens use the `erc20` asset namespace; Solana SPL tokens use `token`.
+        val prefixes = listOf("$caip2/erc20:", "$caip2/token:")
+        if (prefixes.none { caip19.startsWith(it) }) return null
         return caip19.substringAfterLast(":", "").takeIf { it.isNotEmpty() }
     }
 

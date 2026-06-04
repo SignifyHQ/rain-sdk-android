@@ -196,17 +196,24 @@ private fun TransactionCard(tx: RainTransaction, walletAddress: String?, selecte
                     }
                 }
             }
+            // Solana history rows carry the Turnkey status id, not an explorer-resolvable
+            // signature, so the hash is shown plainly (no link) on Solana.
+            val explorerLinkable = !selectedChain.isSolana
             Text(
                 text = truncateHash(tx.hash),
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.primary,
-                textDecoration = TextDecoration.Underline,
+                color = if (explorerLinkable) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface,
+                textDecoration = if (explorerLinkable) TextDecoration.Underline else null,
                 maxLines = 1,
-                modifier = Modifier.clickable {
-                    val url = selectedChain.explorerTxUrl(tx.hash)
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                }
+                modifier = if (explorerLinkable) {
+                    Modifier.clickable {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(selectedChain.explorerTxUrl(tx.hash)))
+                        )
+                    }
+                } else Modifier
             )
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -280,17 +287,20 @@ private fun TransactionCard(tx: RainTransaction, walletAddress: String?, selecte
                 }
             }
 
-            // Client-facing action: open the transaction on the chain's block explorer.
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse(selectedChain.explorerTxUrl(tx.hash)))
-                    )
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("🔎 View on ${selectedChain.explorerName}")
+            // Explorer link only where the hash is a real on-chain signature — hidden on Solana,
+            // whose history row carries the Turnkey status id rather than a tx signature.
+            if (explorerLinkable) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(selectedChain.explorerTxUrl(tx.hash)))
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("🔎 View on ${selectedChain.explorerName}")
+                }
             }
         }
     }

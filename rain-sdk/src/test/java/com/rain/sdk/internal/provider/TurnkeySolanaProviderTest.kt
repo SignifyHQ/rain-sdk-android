@@ -9,6 +9,7 @@ import com.rain.sdk.internal.solana.SolanaTransactionBuilder
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
+import com.turnkey.types.V1AssetBalance
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.json.JSONArray
@@ -20,8 +21,8 @@ import java.math.BigInteger
 
 /**
  * Solana behaviour of [TurnkeyWalletProvider]: chain-aware address resolution, balance reads
- * routed to the Solana reader, and the native SOL send path through Turnkey's
- * `sol_send_transaction`.
+ * sourced from Turnkey (with an RPC fallback for native SOL), and the native SOL send path
+ * through Turnkey's `sol_send_transaction`.
  */
 class TurnkeySolanaProviderTest {
 
@@ -68,21 +69,95 @@ class TurnkeySolanaProviderTest {
     }
 
     @Test
-    fun `getBalance native on solana routes to the solana reader, not the evm reader`() = runBlocking {
-        val solanaReader = MockChainReader(
-            balance = Balance(Token.Native, devnet, BigInteger.valueOf(2_500_000_000L), 9, "SOL", "Solana")
+    fun `getBalance native on solana reads from Turnkey with the devnet caip2`() = runBlocking {
+        val client = MockTurnkeyClient(
+            mockBalances = listOf(
+                V1AssetBalance(
+                    balance = "2500000000", // 2.5 SOL in lamports
+                    caip19 = "$devnetCaip2/slip44:501",
+                    decimals = 9L,
+                    display = null,
+                    name = "Solana",
+                    symbol = "SOL"
+                )
+            )
         )
-        val evmReader = MockChainReader()
-        val provider = makeProvider(evmReader = evmReader, solanaReader = solanaReader)
+        val solanaReader = MockChainReader()
+        val provider = makeProvider(client = client, solanaReader = solanaReader)
 
         val balance = provider.getBalance(devnet, Token.Native)
 
         assertThat(balance.symbol).isEqualTo("SOL")
         assertThat(balance.decimalAmount.toDouble()).isWithin(1e-9).of(2.5)
+        assertThat(client.walletAddressBalanceCalls).hasSize(1)
+        assertThat(client.walletAddressBalanceCalls.single().caip2).isEqualTo(devnetCaip2)
+        assertThat(client.walletAddressBalanceCalls.single().address)
+            .isEqualTo(MockTurnkey.DEFAULT_SOLANA_ADDRESS)
+        // The RPC reader is untouched when Turnkey succeeds.
+        assertThat(solanaReader.balanceCalls).isEmpty()
+    }
+
+    @Test
+    fun `getBalance native on solana falls back to the RPC reader when Turnkey fails`() = runBlocking {
+        val client = MockTurnkeyClient().apply {
+            walletAddressBalancesError = RuntimeException("turnkey unavailable")
+        }
+        val solanaReader = MockChainReader(
+            balance = Balance(Token.Native, devnet, BigInteger.valueOf(1_000_000_000L), 9, "SOL", "Solana")
+        )
+        val provider = makeProvider(client = client, solanaReader = solanaReader)
+
+        val balance = provider.getBalance(devnet, Token.Native)
+
+        assertThat(balance.decimalAmount.toDouble()).isWithin(1e-9).of(1.0)
         assertThat(solanaReader.balanceCalls).hasSize(1)
         assertThat(solanaReader.balanceCalls.single().walletAddress)
             .isEqualTo(MockTurnkey.DEFAULT_SOLANA_ADDRESS)
-        assertThat(evmReader.balanceCalls).isEmpty()
+    }
+
+    @Test
+    fun `getBalance native on solana shows zero when Turnkey omits the asset`() = runBlocking {
+        // Turnkey returns only non-zero balances; an empty list means a 0-SOL wallet, not a failure.
+        val client = MockTurnkeyClient(mockBalances = emptyList())
+        val solanaReader = MockChainReader()
+        val provider = makeProvider(client = client, solanaReader = solanaReader)
+
+        val balance = provider.getBalance(devnet, Token.Native)
+
+        assertThat(balance.symbol).isEqualTo("SOL")
+        assertThat(balance.rawAmount).isEqualTo(BigInteger.ZERO)
+        assertThat(solanaReader.balanceCalls).isEmpty()
+    }
+
+    @Test
+    fun `getBalances on solana returns native SOL plus SPL tokens from Turnkey`() = runBlocking {
+        val usdcMint = MockTurnkey.DEFAULT_SOLANA_RECIPIENT // valid 32-byte base58 stand-in for a mint
+        val client = MockTurnkeyClient(
+            mockBalances = listOf(
+                V1AssetBalance(
+                    balance = "2500000000", // 2.5 SOL
+                    caip19 = "$devnetCaip2/slip44:501",
+                    decimals = 9L, display = null, name = "Solana", symbol = "SOL"
+                ),
+                V1AssetBalance(
+                    balance = "100500000", // 100.5 USDC (6 decimals)
+                    caip19 = "$devnetCaip2/token:$usdcMint",
+                    decimals = 6L, display = null, name = "USD Coin", symbol = "USDC"
+                )
+            )
+        )
+        val provider = makeProvider(client = client)
+
+        val balances = provider.getBalances(devnet)
+
+        assertThat(balances).hasSize(2)
+        val sol = balances.single { it.token is Token.Native }
+        assertThat(sol.decimalAmount.toDouble()).isWithin(1e-9).of(2.5)
+
+        val usdc = balances.single { it.token == Token.Contract(usdcMint) }
+        assertThat(usdc.symbol).isEqualTo("USDC")
+        assertThat(usdc.decimalAmount.toDouble()).isWithin(1e-6).of(100.5)
+        assertThat(client.walletAddressBalanceCalls.single().caip2).isEqualTo(devnetCaip2)
     }
 
     @Test

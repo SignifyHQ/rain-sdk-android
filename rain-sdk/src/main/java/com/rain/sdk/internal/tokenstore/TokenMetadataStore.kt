@@ -1,6 +1,7 @@
 package com.rain.sdk.internal.tokenstore
 
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.internal.constants.SolanaChains
 import com.rain.sdk.internal.constants.TokenRegistry
 import com.rain.sdk.internal.network.chainreader.ChainReader
 import com.rain.sdk.models.NativeCurrency
@@ -56,8 +57,10 @@ internal class TokenMetadataStore(
         }
     }
 
-    /** Native currency for a chain (gas token metadata). */
-    fun nativeCurrency(chainId: Int): NativeCurrency = TokenRegistry.nativeCurrency(chainId)
+    /** Native currency for a chain (gas token metadata). Solana clusters resolve SOL. */
+    fun nativeCurrency(chainId: Int): NativeCurrency =
+        if (SolanaChains.isSolanaChain(chainId)) SolanaChains.NATIVE_CURRENCY
+        else TokenRegistry.nativeCurrency(chainId)
 
     /** All known tokens for a chain (registry + host-registered), in deterministic order. */
     suspend fun registeredTokens(chainId: Int): List<TokenInfo> =
