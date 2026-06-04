@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.NetworkClient
 import com.rain.sdk.sample.SampleLog
+import com.rain.sdk.sample.WalletChain
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,13 +21,23 @@ class WalletInfoViewModel(
     private val _state = MutableStateFlow(WalletInfoUiState())
     val state: StateFlow<WalletInfoUiState> = _state.asStateFlow()
 
-    fun fetchWalletInfo(accessToken: String) {
-        SampleLog.i("WalletInfo", "fetching wallet info")
-        _state.update { it.copy(isLoading = true, errorText = null) }
+    fun fetchWalletInfo(accessToken: String, chain: WalletChain = WalletChain.EVM) {
+        SampleLog.i("WalletInfo", "fetching wallet info chain=${chain.displayName}")
+        _state.update {
+            it.copy(
+                isLoading = true,
+                errorText = null,
+                // Clear stale data when switching chains so the previous wallet doesn't linger.
+                portalAddress = "",
+                portalQrBitmap = null,
+                collateralAddress = "",
+                collateralQrBitmap = null
+            )
+        }
 
         viewModelScope.launch {
             try {
-                val walletAddress = rainClient.getAddress()
+                val walletAddress = rainClient.getAddress(chain.chainId)
                 SampleLog.d("WalletInfo", "wallet address=$walletAddress")
                 val walletQr = rainClient.generateAddressQRCode(walletAddress)
 
@@ -35,6 +46,12 @@ class WalletInfoViewModel(
                         portalAddress = walletAddress,
                         portalQrBitmap = walletQr
                     )
+                }
+
+                // Rain collateral is an EVM-only concept; skip it for Solana.
+                if (chain.isSolana) {
+                    _state.update { it.copy(isLoading = false) }
+                    return@launch
                 }
 
                 val contractResponse = NetworkClient.fetchCollateralContract(accessToken)

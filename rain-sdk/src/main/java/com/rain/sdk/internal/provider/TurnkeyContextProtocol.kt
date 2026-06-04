@@ -12,6 +12,8 @@ import com.turnkey.types.TGetSendTransactionStatusBody
 import com.turnkey.types.TGetSendTransactionStatusResponse
 import com.turnkey.types.TGetWalletAddressBalancesBody
 import com.turnkey.types.TGetWalletAddressBalancesResponse
+import com.turnkey.types.TSolSendTransactionBody
+import com.turnkey.types.TSolSendTransactionResponse
 import com.turnkey.types.V1HashFunction
 import com.turnkey.types.V1PayloadEncoding
 import com.turnkey.types.V1SignRawPayloadResult
@@ -30,6 +32,10 @@ internal interface TurnkeyClientProtocol {
     suspend fun ethSendTransaction(
         input: TEthSendTransactionBody
     ): TEthSendTransactionResponse
+
+    suspend fun solSendTransaction(
+        input: TSolSendTransactionBody
+    ): TSolSendTransactionResponse
 
     suspend fun getSendTransactionStatus(
         input: TGetSendTransactionStatusBody
@@ -103,6 +109,10 @@ internal class TurnkeyClientAdapter(
     override suspend fun ethSendTransaction(
         input: TEthSendTransactionBody
     ): TEthSendTransactionResponse = client.ethSendTransaction(input)
+
+    override suspend fun solSendTransaction(
+        input: TSolSendTransactionBody
+    ): TSolSendTransactionResponse = client.solSendTransaction(input)
 
     override suspend fun getSendTransactionStatus(
         input: TGetSendTransactionStatusBody

@@ -103,6 +103,18 @@ interface RainClient {
     suspend fun getAddress(): String
 
     /**
+     * Gets the wallet address for a specific chain. For EVM chains this matches [getAddress]
+     * (a hex address); for Solana chains (e.g. `RainChain.SOLANA_DEVNET`) it returns the
+     * Turnkey Solana account's base58 address.
+     *
+     * @param chainId The numeric chain ID (EVM chain ID, or a `RainChain.SOLANA_*` sentinel).
+     * @return The wallet address for that chain's family.
+     * @throws RainError if the address cannot be retrieved.
+     */
+    @Throws(RainError::class)
+    suspend fun getAddress(chainId: Int): String
+
+    /**
      * Estimates the gas fee required for a transaction.
      *
      * @param chainId The chain ID for the transaction

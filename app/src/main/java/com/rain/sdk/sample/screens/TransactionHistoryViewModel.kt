@@ -3,11 +3,11 @@ package com.rain.sdk.sample.screens
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.rain.sdk.RainChain
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.sample.SampleLog
+import com.rain.sdk.sample.WalletChain
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,25 +21,33 @@ class TransactionHistoryViewModel(
   private val _state = MutableStateFlow(TransactionHistoryUiState())
   val state: StateFlow<TransactionHistoryUiState> = _state.asStateFlow()
 
-  fun fetchTransactions() {
-    SampleLog.i("History.fetch", "fetching transactions limit=20 order=DESC")
-    _state.update { it.copy(isLoading = true, errorText = null) }
+  fun fetchTransactions(chain: WalletChain = WalletChain.EVM) {
+    SampleLog.i("History.fetch", "fetching transactions chain=${chain.displayName} limit=20 order=DESC")
+    // Clear the previous chain's list so switching chains doesn't show stale rows.
+    _state.update { it.copy(isLoading = true, errorText = null, transactions = emptyList()) }
 
     viewModelScope.launch {
       try {
         val address = try {
-          rainClient.getAddress()
+          rainClient.getAddress(chain.chainId)
         } catch (e: Exception) {
           SampleLog.w("History.fetch", "getAddress failed (continuing): ${e.message}", e)
           null
         }
 
         val result = rainClient.getTransactions(
-          chainId = RainChain.AVALANCHE_TESTNET,
+          chainId = chain.chainId,
           limit = 20,
           order = RainTransactionOrder.DESC
         )
         SampleLog.i("History.fetch", "success — count=${result.transactions.size}")
+        result.transactions.forEach { tx ->
+          SampleLog.d(
+            "History.fetch",
+            "tx hash=${tx.hash} from=${tx.from} to=${tx.to} value=${tx.value} symbol=${tx.symbol} " +
+              "block=${tx.blockNumber} time=${tx.blockTimestamp} meta=${tx.metadata}"
+          )
+        }
         _state.update {
           it.copy(
             transactions = result.transactions,

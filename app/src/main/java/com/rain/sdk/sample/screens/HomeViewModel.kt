@@ -9,6 +9,7 @@ import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.NetworkClient
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.TurnkeyAuthSample
+import com.rain.sdk.sample.WalletChain
 import io.portalhq.android.mpc.data.BackupConfigs
 import io.portalhq.android.mpc.data.BackupMethods
 import io.portalhq.android.mpc.data.PasswordStorageConfig
@@ -185,6 +186,20 @@ class HomeViewModel(
             try {
                 TurnkeyAuthSample.init(app, s.turnkeyOrgId, s.turnkeyAuthProxyConfigId)
 
+                // Turnkey restores a valid session from secure storage during init. If one is
+                // present, skip the OTP round-trip and go straight to initializing Rain.
+                if (TurnkeyAuthSample.hasActiveSession()) {
+                    SampleLog.i("Turnkey.otpInit", "existing session restored — skipping OTP")
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            turnkeySessionActive = true,
+                            statusText = "Existing Turnkey session restored — initialize Rain to continue"
+                        )
+                    }
+                    return@launch
+                }
+
                 _state.update { it.copy(statusText = "Sending OTP to ${s.turnkeyEmail}...") }
                 val otpId = TurnkeyAuthSample.sendEmailOtp(s.turnkeyEmail)
 
@@ -253,28 +268,29 @@ class HomeViewModel(
             _state.update { it.copy(statusText = "Verify OTP first") }
             return
         }
-        SampleLog.i("Turnkey.rainInit", "initializing Rain w/ Turnkey on chainId=${RainChain.AVALANCHE_TESTNET}")
+        SampleLog.i("Turnkey.rainInit", "initializing Rain w/ Turnkey (EVM + Solana)")
         _state.update { it.copy(isLoading = true, statusText = "Initializing Rain with Turnkey...") }
         viewModelScope.launch {
             try {
-                val createdNewWallet = TurnkeyAuthSample.ensureEthereumWallet()
-                if (createdNewWallet) {
-                    _state.update { it.copy(statusText = "Created Turnkey wallet, initializing Rain...") }
+                val createdEvm = TurnkeyAuthSample.ensureEthereumWallet()
+                val createdSolana = TurnkeyAuthSample.ensureSolanaWallet()
+                if (createdEvm || createdSolana) {
+                    _state.update { it.copy(statusText = "Provisioned Turnkey wallets, initializing Rain...") }
                 }
 
-                val rpcConfig = mapOf(
-                    RainChain.AVALANCHE_TESTNET to "https://api.avax-test.network/ext/bc/C/rpc"
-                )
+                // Initialize with every supported chain's RPC so the dropdown can switch
+                // between the EVM and Solana wallets without re-initializing.
                 rainClient.initializeTurnkey(
                     turnkey = TurnkeyAuthSample.context,
-                    rpcEndpoints = rpcConfig,
+                    rpcEndpoints = WalletChain.rpcEndpoints,
                     chainId = RainChain.AVALANCHE_TESTNET,
                     walletAddress = null
                 )
-                val address = runCatching { rainClient.getAddress() }.getOrNull()
+                val evmAddress = runCatching { rainClient.getAddress(WalletChain.EVM.chainId) }.getOrNull()
+                val solAddress = runCatching { rainClient.getAddress(WalletChain.SOLANA.chainId) }.getOrNull()
                 SampleLog.i(
                     "Turnkey.rainInit",
-                    "success — isInitialized=${rainClient.isInitialized} address=$address"
+                    "success — isInitialized=${rainClient.isInitialized} evm=$evmAddress sol=$solAddress"
                 )
                 _state.update {
                     it.copy(
@@ -297,9 +313,13 @@ class HomeViewModel(
     }
 
     fun clearSession() {
-        SampleLog.i("Home", "session cleared")
-        _state.update {
-            HomeUiState(statusText = "Session Cleared", mode = it.mode)
+        SampleLog.i("Home", "clearing session (Turnkey logout + UI reset)")
+        viewModelScope.launch {
+            // Real logout so the next run requires a fresh OTP (and resume detects no session).
+            TurnkeyAuthSample.logout()
+            _state.update {
+                HomeUiState(statusText = "Session Cleared", mode = it.mode)
+            }
         }
     }
 }

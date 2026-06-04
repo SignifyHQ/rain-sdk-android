@@ -1,10 +1,16 @@
 package com.rain.sdk.internal.provider
 
 import com.rain.sdk.internal.constants.RainConstants
+import com.rain.sdk.internal.constants.SolanaChains
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.chainreader.ChainReader
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.network.chainreader.JsonRpcClient
+import com.rain.sdk.internal.network.chainreader.SolanaChainReader
+import com.rain.sdk.internal.solana.SolanaConverter
+import com.rain.sdk.internal.solana.SolanaRpcClient
+import com.rain.sdk.internal.solana.SolanaTransactionBuilder
+import com.rain.sdk.internal.solana.SolanaTransactionDecoder
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.internal.utils.ChainIdFormat
 import com.rain.sdk.internal.utils.strippingHexPrefix
@@ -18,6 +24,7 @@ import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TGetActivitiesBody
 import com.turnkey.types.TGetSendTransactionStatusBody
 import com.turnkey.types.TGetWalletAddressBalancesBody
+import com.turnkey.types.TSolSendTransactionBody
 import com.turnkey.types.V1ActivityType
 import com.turnkey.types.V1AddressFormat
 import com.turnkey.types.V1AssetBalance
@@ -57,12 +64,23 @@ internal class TurnkeyWalletProvider(
     private val pollingIntervalMs: Long = POLLING_INTERVAL_MS,
     jsonRpcClient: JsonRpcClient = JsonRpcClient(httpClient),
     chainReader: ChainReader? = null,
+    solanaChainReader: ChainReader? = null,
+    solanaRpcClient: SolanaRpcClient? = null,
     tokenStore: TokenMetadataStore? = null
 ) : WalletProvider {
 
     private val jsonRpcClient: JsonRpcClient = jsonRpcClient
     private val chainReader: ChainReader = chainReader
         ?: EvmChainReader(rpcEndpoints = rpcEndpoints, jsonRpcClient = jsonRpcClient)
+
+    private val solanaRpcClient: SolanaRpcClient =
+        solanaRpcClient ?: SolanaRpcClient(jsonRpcClient)
+    private val solanaChainReader: ChainReader = solanaChainReader
+        ?: SolanaChainReader(rpcEndpoints = rpcEndpoints, solanaRpcClient = this.solanaRpcClient)
+
+    /** Picks the reader for [chainId]'s chain family. */
+    private fun chainReaderFor(chainId: Int): ChainReader =
+        if (SolanaChains.isSolanaChain(chainId)) solanaChainReader else chainReader
 
     // Resolves token metadata (decimals / symbol / name) and enriches unknown tokens once.
     private val tokenStore: TokenMetadataStore = tokenStore ?: TokenMetadataStore(this.chainReader)
@@ -73,12 +91,18 @@ internal class TurnkeyWalletProvider(
     private val cachedAddressLock = Mutex()
     @Volatile
     private var cachedAddress: String? = null
+    @Volatile
+    private var cachedSolanaAddress: String? = null
 
     private companion object {
         const val DEFAULT_NATIVE_DECIMALS = 18
         const val DEFAULT_POLLING_ATTEMPTS = 30
         const val POLLING_INTERVAL_MS = 1_000L
         const val FALLBACK_GAS_LIMIT = 21_000L
+
+        // Turnkey returns a status id, not a Solana signature, so the signature is read back
+        // from chain — which lags broadcast by a beat. Retry briefly before giving up.
+        const val SOLANA_SIGNATURE_LOOKUP_ATTEMPTS = 8
     }
 
     private data class ActivityDraft(
@@ -115,10 +139,40 @@ internal class TurnkeyWalletProvider(
         }
     }
 
+    /**
+     * Chain-aware address. Solana chains resolve the Turnkey Solana account (base58, ed25519);
+     * every other chain shares the Ethereum account. Internal balance / send paths use this so
+     * a Solana request never reads or signs with the EVM address.
+     */
+    override suspend fun getAddress(chainId: Int): String =
+        if (SolanaChains.isSolanaChain(chainId)) getSolanaAddress() else getAddress()
+
+    private suspend fun getSolanaAddress(): String {
+        cachedSolanaAddress?.let { return it }
+
+        return cachedAddressLock.withLock {
+            cachedSolanaAddress?.let { return@withLock it }
+
+            resolveSolanaWalletAddress(turnkey.wallets)?.also { cachedSolanaAddress = it }
+                ?: run {
+                    turnkey.refreshWallets()
+                    resolveSolanaWalletAddress(turnkey.wallets)?.also { cachedSolanaAddress = it }
+                        ?: throw RainError.WalletUnavailable("No Solana wallet available from Turnkey context")
+                }
+        }
+    }
+
     private fun resolveEthereumWalletAddress(wallets: List<com.turnkey.core.models.Wallet>): String? {
         return wallets
             .flatMap { it.accounts }
             .firstOrNull { it.addressFormat == V1AddressFormat.ADDRESS_FORMAT_ETHEREUM }
+            ?.address
+    }
+
+    private fun resolveSolanaWalletAddress(wallets: List<com.turnkey.core.models.Wallet>): String? {
+        return wallets
+            .flatMap { it.accounts }
+            .firstOrNull { it.addressFormat == V1AddressFormat.ADDRESS_FORMAT_SOLANA }
             ?.address
     }
 
@@ -129,7 +183,10 @@ internal class TurnkeyWalletProvider(
         toAddress: String,
         amountInEth: Double
     ): String {
-        val from = getAddress()
+        if (SolanaChains.isSolanaChain(chainId)) {
+            return sendSolanaNative(chainId, toAddress, amountInEth)
+        }
+        val from = getAddress(chainId)
         val valueHex = EthereumConverter.convertEthToWeiHex(amountInEth)
         return sendTransaction(
             chainId = chainId,
@@ -147,7 +204,10 @@ internal class TurnkeyWalletProvider(
         amount: Double,
         decimals: Int
     ): String {
-        val from = getAddress()
+        if (SolanaChains.isSolanaChain(chainId)) {
+            throw RainError.InvalidConfig("SPL token transfers are not supported on Solana chainId=$chainId")
+        }
+        val from = getAddress(chainId)
         val tokenAmount = amount.toBigDecimal()
             .multiply(BigDecimal.TEN.pow(decimals))
             .toBigInteger()
@@ -229,14 +289,14 @@ internal class TurnkeyWalletProvider(
     // ---------- balances ----------
 
     override suspend fun getBalance(chainId: Int, token: Token): Balance {
-        val walletAddress = getAddress()
+        val walletAddress = getAddress(chainId)
 
         return when (token) {
             is Token.Contract -> {
                 // `eth_call balanceOf` is the same operation everywhere — delegate to the
                 // chain reader so the SDK has one implementation rather than per-adapter copies.
                 val info = tokenStore.tokenInfo(chainId, token.address)
-                chainReader.getBalance(
+                chainReaderFor(chainId).getBalance(
                     chainId = chainId,
                     walletAddress = walletAddress,
                     token = token,
@@ -245,7 +305,7 @@ internal class TurnkeyWalletProvider(
             }
             is Token.Native -> {
                 if (!usesTurnkeyForBalances(chainId)) {
-                    chainReader.getBalance(
+                    chainReaderFor(chainId).getBalance(
                         chainId = chainId,
                         walletAddress = walletAddress,
                         token = Token.Native,
@@ -260,11 +320,11 @@ internal class TurnkeyWalletProvider(
     }
 
     override suspend fun getBalances(chainId: Int): List<Balance> {
-        val walletAddress = getAddress()
+        val walletAddress = getAddress(chainId)
 
         if (!usesTurnkeyForBalances(chainId)) {
             val tokens = tokenStore.registeredTokens(chainId)
-            val all = chainReader.getBalances(chainId, walletAddress, tokens)
+            val all = chainReaderFor(chainId).getBalances(chainId, walletAddress, tokens)
             return all.filter { balance ->
                 balance.token is Token.Native || balance.rawAmount > BigInteger.ZERO
             }
@@ -322,6 +382,9 @@ internal class TurnkeyWalletProvider(
         offset: Int?,
         order: RainTransactionOrder?
     ): RainTransactionResult {
+        if (SolanaChains.isSolanaChain(chainId)) {
+            return getSolanaTransactions(chainId, limit, offset, order)
+        }
         val (session, client) = resolveSessionAndClient()
         val requestedLimit = minOf(maxOf(((limit ?: 10) + (offset ?: 0)), 1), 100)
         val activities = client.getActivities(
@@ -382,6 +445,88 @@ internal class TurnkeyWalletProvider(
         }
         return RainTransactionResult(transactions = transactions)
     }
+
+    /**
+     * Solana transaction history, sourced from Turnkey activities (`ACTIVITY_TYPE_SOL_SEND_TRANSACTION`)
+     * for consistency with the EVM path — so it shows only transactions this wallet sent through
+     * Turnkey (no receives). Turnkey's Solana activity carries only the hex unsigned transaction
+     * (no recipient/amount) and no on-chain signature, so `to`/`value` are decoded from that blob
+     * and the row's hash is the Turnkey status id (not an explorer-resolvable signature).
+     */
+    private suspend fun getSolanaTransactions(
+        chainId: Int,
+        limit: Int?,
+        offset: Int?,
+        order: RainTransactionOrder?
+    ): RainTransactionResult {
+        val (session, client) = resolveSessionAndClient()
+        val caip2 = SolanaChains.caip2(chainId)
+        val requestedLimit = minOf(maxOf(((limit ?: 10) + (offset ?: 0)), 1), 100)
+        val activities = client.getActivities(
+            TGetActivitiesBody(
+                organizationId = session.organizationId,
+                filterByType = listOf(V1ActivityType.ACTIVITY_TYPE_SOL_SEND_TRANSACTION),
+                paginationOptions = V1Pagination(limit = requestedLimit.toString())
+            )
+        )
+
+        val drafts = activities.activities.mapNotNull { activity ->
+            val intent = activity.intent.solSendTransactionIntent ?: return@mapNotNull null
+            if (intent.caip2 != caip2) return@mapNotNull null
+
+            val seconds = activity.createdAt.seconds.toDoubleOrNull() ?: 0.0
+            val nanos = activity.createdAt.nanos.toDoubleOrNull() ?: 0.0
+            val transfer = SolanaTransactionDecoder.decodeTransfer(intent.unsignedTransaction)
+            SolanaActivityDraft(
+                id = activity.id,
+                timestampSeconds = seconds + nanos / 1_000_000_000.0,
+                from = intent.signWith,
+                to = transfer?.to,
+                lamports = transfer?.lamports,
+                sendTransactionStatusId = activity.result.solSendTransactionResult?.sendTransactionStatusId
+            )
+        }
+
+        val sorted = when (order ?: RainTransactionOrder.DESC) {
+            RainTransactionOrder.ASC -> drafts.sortedBy { it.timestampSeconds }
+            RainTransactionOrder.DESC -> drafts.sortedByDescending { it.timestampSeconds }
+        }
+        val sliced = sorted
+            .drop(offset ?: 0)
+            .let { if (limit != null) it.take(limit) else it }
+
+        val symbol = SolanaChains.NATIVE_CURRENCY.symbol
+        val transactions = sliced.map { draft ->
+            val value = draft.lamports?.let { lamports ->
+                if (lamports == 0L) "0"
+                else SolanaConverter.lamportsToSol(BigInteger.valueOf(lamports)).stripTrailingZeros().toPlainString()
+            }
+            RainTransaction(
+                hash = draft.sendTransactionStatusId ?: draft.id,
+                blockNumber = null,
+                blockTimestamp = iso8601(draft.timestampSeconds),
+                from = draft.from,
+                to = draft.to,
+                value = value,
+                gas = null,
+                gasPrice = null,
+                chainId = chainId.toString(),
+                symbol = symbol,
+                tokenAddress = null,
+                metadata = null
+            )
+        }
+        return RainTransactionResult(transactions = transactions)
+    }
+
+    private data class SolanaActivityDraft(
+        val id: String,
+        val timestampSeconds: Double,
+        val from: String,
+        val to: String?,
+        val lamports: Long?,
+        val sendTransactionStatusId: String?
+    )
 
     // ---------- helpers ----------
 
@@ -501,6 +646,98 @@ internal class TurnkeyWalletProvider(
             }
         }
         throw RainError.InternalError("Turnkey transaction status polling timed out")
+    }
+
+    // ---------- Solana send ----------
+
+    private suspend fun sendSolanaNative(
+        chainId: Int,
+        toAddress: String,
+        amountInSol: Double
+    ): String {
+        val from = getAddress(chainId)
+        val rpcUrl = rpcEndpoints[chainId]
+            ?: throw RainError.InvalidConfig("No RPC endpoint configured for chainId=$chainId")
+        val (session, client) = resolveSessionAndClient()
+
+        val blockhash = solanaRpcClient.getLatestBlockhash(rpcUrl)
+        val lamports = SolanaConverter.solToLamports(amountInSol)
+        val unsignedTransaction = SolanaTransactionBuilder.buildTransferHex(
+            fromAddress = from,
+            toAddress = toAddress,
+            lamports = lamports,
+            recentBlockhash = blockhash
+        )
+
+        val response = client.solSendTransaction(
+            TSolSendTransactionBody(
+                organizationId = session.organizationId,
+                unsignedTransaction = unsignedTransaction,
+                signWith = from,
+                sponsor = false,
+                caip2 = SolanaChains.caip2(chainId),
+                recentBlockhash = blockhash
+            )
+        )
+        val statusId = response.result.sendTransactionStatusId
+        pollForSolanaCompletion(client, session.organizationId, statusId)
+
+        // Turnkey's send-status response carries no Solana signature; recover the signature of
+        // the just-submitted transfer from the chain so callers get an explorer-usable hash.
+        // getSignaturesForAddress lags broadcast slightly, so retry briefly before falling back
+        // to the status id.
+        for (attempt in 0 until SOLANA_SIGNATURE_LOOKUP_ATTEMPTS) {
+            val signature = solanaRpcClient.getLatestSignature(rpcUrl, from)
+            if (signature != null) return signature
+            if (attempt + 1 < SOLANA_SIGNATURE_LOOKUP_ATTEMPTS) delay(pollingIntervalMs)
+        }
+        return statusId
+    }
+
+    /**
+     * Polls Turnkey for the terminal status of a Solana submission. Throws on explicit
+     * failure/rejection; returns on a recognized success status, or once attempts are exhausted
+     * (the submission was already accepted, so the caller reads the signature from chain rather
+     * than failing a transfer that most likely landed).
+     */
+    private suspend fun pollForSolanaCompletion(
+        client: TurnkeyClientProtocol,
+        organizationId: String,
+        sendTransactionStatusId: String
+    ) {
+        for (attempt in 0 until DEFAULT_POLLING_ATTEMPTS) {
+            val status = client.getSendTransactionStatus(
+                TGetSendTransactionStatusBody(
+                    organizationId = organizationId,
+                    sendTransactionStatusId = sendTransactionStatusId
+                )
+            )
+
+            val normalized = status.txStatus.uppercase()
+            val failed = status.txError != null ||
+                status.error?.message != null ||
+                normalized.contains("FAILED") ||
+                normalized.contains("REJECTED")
+            if (failed) {
+                val message = status.txError
+                    ?: status.error?.message
+                    ?: "Turnkey Solana transaction submission failed"
+                throw RainError.ProviderError(IllegalStateException(message))
+            }
+
+            val succeeded = normalized.contains("CONFIRMED") ||
+                normalized.contains("FINALIZED") ||
+                normalized.contains("INCLUDED") ||
+                normalized.contains("SUCCESS") ||
+                normalized.contains("COMPLETE") ||
+                normalized.contains("BROADCAST") ||
+                normalized.contains("MINED")
+            if (succeeded) return
+
+            if (attempt + 1 < DEFAULT_POLLING_ATTEMPTS) {
+                delay(pollingIntervalMs)
+            }
+        }
     }
 
     // ---------- RPC ----------

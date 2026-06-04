@@ -83,6 +83,15 @@ internal class MockRpcServer {
     }
 
     /**
+     * Stub a successful response whose `result` is an arbitrary JSON value — a [JSONObject],
+     * [org.json.JSONArray], or a primitive. Used for Solana RPC, whose results are objects /
+     * arrays / numbers rather than the hex strings EVM returns.
+     */
+    fun stubObject(method: String, result: Any) {
+        stubs[method] = Stub(result = result)
+    }
+
+    /**
      * Stub a network failure for [method]. The server disconnects the socket so OkHttp
      * surfaces an `IOException` to the caller — used to drive the `RainError.NetworkError`
      * code path in [com.rain.sdk.internal.provider.TurnkeyWalletProvider].

@@ -38,22 +38,23 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.sample.WalletChain
 
 @Composable
 fun WalletInfoScreen(
     innerPadding: PaddingValues,
     accessToken: String,
     rainClient: RainClient,
+    selectedChain: WalletChain,
     onBack: () -> Unit,
     viewModel: WalletInfoViewModel = viewModel(factory = WalletInfoViewModelFactory(rainClient))
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
 
-    LaunchedEffect(Unit) {
-        if (state.portalAddress.isEmpty()) {
-            viewModel.fetchWalletInfo(accessToken)
-        }
+    // Re-fetch whenever the active chain changes so the screen shows that wallet's address.
+    LaunchedEffect(selectedChain) {
+        viewModel.fetchWalletInfo(accessToken, selectedChain)
     }
 
     Column(
@@ -112,7 +113,7 @@ fun WalletInfoScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Button(
-                onClick = { viewModel.fetchWalletInfo(accessToken) },
+                onClick = { viewModel.fetchWalletInfo(accessToken, selectedChain) },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Retry")
@@ -123,21 +124,21 @@ fun WalletInfoScreen(
         // User wallet address (provider-agnostic — Portal or Turnkey)
         if (state.portalAddress.isNotEmpty()) {
             AddressCard(
-                title = "Wallet Address",
+                title = "${selectedChain.nativeSymbol} Wallet Address",
                 address = state.portalAddress,
-                isValid = state.isAddressValid(state.portalAddress),
+                isValid = selectedChain.isValidAddress(state.portalAddress),
                 qrBitmap = state.portalQrBitmap,
                 onCopy = { copyToClipboard(context, state.portalAddress) }
             )
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // Collateral Address (Deposit)
+        // Collateral Address (Deposit) — EVM only
         if (state.collateralAddress.isNotEmpty()) {
             AddressCard(
                 title = "Deposit Address (Collateral)",
                 address = state.collateralAddress,
-                isValid = state.isAddressValid(state.collateralAddress),
+                isValid = selectedChain.isValidAddress(state.collateralAddress),
                 qrBitmap = state.collateralQrBitmap,
                 onCopy = { copyToClipboard(context, state.collateralAddress) }
             )

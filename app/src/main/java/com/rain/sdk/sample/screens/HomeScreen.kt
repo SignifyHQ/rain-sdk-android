@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,14 +19,20 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -36,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.Screen
+import com.rain.sdk.sample.WalletChain
 
 data class FeatureAction(
     val emoji: String,
@@ -55,6 +63,8 @@ private val featureActions = listOf(
 fun HomeScreen(
     innerPadding: PaddingValues,
     rainClient: RainClient,
+    selectedChain: WalletChain,
+    onChainSelected: (WalletChain) -> Unit,
     onNavigate: (Screen) -> Unit,
     onAccessTokenChanged: (String) -> Unit = {},
     viewModel: HomeViewModel = viewModel(factory = HomeViewModelFactory(rainClient))
@@ -119,6 +129,13 @@ fun HomeScreen(
         }
 
         if (state.isRecovered) {
+            ChainSelector(
+                selectedChain = selectedChain,
+                onChainSelected = onChainSelected
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Text(
                 text = "SDK Features",
                 style = MaterialTheme.typography.titleMedium,
@@ -160,6 +177,49 @@ fun HomeScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(16.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun ChainSelector(
+    selectedChain: WalletChain,
+    onChainSelected: (WalletChain) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "Active wallet",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { expanded = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = selectedChain.displayName,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Start
+                )
+                Text(text = "▾")
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                WalletChain.entries.forEach { chain ->
+                    DropdownMenuItem(
+                        text = { Text(chain.displayName) },
+                        onClick = {
+                            onChainSelected(chain)
+                            expanded = false
+                        }
+                    )
+                }
+            }
         }
     }
 }

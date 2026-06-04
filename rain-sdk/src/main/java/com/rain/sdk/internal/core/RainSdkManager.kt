@@ -16,6 +16,7 @@ import com.rain.sdk.models.RainWithdrawResult
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionResult
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
+import com.rain.sdk.internal.network.chainreader.SolanaChainReader
 import com.rain.sdk.internal.provider.PortalWalletProvider
 import com.rain.sdk.internal.provider.TurnkeyContextAdapter
 import com.rain.sdk.internal.provider.TurnkeyContextProtocol
@@ -193,12 +194,14 @@ internal class RainSdkManager(
 
       val context = turnkeyContextFactory?.invoke(turnkey) ?: TurnkeyContextAdapter(turnkey)
       val reader = EvmChainReader(rpcEndpoints = rpcEndpoints)
+      val solanaReader = SolanaChainReader(rpcEndpoints = rpcEndpoints)
       val store = TokenMetadataStore(chainReader = reader, seedTokens = registeredTokens.toList())
       val provider = TurnkeyWalletProvider(
         turnkey = context,
         rpcEndpoints = rpcEndpoints,
         walletAddressOverride = walletAddress,
         chainReader = reader,
+        solanaChainReader = solanaReader,
         tokenStore = store
       )
 
@@ -291,6 +294,21 @@ internal class RainSdkManager(
       if (e is CancellationException) throw e
       if (e is RainError) throw e
       Timber.e(e, "Rain SDK: Failed to get wallet address")
+      throw errorMapper.mapTransactionError(e)
+    }
+  }
+
+  override suspend fun getAddress(chainId: Int): String {
+    if (!isInitialized) {
+      throw RainError.SdkNotInitialized()
+    }
+    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
+    return try {
+      provider.getAddress(chainId)
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      if (e is RainError) throw e
+      Timber.e(e, "Rain SDK: Failed to get wallet address for chainId=$chainId")
       throw errorMapper.mapTransactionError(e)
     }
   }

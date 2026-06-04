@@ -3,9 +3,9 @@ package com.rain.sdk.sample.screens
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.rain.sdk.RainChain
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.SampleLog
+import com.rain.sdk.sample.WalletChain
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,7 +39,7 @@ class SendTokensViewModel(
         _state.update { it.copy(isErc20Mode = isErc20, txHash = null, errorText = null) }
     }
 
-    fun sendNativeToken() {
+    fun sendNativeToken(chain: WalletChain = WalletChain.EVM) {
         val current = _state.value
         val amount = current.amount.toDoubleOrNull()
         if (amount == null || amount <= 0.0) {
@@ -50,14 +50,18 @@ class SendTokensViewModel(
             _state.update { it.copy(errorText = "Recipient address is required") }
             return
         }
+        if (!chain.isValidAddress(current.recipientAddress)) {
+            _state.update { it.copy(errorText = "Recipient is not a valid ${chain.nativeSymbol} address") }
+            return
+        }
 
-        SampleLog.i("Send.native", "to=${current.recipientAddress} amount=$amount AVAX")
+        SampleLog.i("Send.native", "to=${current.recipientAddress} amount=$amount ${chain.nativeSymbol}")
         _state.update { it.copy(isSending = true, errorText = null, txHash = null) }
 
         viewModelScope.launch {
             try {
                 val result = rainClient.sendNativeToken(
-                    chainId = RainChain.AVALANCHE_TESTNET,
+                    chainId = chain.chainId,
                     toAddress = current.recipientAddress,
                     amount = amount
                 )
@@ -80,7 +84,7 @@ class SendTokensViewModel(
         }
     }
 
-    fun sendErc20Token() {
+    fun sendErc20Token(chain: WalletChain = WalletChain.EVM) {
         val current = _state.value
         val amount = current.amount.toDoubleOrNull()
         val decimalsInt = current.decimals.toIntOrNull() ?: 6
@@ -106,7 +110,7 @@ class SendTokensViewModel(
         viewModelScope.launch {
             try {
                 val result = rainClient.sendToken(
-                    chainId = RainChain.AVALANCHE_TESTNET,
+                    chainId = chain.chainId,
                     contractAddress = current.contractAddress,
                     toAddress = current.recipientAddress,
                     amount = amount,

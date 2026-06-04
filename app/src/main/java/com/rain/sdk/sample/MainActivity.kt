@@ -50,6 +50,7 @@ class MainActivity : ComponentActivity() {
 fun SampleApp() {
     val navController = rememberNavController()
     var accessToken by remember { mutableStateOf("") }
+    var selectedChain by remember { mutableStateOf(WalletChain.EVM) }
     val rainClient = remember { RainSdk.getInstance().client }
 
     Scaffold(
@@ -63,6 +64,8 @@ fun SampleApp() {
                 HomeScreen(
                     innerPadding = innerPadding,
                     rainClient = rainClient,
+                    selectedChain = selectedChain,
+                    onChainSelected = { selectedChain = it },
                     onNavigate = { screen ->
                         navController.navigate(screen.route)
                     },
@@ -74,6 +77,7 @@ fun SampleApp() {
                     innerPadding = innerPadding,
                     accessToken = accessToken,
                     rainClient = rainClient,
+                    selectedChain = selectedChain,
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -82,6 +86,7 @@ fun SampleApp() {
                     innerPadding = innerPadding,
                     accessToken = accessToken,
                     rainClient = rainClient,
+                    selectedChain = selectedChain,
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -89,6 +94,7 @@ fun SampleApp() {
                 SendTokensScreen(
                     innerPadding = innerPadding,
                     rainClient = rainClient,
+                    selectedChain = selectedChain,
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -104,6 +110,7 @@ fun SampleApp() {
                 TransactionHistoryScreen(
                     innerPadding = innerPadding,
                     rainClient = rainClient,
+                    selectedChain = selectedChain,
                     onBack = { navController.popBackStack() }
                 )
             }

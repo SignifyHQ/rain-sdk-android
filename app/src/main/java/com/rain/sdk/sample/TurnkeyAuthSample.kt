@@ -27,6 +27,26 @@ object TurnkeyAuthSample {
     val subOrganizationId: String?
         get() = TurnkeyContext.session.value?.organizationId
 
+    /** Minimum session lifetime (seconds) we still consider worth resuming. */
+    private const val SESSION_MIN_REMAINING_SECONDS = 30.0
+
+    /**
+     * True when an authenticated, unexpired Turnkey session is already loaded. The Turnkey SDK
+     * restores a previously-selected session from secure storage during [init], so after init
+     * this reports whether we can skip the OTP step entirely and go straight to initializing Rain.
+     */
+    fun hasActiveSession(): Boolean {
+        val session = TurnkeyContext.session.value ?: return false
+        val nowSeconds = System.currentTimeMillis() / 1000.0
+        return session.expiry > nowSeconds + SESSION_MIN_REMAINING_SECONDS
+    }
+
+    /** Clears all stored Turnkey sessions (full logout). Safe no-op if none exist. */
+    suspend fun logout() {
+        runCatching { TurnkeyContext.clearAllSessions() }
+            .onFailure { SampleLog.w("TurnkeyAuth", "logout (clearAllSessions) failed: ${it.message}") }
+    }
+
     /**
      * Initializes the Turnkey singleton. Idempotent — Turnkey's `initSuspend` no-ops on
      * subsequent calls within the same process, so changing org/proxy IDs after the first
@@ -69,6 +89,11 @@ object TurnkeyAuthSample {
      */
     suspend fun verifyEmailOtp(otpId: String, otpCode: String, email: String) {
         SampleLog.d("TurnkeyAuth", "verifyEmailOtp otpId=${SampleLog.maskToken(otpId)}")
+        // A prior successful login leaves a persisted session under `com.turnkey.sdk.session`;
+        // Turnkey's createSession throws KeyAlreadyExists rather than overwriting it. Clear any
+        // stored sessions first so re-verifying OTP (e.g. across demo runs) always succeeds.
+        runCatching { TurnkeyContext.clearAllSessions() }
+            .onFailure { SampleLog.w("TurnkeyAuth", "clearAllSessions failed (continuing): ${it.message}") }
         TurnkeyContext.loginOrSignUpWithOtp(
             otpId = otpId,
             otpCode = otpCode,
@@ -114,6 +139,43 @@ object TurnkeyAuthSample {
         SampleLog.i(
             "TurnkeyAuth",
             "created wallet id=${created.walletId} addresses=${created.addresses}"
+        )
+        return true
+    }
+
+    /**
+     * Ensures the authenticated sub-org has at least one Solana-format wallet account
+     * (ed25519, BIP44 path `m/44'/501'/0'/0'`). Mirrors [ensureEthereumWallet] so the demo
+     * can hand Rain both an EVM and a Solana account. Returns true if a new account was added.
+     */
+    suspend fun ensureSolanaWallet(): Boolean {
+        TurnkeyContext.refreshWallets()
+        val wallets = TurnkeyContext.wallets.value.orEmpty()
+        val hasSolanaAccount = wallets
+            .flatMap { it.accounts }
+            .any { it.addressFormat == V1AddressFormat.ADDRESS_FORMAT_SOLANA }
+
+        SampleLog.d(
+            "TurnkeyAuth",
+            "ensureSolanaWallet wallets=${wallets.size} hasSolanaAccount=$hasSolanaAccount"
+        )
+        if (hasSolanaAccount) return false
+
+        val created = TurnkeyContext.createWallet(
+            walletName = "Rain SDK Sample Solana Wallet",
+            accounts = listOf(
+                V1WalletAccountParams(
+                    addressFormat = V1AddressFormat.ADDRESS_FORMAT_SOLANA,
+                    curve = V1Curve.CURVE_ED25519,
+                    path = "m/44'/501'/0'/0'",
+                    pathFormat = V1PathFormat.PATH_FORMAT_BIP32
+                )
+            ),
+            mnemonicLength = 12L
+        )
+        SampleLog.i(
+            "TurnkeyAuth",
+            "created solana wallet id=${created.walletId} addresses=${created.addresses}"
         )
         return true
     }

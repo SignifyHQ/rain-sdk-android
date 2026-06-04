@@ -12,6 +12,8 @@ import com.turnkey.types.TGetSendTransactionStatusBody
 import com.turnkey.types.TGetSendTransactionStatusResponse
 import com.turnkey.types.TGetWalletAddressBalancesBody
 import com.turnkey.types.TGetWalletAddressBalancesResponse
+import com.turnkey.types.TSolSendTransactionBody
+import com.turnkey.types.TSolSendTransactionResponse
 import com.turnkey.types.V1Activity
 import com.turnkey.types.V1ActivityStatus
 import com.turnkey.types.V1ActivityType
@@ -27,6 +29,8 @@ import com.turnkey.types.V1PathFormat
 import com.turnkey.types.V1PayloadEncoding
 import com.turnkey.types.V1Result
 import com.turnkey.types.V1SignRawPayloadResult
+import com.turnkey.types.V1SolSendTransactionIntent
+import com.turnkey.types.V1SolSendTransactionResult
 import com.turnkey.types.V1WalletAccount
 import java.util.UUID
 
@@ -34,7 +38,8 @@ internal class MockTurnkeyClient(
     var mockBalances: List<V1AssetBalance> = emptyList(),
     var mockSendTransactionStatusId: String = "send-status-id",
     var mockTransactionHash: String = "0x" + "d".repeat(64),
-    var mockActivities: List<V1Activity> = emptyList()
+    var mockActivities: List<V1Activity> = emptyList(),
+    var mockSolSendTransactionStatusId: String = "sol-send-status-id"
 ) : TurnkeyClientProtocol {
 
     /**
@@ -69,6 +74,9 @@ internal class MockTurnkeyClient(
     /** When set, [ethSendTransaction] throws this instead of producing a response. */
     var ethSendTransactionError: Exception? = null
 
+    /** When set, [solSendTransaction] throws this instead of producing a response. */
+    var solSendTransactionError: Exception? = null
+
     /** When set, [getSendTransactionStatus] throws this instead of producing a response. */
     var sendTransactionStatusError: Exception? = null
 
@@ -77,6 +85,7 @@ internal class MockTurnkeyClient(
 
     val walletAddressBalanceCalls = mutableListOf<TGetWalletAddressBalancesBody>()
     val ethSendTransactionCalls = mutableListOf<TEthSendTransactionBody>()
+    val solSendTransactionCalls = mutableListOf<TSolSendTransactionBody>()
     val sendTransactionStatusCalls = mutableListOf<TGetSendTransactionStatusBody>()
     val getActivitiesCalls = mutableListOf<TGetActivitiesBody>()
 
@@ -104,6 +113,25 @@ internal class MockTurnkeyClient(
                 sendTransactionStatusId = mockSendTransactionStatusId
             ),
             result = V1EthSendTransactionResult(sendTransactionStatusId = mockSendTransactionStatusId)
+        )
+    }
+
+    override suspend fun solSendTransaction(
+        input: TSolSendTransactionBody
+    ): TSolSendTransactionResponse {
+        solSendTransactionCalls += input
+        solSendTransactionError?.let { throw it }
+        return TSolSendTransactionResponse(
+            activity = MockTurnkey.makeActivity(
+                id = UUID.randomUUID().toString(),
+                from = input.signWith,
+                to = input.signWith,
+                caip2 = input.caip2,
+                value = null,
+                data = null,
+                sendTransactionStatusId = mockSolSendTransactionStatusId
+            ),
+            result = V1SolSendTransactionResult(sendTransactionStatusId = mockSolSendTransactionStatusId)
         )
     }
 
@@ -186,6 +214,9 @@ internal class MockTurnkey(
 
     companion object {
         const val DEFAULT_WALLET_ADDRESS = "0x1234567890123456789012345678901234567890"
+        // Valid 32-byte base58 pubkeys (wrapped-SOL mint and USDC mint) reused as test addresses.
+        const val DEFAULT_SOLANA_ADDRESS = "So11111111111111111111111111111111111111112"
+        const val DEFAULT_SOLANA_RECIPIENT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
         const val DEFAULT_ORG_ID = "org-id"
 
         fun defaultSession(): Session = Session(
@@ -218,6 +249,35 @@ internal class MockTurnkey(
                 )
             )
         )
+
+        /** A Turnkey wallet account in Solana (ed25519) format. */
+        fun solanaAccount(address: String = DEFAULT_SOLANA_ADDRESS): V1WalletAccount =
+            V1WalletAccount(
+                address = address,
+                addressFormat = V1AddressFormat.ADDRESS_FORMAT_SOLANA,
+                createdAt = Externaldatav1Timestamp(nanos = "0", seconds = "0"),
+                curve = V1Curve.CURVE_ED25519,
+                organizationId = DEFAULT_ORG_ID,
+                path = "m/44'/501'/0'/0'",
+                pathFormat = V1PathFormat.PATH_FORMAT_BIP32,
+                publicKey = null,
+                updatedAt = Externaldatav1Timestamp(nanos = "0", seconds = "0"),
+                walletAccountId = "wallet-account-id-sol",
+                walletDetails = null,
+                walletId = "wallet-id"
+            )
+
+        /** A wallet holding both an Ethereum and a Solana account, like the demo provisions. */
+        fun walletWithEthAndSolana(
+            solanaAddress: String = DEFAULT_SOLANA_ADDRESS
+        ): Wallet {
+            val eth = defaultWallet().accounts
+            return Wallet(
+                id = "wallet-id",
+                name = "wallet",
+                accounts = eth + solanaAccount(solanaAddress)
+            )
+        }
 
         fun makeActivity(
             id: String,
@@ -257,6 +317,39 @@ internal class MockTurnkey(
             status = V1ActivityStatus.ACTIVITY_STATUS_COMPLETED,
             type = V1ActivityType.ACTIVITY_TYPE_ETH_SEND_TRANSACTION,
             updatedAt = Externaldatav1Timestamp(nanos = "0", seconds = "1714521600"),
+            votes = emptyList()
+        )
+
+        /** A completed `sol_send_transaction` activity (history fixture). */
+        fun makeSolanaActivity(
+            id: String,
+            signWith: String,
+            caip2: String,
+            unsignedTransaction: String,
+            sendTransactionStatusId: String,
+            createdAtSeconds: String = "1714521600"
+        ): V1Activity = V1Activity(
+            canApprove = false,
+            canReject = false,
+            createdAt = Externaldatav1Timestamp(nanos = "0", seconds = createdAtSeconds),
+            fingerprint = "fingerprint",
+            id = id,
+            intent = V1Intent(
+                solSendTransactionIntent = V1SolSendTransactionIntent(
+                    caip2 = caip2,
+                    signWith = signWith,
+                    unsignedTransaction = unsignedTransaction
+                )
+            ),
+            organizationId = DEFAULT_ORG_ID,
+            result = V1Result(
+                solSendTransactionResult = V1SolSendTransactionResult(
+                    sendTransactionStatusId = sendTransactionStatusId
+                )
+            ),
+            status = V1ActivityStatus.ACTIVITY_STATUS_COMPLETED,
+            type = V1ActivityType.ACTIVITY_TYPE_SOL_SEND_TRANSACTION,
+            updatedAt = Externaldatav1Timestamp(nanos = "0", seconds = createdAtSeconds),
             votes = emptyList()
         )
     }

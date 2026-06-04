@@ -16,6 +16,15 @@ internal interface WalletProvider {
     suspend fun getAddress(): String
 
     /**
+     * Gets the wallet address for a specific chain. EVM chains share one address; a provider
+     * that also holds non-EVM accounts (e.g. Turnkey with a Solana account) returns the
+     * address matching [chainId]'s family.
+     *
+     * Defaults to [getAddress] so EVM-only providers (e.g. Portal) need no change.
+     */
+    suspend fun getAddress(chainId: Int): String = getAddress()
+
+    /**
      * Sends native token (e.g., AVAX).
      *
      * @param chainId The network ID (e.g., 43114 for Avalanche).

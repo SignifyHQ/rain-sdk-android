@@ -3,11 +3,11 @@ package com.rain.sdk.sample.screens
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.rain.sdk.RainChain
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.models.Token
 import com.rain.sdk.sample.NetworkClient
 import com.rain.sdk.sample.SampleLog
+import com.rain.sdk.sample.WalletChain
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,28 +33,29 @@ class BalancesViewModel(
         _state.update { it.copy(tokenDecimals = value) }
     }
 
-    fun fetchBalances() {
+    fun fetchBalances(chain: WalletChain = WalletChain.EVM) {
         if (!rainClient.isInitialized) {
             SampleLog.w("Balances.fetch", "SDK not initialized")
             _state.update { it.copy(errorMessage = "SDK not initialized") }
             return
         }
 
-        SampleLog.i("Balances.fetch", "fetching balances")
+        SampleLog.i("Balances.fetch", "fetching balances chain=${chain.displayName}")
         _state.update { it.copy(isLoading = true, errorMessage = null) }
 
         viewModelScope.launch {
             try {
                 // The SDK resolves token decimals/symbol itself, so the rich Balance API
                 // takes only a Token discriminator (no decimals argument).
-                val native = rainClient.getBalance(RainChain.AVALANCHE_TESTNET, Token.Native)
+                val native = rainClient.getBalance(chain.chainId, Token.Native)
                 SampleLog.d("Balances.fetch", "native=${native.formatted} ${native.symbol}")
                 val currentState = _state.value
 
+                // ERC-20 contract balances are an EVM concept; skip for Solana (SPL unsupported).
                 var erc20: String? = null
-                if (currentState.tokenContractAddress.isNotBlank()) {
+                if (!chain.isSolana && currentState.tokenContractAddress.isNotBlank()) {
                     val erc20Balance = rainClient.getBalance(
-                        chainId = RainChain.AVALANCHE_TESTNET,
+                        chainId = chain.chainId,
                         token = Token.Contract(currentState.tokenContractAddress)
                     )
                     SampleLog.d(
@@ -67,7 +68,7 @@ class BalancesViewModel(
                 SampleLog.i("Balances.fetch", "success")
                 _state.update {
                     it.copy(
-                        nativeBalance = "${native.formatted} ${native.symbol ?: "AVAX"}",
+                        nativeBalance = "${native.formatted} ${native.symbol ?: chain.nativeSymbol}",
                         erc20Balance = erc20,
                         isLoading = false
                     )
@@ -157,11 +158,11 @@ class BalancesViewModel(
         }
     }
 
-    fun loadWalletAddresses() {
+    fun loadWalletAddresses(chain: WalletChain = WalletChain.EVM) {
         if (rainClient.isInitialized) {
             viewModelScope.launch {
                 try {
-                    val address = rainClient.getAddress()
+                    val address = rainClient.getAddress(chain.chainId)
                     SampleLog.d("Balances.address", "wallet address=$address")
                     _state.update { it.copy(internalWalletAddress = address) }
                 } catch (e: Exception) {
