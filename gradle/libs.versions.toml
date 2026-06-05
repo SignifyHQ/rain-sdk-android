@@ -16,7 +16,7 @@ maven-publish = "0.30.0"
 
 # -- Core SDK Dependencies --
 portal-android = "8.0.0"
-turnkey = "1.0.2"
+turnkey = "2.0.0"
 web3j = "4.10.0"
 timber = "5.0.1"
 okhttp = "5.1.0"

@@ -767,10 +767,10 @@ internal class TurnkeyWalletProvider(
             )
         )
         val statusId = response.result.sendTransactionStatusId
-        pollForSolanaCompletion(client, session.organizationId, statusId)
+        // Turnkey SDK 2.0 returns the Solana signature in the send-status response once Included.
+        pollForSolanaCompletion(client, session.organizationId, statusId)?.let { return it }
 
-        // Turnkey's send-status response carries no Solana signature; recover the signature of
-        // the just-submitted transfer from the chain so callers get an explorer-usable hash.
+        // Defensive fallback (shouldn't normally fire on 2.0): recover the signature from chain.
         // getSignaturesForAddress lags broadcast slightly, so retry briefly before falling back
         // to the status id.
         for (attempt in 0 until SOLANA_SIGNATURE_LOOKUP_ATTEMPTS) {
@@ -782,16 +782,17 @@ internal class TurnkeyWalletProvider(
     }
 
     /**
-     * Polls Turnkey for the terminal status of a Solana submission. Throws on explicit
-     * failure/rejection; returns on a recognized success status, or once attempts are exhausted
-     * (the submission was already accepted, so the caller reads the signature from chain rather
-     * than failing a transfer that most likely landed).
+     * Polls Turnkey for the terminal status of a Solana submission. Keeps
+     * polling through `Broadcasted` until the signature appears or a terminal state
+     * (Included/Confirmed/Finalized). Returns `solana.signature` (populated once Included on
+     * Turnkey SDK 2.0), null at a terminal status without it or on timeout (caller then recovers
+     * the signature from chain), and throws on explicit failure.
      */
     private suspend fun pollForSolanaCompletion(
         client: TurnkeyClientProtocol,
         organizationId: String,
         sendTransactionStatusId: String
-    ) {
+    ): String? {
         for (attempt in 0 until DEFAULT_POLLING_ATTEMPTS) {
             val status = client.getSendTransactionStatus(
                 TGetSendTransactionStatusBody(
@@ -812,19 +813,21 @@ internal class TurnkeyWalletProvider(
                 throw RainError.ProviderError(IllegalStateException(message))
             }
 
-            val succeeded = normalized.contains("CONFIRMED") ||
+            // Turnkey SDK 2.0 populates solana.signature once the tx is Included.
+            status.solana?.signature?.takeIf { it.isNotEmpty() }?.let { return it }
+
+            // Terminal status but no signature yet: stop; the caller recovers it from chain.
+            val terminal = normalized.contains("INCLUDED") ||
+                normalized.contains("CONFIRMED") ||
                 normalized.contains("FINALIZED") ||
-                normalized.contains("INCLUDED") ||
-                normalized.contains("SUCCESS") ||
-                normalized.contains("COMPLETE") ||
-                normalized.contains("BROADCAST") ||
                 normalized.contains("MINED")
-            if (succeeded) return
+            if (terminal) return null
 
             if (attempt + 1 < DEFAULT_POLLING_ATTEMPTS) {
                 delay(pollingIntervalMs)
             }
         }
+        return null
     }
 
     // ---------- RPC ----------

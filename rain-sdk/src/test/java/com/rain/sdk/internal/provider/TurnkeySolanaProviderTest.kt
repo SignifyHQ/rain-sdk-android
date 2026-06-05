@@ -175,7 +175,12 @@ class TurnkeySolanaProviderTest {
             JSONArray().put(JSONObject().put("signature", signature).put("slot", 150))
         )
 
-        val client = MockTurnkeyClient() // default getSendTransactionStatus = BROADCASTED
+        // Included with no hash in the status -> we recover the signature from chain (RPC).
+        val client = MockTurnkeyClient().apply {
+            sendTransactionStatusQueue = mutableListOf(
+                MockTurnkeyClient.StatusFixture(txHash = null, txStatus = "TX_STATUS_INCLUDED")
+            )
+        }
         val provider = makeProvider(client = client)
 
         val result = provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, 0.5)
@@ -189,6 +194,29 @@ class TurnkeySolanaProviderTest {
         assertThat(body.recentBlockhash).isEqualTo(blockhash)
         assertThat(body.sponsor).isEqualTo(false)
         assertThat(body.unsignedTransaction).isNotEmpty()
+    }
+
+    @Test
+    fun `sendNativeToken on solana returns the signature from the Turnkey status response`() = runBlocking {
+        val turnkeySignature = "TurnkeyProvidedSolanaSig111111111111111111"
+        rpc.stubObject(
+            "getLatestBlockhash",
+            JSONObject()
+                .put("context", JSONObject().put("slot", 1))
+                .put("value", JSONObject().put("blockhash", MockTurnkey.DEFAULT_SOLANA_ADDRESS).put("lastValidBlockHeight", 150))
+        )
+        // Turnkey SDK 2.0 reports the signature in solana.signature once Included -> returned
+        // directly, without the RPC fallback.
+        val client = MockTurnkeyClient().apply {
+            sendTransactionStatusQueue = mutableListOf(
+                MockTurnkeyClient.StatusFixture(solanaSignature = turnkeySignature, txStatus = "TX_STATUS_INCLUDED")
+            )
+        }
+        val provider = makeProvider(client = client)
+
+        val result = provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, 0.5)
+
+        assertThat(result).isEqualTo(turnkeySignature)
     }
 
     @Test

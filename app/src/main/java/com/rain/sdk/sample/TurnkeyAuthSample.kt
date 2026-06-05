@@ -2,6 +2,7 @@ package com.rain.sdk.sample
 
 import android.app.Application
 import com.turnkey.core.TurnkeyContext
+import com.turnkey.core.models.InitOtpResult
 import com.turnkey.core.models.OtpType
 import com.turnkey.core.models.TurnkeyConfig
 import com.turnkey.types.V1AddressFormat
@@ -72,22 +73,32 @@ object TurnkeyAuthSample {
         SampleLog.d("TurnkeyAuth", "TurnkeyContext ready")
     }
 
-    /** Starts the email-OTP flow. Returns the `otpId` you'll need for [verifyEmailOtp]. */
-    suspend fun sendEmailOtp(email: String): String {
+    /**
+     * Starts the email-OTP flow. Returns the [InitOtpResult] — both the `otpId` and the
+     * `otpEncryptionTargetBundle` — which [verifyEmailOtp] needs (Turnkey SDK 2.0 encrypts the
+     * OTP verification to a target key).
+     */
+    suspend fun sendEmailOtp(email: String): InitOtpResult {
         SampleLog.d("TurnkeyAuth", "sendEmailOtp to=${SampleLog.maskEmail(email)}")
         val result = TurnkeyContext.initOtp(
             otpType = OtpType.OTP_TYPE_EMAIL,
             contact = email
         )
         SampleLog.d("TurnkeyAuth", "OTP sent otpId=${SampleLog.maskToken(result.otpId)}")
-        return result.otpId
+        return result
     }
 
     /**
      * Verifies the OTP code and creates a Turnkey session. Handles both first-time signup
-     * and returning login transparently via `loginOrSignUpWithOtp`.
+     * and returning login transparently via `loginOrSignUpWithOtp`. [otpEncryptionTargetBundle]
+     * comes from the [sendEmailOtp] result.
      */
-    suspend fun verifyEmailOtp(otpId: String, otpCode: String, email: String) {
+    suspend fun verifyEmailOtp(
+        otpId: String,
+        otpCode: String,
+        otpEncryptionTargetBundle: String,
+        email: String
+    ) {
         SampleLog.d("TurnkeyAuth", "verifyEmailOtp otpId=${SampleLog.maskToken(otpId)}")
         // A prior successful login leaves a persisted session under `com.turnkey.sdk.session`;
         // Turnkey's createSession throws KeyAlreadyExists rather than overwriting it. Clear any
@@ -97,6 +108,7 @@ object TurnkeyAuthSample {
         TurnkeyContext.loginOrSignUpWithOtp(
             otpId = otpId,
             otpCode = otpCode,
+            otpEncryptionTargetBundle = otpEncryptionTargetBundle,
             contact = email,
             otpType = OtpType.OTP_TYPE_EMAIL
         )

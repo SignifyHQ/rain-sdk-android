@@ -201,13 +201,14 @@ class HomeViewModel(
                 }
 
                 _state.update { it.copy(statusText = "Sending OTP to ${s.turnkeyEmail}...") }
-                val otpId = TurnkeyAuthSample.sendEmailOtp(s.turnkeyEmail)
+                val otpResult = TurnkeyAuthSample.sendEmailOtp(s.turnkeyEmail)
 
                 SampleLog.i("Turnkey.otpInit", "OTP sent")
                 _state.update {
                     it.copy(
                         isLoading = false,
-                        turnkeyOtpId = otpId,
+                        turnkeyOtpId = otpResult.otpId,
+                        turnkeyOtpEncryptionBundle = otpResult.otpEncryptionTargetBundle,
                         statusText = "OTP sent — check your email"
                     )
                 }
@@ -226,7 +227,8 @@ class HomeViewModel(
     fun verifyTurnkeyOtp() {
         val s = _state.value
         val otpId = s.turnkeyOtpId
-        if (otpId.isNullOrBlank()) {
+        val otpEncryptionBundle = s.turnkeyOtpEncryptionBundle
+        if (otpId.isNullOrBlank() || otpEncryptionBundle.isNullOrBlank()) {
             _state.update { it.copy(statusText = "Send OTP first") }
             return
         }
@@ -239,7 +241,7 @@ class HomeViewModel(
         _state.update { it.copy(isLoading = true, statusText = "Verifying OTP...") }
         viewModelScope.launch {
             try {
-                TurnkeyAuthSample.verifyEmailOtp(otpId, s.turnkeyOtpCode, s.turnkeyEmail)
+                TurnkeyAuthSample.verifyEmailOtp(otpId, s.turnkeyOtpCode, otpEncryptionBundle, s.turnkeyEmail)
                 SampleLog.i(
                     "Turnkey.otpVerify",
                     "session active subOrgId=${SampleLog.maskToken(TurnkeyAuthSample.subOrganizationId)}"
@@ -325,7 +327,7 @@ class HomeViewModel(
 }
 
 data class HomeUiState(
-    val mode: WalletMode = WalletMode.Portal,
+    val mode: WalletMode = WalletMode.Turnkey,
     val sessionToken: String = "",
     val accessToken: String = "",
     val pin: String = "",
@@ -333,6 +335,7 @@ data class HomeUiState(
     val turnkeyAuthProxyConfigId: String = "",
     val turnkeyEmail: String = "",
     val turnkeyOtpId: String? = null,
+    val turnkeyOtpEncryptionBundle: String? = null,
     val turnkeyOtpCode: String = "",
     val turnkeySessionActive: Boolean = false,
     val isInitialized: Boolean = false,

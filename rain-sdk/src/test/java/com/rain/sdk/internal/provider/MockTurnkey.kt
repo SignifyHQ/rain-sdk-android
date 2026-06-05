@@ -23,6 +23,7 @@ import com.turnkey.types.V1Curve
 import com.turnkey.types.V1EthSendTransactionIntent
 import com.turnkey.types.V1EthSendTransactionResult
 import com.turnkey.types.V1EthSendTransactionStatus
+import com.turnkey.types.V1SolanaSendTransactionStatus
 import com.turnkey.types.V1HashFunction
 import com.turnkey.types.V1Intent
 import com.turnkey.types.V1PathFormat
@@ -50,7 +51,8 @@ internal class MockTurnkeyClient(
         val txHash: String? = null,
         val txStatus: String = "TX_STATUS_BROADCASTED",
         val txError: String? = null,
-        val errorMessage: String? = null
+        val errorMessage: String? = null,
+        val solanaSignature: String? = null
     ) {
         companion object {
             fun broadcasted(hash: String) = StatusFixture(txHash = hash, txStatus = "TX_STATUS_BROADCASTED")
@@ -149,6 +151,7 @@ internal class MockTurnkeyClient(
         return TGetSendTransactionStatusResponse(
             error = null,
             eth = fixture.txHash?.let { V1EthSendTransactionStatus(txHash = it) },
+            solana = fixture.solanaSignature?.let { V1SolanaSendTransactionStatus(signature = it) },
             txError = fixture.txError,
             txStatus = fixture.txStatus
         )
