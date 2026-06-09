@@ -6,16 +6,16 @@ Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provide
 
 - `minSdk = 28` (matches Turnkey's requirement).
 - Turnkey Kotlin SDK initialized in your `Application.onCreate()` (passkey/auth-proxy/OAuth/OTP flow completed by the host app).
-- **JDK 24+** to run unit tests that touch Turnkey types (the Turnkey 1.0.2 AAR ships class-file major version 68 / Java 24). Production Android builds are unaffected — R8/D8 dexes Turnkey's bytecode regardless of host JVM version. The `TurnkeyWalletProviderTest` suite skips itself automatically on JDKs older than 24 via `Assume.assumeTrue`.
+- **JDK 24+** to run unit tests that touch Turnkey types (the Turnkey 2.0.0 AAR ships class-file major version 68 / Java 24). Production Android builds are unaffected — R8/D8 dexes Turnkey's bytecode regardless of host JVM version. The `TurnkeyWalletProviderTest` suite skips itself automatically on JDKs older than 24 via `Assume.assumeTrue`.
 
 ## Adding the dependency
 
 The Turnkey artifacts ship transitively with `rain-sdk` via `api(...)`, so consumers don't need to add them explicitly. Internally Rain pulls in:
 
 ```
-com.turnkey:sdk-kotlin:1.0.2
-com.turnkey:http:1.0.2
-com.turnkey:types:1.0.2
+com.turnkey:sdk-kotlin:2.0.0
+com.turnkey:http:2.0.0
+com.turnkey:types:2.0.0
 ```
 
 ## Architectural split
@@ -39,10 +39,14 @@ object TurnkeyAuthSample {
     val context: TurnkeyContext            // hand to RainClient.initializeTurnkey
     val subOrganizationId: String?         // null until login completes
 
+    fun hasActiveSession(): Boolean        // true if a persisted session is still valid
+
     suspend fun init(app, organizationId, authProxyConfigId)
-    suspend fun sendEmailOtp(email): String                       // returns otpId
-    suspend fun verifyEmailOtp(otpId, otpCode, email)
-    suspend fun ensureEthereumWallet(): Boolean                   // creates one if missing
+    suspend fun sendEmailOtp(email): InitOtpResult                                    // returns { otpId, otpEncryptionTargetBundle }
+    suspend fun verifyEmailOtp(otpId, otpCode, otpEncryptionTargetBundle, email)      // Turnkey 2.0 encrypts OTP verification to a target key
+    suspend fun ensureEthereumWallet(): Boolean                                       // creates one if missing
+    suspend fun ensureSolanaWallet(): Boolean                                         // creates one if missing
+    suspend fun logout()                                                              // clears all stored sessions
 }
 ```
 
@@ -50,10 +54,21 @@ object TurnkeyAuthSample {
 
 ```kotlin
 TurnkeyAuthSample.init(app, orgId, authProxyConfigId)
-val otpId = TurnkeyAuthSample.sendEmailOtp(email)
-// ... user types OTP code into the UI ...
-TurnkeyAuthSample.verifyEmailOtp(otpId, otpCode, email)
+
+// Resume an existing session if one is still valid; otherwise run OTP.
+if (!TurnkeyAuthSample.hasActiveSession()) {
+    val otpResult = TurnkeyAuthSample.sendEmailOtp(email)
+    // ... user types OTP code into the UI ...
+    TurnkeyAuthSample.verifyEmailOtp(
+        otpId = otpResult.otpId,
+        otpCode = otpCode,
+        otpEncryptionTargetBundle = otpResult.otpEncryptionTargetBundle, // Turnkey SDK 2.0
+        email = email
+    )
+}
 TurnkeyAuthSample.ensureEthereumWallet()
+// Optional, for Solana support:
+// TurnkeyAuthSample.ensureSolanaWallet()
 
 rainClient.initializeTurnkey(
     turnkey = TurnkeyAuthSample.context,
@@ -80,15 +95,30 @@ class MyApp : Application() {
         super.onCreate()
 
         // 1) Initialize Turnkey first (host-app responsibility).
+        //    For OTP and auth-proxy flows, only organizationId + authProxyConfigId are required:
         TurnkeyContext.init(
             app = this,
             config = TurnkeyConfig(
-                authProxyConfigId = "<your-auth-proxy-config-id>",
                 organizationId = "<your-parent-organization-id>",
-                appScheme = "<your-app-scheme>",
-                authConfig = AuthConfig(rpId = "<your-rp-id>")
+                authProxyConfigId = "<your-auth-proxy-config-id>"
             )
         )
+
+        // For passkey / OAuth flows you must also supply an AuthConfig with the relying-party id
+        // (passkeys) and/or appScheme (OAuth deep-links):
+        //
+        // TurnkeyContext.init(
+        //     app = this,
+        //     config = TurnkeyConfig(
+        //         organizationId = "<your-parent-organization-id>",
+        //         authProxyConfigId = "<your-auth-proxy-config-id>",
+        //         authConfig = AuthConfig(rpId = "<your-rp-id>"),
+        //         appScheme = "<your-app-scheme>"
+        //     )
+        // )
+
+        // Prefer `TurnkeyContext.initSuspend(app, cfg)` inside a coroutine if you need to await
+        // session restoration before driving auth — see `TurnkeyAuthSample.init` for an example.
 
         // 2) Drive your auth flow (passkey / OTP / OAuth) somewhere in the app.
     }
@@ -148,7 +178,8 @@ Turnkey-specific errors are mapped into the standard `RainError` hierarchy:
 | Turnkey error | Mapped to |
 |---------------|-----------|
 | `TurnkeyKotlinError.InvalidSession` | `RainError.TokenExpired` |
-| Anything wrapping a user cancellation | `RainError.UserRejected` |
+| Config / setup errors (`MissingRpId`, `MissingConfigParam`, `ClientNotInitialized`, `InvalidParameter`, `InvalidResponse`, `InvalidMessage`, `InvalidRefreshTTL`, `OAuthStateMismatch`, `KeyAlreadyExists`, `KeyNotFound`) | `RainError.InternalError` |
+| Wrapper errors whose underlying cause is a user cancellation | `RainError.UserRejected` |
 | Anything else | `RainError.ProviderError` |
 
 Network errors raised during direct RPC calls (balances, fee estimation) surface as `RainError.NetworkError`.
