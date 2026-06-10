@@ -162,7 +162,7 @@ class BalancesViewModel(
         if (rainClient.isInitialized) {
             viewModelScope.launch {
                 try {
-                    val address = rainClient.getAddress(chain.chainId)
+                    val address = rainClient.getWalletAddress(chain.chainId)
                     SampleLog.d("Balances.address", "wallet address=$address")
                     _state.update { it.copy(internalWalletAddress = address) }
                 } catch (e: Exception) {

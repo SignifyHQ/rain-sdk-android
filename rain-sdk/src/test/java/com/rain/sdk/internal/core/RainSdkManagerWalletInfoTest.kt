@@ -39,26 +39,26 @@ class RainSdkManagerWalletInfoTest {
     fun `getAddress throws SdkNotInitialized before initialization`() {
         val manager = RainSdkManager()
         assertThrows(RainError.SdkNotInitialized::class.java) {
-            runBlocking { manager.getAddress() }
+            runBlocking { manager.getWalletAddress() }
         }
     }
 
     @Test
     fun `getAddress returns address from active provider`(): Unit = runBlocking {
         val (manager, _) = TestManagers.stubProviderManager()
-        assertThat(manager.getAddress()).isEqualTo(TestFixtures.WALLET_ADDRESS)
+        assertThat(manager.getWalletAddress()).isEqualTo(TestFixtures.WALLET_ADDRESS)
     }
 
     @Test
     fun `getAddress rethrows RainError WalletUnavailable without re-wrapping`() {
         val failing = object : StubWalletProvider() {
-            override suspend fun getAddress(): String {
+            override suspend fun getWalletAddress(): String {
                 throw RainError.WalletUnavailable("no eth account")
             }
         }
         val (manager, _) = TestManagers.stubProviderManager(failing)
         assertThrows(RainError.WalletUnavailable::class.java) {
-            runBlocking { manager.getAddress() }
+            runBlocking { manager.getWalletAddress() }
         }
     }
 
@@ -66,12 +66,12 @@ class RainSdkManagerWalletInfoTest {
     fun `getAddress wraps non-RainError provider failures via ErrorMapper`() {
         assumeJdk24()
         val failing = object : StubWalletProvider() {
-            override suspend fun getAddress(): String {
+            override suspend fun getWalletAddress(): String {
                 throw RuntimeException("network down")
             }
         }
         val (manager, _) = TestManagers.stubProviderManager(failing)
-        val ex = runCatching { runBlocking { manager.getAddress() } }.exceptionOrNull()
+        val ex = runCatching { runBlocking { manager.getWalletAddress() } }.exceptionOrNull()
         assertThat(ex).isInstanceOf(RainError.ProviderError::class.java)
     }
 

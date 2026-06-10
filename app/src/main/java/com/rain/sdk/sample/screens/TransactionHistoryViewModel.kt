@@ -29,7 +29,7 @@ class TransactionHistoryViewModel(
     viewModelScope.launch {
       try {
         val address = try {
-          rainClient.getAddress(chain.chainId)
+          rainClient.getWalletAddress(chain.chainId)
         } catch (e: Exception) {
           SampleLog.w("History.fetch", "getAddress failed (continuing): ${e.message}", e)
           null

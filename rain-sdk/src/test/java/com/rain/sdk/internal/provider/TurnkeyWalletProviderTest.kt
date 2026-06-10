@@ -44,13 +44,13 @@ class TurnkeyWalletProviderTest {
     @Test
     fun `getAddress returns override when provided`() = runBlocking {
         val provider = makeProvider(walletAddressOverride = "0xOVERRIDE")
-        assertThat(provider.getAddress()).isEqualTo("0xOVERRIDE")
+        assertThat(provider.getWalletAddress()).isEqualTo("0xOVERRIDE")
     }
 
     @Test
     fun `getAddress returns first ethereum account from wallets`() = runBlocking {
         val provider = makeProvider()
-        assertThat(provider.getAddress()).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
+        assertThat(provider.getWalletAddress()).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
     }
 
     @Test
@@ -69,7 +69,7 @@ class TurnkeyWalletProviderTest {
             walletAddressOverride = null,
             httpClient = OkHttpClient()
         )
-        val addr = provider.getAddress()
+        val addr = provider.getWalletAddress()
         assertThat(refreshTriggered).isTrue()
         assertThat(addr).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
     }
@@ -79,7 +79,7 @@ class TurnkeyWalletProviderTest {
         val turnkey = MockTurnkey(wallets = emptyList())
         val provider = makeProvider(turnkey = turnkey)
         assertThrows(RainError.WalletUnavailable::class.java) {
-            runBlocking { provider.getAddress() }
+            runBlocking { provider.getWalletAddress() }
         }
     }
 

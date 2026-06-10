@@ -131,7 +131,7 @@ class PortalWalletProviderTest {
     fun `getAddress delegates to PortalManager`() = runBlocking {
         coEvery { portalManager.getAddress() } returns TestFixtures.WALLET_ADDRESS
 
-        val address = portalWalletProvider.getAddress()
+        val address = portalWalletProvider.getWalletAddress()
 
         assertThat(address).isEqualTo(TestFixtures.WALLET_ADDRESS)
         coVerify { portalManager.getAddress() }

@@ -83,7 +83,7 @@ internal open class StubWalletProvider : WalletProvider {
     val sendTransactionCalls = mutableListOf<SendTransactionCall>()
     val estimateTransactionFeeCalls = mutableListOf<EstimateTransactionFeeCall>()
 
-    override suspend fun getAddress(): String = addressToReturn
+    override suspend fun getWalletAddress(): String = addressToReturn
 
     override suspend fun sendNativeToken(
         chainId: Int,

@@ -77,7 +77,7 @@ class RainSdkManagerTurnkeyTest {
         )
 
         assertThat(manager.isInitialized).isTrue()
-        assertThat(manager.getAddress())
+        assertThat(manager.getWalletAddress())
             .isEqualTo(com.rain.sdk.internal.provider.MockTurnkey.DEFAULT_WALLET_ADDRESS)
 
         val addresses = com.rain.sdk.models.RainWithdrawAddresses(

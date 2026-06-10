@@ -1,5 +1,9 @@
 package com.rain.sdk.utils
 
+import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.internal.provider.toHexString
+import com.rain.sdk.internal.provider.toTransactionHash
+import io.portalhq.android.provider.data.PortalProviderResult
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.math.RoundingMode
@@ -7,8 +11,10 @@ import java.math.RoundingMode
 /**
  * Utility for converting between different Ethereum units and formats.
  *
- * Pure functions only — no Portal/Turnkey/web3j dependencies — so the converter is safe
- * to call from any layer.
+ * The unit-conversion functions are pure (no Portal/Turnkey/web3j dependencies) and safe to
+ * call from any layer. The only exceptions are the two `@Deprecated` `convertPortalResult*`
+ * shims, kept solely for backward compatibility; they delegate to internal Portal extensions.
+ * Prefer the non-Portal entry points (e.g. [normalizedHexString]) in new code.
  */
 object EthereumConverter {
 
@@ -151,5 +157,42 @@ object EthereumConverter {
         } catch (e: NumberFormatException) {
             BigInteger.ZERO
         }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Deprecated Portal-result converters. The logic moved to internal extensions on
+    // PortalProviderResult so the converter could shed its Portal dependency; these shims are
+    // retained only so existing call sites keep compiling and linking. Slated for removal in
+    // the next major version.
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * Extracts a normalized hex string from a Portal provider result.
+     *
+     * @param portalResult Expected to be a `PortalProviderResult`; anything else yields `"0x0"`.
+     */
+    @Deprecated(
+        message = "Portal-result handling is now internal. This shim accepts a PortalProviderResult " +
+            "only; for plain hex normalization use normalizedHexString(hex) instead."
+    )
+    fun convertPortalResultToHexString(portalResult: Any): String =
+        (portalResult as? PortalProviderResult)?.toHexString() ?: normalizedHexString(null)
+
+    /**
+     * Extracts a transaction hash from a Portal provider result.
+     *
+     * @param portalResult Expected to be a `PortalProviderResult`.
+     * @throws RainError.ProviderError if the result is not a `PortalProviderResult` carrying a
+     *         String hash.
+     */
+    @Deprecated(
+        message = "Portal-result handling is now internal. This shim accepts a PortalProviderResult only."
+    )
+    fun convertPortalResultToTransactionHash(portalResult: Any): String {
+        val providerResult = portalResult as? PortalProviderResult
+            ?: throw RainError.ProviderError(
+                IllegalStateException("Portal returned invalid transaction result: null")
+            )
+        return providerResult.toTransactionHash()
     }
 }

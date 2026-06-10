@@ -288,8 +288,8 @@ class HomeViewModel(
                     chainId = RainChain.AVALANCHE_TESTNET,
                     walletAddress = null
                 )
-                val evmAddress = runCatching { rainClient.getAddress(WalletChain.EVM.chainId) }.getOrNull()
-                val solAddress = runCatching { rainClient.getAddress(WalletChain.SOLANA.chainId) }.getOrNull()
+                val evmAddress = runCatching { rainClient.getWalletAddress(WalletChain.EVM.chainId) }.getOrNull()
+                val solAddress = runCatching { rainClient.getWalletAddress(WalletChain.SOLANA.chainId) }.getOrNull()
                 SampleLog.i(
                     "Turnkey.rainInit",
                     "success — isInitialized=${rainClient.isInitialized} evm=$evmAddress sol=$solAddress"

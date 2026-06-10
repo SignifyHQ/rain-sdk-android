@@ -37,7 +37,7 @@ class WalletInfoViewModel(
 
         viewModelScope.launch {
             try {
-                val walletAddress = rainClient.getAddress(chain.chainId)
+                val walletAddress = rainClient.getWalletAddress(chain.chainId)
                 SampleLog.d("WalletInfo", "wallet address=$walletAddress")
                 val walletQr = rainClient.generateAddressQRCode(walletAddress)
 

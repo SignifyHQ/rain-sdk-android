@@ -7,22 +7,28 @@ import com.rain.sdk.models.Token
 
 /**
  * Interface for abstracting wallet operations.
- * Allows the SDK to support multiple wallet providers (Portal, Magic, Web3Auth, etc.).
+ *
+ * Allows the SDK to support multiple wallet providers (Portal, Turnkey, Magic, Web3Auth,
+ * external providers like Coinbase / Privy / Dynamic, etc.).
+ *
+ * Public so host apps can ship their own implementations and install them via
+ * [com.rain.sdk.interfaces.RainClient.setWalletProvider]. The interface lives in the
+ * `internal.provider` package for historical reasons but is part of the public API surface.
  */
-internal interface WalletProvider {
+interface WalletProvider {
     /**
      * Gets the current wallet address.
      */
-    suspend fun getAddress(): String
+    suspend fun getWalletAddress(): String
 
     /**
      * Gets the wallet address for a specific chain. EVM chains share one address; a provider
      * that also holds non-EVM accounts (e.g. Turnkey with a Solana account) returns the
      * address matching [chainId]'s family.
      *
-     * Defaults to [getAddress] so EVM-only providers (e.g. Portal) need no change.
+     * Defaults to [getWalletAddress] so EVM-only providers (e.g. Portal) need no change.
      */
-    suspend fun getAddress(chainId: Int): String = getAddress()
+    suspend fun getWalletAddress(chainId: Int): String = getWalletAddress()
 
     /**
      * Sends native token (e.g., AVAX).

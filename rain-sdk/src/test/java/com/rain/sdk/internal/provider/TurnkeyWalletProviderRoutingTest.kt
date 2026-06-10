@@ -151,9 +151,9 @@ class TurnkeyWalletProviderRoutingTest {
             chainReader = MockChainReader()
         )
 
-        val first = provider.getAddress()
-        val second = provider.getAddress()
-        val third = provider.getAddress()
+        val first = provider.getWalletAddress()
+        val second = provider.getWalletAddress()
+        val third = provider.getWalletAddress()
 
         assertThat(first).isEqualTo(second)
         assertThat(second).isEqualTo(third)

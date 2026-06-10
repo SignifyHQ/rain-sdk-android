@@ -11,6 +11,7 @@ import com.rain.sdk.internal.transaction.TransactionValidator
 import com.rain.sdk.internal.transaction.WithdrawCollateralRequest
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainTokenTransferResult
+import com.rain.sdk.models.RainTransactionParameters
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.models.RainWithdrawResult
 import com.rain.sdk.models.RainTransactionOrder
@@ -94,15 +95,22 @@ internal class RainSdkManager(
   private var configuredChainIds: List<Int> = emptyList()
 
   /**
+   * Installs a custom [WalletProvider], overriding any provider previously registered via
+   * [initializePortal] or [initializeTurnkey]. Public hook for hosts that want to bring
+   * their own provider implementation (e.g. Coinbase, Privy, Dynamic, custom MPC).
+   */
+  override fun setWalletProvider(provider: WalletProvider?) {
+    walletProvider = provider
+  }
+
+  /**
    * Installs a fake [WalletProvider] without going through `initializePortal` /
-   * `initializeTurnkey`. Internal + `@VisibleForTesting` because consumers don't drive
-   * provider swaps directly. Reflection-based injection is the alternative — but
-   * `Class.getDeclaredField()` eagerly resolves every field's declared type, which forces
-   * loading of `TurnkeyContext` (JDK 24 class) on pre-JDK-24 test JVMs.
+   * `initializeTurnkey`. Kept as a thin alias over [setWalletProvider] so existing tests
+   * keep compiling; new code should call [setWalletProvider] directly.
    */
   @androidx.annotation.VisibleForTesting
   internal fun setWalletProviderForTest(provider: WalletProvider?) {
-    walletProvider = provider
+    setWalletProvider(provider)
   }
 
   /**
@@ -207,7 +215,7 @@ internal class RainSdkManager(
 
       // Probe — ensures Turnkey has an EVM wallet available before swapping the provider in.
       withContext(Dispatchers.IO) {
-        provider.getAddress()
+        provider.getWalletAddress()
       }
 
       walletProvider = provider
@@ -229,6 +237,30 @@ internal class RainSdkManager(
     }
   }
 
+  override fun initialize(rpcEndpoints: Map<Int, String>) {
+    try {
+      configManager.validateAndSetupRpcEndpoints(rpcEndpoints)
+
+      // Wallet-agnostic: no bundled provider; clear any prior one. Host installs via setWalletProvider.
+      walletProvider = null
+      turnkeyContext = null
+      tokenStore = null
+      portalManager.destroy()
+
+      configuredChainIds = rpcEndpoints.keys.toList()
+      configManager.markInitialized()
+
+      Timber.d("Rain SDK: Initialized in wallet-agnostic mode with ${rpcEndpoints.size} network(s)")
+    } catch (e: RainError) {
+      Timber.e(e, "Rain SDK: Initialization error")
+      throw e
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      Timber.e(e, "Rain SDK: Initialization error")
+      throw RainError.ProviderError(e)
+    }
+  }
+
   override suspend fun withdrawCollateral(
     chainId: Int,
     addresses: RainWithdrawAddresses,
@@ -243,7 +275,7 @@ internal class RainSdkManager(
     }
 
     val provider = walletProvider ?: throw RainError.SdkNotInitialized()
-    val walletAddress = provider.getAddress()
+    val walletAddress = provider.getWalletAddress()
 
     // Create request object
     val request = WithdrawCollateralRequest(
@@ -283,13 +315,54 @@ internal class RainSdkManager(
     )
   }
 
-  override suspend fun getAddress(): String {
+  override suspend fun estimateWithdrawalFee(
+    chainId: Int,
+    addresses: RainWithdrawAddresses,
+    amount: Double,
+    decimals: Int,
+    adminSignature: RainAdminSignature,
+    nonce: BigInteger?
+  ): Double {
+    if (!isInitialized) {
+      throw RainError.SdkNotInitialized()
+    }
+
+    val provider = walletProvider ?: throw RainError.SdkNotInitialized()
+    val walletAddress = provider.getWalletAddress()
+
+    val request = WithdrawCollateralRequest(
+      chainId = chainId,
+      addresses = addresses,
+      amount = amount,
+      decimals = decimals,
+      adminSignature = adminSignature,
+      walletAddress = walletAddress,
+      nonce = nonce
+    )
+
+    return transactionCoordinator.estimateWithdrawalFee(request)
+  }
+
+  override fun composeTransactionParameters(
+    walletAddress: String,
+    contractAddress: String,
+    transactionData: String
+  ): RainTransactionParameters {
+    return RainTransactionParameters(
+      from = walletAddress,
+      to = contractAddress,
+      value = "0x0",
+      data = transactionData
+    )
+  }
+
+  override suspend fun getWalletAddress(): String {
     if (!isInitialized) {
       throw RainError.SdkNotInitialized()
     }
     val provider = walletProvider ?: throw RainError.SdkNotInitialized()
     return try {
-      provider.getAddress()
+      provider.getWalletAddress()
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       if (e is RainError) throw e
@@ -298,13 +371,13 @@ internal class RainSdkManager(
     }
   }
 
-  override suspend fun getAddress(chainId: Int): String {
+  override suspend fun getWalletAddress(chainId: Int): String {
     if (!isInitialized) {
       throw RainError.SdkNotInitialized()
     }
     val provider = walletProvider ?: throw RainError.SdkNotInitialized()
     return try {
-      provider.getAddress(chainId)
+      provider.getWalletAddress(chainId)
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       if (e is RainError) throw e
@@ -434,7 +507,7 @@ internal class RainSdkManager(
   override suspend fun generateAddressQRCode(address: String?, width: Int, height: Int): Bitmap {
     if (!isInitialized) throw RainError.SdkNotInitialized()
 
-    val targetAddress = address ?: getAddress()
+    val targetAddress = address ?: getWalletAddress()
 
     return withContext(Dispatchers.Default) {
         try {

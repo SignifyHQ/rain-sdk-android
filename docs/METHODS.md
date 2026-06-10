@@ -63,6 +63,22 @@ Initializes the SDK with an authenticated [Turnkey](https://turnkey.com) context
 
 ---
 
+### initialize(rpcEndpoints)
+
+Initializes the SDK in **wallet-agnostic mode**: validates and records the chain-specific RPC endpoints and marks the SDK initialized, but installs **no** bundled wallet provider. Use this to bring your own provider (Coinbase, Privy, Dynamic, custom MPC, etc.) — call `initialize`, then install your provider via [`setWalletProvider`](#setwalletproviderprovider). Mirrors the iOS `initialize(networkConfigs:)` API.
+
+- **Returns:** (none)
+- **Throws:** `RainError.InvalidConfig` if `rpcEndpoints` is empty or contains an invalid chain ID / RPC URL.
+- **Suspend:** No
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `rpcEndpoints` | `Map<Int, String>` | Map of numeric chain IDs to RPC URLs. Example: `mapOf(43114 to "https://avalanche-rpc.com")`. |
+
+Clears any provider previously registered via `initializePortal` / `initializeTurnkey` (or a prior `setWalletProvider`), so always install your provider **after** this call.
+
+---
+
 ### withdrawCollateral(chainId, addresses, amount, decimals, adminSignature, nonce, autoSend)
 
 Full withdrawal flow. When `autoSend = true`, builds the transaction, signs via Portal, submits, and returns the transaction hash. When `autoSend = false`, returns prepared transaction data for manual submission.
@@ -84,13 +100,27 @@ Full withdrawal flow. When `autoSend = true`, builds the transaction, signs via 
 
 ---
 
-### getAddress()
+### getWalletAddress()
 
-Returns the current wallet address from the Portal wallet provider.
+Returns the current wallet address from the active wallet provider.
 
 - **Returns:** `String` — hex-encoded wallet address (e.g. `"0x..."`).
 - **Throws:** `RainError` if address cannot be retrieved.
-- **Requires:** `initializePortal` first.
+- **Requires:** `initializePortal` or `initializeTurnkey` first.
+- **Suspend:** Yes
+
+---
+
+### getWalletAddress(chainId)
+
+Returns the wallet address for a specific chain. For EVM chains this is the same hex address
+as `getWalletAddress()`. For Solana chains (e.g. `RainChain.SOLANA_DEVNET`) it returns the
+Turnkey Solana account's base58 address.
+
+- **Parameters:** `chainId: Int`
+- **Returns:** `String` — the wallet address for that chain's family.
+- **Throws:** `RainError` if the address cannot be retrieved.
+- **Requires:** `initializePortal` or `initializeTurnkey` first.
 - **Suspend:** Yes
 
 ---
@@ -113,6 +143,65 @@ Estimates the gas fee required for a transaction.
 
 ---
 
+### estimateWithdrawalFee(chainId, addresses, amount, decimals, adminSignature, nonce?)
+
+Estimates the total fee required to execute a collateral withdrawal transaction.
+
+Internally builds + signs the EIP-712 payload, then runs `eth_estimateGas` against the withdrawal controller — does not broadcast.
+
+> **Signing side effect.** The estimate signs for real (its `eth_estimateGas` calldata needs a valid signature), so estimate-then-withdraw signs twice. iOS differs: it takes a caller-supplied signature (`salt` / `signature` / `expiresAt`) and doesn't sign.
+
+- **Returns:** `Double` — estimated withdrawal fee in the chain's native token.
+- **Throws:** `RainError` if estimation fails.
+- **Requires:** `initializePortal` or `initializeTurnkey` first.
+- **Suspend:** Yes
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `chainId` | `Int` | Target network chain ID. |
+| `addresses` | `RainWithdrawAddresses` | All addresses required for the withdrawal (controller, proxy, token, recipient). |
+| `amount` | `Double` | Human-readable amount to withdraw. |
+| `decimals` | `Int` | Token decimals (e.g. 6 for USDC, 18 for most tokens). |
+| `adminSignature` | `RainAdminSignature` | Admin authorization signature (same payload used by `withdrawCollateral`). |
+| `nonce` | `BigInteger?` | Optional nonce; if `null`, the SDK resolves it from the contract. |
+
+---
+
+### composeTransactionParameters(walletAddress, contractAddress, transactionData)
+
+Composes a wallet-agnostic transaction parameter bag for a contract call. Pure helper —
+returns a Rain-owned `RainTransactionParameters` struct with `value` pre-set to `"0x0"`.
+Hosts can hand the result to either provider for signing / broadcast. Mirrors the iOS
+`composeTransactionParameters` API.
+
+- **Returns:** `RainTransactionParameters` — `from`, `to`, `value` (`"0x0"`), `data`.
+- **Suspend:** No
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `walletAddress` | `String` | Sender wallet address. |
+| `contractAddress` | `String` | Target contract address. |
+| `transactionData` | `String` | Hex-encoded calldata. |
+
+---
+
+### setWalletProvider(provider)
+
+Installs a custom `WalletProvider`, overriding any provider previously registered via
+`initializePortal` or `initializeTurnkey`. Lets hosts bring their own wallet stack
+(Coinbase, Privy, Dynamic, custom MPC, etc.) without going through Rain's bundled adapters.
+For that flow, call [`initialize(rpcEndpoints)`](#initializerpcendpoints) first to configure
+networks in wallet-agnostic mode, then install the provider here. Pass `null` to clear the
+active provider. Mirrors the iOS `setWalletProvider(_:)` API.
+
+- **Suspend:** No
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `provider` | `WalletProvider?` | The custom provider to install, or `null` to clear. |
+
+---
+
 ### sendNativeToken(chainId, toAddress, amount)
 
 Sends native tokens (e.g. AVAX) from the current wallet.
@@ -132,16 +221,18 @@ Sends native tokens (e.g. AVAX) from the current wallet.
 
 ### sendToken(chainId, contractAddress, toAddress, amount, decimals)
 
-Sends ERC-20 tokens from the current wallet.
+Sends ERC-20 tokens (EVM chains) from the current wallet. Routed by `chainId`.
 
 - **Returns:** `RainTokenTransferResult` — containing the transaction hash.
 - **Throws:** `RainError` if send fails.
-- **Requires:** `initializePortal` first.
+- **Throws on Solana chains:** SPL token transfers are not yet implemented; calling this
+  method with a Solana `chainId` (sentinel 101–103) throws `RainError.InvalidConfig`.
+- **Requires:** `initializePortal` or `initializeTurnkey` first.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `chainId` | `Int` | Target network chain ID. |
+| `chainId` | `Int` | Target network chain ID. EVM chain ID. (Solana SPL transfers not yet implemented — see note above.) |
 | `contractAddress` | `String` | ERC-20 token contract address. |
 | `toAddress` | `String` | Recipient wallet address. |
 | `amount` | `Double` | Amount in human-readable form (e.g. `100.0` for 100 USDC). |
@@ -325,6 +416,7 @@ Builds ABI-encoded withdraw calldata for the collateral proxy contract.
 | **`RainAdminSignature`** | `salt` (String), `signature` (hex String), `expiresAt` (String, ISO-8601 or unix timestamp). |
 | **`RainWithdrawResult`** | `transactionHash` (String?, present if auto-sent), `transactionData` (String?, present if not auto-sent). Has `isAutoSent` and `isTransactionData` helper properties. |
 | **`RainTokenTransferResult`** | `transactionHash` (String). Returned by `sendNativeToken` and `sendToken`. |
+| **`RainTransactionParameters`** | `from`, `to`, `value` (hex wei), `data` (hex calldata). Wallet-agnostic transaction parameter bag returned by `composeTransactionParameters`. |
 | **`RainTransaction`** | Transaction record: `hash`, `from`, `to`, `value`, `blockNumber`, `blockTimestamp`, `gas`, `gasPrice`, `chainId`, `symbol`, `tokenAddress`, `metadata`. |
 | **`RainTransactionResult`** | `transactions: List<RainTransaction>`. Returned by `getTransactions`. |
 | **`RainTransactionOrder`** | Enum: `.ASC`, `.DESC`. Used in `getTransactions(..., order:)`. |

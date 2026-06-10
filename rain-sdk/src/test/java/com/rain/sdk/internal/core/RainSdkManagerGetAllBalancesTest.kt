@@ -95,7 +95,7 @@ class RainSdkManagerGetAllBalancesTest {
 
         // After reset, getAddress / getAllBalances see no provider and no init state.
         assertThrows(RainError.SdkNotInitialized::class.java) {
-            runBlocking { manager.getAddress() }
+            runBlocking { manager.getWalletAddress() }
         }
         assertThrows(RainError.SdkNotInitialized::class.java) {
             runBlocking { manager.getAllBalances() }

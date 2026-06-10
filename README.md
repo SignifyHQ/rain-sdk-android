@@ -97,7 +97,7 @@ val txBuilder = RainSdk.getInstance().transactionBuilder
 ### 3. Get Wallet Address
 
 ```kotlin
-val address = RainSdk.getInstance().client.getAddress()
+val address = RainSdk.getInstance().client.getWalletAddress()
 ```
 
 ### 4. Check Balances

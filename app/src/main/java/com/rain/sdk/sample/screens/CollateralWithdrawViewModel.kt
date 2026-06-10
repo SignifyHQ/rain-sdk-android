@@ -28,7 +28,7 @@ class CollateralWithdrawViewModel(
 
         viewModelScope.launch {
             try {
-                val walletAddress = rainClient.getAddress()
+                val walletAddress = rainClient.getWalletAddress()
                 SampleLog.d("Withdraw.contract", "wallet address=$walletAddress")
 
                 val contractResponse = NetworkClient.fetchCollateralContract(accessToken)
@@ -169,7 +169,7 @@ class CollateralWithdrawViewModel(
                     ?: throw Exception("No transaction data returned")
 
                 // 3. Estimate gas
-                val fromAddress = rainClient.getAddress()
+                val fromAddress = rainClient.getWalletAddress()
                 val gas = rainClient.estimateGas(
                     chainId = RainChain.AVALANCHE_TESTNET,
                     from = fromAddress,

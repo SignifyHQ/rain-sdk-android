@@ -25,7 +25,7 @@ internal class PortalWalletProvider(
   private val tokenStore: TokenMetadataStore
 ) : WalletProvider {
 
-  override suspend fun getAddress(): String {
+  override suspend fun getWalletAddress(): String {
     return portalManager.getAddress()
   }
 
@@ -34,7 +34,7 @@ internal class PortalWalletProvider(
     toAddress: String,
     amountInEth: Double
   ): String {
-    val fromAddress = getAddress()
+    val fromAddress = getWalletAddress()
     val valueWeiHex = EthereumConverter.convertEthToWeiHex(amountInEth)
 
     // For native transfers, data is "0x"
@@ -54,7 +54,7 @@ internal class PortalWalletProvider(
     amount: Double,
     decimals: Int
   ): String {
-    val fromAddress = getAddress()
+    val fromAddress = getWalletAddress()
 
     // Encode ERC-20 transfer(address, uint256) function call
     val tokenAmount = amount.toBigDecimal()

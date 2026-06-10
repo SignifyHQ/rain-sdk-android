@@ -64,8 +64,8 @@ class TurnkeySolanaProviderTest {
     fun `getAddress is chain-aware - solana chain returns the solana account`() = runBlocking {
         val provider = makeProvider()
 
-        assertThat(provider.getAddress()).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
-        assertThat(provider.getAddress(devnet)).isEqualTo(MockTurnkey.DEFAULT_SOLANA_ADDRESS)
+        assertThat(provider.getWalletAddress()).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
+        assertThat(provider.getWalletAddress(devnet)).isEqualTo(MockTurnkey.DEFAULT_SOLANA_ADDRESS)
     }
 
     @Test

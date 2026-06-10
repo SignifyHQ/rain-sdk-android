@@ -126,4 +126,67 @@ internal class TransactionCoordinator(
       throw RainError.InternalError("Gas estimation failed: ${e.message}", e)
     }
   }
+
+  /**
+   * Estimates the total fee (in the chain's native token) required to execute a collateral
+   * withdrawal transaction.
+   *
+   * Reuses steps 1–4 of [executeWithdrawCollateral] (validate → build EIP-712 → sign → build
+   * calldata) and then asks the active wallet provider to estimate gas for that calldata
+   * against the withdrawal controller.
+   *
+   * @param request The withdraw collateral request (same shape used by [executeWithdrawCollateral]).
+   * @return Estimated withdrawal fee in the chain's native token (e.g. ETH/AVAX).
+   * @throws RainError if any step fails.
+   */
+  suspend fun estimateWithdrawalFee(
+    request: WithdrawCollateralRequest
+  ): Double = withContext(Dispatchers.IO) {
+    try {
+      // Step 1: Validate
+      validator.validateWithdrawRequest(request)
+
+      // Step 2: Build EIP-712 message
+      val (typedDataJson, saltBytes) = RainTransactionBuilderImpl.buildEIP712Message(
+        chainId = request.chainId,
+        addresses = request.addresses,
+        walletAddress = request.walletAddress,
+        amount = request.amount,
+        decimals = request.decimals,
+        nonce = request.nonce
+      )
+
+      // Step 3: Sign typed data
+      val userSignature = signer.signTypedData(
+        chainId = request.chainId,
+        walletAddress = request.walletAddress,
+        typedDataJson = typedDataJson
+      )
+
+      // Step 4: Build transaction data
+      val transactionData = RainTransactionBuilderImpl.buildWithdrawTransactionData(
+        addresses = request.addresses,
+        amount = request.amount,
+        decimals = request.decimals,
+        saltBytes = saltBytes,
+        signatureData = userSignature,
+        adminSignature = request.adminSignature
+      )
+
+      // Step 5 (estimate instead of send): ask the provider for the fee.
+      val provider = walletProvider() ?: throw RainError.SdkNotInitialized()
+      provider.estimateTransactionFee(
+        chainId = request.chainId,
+        from = request.walletAddress,
+        to = request.addresses.controllerAddress,
+        data = transactionData,
+        value = "0x0"
+      )
+    } catch (e: RainError) {
+      throw e
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      throw RainError.InternalError("Estimate withdrawal fee failed: ${e.message}", e)
+    }
+  }
 }

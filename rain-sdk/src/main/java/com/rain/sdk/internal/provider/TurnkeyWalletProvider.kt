@@ -127,7 +127,7 @@ internal class TurnkeyWalletProvider(
 
     // ---------- address ----------
 
-    override suspend fun getAddress(): String {
+    override suspend fun getWalletAddress(): String {
         walletAddressOverride?.takeIf { it.isNotEmpty() }?.let { return it }
 
         cachedAddress?.let { return it }
@@ -149,8 +149,8 @@ internal class TurnkeyWalletProvider(
      * every other chain shares the Ethereum account. Internal balance / send paths use this so
      * a Solana request never reads or signs with the EVM address.
      */
-    override suspend fun getAddress(chainId: Int): String =
-        if (SolanaChains.isSolanaChain(chainId)) getSolanaAddress() else getAddress()
+    override suspend fun getWalletAddress(chainId: Int): String =
+        if (SolanaChains.isSolanaChain(chainId)) getSolanaAddress() else getWalletAddress()
 
     private suspend fun getSolanaAddress(): String {
         cachedSolanaAddress?.let { return it }
@@ -191,7 +191,7 @@ internal class TurnkeyWalletProvider(
         if (SolanaChains.isSolanaChain(chainId)) {
             return sendSolanaNative(chainId, toAddress, amountInEth)
         }
-        val from = getAddress(chainId)
+        val from = getWalletAddress(chainId)
         val valueHex = EthereumConverter.convertEthToWeiHex(amountInEth)
         return sendTransaction(
             chainId = chainId,
@@ -212,7 +212,7 @@ internal class TurnkeyWalletProvider(
         if (SolanaChains.isSolanaChain(chainId)) {
             throw RainError.InvalidConfig("SPL token transfers are not supported on Solana chainId=$chainId")
         }
-        val from = getAddress(chainId)
+        val from = getWalletAddress(chainId)
         val tokenAmount = amount.toBigDecimal()
             .multiply(BigDecimal.TEN.pow(decimals))
             .toBigInteger()
@@ -294,7 +294,7 @@ internal class TurnkeyWalletProvider(
     // ---------- balances ----------
 
     override suspend fun getBalance(chainId: Int, token: Token): Balance {
-        val walletAddress = getAddress(chainId)
+        val walletAddress = getWalletAddress(chainId)
 
         // Solana has its own balance policy (Turnkey-first with an RPC fallback for native SOL),
         // so it branches out before the EVM logic below.
@@ -372,7 +372,7 @@ internal class TurnkeyWalletProvider(
     }
 
     override suspend fun getBalances(chainId: Int): List<Balance> {
-        val walletAddress = getAddress(chainId)
+        val walletAddress = getWalletAddress(chainId)
 
         if (!usesTurnkeyForBalances(chainId)) {
             val tokens = tokenStore.registeredTokens(chainId)
@@ -742,7 +742,7 @@ internal class TurnkeyWalletProvider(
         toAddress: String,
         amountInSol: Double
     ): String {
-        val from = getAddress(chainId)
+        val from = getWalletAddress(chainId)
         val rpcUrl = rpcEndpoints[chainId]
             ?: throw RainError.InvalidConfig("No RPC endpoint configured for chainId=$chainId")
         val (session, client) = resolveSessionAndClient()

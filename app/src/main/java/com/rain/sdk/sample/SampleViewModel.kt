@@ -259,7 +259,7 @@ class SampleViewModel(
         statusText = "Estimating gas..."
 
         // Step 2: Estimate gas with transaction data
-        val fromAddress = rainClient.getAddress()
+        val fromAddress = rainClient.getWalletAddress()
         val fee = rainClient.estimateGas(
           chainId = chainId,
           from = fromAddress,
