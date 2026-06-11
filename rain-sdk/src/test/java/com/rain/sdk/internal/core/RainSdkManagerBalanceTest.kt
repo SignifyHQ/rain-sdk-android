@@ -69,7 +69,7 @@ class RainSdkManagerBalanceTest {
     fun `getBalances throws SdkNotInitialized before initialization`() {
         val manager = RainSdkManager()
         assertThrows(RainError.SdkNotInitialized::class.java) {
-            runBlocking { manager.getBalances(chainId = 1) }
+            runBlocking { manager.getTokenBalances(chainId = 1) }
         }
     }
 
@@ -106,7 +106,7 @@ class RainSdkManagerBalanceTest {
         val (manager, stub) = TestManagers.stubProviderManager()
         stub.balancesToReturn = listOf(ethBalance, usdcBalance)
 
-        val balances = manager.getBalances(chainId = 1)
+        val balances = manager.getTokenBalances(chainId = 1)
 
         assertThat(balances).containsExactly(ethBalance, usdcBalance).inOrder()
         assertThat(stub.getBalancesCalls).containsExactly(1)
@@ -125,7 +125,7 @@ class RainSdkManagerBalanceTest {
         }
         val (manager, _) = TestManagers.stubProviderManager(failing)
 
-        val ex = runCatching { runBlocking { manager.getBalances(chainId = 1) } }.exceptionOrNull()
+        val ex = runCatching { runBlocking { manager.getTokenBalances(chainId = 1) } }.exceptionOrNull()
         // Generic RuntimeException → ProviderError per ErrorMapper.mapTransactionError.
         assertThat(ex).isInstanceOf(RainError.ProviderError::class.java)
     }

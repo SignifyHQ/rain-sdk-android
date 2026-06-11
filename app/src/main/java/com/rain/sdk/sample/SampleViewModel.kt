@@ -431,10 +431,20 @@ class SampleViewModel(
         val tokenAddress = tokenContractAddress.ifBlank { "0x5425890298aed601595a70AB815c96711a31Bc65" }
         val erc20Balance = rainClient.getBalance(RainChain.AVALANCHE_TESTNET, Token.Contract(tokenAddress))
 
+        // Discover every non-zero ERC-20 the wallet holds (from Portal assets) via the rich API.
+        val discoveredTokens = rainClient.getTokenBalances(RainChain.AVALANCHE_TESTNET)
+          .mapNotNull { balance ->
+            (balance.token as? Token.Contract)?.let { contract ->
+              "${contract.address.take(6)}...${contract.address.takeLast(4)}: ${balance.formatted}"
+            }
+          }
+          .joinToString(separator = "\n")
+
         statusText = """
           Balances fetched!
           Native (${nativeBalance.symbol ?: "AVAX"}): ${nativeBalance.formatted}
           ERC20 ($tokenAddress): ${erc20Balance.formatted}
+          ${if (discoveredTokens.isNotBlank()) "All ERC20:\n$discoveredTokens" else ""}
         """.trimIndent()
       } catch (e: Exception) {
         statusText = "Failed to fetch balances: ${e.message}"

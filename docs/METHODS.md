@@ -273,10 +273,11 @@ Fetches a single balance (native or a contract token) for the current wallet.
 
 ---
 
-### getBalances(chainId)
+### getTokenBalances(chainId)
 
 Fetches all non-zero balances for the current wallet on the given network. The native
-balance is always included; zero-balance contract tokens are omitted.
+balance is always included; zero-balance contract tokens are omitted. Supersedes the
+deprecated `getBalances(chainId)`, which returned a lossy `Map<String, Double>`.
 
 - **Returns:** `List<Balance>` — one per non-zero token plus the native balance.
 - **Throws:** `RainError` if no wallet provider is set, or if the request fails.
@@ -348,6 +349,22 @@ Fetches transaction history for the current wallet on the given network.
 | `limit` | `Int?` | Optional max number of transactions to return. |
 | `offset` | `Int?` | Optional pagination offset. |
 | `order` | `RainTransactionOrder?` | Optional sort order: `.ASC` or `.DESC`. |
+
+---
+
+## Deprecated (compatibility shims)
+
+Default-method shims retained so code written against older releases keeps compiling and
+binary-linking. Each delegates to the precise current API and collapses the result to the
+old shape. Slated for removal in the next major version.
+
+| Deprecated method | Replacement | Notes |
+|-------------------|-------------|-------|
+| `getAddress(): String` | `getWalletAddress()` | Renamed; shim delegates directly. |
+| `getBalances(chainId): Map<String, Double>` | `getTokenBalances(chainId)` | Lossy `Double` map keyed by contract address (as returned by the provider); native under the `""` key. |
+| `getERC20Balances(chainId): Map<String, Double>` | `getTokenBalances(chainId)` | Drops the native entry; non-zero ERC-20s only, as `Double`. |
+| `getNativeBalance(chainId): Double` | `getBalance(chainId, Token.Native)` | Read `.decimalAmount` for exact precision. |
+| `getERC20Balance(chainId, tokenAddress, decimals?): Double` | `getBalance(chainId, Token.contract(tokenAddress))` | `decimals` argument ignored; SDK resolves decimals itself. |
 
 ---
 

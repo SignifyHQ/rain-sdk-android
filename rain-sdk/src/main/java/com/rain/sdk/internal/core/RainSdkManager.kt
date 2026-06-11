@@ -445,7 +445,7 @@ internal class RainSdkManager(
     }
   }
 
-  override suspend fun getBalances(chainId: Int): List<Balance> {
+  override suspend fun getTokenBalances(chainId: Int): List<Balance> {
     if (!isInitialized) throw RainError.SdkNotInitialized()
     val provider = walletProvider ?: throw RainError.SdkNotInitialized()
     return try {

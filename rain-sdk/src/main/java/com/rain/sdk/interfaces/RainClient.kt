@@ -130,6 +130,19 @@ interface RainClient {
     suspend fun getWalletAddress(): String
 
     /**
+     * Gets the current wallet address from the underlying provider.
+     *
+     * @return Hex-encoded wallet address.
+     * @throws RainError if the address cannot be retrieved.
+     */
+    @Deprecated(
+        message = "Renamed to getWalletAddress(). This shim delegates to it.",
+        replaceWith = ReplaceWith("getWalletAddress()")
+    )
+    @Throws(RainError::class)
+    suspend fun getAddress(): String = getWalletAddress()
+
+    /**
      * Gets the wallet address for a specific chain. For EVM chains this matches [getWalletAddress]
      * (a hex address); for Solana chains (e.g. `RainChain.SOLANA_DEVNET`) it returns the
      * Turnkey Solana account's base58 address.
@@ -258,12 +271,14 @@ interface RainClient {
      * Fetches all non-zero balances for the current wallet on the given network. The native
      * balance is always included; zero-balance contract tokens are omitted.
      *
+     * Supersedes the deprecated [getBalances], which returned a lossy `Map<String, Double>`.
+     *
      * @param chainId The numeric chain ID.
      * @return One [Balance] per non-zero token plus the native balance.
      * @throws RainError if no wallet provider is set, or if the request fails.
      */
     @Throws(RainError::class)
-    suspend fun getBalances(chainId: Int): List<Balance>
+    suspend fun getTokenBalances(chainId: Int): List<Balance>
 
     /**
      * Fetches balances across every chain the SDK was initialized with, in parallel,
@@ -336,7 +351,7 @@ interface RainClient {
      * Gets all ERC-20 token balances for the current wallet on the given network, keyed by
      * contract address.
      *
-     * Note: built on [getBalances], which omits zero-balance contract tokens and includes the
+     * Note: built on [getTokenBalances], which omits zero-balance contract tokens and includes the
      * native balance; this shim drops the native entry, so the result is non-zero ERC-20s only.
      *
      * @param chainId The numeric chain ID.
@@ -344,19 +359,41 @@ interface RainClient {
      * @throws RainError if balances cannot be retrieved.
      */
     @Deprecated(
-        message = "Use getBalances(chainId), which returns List<Balance> (native + contract " +
+        message = "Use getTokenBalances(chainId), which returns List<Balance> (native + contract " +
             "tokens) with exact precision. This shim drops the native entry and collapses to Double.",
-        replaceWith = ReplaceWith("getBalances(chainId)")
+        replaceWith = ReplaceWith("getTokenBalances(chainId)")
     )
     @Throws(RainError::class)
     suspend fun getERC20Balances(chainId: Int): Map<String, Double> =
-        getBalances(chainId)
+        getTokenBalances(chainId)
             .mapNotNull { balance ->
                 (balance.token as? Token.Contract)?.let { contract ->
                     contract.address to balance.decimalAmount.toDouble()
                 }
             }
             .toMap()
+
+    /**
+     * Gets all balances for the current wallet on the given network, keyed by contract address,
+     * with the native balance stored under the empty-string key `""`.
+     *
+     * @param chainId The numeric chain ID.
+     * @return Map of token contract address to balance (Double), plus native balance under `""`.
+     * @throws RainError if balances cannot be retrieved.
+     */
+    @Deprecated(
+        message = "Use getTokenBalances(chainId), which returns List<Balance> (native + contract " +
+            "tokens) with exact precision. This shim collapses to a lossy Double map keyed by " +
+            "contract address (as returned by the provider), with the native balance under the " +
+            "empty-string key \"\".",
+        replaceWith = ReplaceWith("getTokenBalances(chainId)")
+    )
+    @Throws(RainError::class)
+    suspend fun getBalances(chainId: Int): Map<String, Double> =
+        getTokenBalances(chainId).associate { balance ->
+            val key = (balance.token as? Token.Contract)?.address ?: ""
+            key to balance.decimalAmount.toDouble()
+        }
 
     /**
      * Registers additional tokens with the SDK so their metadata (decimals / symbol) resolves

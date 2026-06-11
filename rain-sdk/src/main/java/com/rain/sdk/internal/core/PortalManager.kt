@@ -251,6 +251,8 @@ internal class PortalManager {
     return EthereumConverter.decimalStringToBigInteger(entry.balance, decimals)
   }
 
+  private fun TokenBalance.tokenAddress(): String? = metadata["tokenAddress"] as? String
+
   /**
    * Gets the transaction history for the specified chain.
    *

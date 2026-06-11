@@ -53,16 +53,30 @@ class BalancesViewModel(
 
                 // ERC-20 contract balances are an EVM concept; skip for Solana (SPL unsupported).
                 var erc20: String? = null
-                if (!chain.isSolana && currentState.tokenContractAddress.isNotBlank()) {
-                    val erc20Balance = rainClient.getBalance(
-                        chainId = chain.chainId,
-                        token = Token.Contract(currentState.tokenContractAddress)
-                    )
-                    SampleLog.d(
-                        "Balances.fetch",
-                        "erc20 token=${currentState.tokenContractAddress} balance=${erc20Balance.formatted}"
-                    )
-                    erc20 = erc20Balance.formatted
+                var discoveredErc20Balances: List<WalletTokenBalance> = emptyList()
+                if (!chain.isSolana) {
+                    if (currentState.tokenContractAddress.isNotBlank()) {
+                        val erc20Balance = rainClient.getBalance(
+                            chainId = chain.chainId,
+                            token = Token.Contract(currentState.tokenContractAddress)
+                        )
+                        SampleLog.d(
+                            "Balances.fetch",
+                            "erc20 token=${currentState.tokenContractAddress} balance=${erc20Balance.formatted}"
+                        )
+                        erc20 = erc20Balance.formatted
+                    }
+
+                    // Discover every non-zero ERC-20 the wallet holds (from Portal assets).
+                    discoveredErc20Balances = rainClient.getTokenBalances(chain.chainId)
+                        .mapNotNull { balance ->
+                            (balance.token as? Token.Contract)?.let { contract ->
+                                WalletTokenBalance(
+                                    address = contract.address,
+                                    balance = balance.decimalAmount.toDouble()
+                                )
+                            }
+                        }
                 }
 
                 SampleLog.i("Balances.fetch", "success")
@@ -70,6 +84,7 @@ class BalancesViewModel(
                     it.copy(
                         nativeBalance = "${native.formatted} ${native.symbol ?: chain.nativeSymbol}",
                         erc20Balance = erc20,
+                        walletTokenBalances = discoveredErc20Balances,
                         isLoading = false
                     )
                 }
@@ -202,6 +217,7 @@ data class BalancesUiState(
     val isLoading: Boolean = false,
     val nativeBalance: String? = null,
     val erc20Balance: String? = null,
+    val walletTokenBalances: List<WalletTokenBalance> = emptyList(),
     val errorMessage: String? = null,
     // Collateral balances section (from API)
     val collateralWalletAddress: String = "",
@@ -209,6 +225,14 @@ data class BalancesUiState(
     val collateralBalances: List<CollateralTokenBalance> = emptyList(),
     val collateralError: String? = null
 )
+
+data class WalletTokenBalance(
+    val address: String,
+    val balance: Double
+) {
+    val displayAddress: String
+        get() = if (address.length > 12) "${address.take(6)}...${address.takeLast(4)}" else address
+}
 
 class BalancesViewModelFactory(
     private val rainClient: RainClient
