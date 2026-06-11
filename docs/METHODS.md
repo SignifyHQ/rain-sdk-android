@@ -432,8 +432,9 @@ Format: `"RainSDK Error [CODE]: message"`
 
 | Code | Class | Meaning |
 |------|-------|---------|
-| `RAIN_101` | `RainError.SdkNotInitialized` | Method called before `initializePortal`. |
+| `RAIN_101` | `RainError.SdkNotInitialized` | Method called before `initialize`, `initializePortal`, or `initializeTurnkey`, or no wallet provider is installed. |
 | `RAIN_102` | `RainError.InvalidConfig` | Invalid RPC URL, chain ID, or address format. |
+| `RAIN_103` | `RainError.InvalidRpcUrl` | RPC URL could not be parsed as a valid URL. |
 | `RAIN_201` | `RainError.TokenExpired` | Portal session token expired or invalid. |
 | `RAIN_202` | `RainError.Unauthorized` | Invalid or missing token / permissions. |
 | `RAIN_301` | `RainError.NetworkError` | Network/connectivity failure. |
