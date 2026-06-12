@@ -12,6 +12,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import java.math.BigDecimal
 import java.math.BigInteger
 
 /**
@@ -115,7 +116,7 @@ internal class TransactionCoordinator(
     from: String,
     to: String,
     data: String
-  ): Double = withContext(Dispatchers.IO) {
+  ): BigDecimal = withContext(Dispatchers.IO) {
     try {
       val portal = portalManager.getPortalInstance()
       
@@ -152,8 +153,8 @@ internal class TransactionCoordinator(
       
       val feeWei = gasLimit.multiply(gasPrice)
       
-      // Convert Wei to ETH (Double) using EthereumConverter
-      EthereumConverter.convertWeiToEth(feeWei)
+      // Convert Wei to ETH using the canonical decimal helper.
+      EthereumConverter.convertWeiToEthDecimal(feeWei)
 
     } catch (e: RainError) {
       throw e

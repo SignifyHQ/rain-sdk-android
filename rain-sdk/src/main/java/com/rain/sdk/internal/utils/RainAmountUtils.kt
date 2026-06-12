@@ -6,15 +6,14 @@ import java.math.BigInteger
 
 internal object RainAmountUtils {
     /**
-     * Converts a decimal amount (Double) to BigInteger (Wei/Base Units) with precision safety.
+     * Converts a decimal amount to BigInteger (Wei/Base Units) with precision safety.
      * Throws an error if the amount has more decimal places than the token allows.
      */
-    fun toBaseUnits(amount: Double, decimals: Int): BigInteger {
-        val amountBd = BigDecimal.valueOf(amount)
-        if (amountBd.scale() > decimals) {
-            throw RainError.InvalidConfig("Amount scale (${amountBd.scale()}) exceeds token decimals ($decimals)")
+    fun toBaseUnits(amount: BigDecimal, decimals: Int): BigInteger {
+        if (amount.scale() > decimals) {
+            throw RainError.InvalidConfig("Amount scale (${amount.scale()}) exceeds token decimals ($decimals)")
         }
-        return amountBd
+        return amount
             .multiply(BigDecimal.TEN.pow(decimals))
             .toBigInteger()
     }

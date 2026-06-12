@@ -9,6 +9,7 @@ import com.rain.sdk.models.RainTransactionResult
 import com.rain.sdk.internal.error.RainError
 import io.portalhq.android.Portal
 import android.graphics.Bitmap
+import java.math.BigDecimal
 import java.math.BigInteger
 
 interface RainClient {
@@ -55,7 +56,7 @@ interface RainClient {
     suspend fun withdrawCollateral(
         chainId: Int,
         addresses: RainWithdrawAddresses,
-        amount: Double,
+        amount: BigDecimal,
         decimals: Int,
         adminSignature: RainAdminSignature,
         nonce: BigInteger? = null,
@@ -81,12 +82,12 @@ interface RainClient {
      * @throws RainError if estimation fails
      */
     @Throws(RainError::class)
-    suspend fun estimateGas(
+    suspend fun estimateGasDecimal(
         chainId: Int,
         from: String,
         to: String,
         data: String
-    ): Double
+    ): BigDecimal
 
     /**
      * Sends native token (e.g., AVAX).
@@ -100,7 +101,7 @@ interface RainClient {
     suspend fun sendNativeToken(
         chainId: Int,
         toAddress: String,
-        amount: Double
+        amount: BigDecimal
     ): RainTokenTransferResult
 
     /**
@@ -118,7 +119,7 @@ interface RainClient {
         chainId: Int,
         contractAddress: String,
         toAddress: String,
-        amount: Double,
+        amount: BigDecimal,
         decimals: Int
     ): RainTokenTransferResult
 
@@ -126,11 +127,11 @@ interface RainClient {
      * Gets the native token balance (e.g. AVAX) for the current wallet.
      *
      * @param chainId The numeric chain ID (e.g. 43114 for Avalanche Mainnet)
-     * @return Native token balance in Ether units (Double)
+     * @return Native token balance in Ether units
      * @throws RainError if the balance cannot be retrieved
      */
     @Throws(RainError::class)
-    suspend fun getNativeBalance(chainId: Int): Double
+    suspend fun getNativeBalanceDecimal(chainId: Int): BigDecimal
 
     /**
      * Gets the balance of a specific ERC20 token for the current wallet.
@@ -138,25 +139,25 @@ interface RainClient {
      * @param chainId The numeric chain ID (e.g. 43114 for Avalanche Mainnet)
      * @param tokenAddress The contract address of the ERC20 token
      * @param decimals Number of decimals the token uses. Defaults to [DEFAULT_ERC20_DECIMALS].
-     * @return Token balance as a Double (with decimals already applied)
+     * @return Token balance with decimals already applied
      * @throws RainError if the balance cannot be retrieved
      */
     @Throws(RainError::class)
-    suspend fun getERC20Balance(
+    suspend fun getERC20BalanceDecimal(
         chainId: Int,
         tokenAddress: String,
         decimals: Int? = DEFAULT_ERC20_DECIMALS
-    ): Double
+    ): BigDecimal
 
     /**
      * Gets all ERC20 token balances for the current wallet on the given network.
      *
      * @param chainId The numeric chain ID
-     * @return Map of token contract address to balance (Double)
+     * @return Map of token contract address to balance
      * @throws RainError if balances cannot be retrieved
      */
     @Throws(RainError::class)
-    suspend fun getERC20Balances(chainId: Int): Map<String, Double>
+    suspend fun getERC20BalancesDecimal(chainId: Int): Map<String, BigDecimal>
 
     /**
      * Gets all balances for the current wallet on the given network.
@@ -164,11 +165,11 @@ interface RainClient {
      * Native balance is stored under the empty-string key `""`.
      *
      * @param chainId The numeric chain ID
-     * @return Map of token contract address to balance (Double), plus native balance under `""`
+     * @return Map of token contract address to balance, plus native balance under `""`
      * @throws RainError if balances cannot be retrieved
      */
     @Throws(RainError::class)
-    suspend fun getBalances(chainId: Int): Map<String, Double>
+    suspend fun getBalancesDecimal(chainId: Int): Map<String, BigDecimal>
 
     /**
      * Generates an Android Bitmap containing a QR code for a wallet address.

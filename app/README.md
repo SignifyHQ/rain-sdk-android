@@ -86,7 +86,7 @@ val txHash = rainClient.withdrawCollateral(
         tokenAddress = tokenAddress,
         recipientAddress = recipientAddress
     ),
-    amount = amount,
+    amount = BigDecimal("100.0"),
     decimals = decimals,
     adminSignature = RainAdminSignature(
         salt = signature.salt,
@@ -111,20 +111,22 @@ val result = rainClient.getTransactions(
 ### Token Transfers & Balances
 
 ```kotlin
+import java.math.BigDecimal
+
 // Sending Native Token
-val res = rainClient.sendNativeToken(chainId, recipient, 0.1)
+val res = rainClient.sendNativeToken(chainId, recipient, BigDecimal("0.1"))
 
 // Sending ERC-20 Token
-val res = rainClient.sendToken(chainId, contract, recipient, 10.0, 6)
+val res = rainClient.sendToken(chainId, contract, recipient, BigDecimal("10.0"), 6)
 
 // Fetching Balances
-val native = rainClient.getNativeBalance(chainId)
-val token = rainClient.getERC20Balance(chainId, contract, 6)
+val native = rainClient.getNativeBalanceDecimal(chainId)
+val token = rainClient.getERC20BalanceDecimal(chainId, contract, 6)
 ```
 
 ### QR & Gas Utilities
 
 ```kotlin
 val bitmap = rainClient.generateAddressQRCode()
-val gasEth = rainClient.estimateGas(chainId, from, to, txData)
+val gasEth = rainClient.estimateGasDecimal(chainId, from, to, txData)
 ```

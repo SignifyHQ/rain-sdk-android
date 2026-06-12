@@ -6,6 +6,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.math.BigDecimal
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -155,9 +156,9 @@ object NetworkClient {
     val symbol: String? = null,
     val logo: String? = null,
     val decimals: Int? = null,
-    val balance: Double = 0.0,
-    val exchangeRate: Double = 0.0,
-    val advanceRate: Double = 0.0
+    val balance: BigDecimal = BigDecimal.ZERO,
+    val exchangeRate: BigDecimal = BigDecimal.ZERO,
+    val advanceRate: BigDecimal = BigDecimal.ZERO
   )
 
   suspend fun fetchBackupShare(accessToken: String): NetworkResponse<String> = suspendCancellableCoroutine { continuation ->
@@ -213,4 +214,3 @@ object NetworkClient {
     val salt: String
   )
 }
-

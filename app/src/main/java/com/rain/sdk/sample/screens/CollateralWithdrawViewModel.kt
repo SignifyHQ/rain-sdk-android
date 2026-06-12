@@ -9,6 +9,7 @@ import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.sample.NetworkClient
 import io.portalhq.android.storage.mobile.PortalNamespace
+import java.math.BigDecimal
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,6 +19,7 @@ import kotlinx.coroutines.launch
 class CollateralWithdrawViewModel(
     private val rainClient: RainClient
 ) : ViewModel() {
+    private fun String.toBigDecimalOrNull(): BigDecimal? = runCatching { BigDecimal(this) }.getOrNull()
 
     private val _state = MutableStateFlow(CollateralWithdrawUiState())
     val state: StateFlow<CollateralWithdrawUiState> = _state.asStateFlow()
@@ -91,8 +93,8 @@ class CollateralWithdrawViewModel(
     fun estimateGas(accessToken: String) {
         val current = _state.value
         val token = current.selectedToken ?: return
-        val amount = current.amount.toDoubleOrNull()
-        if (amount == null || amount <= 0) {
+        val amount = current.amount.toBigDecimalOrNull()
+        if (amount == null || amount <= BigDecimal.ZERO) {
             _state.update { it.copy(errorText = "Enter a valid amount") }
             return
         }
@@ -102,7 +104,7 @@ class CollateralWithdrawViewModel(
         viewModelScope.launch {
             try {
                 // 1. Fetch admin signature (needed for tx data)
-                val amountNative = (amount * Math.pow(10.0, token.decimals.toDouble())).toLong()
+                val amountNative = amount.movePointRight(token.decimals).longValueExact()
                 val sigResponse = NetworkClient.fetchAdminSignature(
                     accessToken = accessToken,
                     chainId = current.chainId,
@@ -156,7 +158,7 @@ class CollateralWithdrawViewModel(
 
                 // 3. Estimate gas
                 val fromAddress = rainClient.getAddress()
-                val gas = rainClient.estimateGas(
+                val gas = rainClient.estimateGasDecimal(
                     chainId = RainChain.AVALANCHE_TESTNET,
                     from = fromAddress,
                     to = current.controllerAddress,
@@ -183,8 +185,8 @@ class CollateralWithdrawViewModel(
     fun executeWithdraw(accessToken: String) {
         val current = _state.value
         val token = current.selectedToken ?: return
-        val amount = current.amount.toDoubleOrNull()
-        if (amount == null || amount <= 0) {
+        val amount = current.amount.toBigDecimalOrNull()
+        if (amount == null || amount <= BigDecimal.ZERO) {
             _state.update { it.copy(errorText = "Enter a valid amount") }
             return
         }
@@ -195,7 +197,7 @@ class CollateralWithdrawViewModel(
             try {
                 // Fetch fresh admin signature if not already present
                 val adminSig = current.adminSignature ?: run {
-                    val amountNative = (amount * Math.pow(10.0, token.decimals.toDouble())).toLong()
+                    val amountNative = amount.movePointRight(token.decimals).longValueExact()
                     val sigResponse = NetworkClient.fetchAdminSignature(
                         accessToken = accessToken,
                         chainId = current.chainId,
@@ -254,7 +256,7 @@ data class WithdrawTokenOption(
     val symbol: String,
     val address: String,
     val decimals: Int,
-    val balance: Double
+    val balance: BigDecimal
 ) {
     val displayName: String get() = if (symbol.isNotBlank()) "$name ($symbol)" else name
 }

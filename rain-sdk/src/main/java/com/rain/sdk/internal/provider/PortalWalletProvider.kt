@@ -25,7 +25,7 @@ internal class PortalWalletProvider(
   override suspend fun sendNativeToken(
     chainId: Int,
     toAddress: String,
-    amountInEth: Double
+    amountInEth: BigDecimal
   ): String {
     val fromAddress = getAddress()
     val valueWeiHex = EthereumConverter.convertEthToWeiHex(amountInEth)
@@ -44,13 +44,13 @@ internal class PortalWalletProvider(
     chainId: Int,
     contractAddress: String,
     toAddress: String,
-    amount: Double,
+    amount: BigDecimal,
     decimals: Int
   ): String {
     val fromAddress = getAddress()
 
     // Encode ERC-20 transfer(address, uint256) function call
-    val tokenAmount = amount.toBigDecimal()
+    val tokenAmount = amount
       .multiply(BigDecimal.TEN.pow(decimals))
       .toBigInteger()
     val function = Function(
@@ -70,15 +70,15 @@ internal class PortalWalletProvider(
     )
   }
 
-  override suspend fun getNativeBalance(chainId: Int): Double {
+  override suspend fun getNativeBalance(chainId: Int): BigDecimal {
     return portalManager.getNativeBalance(chainId)
   }
 
-  override suspend fun getERC20Balance(chainId: Int, tokenAddress: String, decimals: Int?): Double {
+  override suspend fun getERC20Balance(chainId: Int, tokenAddress: String, decimals: Int?): BigDecimal {
     return portalManager.getERC20Balance(chainId, tokenAddress, decimals)
   }
 
-  override suspend fun getERC20Balances(chainId: Int): Map<String, Double> {
+  override suspend fun getERC20Balances(chainId: Int): Map<String, BigDecimal> {
     return portalManager.getERC20Balances(chainId)
   }
 

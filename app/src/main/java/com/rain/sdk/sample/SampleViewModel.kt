@@ -14,6 +14,7 @@ import io.portalhq.android.mpc.data.BackupConfigs
 import io.portalhq.android.mpc.data.BackupMethods
 import io.portalhq.android.mpc.data.PasswordStorageConfig
 import io.portalhq.android.storage.mobile.PortalNamespace
+import java.math.BigDecimal
 import kotlinx.coroutines.launch
 
 enum class RpcOption {
@@ -23,6 +24,7 @@ enum class RpcOption {
 class SampleViewModel(
   private val rainClient: RainClient
 ) : ViewModel() {
+  private fun String.toBigDecimalOrNull(): BigDecimal? = runCatching { BigDecimal(this) }.getOrNull()
 
   var pin by mutableStateOf("")
     private set
@@ -206,9 +208,9 @@ class SampleViewModel(
 
         val chainId = contract.chainId.toInt()
         val tokenAddress = "0xD856a0585Da55e83d03ccb49Ef09D180494CfBAD"
-        val amount = 0.1
+        val amount = BigDecimal("0.1")
         val decimals = 6
-        val amountLong = (amount * Math.pow(10.0, decimals.toDouble())).toLong()
+        val amountLong = amount.movePointRight(decimals).longValueExact()
         val recipientAddress = "0x3cA8ac240F6ebeA8684b3E629A8e8C1f0E3bC0Ff"
 
         val response = NetworkClient.fetchAdminSignature(
@@ -259,7 +261,7 @@ class SampleViewModel(
 
         // Step 2: Estimate gas with transaction data
         val fromAddress = rainClient.getAddress()
-        val fee = rainClient.estimateGas(
+        val fee = rainClient.estimateGasDecimal(
           chainId = chainId,
           from = fromAddress,
           to = contract.controllerAddress,
@@ -294,10 +296,9 @@ class SampleViewModel(
 
         val chainId = contract.chainId.toInt()
         val tokenAddress = "0xD856a0585Da55e83d03ccb49Ef09D180494CfBAD" // USDC on Avalanche Testnet?
-        val amount = 0.1
+        val amount = BigDecimal("0.1")
         val decimals = 6
-        // IMPORTANT: Adjust logic to convert amount to base units based on decimals
-        val amountLong = (amount * Math.pow(10.0, decimals.toDouble())).toLong()
+        val amountLong = amount.movePointRight(decimals).longValueExact()
 
         // TODO: Replace with real inputs
         val recipientAddress = "0x3cA8ac240F6ebeA8684b3E629A8e8C1f0E3bC0Ff"
@@ -362,8 +363,8 @@ class SampleViewModel(
 
   fun sendNativeToken() {
     if (!isInitialized) return
-    val amountDouble = nativeAmount.toDoubleOrNull() ?: 0.0
-    if (amountDouble <= 0.0) {
+    val amountDecimal = nativeAmount.toBigDecimalOrNull()
+    if (amountDecimal == null || amountDecimal <= BigDecimal.ZERO) {
       statusText = "Error: Invalid amount"
       return
     }
@@ -379,7 +380,7 @@ class SampleViewModel(
         val result = rainClient.sendNativeToken(
           chainId = RainChain.AVALANCHE_TESTNET,
           toAddress = nativeRecipientAddress,
-          amount = amountDouble
+          amount = amountDecimal
         )
         statusText = "Send successful! Tx: ${result.transactionHash}"
       } catch (e: Exception) {
@@ -391,9 +392,9 @@ class SampleViewModel(
 
   fun sendToken() {
     if (!isInitialized) return
-    val amountDouble = tokenAmount.toDoubleOrNull() ?: 0.0
+    val amountDecimal = tokenAmount.toBigDecimalOrNull()
     val decimalsInt = tokenDecimals.toIntOrNull() ?: 6
-    if (amountDouble <= 0.0) {
+    if (amountDecimal == null || amountDecimal <= BigDecimal.ZERO) {
       statusText = "Error: Invalid amount"
       return
     }
@@ -409,7 +410,7 @@ class SampleViewModel(
           chainId = RainChain.AVALANCHE_TESTNET,
           contractAddress = tokenContractAddress,
           toAddress = tokenRecipientAddress,
-          amount = amountDouble,
+          amount = amountDecimal,
           decimals = decimalsInt
         )
         statusText = "Send successful! Tx: ${result.transactionHash}"
@@ -426,10 +427,10 @@ class SampleViewModel(
     statusText = "Fetching balances..."
     viewModelScope.launch {
       try {
-        val balances = rainClient.getBalances(RainChain.AVALANCHE_TESTNET)
-        val nativeBalance = balances[""] ?: 0.0
+        val balances = rainClient.getBalancesDecimal(RainChain.AVALANCHE_TESTNET)
+        val nativeBalance = balances[""] ?: BigDecimal.ZERO
         val tokenAddress = tokenContractAddress.ifBlank { "0x5425890298aed601595a70AB815c96711a31Bc65" }
-        val erc20Balance = balances[tokenAddress.lowercase()] ?: 0.0
+        val erc20Balance = balances[tokenAddress.lowercase()] ?: BigDecimal.ZERO
         val discoveredTokens = balances
           .filterKeys { it.isNotEmpty() }
           .entries

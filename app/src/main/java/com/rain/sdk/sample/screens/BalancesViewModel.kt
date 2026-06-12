@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.rain.sdk.RainChain
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.NetworkClient
+import java.math.BigDecimal
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,13 +42,13 @@ class BalancesViewModel(
 
         viewModelScope.launch {
             try {
-                val balances = rainClient.getBalances(RainChain.AVALANCHE_TESTNET)
+                val balances = rainClient.getBalancesDecimal(RainChain.AVALANCHE_TESTNET)
                 val currentState = _state.value
-                val native = balances[""] ?: 0.0
+                val native = balances[""] ?: BigDecimal.ZERO
 
                 var erc20: String? = null
                 if (currentState.tokenContractAddress.isNotBlank()) {
-                    val erc20Balance = balances[currentState.tokenContractAddress.lowercase()] ?: 0.0
+                    val erc20Balance = balances[currentState.tokenContractAddress.lowercase()] ?: BigDecimal.ZERO
                     erc20 = "$erc20Balance"
                 }
 
@@ -166,14 +167,14 @@ data class CollateralTokenBalance(
     val name: String,
     val address: String,
     val decimals: Int,
-    val balance: Double,
-    val exchangeRate: Double
+    val balance: BigDecimal,
+    val exchangeRate: BigDecimal
 ) {
     val displayAddress: String
         get() = if (address.length > 12) "${address.take(6)}...${address.takeLast(4)}" else address
 
-    val usdValue: Double
-        get() = balance * exchangeRate
+    val usdValue: BigDecimal
+        get() = balance.multiply(exchangeRate)
 }
 
 data class BalancesUiState(
@@ -196,7 +197,7 @@ data class BalancesUiState(
 
 data class WalletTokenBalance(
     val address: String,
-    val balance: Double
+    val balance: BigDecimal
 ) {
     val displayAddress: String
         get() = if (address.length > 12) "${address.take(6)}...${address.takeLast(4)}" else address
