@@ -2,6 +2,7 @@ package com.rain.sdk.internal.provider
 
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionResult
+import java.math.BigDecimal
 
 /**
  * Interface for abstracting wallet operations.
@@ -24,7 +25,7 @@ internal interface WalletProvider {
     suspend fun sendNativeToken(
         chainId: Int,
         toAddress: String,
-        amountInEth: Double
+        amountInEth: BigDecimal
     ): String
 
     /**
@@ -41,24 +42,24 @@ internal interface WalletProvider {
         chainId: Int,
         contractAddress: String,
         toAddress: String,
-        amount: Double,
+        amount: BigDecimal,
         decimals: Int
     ): String
 
     /**
      * Gets the native token balance.
      */
-    suspend fun getNativeBalance(chainId: Int): Double
+    suspend fun getNativeBalance(chainId: Int): BigDecimal
 
     /**
      * Gets the ERC-20 token balance.
      */
-    suspend fun getERC20Balance(chainId: Int, tokenAddress: String, decimals: Int?): Double
+    suspend fun getERC20Balance(chainId: Int, tokenAddress: String, decimals: Int?): BigDecimal
 
     /**
      * Gets all ERC-20 token balances.
      */
-    suspend fun getERC20Balances(chainId: Int): Map<String, Double>
+    suspend fun getERC20Balances(chainId: Int): Map<String, BigDecimal>
 
     /**
      * Gets the transaction history for the specified chain.

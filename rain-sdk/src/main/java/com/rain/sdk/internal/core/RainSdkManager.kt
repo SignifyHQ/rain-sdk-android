@@ -22,6 +22,7 @@ import timber.log.Timber
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.math.BigDecimal
 import java.math.BigInteger
 import android.graphics.Bitmap
 import com.rain.sdk.utils.QRGenerator
@@ -93,7 +94,7 @@ internal class RainSdkManager(
   override suspend fun withdrawCollateral(
     chainId: Int,
     addresses: RainWithdrawAddresses,
-    amount: Double,
+    amount: BigDecimal,
     decimals: Int,
     adminSignature: RainAdminSignature,
     nonce: BigInteger?,
@@ -126,12 +127,12 @@ internal class RainSdkManager(
     )
   }
 
-  override suspend fun estimateGas(
+  override suspend fun estimateGasDecimal(
     chainId: Int,
     from: String,
     to: String,
     data: String
-  ): Double {
+  ): BigDecimal {
     if (!isInitialized) {
       throw RainError.SdkNotInitialized()
     }
@@ -154,7 +155,7 @@ internal class RainSdkManager(
   override suspend fun sendNativeToken(
     chainId: Int,
     toAddress: String,
-    amount: Double
+    amount: BigDecimal
   ): RainTokenTransferResult {
     if (!isInitialized) {
       throw RainError.SdkNotInitialized()
@@ -177,7 +178,7 @@ internal class RainSdkManager(
     chainId: Int,
     contractAddress: String,
     toAddress: String,
-    amount: Double,
+    amount: BigDecimal,
     decimals: Int
   ): RainTokenTransferResult {
     if (!isInitialized) {
@@ -197,25 +198,25 @@ internal class RainSdkManager(
     }
   }
 
-  override suspend fun getNativeBalance(chainId: Int): Double {
+  override suspend fun getNativeBalanceDecimal(chainId: Int): BigDecimal {
     if (!isInitialized) throw RainError.SdkNotInitialized()
     val provider = walletProvider ?: throw RainError.SdkNotInitialized()
     return provider.getNativeBalance(chainId)
   }
 
-  override suspend fun getERC20Balance(chainId: Int, tokenAddress: String, decimals: Int?): Double {
+  override suspend fun getERC20BalanceDecimal(chainId: Int, tokenAddress: String, decimals: Int?): BigDecimal {
     if (!isInitialized) throw RainError.SdkNotInitialized()
     val provider = walletProvider ?: throw RainError.SdkNotInitialized()
     return provider.getERC20Balance(chainId, tokenAddress, decimals)
   }
 
-  override suspend fun getERC20Balances(chainId: Int): Map<String, Double> {
+  override suspend fun getERC20BalancesDecimal(chainId: Int): Map<String, BigDecimal> {
     if (!isInitialized) throw RainError.SdkNotInitialized()
     val provider = walletProvider ?: throw RainError.SdkNotInitialized()
     return provider.getERC20Balances(chainId)
   }
 
-  override suspend fun getBalances(chainId: Int): Map<String, Double> {
+  override suspend fun getBalancesDecimal(chainId: Int): Map<String, BigDecimal> {
     if (!isInitialized) throw RainError.SdkNotInitialized()
     val provider = walletProvider ?: throw RainError.SdkNotInitialized()
 

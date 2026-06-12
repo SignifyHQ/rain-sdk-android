@@ -31,6 +31,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.math.BigDecimal
 
 /**
  * Wrapper around Portal SDK to encapsulate all Portal interactions.
@@ -118,15 +119,15 @@ internal class PortalManager {
    * Consolidates API calls by using portal.api.getAssets.
    *
    * @param chainId The numeric chain ID (e.g. 43114)
-   * @return Native token balance in Ether units (Double)
+   * @return Native token balance in Ether units
    */
-  suspend fun getNativeBalance(chainId: Int): Double {
+  suspend fun getNativeBalance(chainId: Int): BigDecimal {
     val portal = getPortalInstance()
     val eip155ChainId = "${PortalNamespace.EIP155.value}:$chainId"
 
     return try {
       val response = portal.api.getAssets(eip155ChainId).getOrThrow()
-      response.nativeBalance.balance.toDoubleOrNull() ?: 0.0
+      response.nativeBalance.balance.toBigDecimalOrNull() ?: BigDecimal.ZERO
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       Timber.w(e, "Rain SDK: portal.api.getAssets failed for native balance, falling back to RPC for chainId=$chainId")
@@ -139,7 +140,7 @@ internal class PortalManager {
   /**
    * Internal helper to fetch native balance via RPC as a fallback.
    */
-  private suspend fun getNativeBalanceViaRpc(chainId: Int): Double {
+  private suspend fun getNativeBalanceViaRpc(chainId: Int): BigDecimal {
     val portal = getPortalInstance()
     val walletAddress = getAddress()
     val eip155ChainId = "${PortalNamespace.EIP155.value}:$chainId"
@@ -150,7 +151,7 @@ internal class PortalManager {
       params = listOf(walletAddress, "latest")
     )
     val hex = EthereumConverter.convertPortalResultToHexString(result)
-    return EthereumConverter.convertWeiHexToEth(hex)
+    return EthereumConverter.convertWeiHexToEthDecimal(hex)
   }
 
   /**
@@ -159,9 +160,9 @@ internal class PortalManager {
    * @param chainId The numeric chain ID (e.g. 43114)
    * @param tokenAddress The ERC20 contract address
    * @param decimals Number of decimals the token uses
-   * @return Token balance as a Double
+   * @return Token balance
    */
-  suspend fun getERC20Balance(chainId: Int, tokenAddress: String, decimals: Int?): Double {
+  suspend fun getERC20Balance(chainId: Int, tokenAddress: String, decimals: Int?): BigDecimal {
     val portal = getPortalInstance()
     val walletAddress = getAddress()
     val eip155ChainId = "${PortalNamespace.EIP155.value}:$chainId"
@@ -185,7 +186,7 @@ internal class PortalManager {
         params = listOf(callParams, "latest")
       )
       val hex = EthereumConverter.convertPortalResultToHexString(result)
-      EthereumConverter.convertHexToDouble(hex, decimals ?: RainClient.DEFAULT_ERC20_DECIMALS)
+      EthereumConverter.convertHexToDecimal(hex, decimals ?: RainClient.DEFAULT_ERC20_DECIMALS)
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       Timber.e(e, "Rain SDK: Failed to get ERC20 balance via RPC for token=$tokenAddress chainId=$chainId")
@@ -199,7 +200,7 @@ internal class PortalManager {
    * @param chainId Numerical chain ID
    * @return Map of contract address to balance
    */
-  suspend fun getERC20Balances(chainId: Int): Map<String, Double> {
+  suspend fun getERC20Balances(chainId: Int): Map<String, BigDecimal> {
     val portal = getPortalInstance()
     val eip155ChainId = "${PortalNamespace.EIP155.value}:$chainId"
 
@@ -207,7 +208,7 @@ internal class PortalManager {
       val response = portal.api.getAssets(eip155ChainId).getOrThrow()
       response.tokenBalances.mapNotNull { tokenBalance ->
         val tokenAddress = tokenBalance.tokenAddress()
-        val balance = tokenBalance.balance.toDoubleOrNull()
+        val balance = tokenBalance.balance.toBigDecimalOrNull()
 
         if (tokenAddress.isNullOrBlank() || balance == null) {
           null
@@ -380,7 +381,7 @@ internal class PortalManager {
 
   /**
    * Resolves a human-readable value for a transaction.
-   * Prefers tx.value (Double), falls back to rawContract hex value / decimal.
+   * Prefers tx.value, falls back to rawContract hex value / decimal.
    * If rawContract.decimal is null, fetches it on-chain via ERC20 decimals().
    */
   private suspend fun resolveTransactionValue(
@@ -401,7 +402,7 @@ internal class PortalManager {
       ?: return null
 
     return try {
-      EthereumConverter.convertHexToDouble(hexValue, decimal).toString()
+      EthereumConverter.convertHexToDecimal(hexValue, decimal).toPlainString()
     } catch (e: Exception) {
       Timber.w(e, "Rain SDK: Failed to parse rawContract value=$hexValue decimal=$decimal")
       null

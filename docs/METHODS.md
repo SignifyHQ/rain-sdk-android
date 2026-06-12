@@ -28,6 +28,8 @@ val portal = sdk.portal                  // Portal instance (after initializatio
 
 ## RainClient Methods
 
+Money APIs are `BigDecimal`-first.
+
 ### initializePortal(portalSessionToken, rpcEndpoints, chainId)
 
 Initializes the SDK with a Portal session token and chain-specific RPC endpoints. Use for full wallet flow (sign + send via Portal).
@@ -56,7 +58,7 @@ Full withdrawal flow. When `autoSend = true`, builds the transaction, signs via 
 |-----------|------|-------------|
 | `chainId` | `Int` | Target network chain ID (e.g. `43114`). |
 | `addresses` | `RainWithdrawAddresses` | All required addresses: proxy, controller, token, recipient. |
-| `amount` | `Double` | Amount in human-readable token units (e.g. `100.0`). |
+| `amount` | `BigDecimal` | Amount in human-readable token units (e.g. `BigDecimal("100.0")`). |
 | `decimals` | `Int` | Token decimals (e.g. 6 for USDC, 18 for most tokens). |
 | `adminSignature` | `RainAdminSignature` | Admin signature for authorization (salt, signature, expiresAt). |
 | `nonce` | `BigInteger?` | Optional nonce; if `null`, SDK resolves from contract. |
@@ -75,11 +77,11 @@ Returns the current wallet address from the Portal wallet provider.
 
 ---
 
-### estimateGas(chainId, from, to, data)
+### estimateGasDecimal(chainId, from, to, data)
 
 Estimates the gas fee required for a transaction.
 
-- **Returns:** `Double` — estimated gas fee in the chain's native token (e.g. AVAX).
+- **Returns:** `BigDecimal` — estimated gas fee in the chain's native token (e.g. AVAX).
 - **Throws:** `RainError` if estimation fails.
 - **Requires:** `initializePortal` first.
 - **Suspend:** Yes
@@ -106,7 +108,7 @@ Sends native tokens (e.g. AVAX) from the current wallet.
 |-----------|------|-------------|
 | `chainId` | `Int` | Target network chain ID. |
 | `toAddress` | `String` | Recipient wallet address. |
-| `amount` | `Double` | Amount in human-readable form (e.g. `0.1` for 0.1 AVAX). |
+| `amount` | `BigDecimal` | Amount in human-readable form (e.g. `BigDecimal("0.1")` for 0.1 AVAX). |
 
 ---
 
@@ -124,16 +126,16 @@ Sends ERC-20 tokens from the current wallet.
 | `chainId` | `Int` | Target network chain ID. |
 | `contractAddress` | `String` | ERC-20 token contract address. |
 | `toAddress` | `String` | Recipient wallet address. |
-| `amount` | `Double` | Amount in human-readable form (e.g. `100.0` for 100 USDC). |
+| `amount` | `BigDecimal` | Amount in human-readable form (e.g. `BigDecimal("100.0")` for 100 USDC). |
 | `decimals` | `Int` | Token decimals (e.g. 6 for USDC, 18 for WETH). |
 
 ---
 
-### getNativeBalance(chainId)
+### getNativeBalanceDecimal(chainId)
 
 Fetches the native token balance (e.g. AVAX) for the current wallet.
 
-- **Returns:** `Double` — balance in human-readable form (e.g. `1.5` for 1.5 AVAX).
+- **Returns:** `BigDecimal` — balance in human-readable form (e.g. `BigDecimal("1.5")` for 1.5 AVAX).
 - **Throws:** `RainError` if balance cannot be retrieved.
 - **Requires:** `initializePortal` first.
 - **Suspend:** Yes
@@ -144,11 +146,11 @@ Fetches the native token balance (e.g. AVAX) for the current wallet.
 
 ---
 
-### getERC20Balance(chainId, tokenAddress, decimals)
+### getERC20BalanceDecimal(chainId, tokenAddress, decimals)
 
 Fetches the balance of a specific ERC-20 token for the current wallet.
 
-- **Returns:** `Double` — balance in human-readable form (with decimals already applied).
+- **Returns:** `BigDecimal` — balance in human-readable form (with decimals already applied).
 - **Throws:** `RainError` if balance cannot be retrieved.
 - **Requires:** `initializePortal` first.
 - **Suspend:** Yes
@@ -161,11 +163,11 @@ Fetches the balance of a specific ERC-20 token for the current wallet.
 
 ---
 
-### getERC20Balances(chainId)
+### getERC20BalancesDecimal(chainId)
 
 Fetches all ERC-20 token balances for the current wallet on the given network.
 
-- **Returns:** `Map<String, Double>` — token contract address → balance.
+- **Returns:** `Map<String, BigDecimal>` — token contract address → balance.
 - **Throws:** `RainError` if balances cannot be retrieved.
 - **Requires:** `initializePortal` first.
 - **Suspend:** Yes
@@ -176,11 +178,11 @@ Fetches all ERC-20 token balances for the current wallet on the given network.
 
 ---
 
-### getBalances(chainId)
+### getBalancesDecimal(chainId)
 
 Fetches all balances for the current wallet on the given network.
 
-- **Returns:** `Map<String, Double>` — token contract address → balance; native balance is stored under key `""`.
+- **Returns:** `Map<String, BigDecimal>` — token contract address → balance; native balance is stored under key `""`.
 - **Throws:** `RainError` if balances cannot be retrieved.
 - **Requires:** `initializePortal` first.
 - **Suspend:** Yes
@@ -258,7 +260,7 @@ Builds EIP-712 typed data for obtaining the admin signature required for withdra
 | `chainId` | `Int` | Target network chain ID. |
 | `addresses` | `RainWithdrawAddresses` | Proxy, controller, token, recipient addresses. |
 | `walletAddress` | `String` | User wallet address (used as `user` in EIP-712). |
-| `amount` | `Double` | Amount in human-readable token units. |
+| `amount` | `BigDecimal` | Amount in human-readable token units. |
 | `decimals` | `Int` | Token decimals. |
 | `nonce` | `BigInteger?` | Optional; if `null`, SDK fetches from contract. |
 
@@ -275,7 +277,7 @@ Builds ABI-encoded withdraw calldata for the collateral proxy contract.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `addresses` | `RainWithdrawAddresses` | Proxy, controller, token, recipient addresses. |
-| `amount` | `Double` | Amount in human-readable token units. |
+| `amount` | `BigDecimal` | Amount in human-readable token units. |
 | `decimals` | `Int` | Token decimals. |
 | `saltBytes` | `ByteArray` | Salt data (32 bytes) for the withdrawal authorization. |
 | `signatureData` | `String` | User/wallet signature from Rain API (hex string). |
