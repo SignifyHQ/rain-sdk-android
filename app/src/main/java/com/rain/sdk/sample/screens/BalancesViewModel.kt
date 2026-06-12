@@ -21,10 +21,6 @@ class BalancesViewModel(
     private val _state = MutableStateFlow(BalancesUiState())
     val state: StateFlow<BalancesUiState> = _state.asStateFlow()
 
-    fun setAccessToken(token: String) {
-        _state.update { it.copy(accessToken = token) }
-    }
-
     fun onTokenContractAddressChanged(value: String) {
         _state.update { it.copy(tokenContractAddress = value) }
     }
@@ -106,10 +102,9 @@ class BalancesViewModel(
             _state.update { it.copy(collateralError = "SDK not initialized") }
             return
         }
-        val accessToken = _state.value.accessToken
-        if (accessToken.isBlank()) {
-            SampleLog.w("Balances.collateral", "access token blank")
-            _state.update { it.copy(collateralError = "Access token not available") }
+        if (!NetworkClient.isConfigured) {
+            SampleLog.w("Balances.collateral", "NetworkClient not configured")
+            _state.update { it.copy(collateralError = "Rain Api-Key and User ID required") }
             return
         }
 
@@ -118,7 +113,7 @@ class BalancesViewModel(
 
         viewModelScope.launch {
             try {
-                val contractResponse = NetworkClient.fetchCollateralContract(accessToken)
+                val contractResponse = NetworkClient.fetchCollateralContract()
                 if (contractResponse.result.isFailure) {
                     val err = contractResponse.result.exceptionOrNull()
                     SampleLog.e("Balances.collateral", "fetchCollateralContract failed: ${err?.message}", err)
@@ -209,7 +204,6 @@ data class CollateralTokenBalance(
 }
 
 data class BalancesUiState(
-    val accessToken: String = "",
     // Manual query section
     val internalWalletAddress: String = "",
     val tokenContractAddress: String = "0x5425890298aed601595a70AB815c96711a31Bc65",

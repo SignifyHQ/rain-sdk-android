@@ -38,11 +38,11 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.sample.WalletChain
 
 @Composable
 fun CollateralWithdrawScreen(
     innerPadding: PaddingValues,
-    accessToken: String,
     rainClient: RainClient,
     onBack: () -> Unit,
     viewModel: CollateralWithdrawViewModel = viewModel(factory = CollateralWithdrawViewModelFactory(rainClient))
@@ -52,7 +52,7 @@ fun CollateralWithdrawScreen(
 
     LaunchedEffect(Unit) {
         if (state.availableTokens.isEmpty() && !state.isLoadingContract) {
-            viewModel.loadContractInfo(accessToken)
+            viewModel.loadContractInfo()
         }
     }
 
@@ -210,7 +210,7 @@ fun CollateralWithdrawScreen(
             ) {
                 // Estimate Gas
                 OutlinedButton(
-                    onClick = { viewModel.estimateGas(accessToken) },
+                    onClick = { viewModel.estimateGas() },
                     enabled = state.amount.isNotBlank() && !state.isEstimating && !state.isWithdrawing,
                     modifier = Modifier.weight(1f)
                 ) {
@@ -219,7 +219,7 @@ fun CollateralWithdrawScreen(
 
                 // Execute Withdraw
                 Button(
-                    onClick = { viewModel.executeWithdraw(accessToken) },
+                    onClick = { viewModel.executeWithdraw() },
                     enabled = state.amount.isNotBlank() && !state.isWithdrawing && !state.isEstimating,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
@@ -286,7 +286,12 @@ fun CollateralWithdrawScreen(
                             color = MaterialTheme.colorScheme.primary,
                             textDecoration = TextDecoration.Underline,
                             modifier = Modifier.clickable {
-                                val url = "https://testnet.snowtrace.io/tx/$txHash"
+                                // Link to the explorer for the contract's actual chain (Base
+                                // Sepolia → Basescan), not a hardcoded one.
+                                val chain = WalletChain.entries
+                                    .firstOrNull { it.chainId == state.chainId.toInt() }
+                                    ?: WalletChain.BASE_SEPOLIA
+                                val url = chain.explorerTxUrl(txHash)
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                             }
                         )

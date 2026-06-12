@@ -21,7 +21,7 @@ class WalletInfoViewModel(
     private val _state = MutableStateFlow(WalletInfoUiState())
     val state: StateFlow<WalletInfoUiState> = _state.asStateFlow()
 
-    fun fetchWalletInfo(accessToken: String, chain: WalletChain = WalletChain.EVM) {
+    fun fetchWalletInfo(chain: WalletChain = WalletChain.EVM) {
         SampleLog.i("WalletInfo", "fetching wallet info chain=${chain.displayName}")
         _state.update {
             it.copy(
@@ -54,7 +54,7 @@ class WalletInfoViewModel(
                     return@launch
                 }
 
-                val contractResponse = NetworkClient.fetchCollateralContract(accessToken)
+                val contractResponse = NetworkClient.fetchCollateralContract()
                 if (contractResponse.result.isFailure) {
                     val err = contractResponse.result.exceptionOrNull()
                     SampleLog.e("WalletInfo", "fetchCollateralContract failed: ${err?.message}", err)

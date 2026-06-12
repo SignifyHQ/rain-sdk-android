@@ -3,12 +3,13 @@ package com.rain.sdk.sample.screens
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.rain.sdk.RainChain
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainWithdrawAddresses
+import com.rain.sdk.models.Token
 import com.rain.sdk.sample.NetworkClient
 import com.rain.sdk.sample.SampleLog
+import com.rain.sdk.sample.WalletChain
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,7 +23,7 @@ class CollateralWithdrawViewModel(
     private val _state = MutableStateFlow(CollateralWithdrawUiState())
     val state: StateFlow<CollateralWithdrawUiState> = _state.asStateFlow()
 
-    fun loadContractInfo(accessToken: String) {
+    fun loadContractInfo() {
         SampleLog.i("Withdraw.contract", "loading contract info")
         _state.update { it.copy(isLoadingContract = true, errorText = null) }
 
@@ -31,7 +32,7 @@ class CollateralWithdrawViewModel(
                 val walletAddress = rainClient.getWalletAddress()
                 SampleLog.d("Withdraw.contract", "wallet address=$walletAddress")
 
-                val contractResponse = NetworkClient.fetchCollateralContract(accessToken)
+                val contractResponse = NetworkClient.fetchCollateralContract()
                 if (contractResponse.result.isFailure) {
                     val err = contractResponse.result.exceptionOrNull()
                     SampleLog.e("Withdraw.contract", "fetchCollateralContract failed: ${err?.message}", err)
@@ -50,12 +51,20 @@ class CollateralWithdrawViewModel(
                     "contract=${contract.address} tokens=${contract.tokens.size} chainId=${contract.chainId}"
                 )
 
+                // Rain's /contracts response omits token decimals/symbol, so resolve them
+                // on-chain via the SDK (getBalance carries decimals + symbol). Falls back to 6
+                // (these collateral tokens are stablecoins) if the read fails — e.g. the SDK
+                // wasn't initialized with this contract's chain RPC.
+                val chainIdInt = contract.chainId.toInt()
                 val tokens = contract.tokens.map { token ->
+                    val meta = runCatching {
+                        rainClient.getBalance(chainIdInt, Token.Contract(token.address))
+                    }.getOrNull()
                     WithdrawTokenOption(
-                        name = token.name ?: "Unknown",
-                        symbol = token.symbol ?: "",
+                        name = meta?.name ?: token.name ?: "Token",
+                        symbol = meta?.symbol ?: token.symbol ?: "",
                         address = token.address,
-                        decimals = token.decimals ?: 18,
+                        decimals = meta?.decimals ?: token.decimals ?: 6,
                         balance = token.balance
                     )
                 }
@@ -67,6 +76,7 @@ class CollateralWithdrawViewModel(
                         proxyAddress = contract.address,
                         controllerAddress = contract.controllerAddress,
                         chainId = contract.chainId,
+                        adminAddress = contract.adminAddresses.firstOrNull() ?: "",
                         availableTokens = tokens,
                         selectedTokenIndex = if (tokens.isNotEmpty()) 0 else -1,
                         isLoadingContract = false
@@ -84,24 +94,35 @@ class CollateralWithdrawViewModel(
         }
     }
 
+    // A cached admin signature is bound to a specific (token, amount, recipient). Any change to
+    // those inputs invalidates it — clear the signature + stale estimate so the next withdraw
+    // re-fetches a signature for the current selection instead of silently reusing the old one.
+    private fun invalidateSignature(builder: CollateralWithdrawUiState.() -> CollateralWithdrawUiState) {
+        _state.update { it.builder().copy(adminSignature = null, estimatedGas = null) }
+    }
+
     fun onTokenSelected(index: Int) {
-        _state.update { it.copy(selectedTokenIndex = index) }
+        invalidateSignature { copy(selectedTokenIndex = index, withdrawResult = null, errorText = null) }
     }
 
     fun onAmountChanged(value: String) {
-        _state.update { it.copy(amount = value) }
+        invalidateSignature { copy(amount = value) }
     }
 
     fun onRecipientChanged(value: String) {
-        _state.update { it.copy(recipientAddress = value) }
+        invalidateSignature { copy(recipientAddress = value) }
     }
 
-    fun estimateGas(accessToken: String) {
+    fun estimateGas() {
         val current = _state.value
         val token = current.selectedToken ?: return
         val amount = current.amount.toDoubleOrNull()
         if (amount == null || amount <= 0) {
             _state.update { it.copy(errorText = "Enter a valid amount") }
+            return
+        }
+        if (current.adminAddress.isBlank()) {
+            _state.update { it.copy(errorText = "Contract has no admin address") }
             return
         }
 
@@ -115,11 +136,11 @@ class CollateralWithdrawViewModel(
             try {
                 val amountNative = (amount * Math.pow(10.0, token.decimals.toDouble())).toLong()
                 val sigResponse = NetworkClient.fetchAdminSignature(
-                    accessToken = accessToken,
                     chainId = current.chainId,
                     token = token.address.lowercase(),
                     amount = amountNative,
-                    recipientAddress = current.walletAddress
+                    adminAddress = current.adminAddress,
+                    recipientAddress = current.recipientAddress
                 )
 
                 if (sigResponse.result.isFailure) {
@@ -157,7 +178,7 @@ class CollateralWithdrawViewModel(
                 )
 
                 val withdrawResult = rainClient.withdrawCollateral(
-                    chainId = RainChain.AVALANCHE_TESTNET,
+                    chainId = current.chainId.toInt(),
                     addresses = addresses,
                     amount = amount,
                     decimals = token.decimals,
@@ -171,16 +192,22 @@ class CollateralWithdrawViewModel(
                 // 3. Estimate gas
                 val fromAddress = rainClient.getWalletAddress()
                 val gas = rainClient.estimateGas(
-                    chainId = RainChain.AVALANCHE_TESTNET,
+                    chainId = current.chainId.toInt(),
                     from = fromAddress,
                     to = current.controllerAddress,
                     data = txData
                 )
 
-                SampleLog.i("Withdraw.estimate", "success — estimatedGas=$gas AVAX")
+                // Label the fee with the active chain's native gas token (ETH on Base Sepolia,
+                // AVAX on Avalanche, …) and render in plain decimal instead of scientific notation.
+                val nativeSymbol = WalletChain.entries
+                    .firstOrNull { it.chainId == current.chainId.toInt() }?.nativeSymbol ?: "ETH"
+                val gasStr = java.math.BigDecimal.valueOf(gas).toPlainString()
+
+                SampleLog.i("Withdraw.estimate", "success — estimatedGas=$gasStr $nativeSymbol")
                 _state.update {
                     it.copy(
-                        estimatedGas = "$gas AVAX",
+                        estimatedGas = "$gasStr $nativeSymbol",
                         isEstimating = false
                     )
                 }
@@ -196,12 +223,16 @@ class CollateralWithdrawViewModel(
         }
     }
 
-    fun executeWithdraw(accessToken: String) {
+    fun executeWithdraw() {
         val current = _state.value
         val token = current.selectedToken ?: return
         val amount = current.amount.toDoubleOrNull()
         if (amount == null || amount <= 0) {
             _state.update { it.copy(errorText = "Enter a valid amount") }
+            return
+        }
+        if (current.adminAddress.isBlank()) {
+            _state.update { it.copy(errorText = "Contract has no admin address") }
             return
         }
 
@@ -217,11 +248,11 @@ class CollateralWithdrawViewModel(
                     SampleLog.d("Withdraw.execute", "fetching fresh admin signature")
                     val amountNative = (amount * Math.pow(10.0, token.decimals.toDouble())).toLong()
                     val sigResponse = NetworkClient.fetchAdminSignature(
-                        accessToken = accessToken,
                         chainId = current.chainId,
                         token = token.address.lowercase(),
                         amount = amountNative,
-                        recipientAddress = current.walletAddress
+                        adminAddress = current.adminAddress,
+                        recipientAddress = current.recipientAddress
                     )
                     if (sigResponse.result.isFailure) {
                         val err = sigResponse.result.exceptionOrNull()
@@ -244,7 +275,7 @@ class CollateralWithdrawViewModel(
                 )
 
                 val result = rainClient.withdrawCollateral(
-                    chainId = RainChain.AVALANCHE_TESTNET,
+                    chainId = current.chainId.toInt(),
                     addresses = addresses,
                     amount = amount,
                     decimals = token.decimals,
@@ -288,6 +319,7 @@ data class CollateralWithdrawUiState(
     val recipientAddress: String = "",
     val proxyAddress: String = "",
     val controllerAddress: String = "",
+    val adminAddress: String = "",
     val chainId: Long = 0,
     val availableTokens: List<WithdrawTokenOption> = emptyList(),
     val selectedTokenIndex: Int = -1,

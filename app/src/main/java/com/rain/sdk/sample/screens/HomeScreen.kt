@@ -66,7 +66,6 @@ fun HomeScreen(
     selectedChain: WalletChain,
     onChainSelected: (WalletChain) -> Unit,
     onNavigate: (Screen) -> Unit,
-    onAccessTokenChanged: (String) -> Unit = {},
     viewModel: HomeViewModel = viewModel(factory = HomeViewModelFactory(rainClient))
 ) {
     val state by viewModel.state.collectAsState()
@@ -95,14 +94,21 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Rain API credentials are independent of the wallet provider (Portal/Turnkey):
+        // they authenticate contract/signature calls to the Rain dev API, so they live in
+        // their own card shown in both modes.
+        RainApiSection(
+            state = state,
+            onRainApiKeyChanged = viewModel::onRainApiKeyChanged,
+            onUserIdChanged = viewModel::onUserIdChanged
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         when (state.mode) {
             WalletMode.Portal -> ConfigurationSection(
                 state = state,
                 onSessionTokenChanged = viewModel::onSessionTokenChanged,
-                onAccessTokenChanged = { value ->
-                    viewModel.onAccessTokenChanged(value)
-                    onAccessTokenChanged(value)
-                },
                 onInitializeSdk = viewModel::initializeSdk
             )
             WalletMode.Turnkey -> TurnkeySection(
@@ -255,7 +261,6 @@ private fun ModeSelector(
 private fun ConfigurationSection(
     state: HomeUiState,
     onSessionTokenChanged: (String) -> Unit,
-    onAccessTokenChanged: (String) -> Unit,
     onInitializeSdk: () -> Unit
 ) {
     Card(
@@ -278,16 +283,6 @@ private fun ConfigurationSection(
                 label = { Text("Portal Session Token") },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                singleLine = true
-            )
-
-            OutlinedTextField(
-                value = state.accessToken,
-                onValueChange = onAccessTokenChanged,
-                label = { Text("Rain Access Token") },
-                modifier = Modifier
-                    .fillMaxWidth()
                     .padding(bottom = 12.dp),
                 singleLine = true
             )
@@ -301,6 +296,48 @@ private fun ConfigurationSection(
                     text = if (state.isInitialized) "✅ SDK Initialized" else "Initialize SDK"
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun RainApiSection(
+    state: HomeUiState,
+    onRainApiKeyChanged: (String) -> Unit,
+    onUserIdChanged: (String) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Rain API Credentials",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            OutlinedTextField(
+                value = state.rainApiKey,
+                onValueChange = onRainApiKeyChanged,
+                label = { Text("Rain Api-Key") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                singleLine = true
+            )
+
+            OutlinedTextField(
+                value = state.userId,
+                onValueChange = onUserIdChanged,
+                label = { Text("Rain User ID") },
+                modifier = Modifier
+                    .fillMaxWidth(),
+                singleLine = true
+            )
         }
     }
 }

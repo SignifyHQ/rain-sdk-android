@@ -49,7 +49,6 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun SampleApp() {
     val navController = rememberNavController()
-    var accessToken by remember { mutableStateOf("") }
     var selectedChain by remember { mutableStateOf(WalletChain.EVM) }
     val rainClient = remember { RainSdk.getInstance().client }
 
@@ -68,14 +67,12 @@ fun SampleApp() {
                     onChainSelected = { selectedChain = it },
                     onNavigate = { screen ->
                         navController.navigate(screen.route)
-                    },
-                    onAccessTokenChanged = { accessToken = it }
+                    }
                 )
             }
             composable(Screen.WalletInfo.route) {
                 WalletInfoScreen(
                     innerPadding = innerPadding,
-                    accessToken = accessToken,
                     rainClient = rainClient,
                     selectedChain = selectedChain,
                     onBack = { navController.popBackStack() }
@@ -84,7 +81,6 @@ fun SampleApp() {
             composable(Screen.Balances.route) {
                 BalancesScreen(
                     innerPadding = innerPadding,
-                    accessToken = accessToken,
                     rainClient = rainClient,
                     selectedChain = selectedChain,
                     onBack = { navController.popBackStack() }
@@ -101,7 +97,6 @@ fun SampleApp() {
             composable(Screen.CollateralWithdraw.route) {
                 CollateralWithdrawScreen(
                     innerPadding = innerPadding,
-                    accessToken = accessToken,
                     rainClient = rainClient,
                     onBack = { navController.popBackStack() }
                 )

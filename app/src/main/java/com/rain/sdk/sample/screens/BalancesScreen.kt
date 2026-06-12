@@ -56,7 +56,6 @@ import com.rain.sdk.sample.WalletChain
 @Composable
 fun BalancesScreen(
     innerPadding: PaddingValues,
-    accessToken: String,
     rainClient: RainClient,
     selectedChain: WalletChain,
     onBack: () -> Unit,
@@ -64,8 +63,7 @@ fun BalancesScreen(
 ) {
     val state by viewModel.state.collectAsState()
 
-    LaunchedEffect(accessToken, selectedChain) {
-        viewModel.setAccessToken(accessToken)
+    LaunchedEffect(selectedChain) {
         viewModel.loadWalletAddresses(selectedChain)
     }
 
@@ -357,7 +355,7 @@ fun BalancesScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "AVAX — native token",
+                                    text = "${selectedChain.nativeSymbol} — native token",
                                     fontSize = 14.sp,
                                     color = Color(0xFF1D8EE6),
                                     fontWeight = FontWeight.Medium

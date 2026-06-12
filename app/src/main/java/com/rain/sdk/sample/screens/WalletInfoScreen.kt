@@ -43,7 +43,6 @@ import com.rain.sdk.sample.WalletChain
 @Composable
 fun WalletInfoScreen(
     innerPadding: PaddingValues,
-    accessToken: String,
     rainClient: RainClient,
     selectedChain: WalletChain,
     onBack: () -> Unit,
@@ -54,7 +53,7 @@ fun WalletInfoScreen(
 
     // Re-fetch whenever the active chain changes so the screen shows that wallet's address.
     LaunchedEffect(selectedChain) {
-        viewModel.fetchWalletInfo(accessToken, selectedChain)
+        viewModel.fetchWalletInfo(selectedChain)
     }
 
     Column(
@@ -113,7 +112,7 @@ fun WalletInfoScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Button(
-                onClick = { viewModel.fetchWalletInfo(accessToken, selectedChain) },
+                onClick = { viewModel.fetchWalletInfo(selectedChain) },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Retry")

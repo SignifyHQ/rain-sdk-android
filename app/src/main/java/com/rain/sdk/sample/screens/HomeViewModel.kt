@@ -10,9 +10,6 @@ import com.rain.sdk.sample.NetworkClient
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.TurnkeyAuthSample
 import com.rain.sdk.sample.WalletChain
-import io.portalhq.android.mpc.data.BackupConfigs
-import io.portalhq.android.mpc.data.BackupMethods
-import io.portalhq.android.mpc.data.PasswordStorageConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,8 +36,14 @@ class HomeViewModel(
         _state.update { it.copy(sessionToken = value) }
     }
 
-    fun onAccessTokenChanged(value: String) {
-        _state.update { it.copy(accessToken = value) }
+    fun onRainApiKeyChanged(value: String) {
+        _state.update { it.copy(rainApiKey = value) }
+        NetworkClient.configure(value, _state.value.userId)
+    }
+
+    fun onUserIdChanged(value: String) {
+        _state.update { it.copy(userId = value) }
+        NetworkClient.configure(_state.value.rainApiKey, value)
     }
 
     fun onPinChanged(value: String) {
@@ -70,9 +73,12 @@ class HomeViewModel(
         SampleLog.i("Portal.init", "calling initializePortal sessionToken=$tokenMask chainId=${RainChain.AVALANCHE_TESTNET}")
 
         try {
-            val rpcConfig = mapOf(
-                RainChain.AVALANCHE_TESTNET to "https://api.avax-test.network/ext/bc/C/rpc"
-            )
+            // Initialize with every EVM chain's RPC (Fuji + Base Sepolia) so the chain
+            // dropdown and Rain collateral (which lives on Base Sepolia) both work; the
+            // screens pick the active chain via `selectedChain`.
+            val rpcConfig = WalletChain.entries
+                .filter { !it.isSolana }
+                .associate { it.chainId to it.rpcUrl }
 
             rainClient.initializePortal(
                 portalSessionToken = _state.value.sessionToken,
@@ -81,11 +87,14 @@ class HomeViewModel(
             )
 
             SampleLog.i("Portal.init", "success — isInitialized=${rainClient.isInitialized}")
+            // Recovery (Portal backup share) is no longer available via the Rain API, so a
+            // successful init goes straight to the feature grid instead of gating on recovery.
             _state.update {
                 it.copy(
                     isInitialized = rainClient.isInitialized,
                     statusText = "SDK Initialized Successfully!",
-                    needsRecovery = true
+                    needsRecovery = false,
+                    isRecovered = true
                 )
             }
         } catch (e: Exception) {
@@ -100,73 +109,18 @@ class HomeViewModel(
     }
 
     fun recoverWithPin() {
-        val currentState = _state.value
-        if (currentState.sessionToken.isBlank()) {
-            _state.update { it.copy(statusText = "Session token required for recovery") }
-            return
-        }
-        if (currentState.accessToken.isBlank()) {
-            _state.update { it.copy(statusText = "Access token required for recovery") }
-            return
-        }
-        if (currentState.pin.isBlank()) {
-            _state.update { it.copy(statusText = "PIN required for recovery") }
-            return
-        }
-
-        SampleLog.i("Portal.recover", "fetching backup share")
-        _state.update { it.copy(statusText = "Fetching backup share...", isLoading = true) }
-        viewModelScope.launch {
-            try {
-                val backupResponse = NetworkClient.fetchBackupShare(currentState.accessToken)
-                if (backupResponse.result.isFailure) {
-                    val err = backupResponse.result.exceptionOrNull()
-                    SampleLog.e("Portal.recover", "fetchBackupShare failed: ${err?.message}", err)
-                    _state.update {
-                        it.copy(
-                            statusText = "Failed to fetch backup share: ${err?.message}",
-                            isLoading = false
-                        )
-                    }
-                    return@launch
-                }
-
-                val cipherText = backupResponse.result.getOrThrow()
-                SampleLog.d("Portal.recover", "got backup share, recovering wallet...")
-                _state.update { it.copy(statusText = "Recovering wallet...") }
-
-                val portal = rainClient.portal
-                val backupConfigs = BackupConfigs(
-                    PasswordStorageConfig(password = currentState.pin)
-                )
-
-                portal.recoverWallet(
-                    cipherText,
-                    BackupMethods.Password,
-                    backupConfigs
-                ) { status ->
-                    SampleLog.d("Portal.recover", "status: $status")
-                    _state.update { it.copy(statusText = "Recovery status: $status") }
-                }
-
-                SampleLog.i("Portal.recover", "success — wallet ready")
-                _state.update {
-                    it.copy(
-                        isRecovered = true,
-                        needsRecovery = false,
-                        isLoading = false,
-                        statusText = "Recovery successful! Wallet is ready."
-                    )
-                }
-            } catch (e: Exception) {
-                SampleLog.e("Portal.recover", "failed: ${e.message}", e)
-                _state.update {
-                    it.copy(
-                        statusText = "Recovery failed: ${e.message}",
-                        isLoading = false
-                    )
-                }
-            }
+        // Portal wallet recovery previously pulled the encrypted backup share from the
+        // Liquidity Financial proxy (`/v1/portal/backup`). The Rain dev API has no equivalent
+        // yet — backup/recovery is slated to move behind the wallet-provider endpoint
+        // (`POST /v1/issuing/users/{userId}/wallet`), which is not live. Surface that clearly
+        // instead of calling a dead LF endpoint.
+        SampleLog.w("Portal.recover", "recovery unavailable — Rain wallet endpoint not yet live")
+        _state.update {
+            it.copy(
+                statusText = "Wallet recovery is not yet available via the Rain API " +
+                    "(pending the wallet-provider endpoint).",
+                isLoading = false
+            )
         }
     }
 
@@ -329,7 +283,8 @@ class HomeViewModel(
 data class HomeUiState(
     val mode: WalletMode = WalletMode.Turnkey,
     val sessionToken: String = "",
-    val accessToken: String = "",
+    val rainApiKey: String = "",
+    val userId: String = "",
     val pin: String = "",
     val turnkeyOrgId: String = "",
     val turnkeyAuthProxyConfigId: String = "",
