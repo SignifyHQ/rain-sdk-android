@@ -72,4 +72,10 @@ internal interface ChainReader {
      * undecodable payload. Used to enrich tokens not in the registry.
      */
     suspend fun getSymbol(chainId: Int, tokenAddress: String): String?
+
+    /**
+     * Reads an ERC-20 token's `name()`. Returns `null` if the call reverts or returns an
+     * undecodable payload. Used to enrich tokens not in the registry.
+     */
+    suspend fun getName(chainId: Int, tokenAddress: String): String?
 }

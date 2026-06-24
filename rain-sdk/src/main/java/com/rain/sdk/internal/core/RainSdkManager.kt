@@ -123,6 +123,16 @@ internal class RainSdkManager(
     configuredChainIds = chainIds
   }
 
+  /**
+   * Test seam for installing a [TokenMetadataStore] without driving a full provider init.
+   * Used to verify that `sendToken` resolves token decimals through the store when the caller
+   * omits them.
+   */
+  @androidx.annotation.VisibleForTesting
+  internal fun setTokenStoreForTest(store: TokenMetadataStore?) {
+    tokenStore = store
+  }
+
   private val signer = TransactionSigner({ walletProvider }, errorMapper)
   private val executor = TransactionExecutor({ walletProvider }, errorMapper)
   private val transactionCoordinator: TransactionCoordinator =
@@ -244,8 +254,13 @@ internal class RainSdkManager(
       // Wallet-agnostic: no bundled provider; clear any prior one. Host installs via setWalletProvider.
       walletProvider = null
       turnkeyContext = null
-      tokenStore = null
       portalManager.destroy()
+
+      // Still stand up a token store so metadata resolution (decimals / symbol / name,
+      // including on-chain reads for unknown tokens) works for the host-installed provider —
+      // e.g. so sendToken(decimals = null) resolves real decimals instead of defaulting to 18.
+      val reader = EvmChainReader(rpcEndpoints = rpcEndpoints)
+      tokenStore = TokenMetadataStore(chainReader = reader, seedTokens = registeredTokens.toList())
 
       configuredChainIds = rpcEndpoints.keys.toList()
       configManager.markInitialized()
@@ -413,7 +428,7 @@ internal class RainSdkManager(
     contractAddress: String,
     toAddress: String,
     amount: Double,
-    decimals: Int
+    decimals: Int?
   ): RainTokenTransferResult {
     if (!isInitialized) {
       throw RainError.SdkNotInitialized()
@@ -422,7 +437,12 @@ internal class RainSdkManager(
     val provider = walletProvider ?: throw RainError.SdkNotInitialized()
 
     return try {
-      val txHash = provider.sendToken(chainId, contractAddress, toAddress, amount, decimals)
+      // Resolve decimals when the caller doesn't supply them: the token store checks its
+      // registry first and falls back to an on-chain `decimals()` read for unknown tokens.
+      val resolvedDecimals = decimals
+        ?: tokenStore?.tokenInfo(chainId, contractAddress)?.decimals
+        ?: RainClient.DEFAULT_ERC20_DECIMALS
+      val txHash = provider.sendToken(chainId, contractAddress, toAddress, amount, resolvedDecimals)
       RainTokenTransferResult(transactionHash = txHash)
     } catch (e: Exception) {
       if (e is CancellationException) throw e

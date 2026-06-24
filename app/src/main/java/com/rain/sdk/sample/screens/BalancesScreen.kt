@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
@@ -33,8 +32,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -44,7 +41,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -278,61 +274,8 @@ fun BalancesScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // ERC-20 config is EVM-only; Solana shows a native-only note instead.
+                // ERC-20 discovery is EVM-only; Solana shows a native-only note instead.
                 if (!selectedChain.isSolana) {
-                    Text(
-                        text = "ERC-20 CONTRACT ADDRESS",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Gray
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    TextField(
-                        value = state.tokenContractAddress,
-                        onValueChange = { viewModel.onTokenContractAddressChanged(it) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp)),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFFF5F3FF),
-                            unfocusedContainerColor = Color(0xFFF5F3FF),
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            focusedTextColor = Color(0xFF6B4EFF),
-                            unfocusedTextColor = Color(0xFF6B4EFF)
-                        ),
-                        singleLine = true
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Text(
-                        text = "DECIMALS",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Gray
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    TextField(
-                        value = state.tokenDecimals,
-                        onValueChange = { viewModel.onTokenDecimalsChanged(it) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp)),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFFF5F3FF),
-                            unfocusedContainerColor = Color(0xFFF5F3FF),
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            focusedTextColor = Color(0xFF6B4EFF),
-                            unfocusedTextColor = Color(0xFF6B4EFF)
-                        ),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -341,7 +284,7 @@ fun BalancesScreen(
                     ) {
                         Column {
                             Text(
-                                text = "Will fetch both",
+                                text = "Will fetch",
                                 color = Color(0xFF1D8EE6),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -370,7 +313,7 @@ fun BalancesScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "ERC-20 — from config above",
+                                    text = "Every ERC-20 with a balance > 0 (auto-discovered)",
                                     fontSize = 14.sp,
                                     color = Color(0xFF1D8EE6),
                                     fontWeight = FontWeight.Medium
@@ -430,7 +373,7 @@ fun BalancesScreen(
                     )
                 }
                 
-                if (state.nativeBalance != null || state.erc20Balance != null) {
+                if (state.nativeBalance != null || state.walletTokenBalances.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(text = "Results:", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
         
@@ -442,22 +385,11 @@ fun BalancesScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
-        
-                    state.erc20Balance?.let { balance ->
-                        BalanceCard(
-                            emoji = "🪙",
-                            label = "Selected ERC-20",
-                            value = balance,
-                            subtitle = state.tokenContractAddress.let {
-                                if (it.length > 12) "${it.take(6)}...${it.takeLast(4)}" else it
-                            }
-                        )
-                    }
 
                     if (state.walletTokenBalances.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Discovered ERC-20 balances:",
+                            text = "Tokens with a balance:",
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 14.sp,
                             color = Color.DarkGray,
@@ -467,12 +399,18 @@ fun BalancesScreen(
                         state.walletTokenBalances.forEach { token ->
                             BalanceCard(
                                 emoji = "🪙",
-                                label = "ERC-20",
-                                value = token.balance.toString(),
+                                label = token.displayName,
+                                value = "%.6f".format(token.balance),
                                 subtitle = token.displayAddress
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                         }
+                    } else if (!selectedChain.isSolana) {
+                        Text(
+                            text = "No ERC-20 tokens with a balance > 0.",
+                            fontSize = 14.sp,
+                            color = Color.Gray
+                        )
                     }
                 }
             }

@@ -265,4 +265,25 @@ class RainSdkManagerTest {
       runBlocking { sdkManager.getWalletAddress() }
     }
   }
+
+  @Test
+  fun `initialize builds a token store so sendToken resolves registry decimals without the caller`(): Unit = runBlocking {
+    // Chain 1 (Ethereum) is configured; USDC is a registry token with decimals = 6.
+    sdkManager.initialize(rpcEndpoints = mapOf(1 to "https://rpc.com"))
+    val stub = StubWalletProvider()
+    sdkManager.setWalletProvider(stub)
+
+    // USDC contract address from TokenRegistry (decimals 6). Caller omits decimals.
+    sdkManager.sendToken(
+      chainId = 1,
+      contractAddress = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      toAddress = "0xfedcbafedcbafedcbafedcbafedcbafedcbafedc",
+      amount = 1.0,
+      decimals = null
+    )
+
+    // Resolved from the registry (6), NOT the default 18 — proving the BYO-provider path
+    // has a working token store.
+    assertThat(stub.sendTokenCalls.single().decimals).isEqualTo(6)
+  }
 }

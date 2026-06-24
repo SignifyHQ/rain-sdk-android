@@ -3,10 +3,12 @@ package com.rain.sdk.internal.core
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.internal.helpers.MockChainReader
 import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers
 import com.rain.sdk.internal.helpers.assumeJdk24
+import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertThrows
@@ -55,8 +57,7 @@ class RainSdkManagerSendTokenTest {
                     chainId = 1,
                     contractAddress = TestFixtures.TOKEN_ADDRESS,
                     toAddress = TestFixtures.RECIPIENT_ADDRESS,
-                    amount = 100.0,
-                    decimals = 18
+                    amount = 100.0
                 )
             }
         }
@@ -84,8 +85,11 @@ class RainSdkManagerSendTokenTest {
         assertThat(call.amount).isEqualTo(1.5)
     }
 
+    @Suppress("DEPRECATION")
     @Test
-    fun `sendToken returns provider tx hash and forwards contract + recipient + amount + decimals`(): Unit = runBlocking {
+    fun `deprecated sendToken(Int) overload forwards explicit decimals to the provider`(): Unit = runBlocking {
+        // Locks in binary/source back-compat: callers compiled against the old `decimals: Int`
+        // signature still work, delegating to the nullable version with the given decimals.
         val (manager, stub) = TestManagers.stubProviderManager()
         val expectedHash = "0x" + "b".repeat(64)
         stub.sendTokenHashToReturn = expectedHash
@@ -106,6 +110,41 @@ class RainSdkManagerSendTokenTest {
         assertThat(call.toAddress).isEqualTo(TestFixtures.RECIPIENT_ADDRESS)
         assertThat(call.amount).isEqualTo(100.0)
         assertThat(call.decimals).isEqualTo(6)
+    }
+
+    @Test
+    fun `sendToken resolves decimals from the token store when caller omits them`(): Unit = runBlocking {
+        val (manager, stub) = TestManagers.stubProviderManager()
+        // Unknown token enriches on-chain via the chain reader → decimals(8).
+        val store = TokenMetadataStore(MockChainReader(decimals = 8, symbol = "WBTC"))
+        manager.setTokenStoreForTest(store)
+
+        manager.sendToken(
+            chainId = 1,
+            contractAddress = TestFixtures.TOKEN_ADDRESS,
+            toAddress = TestFixtures.RECIPIENT_ADDRESS,
+            amount = 1.0,
+            decimals = null
+        )
+
+        assertThat(stub.sendTokenCalls.single().decimals).isEqualTo(8)
+    }
+
+    @Test
+    fun `sendToken falls back to default decimals when no token store is available`(): Unit = runBlocking {
+        val (manager, stub) = TestManagers.stubProviderManager()
+        // No token store installed.
+
+        manager.sendToken(
+            chainId = 1,
+            contractAddress = TestFixtures.TOKEN_ADDRESS,
+            toAddress = TestFixtures.RECIPIENT_ADDRESS,
+            amount = 1.0,
+            decimals = null
+        )
+
+        assertThat(stub.sendTokenCalls.single().decimals)
+            .isEqualTo(com.rain.sdk.interfaces.RainClient.DEFAULT_ERC20_DECIMALS)
     }
 
     // ---- error wrapping ----------------------------------------------------------
@@ -156,8 +195,7 @@ class RainSdkManagerSendTokenTest {
                     chainId = 1,
                     contractAddress = TestFixtures.TOKEN_ADDRESS,
                     toAddress = TestFixtures.RECIPIENT_ADDRESS,
-                    amount = 100.0,
-                    decimals = 6
+                    amount = 100.0
                 )
             }
         }

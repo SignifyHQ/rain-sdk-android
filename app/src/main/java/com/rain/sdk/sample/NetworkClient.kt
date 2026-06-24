@@ -185,7 +185,7 @@ object NetworkClient {
   suspend fun fetchAdminSignature(
     chainId: Long,
     token: String,
-    amount: Long,
+    amount: java.math.BigInteger,
     adminAddress: String,
     recipientAddress: String,
     isAmountNative: Boolean = true

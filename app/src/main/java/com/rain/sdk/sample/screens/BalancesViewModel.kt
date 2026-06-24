@@ -21,14 +21,6 @@ class BalancesViewModel(
     private val _state = MutableStateFlow(BalancesUiState())
     val state: StateFlow<BalancesUiState> = _state.asStateFlow()
 
-    fun onTokenContractAddressChanged(value: String) {
-        _state.update { it.copy(tokenContractAddress = value) }
-    }
-
-    fun onTokenDecimalsChanged(value: String) {
-        _state.update { it.copy(tokenDecimals = value) }
-    }
-
     fun fetchBalances(chain: WalletChain = WalletChain.EVM) {
         if (!rainClient.isInitialized) {
             SampleLog.w("Balances.fetch", "SDK not initialized")
@@ -45,41 +37,33 @@ class BalancesViewModel(
                 // takes only a Token discriminator (no decimals argument).
                 val native = rainClient.getBalance(chain.chainId, Token.Native)
                 SampleLog.d("Balances.fetch", "native=${native.formatted} ${native.symbol}")
-                val currentState = _state.value
 
                 // ERC-20 contract balances are an EVM concept; skip for Solana (SPL unsupported).
-                var erc20: String? = null
                 var discoveredErc20Balances: List<WalletTokenBalance> = emptyList()
                 if (!chain.isSolana) {
-                    if (currentState.tokenContractAddress.isNotBlank()) {
-                        val erc20Balance = rainClient.getBalance(
-                            chainId = chain.chainId,
-                            token = Token.Contract(currentState.tokenContractAddress)
-                        )
-                        SampleLog.d(
-                            "Balances.fetch",
-                            "erc20 token=${currentState.tokenContractAddress} balance=${erc20Balance.formatted}"
-                        )
-                        erc20 = erc20Balance.formatted
-                    }
-
-                    // Discover every non-zero ERC-20 the wallet holds (from Portal assets).
+                    // Discover every non-zero ERC-20 the wallet holds. Each Balance already
+                    // carries the resolved symbol / name / decimals (from the SDK's registry
+                    // or an on-chain read), so the user picks a token instead of typing a
+                    // contract address + decimals.
                     discoveredErc20Balances = rainClient.getTokenBalances(chain.chainId)
                         .mapNotNull { balance ->
                             (balance.token as? Token.Contract)?.let { contract ->
                                 WalletTokenBalance(
                                     address = contract.address,
+                                    symbol = balance.symbol,
+                                    name = balance.name,
+                                    decimals = balance.decimals,
                                     balance = balance.decimalAmount.toDouble()
                                 )
                             }
                         }
+                        .filter { it.balance > 0.0 }
                 }
 
-                SampleLog.i("Balances.fetch", "success")
+                SampleLog.i("Balances.fetch", "success — discovered ${discoveredErc20Balances.size} ERC-20(s)")
                 _state.update {
                     it.copy(
                         nativeBalance = "${native.formatted} ${native.symbol ?: chain.nativeSymbol}",
-                        erc20Balance = erc20,
                         walletTokenBalances = discoveredErc20Balances,
                         isLoading = false
                     )
@@ -206,11 +190,8 @@ data class CollateralTokenBalance(
 data class BalancesUiState(
     // Manual query section
     val internalWalletAddress: String = "",
-    val tokenContractAddress: String = "0x5425890298aed601595a70AB815c96711a31Bc65",
-    val tokenDecimals: String = "6",
     val isLoading: Boolean = false,
     val nativeBalance: String? = null,
-    val erc20Balance: String? = null,
     val walletTokenBalances: List<WalletTokenBalance> = emptyList(),
     val errorMessage: String? = null,
     // Collateral balances section (from API)
@@ -222,10 +203,22 @@ data class BalancesUiState(
 
 data class WalletTokenBalance(
     val address: String,
+    val symbol: String? = null,
+    val name: String? = null,
+    val decimals: Int = 18,
     val balance: Double
 ) {
     val displayAddress: String
         get() = if (address.length > 12) "${address.take(6)}...${address.takeLast(4)}" else address
+
+    /** "USD Coin (USDC)", or just the symbol/address when name/symbol are missing. */
+    val displayName: String
+        get() = when {
+            !name.isNullOrBlank() && !symbol.isNullOrBlank() -> "$name ($symbol)"
+            !symbol.isNullOrBlank() -> symbol
+            !name.isNullOrBlank() -> name
+            else -> displayAddress
+        }
 }
 
 class BalancesViewModelFactory(

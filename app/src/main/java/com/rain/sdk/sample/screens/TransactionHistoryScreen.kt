@@ -119,15 +119,30 @@ fun TransactionHistoryScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // Empty state
+        // Empty state. The Turnkey-backed history is sourced from this wallet's Turnkey
+        // send-activities filtered to the selected chain — so it shows only transactions sent
+        // through this wallet on this network (no receives, nothing sent outside Turnkey).
+        // An empty list here is expected for a fresh wallet, not a failure.
         if (!state.isLoading && state.transactions.isEmpty() && state.errorText == null) {
-            Text(
-                text = "No transactions found.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
-            )
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "No transactions found on ${selectedChain.displayName}.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "History lists transactions sent from this wallet on the selected " +
+                        "network. Sends on other chains, or transfers received from someone " +
+                        "else, won't appear here.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+            }
         }
 
         // Transaction list

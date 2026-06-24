@@ -140,6 +140,13 @@ internal class EvmChainReader(
         return EthereumConverter.parseHexToString(hex)
     }
 
+    override suspend fun getName(chainId: Int, tokenAddress: String): String? {
+        val rpcUrl = resolveRpcUrl(chainId)
+        validateAddress(tokenAddress, "token address")
+        val hex = ethCall(rpcUrl, tokenAddress, "0x" + ERC20Selectors.NAME)
+        return EthereumConverter.parseHexToString(hex)
+    }
+
     /**
      * Issues a raw `eth_call` and returns the hex result. For read functions with
      * pre-encoded [data] (no-arg selectors like `decimals()` / `symbol()`, or `balanceOf`).

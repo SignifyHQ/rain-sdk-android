@@ -31,10 +31,6 @@ class SendTokensViewModel(
         _state.update { it.copy(contractAddress = value) }
     }
 
-    fun onDecimalsChanged(value: String) {
-        _state.update { it.copy(decimals = value) }
-    }
-
     fun onSendModeChanged(isErc20: Boolean) {
         _state.update { it.copy(isErc20Mode = isErc20, txHash = null, errorText = null) }
     }
@@ -87,7 +83,6 @@ class SendTokensViewModel(
     fun sendErc20Token(chain: WalletChain = WalletChain.EVM) {
         val current = _state.value
         val amount = current.amount.toDoubleOrNull()
-        val decimalsInt = current.decimals.toIntOrNull() ?: 6
         if (amount == null || amount <= 0.0) {
             _state.update { it.copy(errorText = "Invalid amount") }
             return
@@ -103,18 +98,19 @@ class SendTokensViewModel(
 
         SampleLog.i(
             "Send.erc20",
-            "contract=${current.contractAddress} to=${current.recipientAddress} amount=$amount decimals=$decimalsInt"
+            "contract=${current.contractAddress} to=${current.recipientAddress} amount=$amount (decimals resolved by SDK)"
         )
         _state.update { it.copy(isSending = true, errorText = null, txHash = null) }
 
         viewModelScope.launch {
             try {
+                // Decimals are resolved by the SDK (token registry or on-chain decimals()),
+                // so the caller no longer has to supply them.
                 val result = rainClient.sendToken(
                     chainId = chain.chainId,
                     contractAddress = current.contractAddress,
                     toAddress = current.recipientAddress,
-                    amount = amount,
-                    decimals = decimalsInt
+                    amount = amount
                 )
                 SampleLog.i("Send.erc20", "success txHash=${result.transactionHash}")
                 _state.update {
@@ -141,7 +137,6 @@ data class SendTokensUiState(
     val recipientAddress: String = "0x3cA8ac240F6ebeA8684b3E629A8e8C1f0E3bC0Ff",
     val amount: String = "0.001",
     val contractAddress: String = "0x5425890298aed601595a70AB815c96711a31Bc65",
-    val decimals: String = "6",
     val isSending: Boolean = false,
     val txHash: String? = null,
     val errorText: String? = null

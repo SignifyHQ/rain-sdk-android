@@ -123,15 +123,8 @@ fun SendTokensScreen(
                         onValueChange = { viewModel.onContractAddressChanged(it) },
                         label = { Text("Token Contract Address") },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-
-                    OutlinedTextField(
-                        value = state.decimals,
-                        onValueChange = { viewModel.onDecimalsChanged(it) },
-                        label = { Text("Token Decimals") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        singleLine = true,
+                        supportingText = { Text("Decimals are resolved automatically by the SDK") }
                     )
                 }
 

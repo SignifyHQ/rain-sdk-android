@@ -80,6 +80,9 @@ internal class SolanaChainReader(
     override suspend fun getSymbol(chainId: Int, tokenAddress: String): String? =
         throw RainError.InternalError("getSymbol is not supported on Solana")
 
+    override suspend fun getName(chainId: Int, tokenAddress: String): String? =
+        throw RainError.InternalError("getName is not supported on Solana")
+
     private fun resolveRpcUrl(chainId: Int): String {
         val rpcUrl = rpcUrlResolver(chainId)
             ?: throw RainError.InvalidConfig("No RPC endpoint configured for chainId=$chainId")

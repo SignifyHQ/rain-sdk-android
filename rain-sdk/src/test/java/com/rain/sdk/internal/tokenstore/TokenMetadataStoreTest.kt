@@ -33,7 +33,7 @@ class TokenMetadataStoreTest {
 
     @Test
     fun `tokenInfo enriches an unknown token once and caches the result`() = runBlocking {
-        val reader = MockChainReader(decimals = 8, symbol = "WBTC")
+        val reader = MockChainReader(decimals = 8, symbol = "WBTC", name = "Wrapped BTC")
         val store = TokenMetadataStore(reader)
 
         val first = store.tokenInfo(chainId = 1, address = unknown)
@@ -42,10 +42,26 @@ class TokenMetadataStoreTest {
 
         assertThat(first.decimals).isEqualTo(8)
         assertThat(first.symbol).isEqualTo("WBTC")
+        assertThat(first.name).isEqualTo("Wrapped BTC")
         assertThat(second).isEqualTo(first)
         // Enriched exactly once despite two lookups.
         assertThat(reader.decimalsCalls).hasSize(1)
         assertThat(reader.symbolCalls).hasSize(1)
+        assertThat(reader.nameCalls).hasSize(1)
+    }
+
+    @Test
+    fun `tokenInfo enrichment tolerates a missing name`() = runBlocking {
+        // name defaults to null on the mock — a failed/absent name() read must leave name null
+        // without breaking decimals/symbol resolution.
+        val reader = MockChainReader(decimals = 18, symbol = "FOO")
+        val store = TokenMetadataStore(reader)
+
+        val info = store.tokenInfo(chainId = 1, address = unknown)
+
+        assertThat(info.symbol).isEqualTo("FOO")
+        assertThat(info.decimals).isEqualTo(18)
+        assertThat(info.name).isNull()
     }
 
     @Test

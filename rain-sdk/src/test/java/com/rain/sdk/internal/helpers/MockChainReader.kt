@@ -17,7 +17,8 @@ internal class MockChainReader(
     var balances: List<Balance> = emptyList(),
     var balance: Balance? = null,
     var decimals: Int = 18,
-    var symbol: String? = null
+    var symbol: String? = null,
+    var name: String? = null
 ) : ChainReader {
 
     data class NativeCall(val chainId: Int, val walletAddress: String)
@@ -40,6 +41,7 @@ internal class MockChainReader(
     )
     data class DecimalsCall(val chainId: Int, val tokenAddress: String)
     data class SymbolCall(val chainId: Int, val tokenAddress: String)
+    data class NameCall(val chainId: Int, val tokenAddress: String)
 
     val nativeCalls = mutableListOf<NativeCall>()
     val erc20Calls = mutableListOf<Erc20Call>()
@@ -47,6 +49,7 @@ internal class MockChainReader(
     val balanceCalls = mutableListOf<BalanceCall>()
     val decimalsCalls = mutableListOf<DecimalsCall>()
     val symbolCalls = mutableListOf<SymbolCall>()
+    val nameCalls = mutableListOf<NameCall>()
 
     override suspend fun getNativeBalance(chainId: Int, walletAddress: String): Double {
         nativeCalls += NativeCall(chainId, walletAddress)
@@ -97,5 +100,10 @@ internal class MockChainReader(
     override suspend fun getSymbol(chainId: Int, tokenAddress: String): String? {
         symbolCalls += SymbolCall(chainId, tokenAddress)
         return symbol
+    }
+
+    override suspend fun getName(chainId: Int, tokenAddress: String): String? {
+        nameCalls += NameCall(chainId, tokenAddress)
+        return name
     }
 }

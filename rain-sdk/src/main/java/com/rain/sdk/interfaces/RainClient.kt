@@ -243,7 +243,10 @@ interface RainClient {
      * @param contractAddress ERC-20 token contract address
      * @param toAddress Recipient's wallet address
      * @param amount Amount to send (in human-readable unit, e.g. 1.5 USDC)
-     * @param decimals Number of decimals the token uses (e.g. 6 for USDC, 18 for most tokens)
+     * @param decimals Optional number of decimals the token uses (e.g. 6 for USDC, 18 for most
+     *                 tokens). When `null` (the default), the SDK resolves the token's
+     *                 `decimals()` itself — from its token registry or, for unknown tokens, an
+     *                 on-chain `decimals()` read — so callers don't have to track it.
      * @return RainTokenTransferResult containing the transaction hash
      */
     @Throws(RainError::class)
@@ -252,8 +255,35 @@ interface RainClient {
         contractAddress: String,
         toAddress: String,
         amount: Double,
-        decimals: Int
+        decimals: Int? = null
     ): RainTokenTransferResult
+
+    /**
+     * Sends an ERC-20 token with an explicit, non-null [decimals].
+     *
+     * Backward-compatibility shim for callers compiled against the pre-1.1 signature
+     * (`decimals: Int`). It delegates to [sendToken] with a nullable `decimals`; new code can
+     * simply omit `decimals` and let the SDK resolve it. Retained so an SDK upgrade doesn't
+     * break already-compiled consumers (the `Int` and `Int?` parameters have different JVM
+     * descriptors).
+     *
+     * @param decimals Number of decimals the token uses (e.g. 6 for USDC, 18 for most tokens).
+     */
+    @Deprecated(
+        message = "decimals is now optional; the SDK resolves it from its registry or an " +
+            "on-chain decimals() read. Call sendToken(chainId, contractAddress, toAddress, " +
+            "amount) and omit decimals.",
+        replaceWith = ReplaceWith("sendToken(chainId, contractAddress, toAddress, amount)")
+    )
+    @Throws(RainError::class)
+    suspend fun sendToken(
+        chainId: Int,
+        contractAddress: String,
+        toAddress: String,
+        amount: Double,
+        decimals: Int
+    ): RainTokenTransferResult =
+        sendToken(chainId, contractAddress, toAddress, amount, decimals as Int?)
 
     /**
      * Fetches a single balance (native or a contract token) for the current wallet.

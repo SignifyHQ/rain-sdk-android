@@ -11,6 +11,9 @@ internal object ERC20Selectors {
     /** `symbol()` */
     const val SYMBOL = "95d89b41"
 
+    /** `name()` */
+    const val NAME = "06fdde03"
+
     /** `decimals()` */
     const val DECIMALS = "313ce567"
 }

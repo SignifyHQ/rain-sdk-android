@@ -194,33 +194,45 @@ fun CollateralWithdrawScreen(
                 label = { Text("Amount to Withdraw") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                isError = state.isAmountOverBalance,
                 supportingText = {
-                    state.selectedToken?.let { token ->
-                        Text("Available: ${"%.2f".format(token.balance)} ${token.symbol}")
+                    val token = state.selectedToken
+                    if (token != null) {
+                        if (state.isAmountOverBalance) {
+                            Text(
+                                "Amount exceeds available balance " +
+                                    "(${"%.6f".format(token.balance)} ${token.symbol})",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        } else {
+                            Text("Available: ${"%.6f".format(token.balance)} ${token.symbol}")
+                        }
                     }
                 }
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Action Buttons
+            // Action Buttons. Gas estimation now happens in the background as part of the
+            // withdraw itself, so there's no separate "Estimate Gas" step to expose.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Estimate Gas
+                // Withdraw Maximum — withdraws the full available balance of the selected token.
                 OutlinedButton(
-                    onClick = { viewModel.estimateGas() },
-                    enabled = state.amount.isNotBlank() && !state.isEstimating && !state.isWithdrawing,
+                    onClick = { viewModel.withdrawMaximum() },
+                    enabled = !state.isWithdrawing &&
+                        (state.selectedToken?.balance ?: 0.0) > 0.0,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(if (state.isEstimating) "Estimating..." else "⛽ Estimate Gas")
+                    Text("Withdraw Maximum")
                 }
 
-                // Execute Withdraw
+                // Withdraw the typed amount — disabled unless the amount is valid and within balance.
                 Button(
                     onClick = { viewModel.executeWithdraw() },
-                    enabled = state.amount.isNotBlank() && !state.isWithdrawing && !state.isEstimating,
+                    enabled = state.isAmountValid && !state.isWithdrawing,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error
@@ -231,31 +243,6 @@ fun CollateralWithdrawScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-
-            // Estimated Gas Result
-            state.estimatedGas?.let { gas ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "⛽ Estimated Gas",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = gas,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.tertiary,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
 
             // Withdrawal Result
             state.withdrawResult?.let { txHash ->

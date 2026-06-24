@@ -92,8 +92,8 @@ internal class TokenMetadataStore(
     // ---------- Enrichment ----------
 
     /**
-     * Reads `decimals()` and `symbol()` in parallel. A failed `decimals()` falls back to the
-     * default; a failed `symbol()` leaves the symbol `null`.
+     * Reads `decimals()`, `symbol()` and `name()` in parallel. A failed `decimals()` falls
+     * back to the default; a failed `symbol()` / `name()` leaves that field `null`.
      */
     private suspend fun enrich(chainId: Int, address: String): TokenInfo = coroutineScope {
         val decimalsTask = async {
@@ -110,13 +110,20 @@ internal class TokenMetadataStore(
                     null
                 }
         }
+        val nameTask = async {
+            runCatching { chainReader.getName(chainId, address) }
+                .getOrElse { e ->
+                    if (e is CancellationException) throw e
+                    null
+                }
+        }
 
         TokenInfo(
             chainId = chainId,
             address = address,
             symbol = symbolTask.await(),
             decimals = decimalsTask.await(),
-            name = null
+            name = nameTask.await()
         )
     }
 
