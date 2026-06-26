@@ -3,6 +3,7 @@ package com.rain.sdk.internal.transaction
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainWithdrawAddresses
+import java.math.BigDecimal
 import java.math.BigInteger
 
 /**
@@ -13,7 +14,7 @@ import java.math.BigInteger
 internal data class WithdrawCollateralRequest(
     val chainId: Int,
     val addresses: RainWithdrawAddresses,
-    val amount: Double,
+    val amount: BigDecimal,
     val decimals: Int,
     val adminSignature: RainAdminSignature,
     val walletAddress: String,

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain
+import java.math.BigDecimal
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,6 +16,7 @@ import kotlinx.coroutines.launch
 class SendTokensViewModel(
     private val rainClient: RainClient
 ) : ViewModel() {
+    private fun String.toBigDecimalOrNull(): BigDecimal? = runCatching { BigDecimal(this) }.getOrNull()
 
     private val _state = MutableStateFlow(SendTokensUiState())
     val state: StateFlow<SendTokensUiState> = _state.asStateFlow()
@@ -37,8 +39,8 @@ class SendTokensViewModel(
 
     fun sendNativeToken(chain: WalletChain = WalletChain.EVM) {
         val current = _state.value
-        val amount = current.amount.toDoubleOrNull()
-        if (amount == null || amount <= 0.0) {
+        val amount = current.amount.toBigDecimalOrNull()
+        if (amount == null || amount <= BigDecimal.ZERO) {
             _state.update { it.copy(errorText = "Invalid amount") }
             return
         }
@@ -82,8 +84,8 @@ class SendTokensViewModel(
 
     fun sendErc20Token(chain: WalletChain = WalletChain.EVM) {
         val current = _state.value
-        val amount = current.amount.toDoubleOrNull()
-        if (amount == null || amount <= 0.0) {
+        val amount = current.amount.toBigDecimalOrNull()
+        if (amount == null || amount <= BigDecimal.ZERO) {
             _state.update { it.copy(errorText = "Invalid amount") }
             return
         }

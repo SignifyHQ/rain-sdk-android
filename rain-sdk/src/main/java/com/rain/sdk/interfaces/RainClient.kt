@@ -15,6 +15,7 @@ import com.rain.sdk.internal.error.RainError
 import com.turnkey.core.TurnkeyContext
 import io.portalhq.android.Portal
 import android.graphics.Bitmap
+import java.math.BigDecimal
 import java.math.BigInteger
 
 interface RainClient {
@@ -114,7 +115,7 @@ interface RainClient {
     suspend fun withdrawCollateral(
         chainId: Int,
         addresses: RainWithdrawAddresses,
-        amount: Double,
+        amount: BigDecimal,
         decimals: Int,
         adminSignature: RainAdminSignature,
         nonce: BigInteger? = null,
@@ -170,7 +171,7 @@ interface RainClient {
         from: String,
         to: String,
         data: String
-    ): Double
+    ): BigDecimal
 
     /**
      * Estimates the total fee (in the chain's native token, e.g. ETH/AVAX) required to
@@ -233,7 +234,7 @@ interface RainClient {
     suspend fun sendNativeToken(
         chainId: Int,
         toAddress: String,
-        amount: Double
+        amount: BigDecimal
     ): RainTokenTransferResult
 
     /**
@@ -254,7 +255,7 @@ interface RainClient {
         chainId: Int,
         contractAddress: String,
         toAddress: String,
-        amount: Double,
+        amount: BigDecimal,
         decimals: Int? = null
     ): RainTokenTransferResult
 
@@ -283,7 +284,7 @@ interface RainClient {
         amount: Double,
         decimals: Int
     ): RainTokenTransferResult =
-        sendToken(chainId, contractAddress, toAddress, amount, decimals as Int?)
+        sendToken(chainId, contractAddress, toAddress, amount.toBigDecimal(), decimals as Int?)
 
     /**
      * Fetches a single balance (native or a contract token) for the current wallet.

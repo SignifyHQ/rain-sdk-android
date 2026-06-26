@@ -226,7 +226,7 @@ class CollateralWithdrawViewModel(
                 val result = rainClient.withdrawCollateral(
                     chainId = current.chainId.toInt(),
                     addresses = addresses,
-                    amount = amount,
+                    amount = amountBd,
                     decimals = token.decimals,
                     adminSignature = adminSig,
                     autoSend = true

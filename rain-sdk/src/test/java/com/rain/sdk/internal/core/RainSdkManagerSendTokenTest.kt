@@ -9,6 +9,7 @@ import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers
 import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
+import java.math.BigDecimal
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertThrows
@@ -42,7 +43,7 @@ class RainSdkManagerSendTokenTest {
                 manager.sendNativeToken(
                     chainId = 1,
                     toAddress = TestFixtures.RECIPIENT_ADDRESS,
-                    amount = 1.0
+                    amount = BigDecimal("1.0")
                 )
             }
         }
@@ -57,7 +58,7 @@ class RainSdkManagerSendTokenTest {
                     chainId = 1,
                     contractAddress = TestFixtures.TOKEN_ADDRESS,
                     toAddress = TestFixtures.RECIPIENT_ADDRESS,
-                    amount = 100.0
+                    amount = BigDecimal("100.0")
                 )
             }
         }
@@ -74,7 +75,7 @@ class RainSdkManagerSendTokenTest {
         val result = manager.sendNativeToken(
             chainId = 1,
             toAddress = TestFixtures.RECIPIENT_ADDRESS,
-            amount = 1.5
+            amount = BigDecimal("1.5")
         )
 
         assertThat(result.transactionHash).isEqualTo(expectedHash)
@@ -98,7 +99,7 @@ class RainSdkManagerSendTokenTest {
             chainId = 1,
             contractAddress = TestFixtures.TOKEN_ADDRESS,
             toAddress = TestFixtures.RECIPIENT_ADDRESS,
-            amount = 100.0,
+            amount = BigDecimal("100.0"),
             decimals = 6
         )
 
@@ -123,7 +124,7 @@ class RainSdkManagerSendTokenTest {
             chainId = 1,
             contractAddress = TestFixtures.TOKEN_ADDRESS,
             toAddress = TestFixtures.RECIPIENT_ADDRESS,
-            amount = 1.0,
+            amount = BigDecimal("1.0"),
             decimals = null
         )
 
@@ -139,7 +140,7 @@ class RainSdkManagerSendTokenTest {
             chainId = 1,
             contractAddress = TestFixtures.TOKEN_ADDRESS,
             toAddress = TestFixtures.RECIPIENT_ADDRESS,
-            amount = 1.0,
+            amount = BigDecimal("1.0"),
             decimals = null
         )
 
@@ -156,7 +157,7 @@ class RainSdkManagerSendTokenTest {
             override suspend fun sendNativeToken(
                 chainId: Int,
                 toAddress: String,
-                amountInEth: Double
+                amountInEth: BigDecimal
             ): String {
                 throw RuntimeException("rpc 503")
             }
@@ -168,7 +169,7 @@ class RainSdkManagerSendTokenTest {
                 manager.sendNativeToken(
                     chainId = 1,
                     toAddress = TestFixtures.RECIPIENT_ADDRESS,
-                    amount = 1.0
+                    amount = BigDecimal("1.0")
                 )
             }
         }.exceptionOrNull()
@@ -182,7 +183,7 @@ class RainSdkManagerSendTokenTest {
                 chainId: Int,
                 contractAddress: String,
                 toAddress: String,
-                amount: Double,
+                amount: BigDecimal,
                 decimals: Int
             ): String {
                 throw RainError.InsufficientFunds()
@@ -195,7 +196,7 @@ class RainSdkManagerSendTokenTest {
                     chainId = 1,
                     contractAddress = TestFixtures.TOKEN_ADDRESS,
                     toAddress = TestFixtures.RECIPIENT_ADDRESS,
-                    amount = 100.0
+                    amount = BigDecimal("100.0")
                 )
             }
         }

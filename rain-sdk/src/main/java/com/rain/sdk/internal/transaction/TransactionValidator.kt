@@ -1,6 +1,7 @@
 package com.rain.sdk.internal.transaction
 
 import com.rain.sdk.internal.error.RainError
+import java.math.BigDecimal
 
 /**
  * Validates transaction parameters.
@@ -23,7 +24,7 @@ internal class TransactionValidator {
         }
         
         // Validate amount
-        if (request.amount <= 0) {
+        if (request.amount <= BigDecimal.ZERO) {
             throw RainError.InvalidConfig("Invalid amount: ${request.amount}. Must be greater than zero.")
         }
         

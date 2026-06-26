@@ -36,6 +36,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.math.BigDecimal
 
 /**
  * Wrapper around Portal SDK to encapsulate all Portal interactions.
@@ -469,7 +470,7 @@ internal class PortalManager {
 
   /**
    * Resolves a human-readable value for a transaction.
-   * Prefers tx.value (Double), falls back to rawContract hex value / decimal.
+   * Prefers tx.value, falls back to rawContract hex value / decimal.
    * If rawContract.decimal is null, fetches it on-chain via ERC20 decimals().
    */
   private suspend fun resolveTransactionValue(
@@ -490,7 +491,7 @@ internal class PortalManager {
       ?: return null
 
     return try {
-      EthereumConverter.convertHexToDouble(hexValue, decimal).toString()
+      EthereumConverter.convertHexToDecimal(hexValue, decimal).toPlainString()
     } catch (e: Exception) {
       Timber.w(e, "Rain SDK: Failed to parse rawContract value=$hexValue decimal=$decimal")
       null

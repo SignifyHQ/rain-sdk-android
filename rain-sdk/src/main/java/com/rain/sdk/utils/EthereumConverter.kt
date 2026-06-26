@@ -46,9 +46,9 @@ object EthereumConverter {
     fun convertWeiToEth(wei: BigInteger): Double =
         wei.toBigDecimal().movePointLeft(18).toDouble()
 
-    /** Converts an ETH Double value to a Wei hex string. */
-    fun convertEthToWeiHex(ethBalance: Double): String {
-        val wei = ethBalance.toBigDecimal().multiply(1e18.toBigDecimal()).toBigInteger()
+    /** Converts an ETH BigDecimal value to a Wei hex string (exact base-10 scaling). */
+    fun convertEthToWeiHex(ethBalance: BigDecimal): String {
+        val wei = ethBalance.multiply(BigDecimal.TEN.pow(18)).toBigInteger()
         return "0x${wei.toString(16)}"
     }
 
@@ -61,6 +61,12 @@ object EthereumConverter {
     fun convertHexToDouble(hex: String, decimals: Int): Double {
         val cleanedHex = hex.removePrefix("0x").ifEmpty { "0" }
         return BigInteger(cleanedHex, 16).toBigDecimal().movePointLeft(decimals).toDouble()
+    }
+
+    /** Converts a hex string to an exact [BigDecimal] with the specified number of decimals. */
+    fun convertHexToDecimal(hex: String, decimals: Int): BigDecimal {
+        val cleanedHex = hex.removePrefix("0x").ifEmpty { "0" }
+        return BigInteger(cleanedHex, 16).toBigDecimal().movePointLeft(decimals)
     }
 
     /**

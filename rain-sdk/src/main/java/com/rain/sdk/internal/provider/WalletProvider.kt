@@ -4,6 +4,7 @@ import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionResult
 import com.rain.sdk.models.Token
+import java.math.BigDecimal
 
 /**
  * Interface for abstracting wallet operations.
@@ -41,7 +42,7 @@ interface WalletProvider {
     suspend fun sendNativeToken(
         chainId: Int,
         toAddress: String,
-        amountInEth: Double
+        amountInEth: BigDecimal
     ): String
 
     /**
@@ -58,7 +59,7 @@ interface WalletProvider {
         chainId: Int,
         contractAddress: String,
         toAddress: String,
-        amount: Double,
+        amount: BigDecimal,
         decimals: Int
     ): String
 

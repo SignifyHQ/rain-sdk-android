@@ -21,6 +21,7 @@ import org.junit.Test
 import org.web3j.protocol.Web3j
 import org.web3j.protocol.core.Request
 import org.web3j.protocol.core.methods.response.EthCall
+import java.math.BigDecimal
 import java.math.BigInteger
 import java.time.Instant
 import java.util.Base64
@@ -71,7 +72,7 @@ class TransactionBuildingTest {
             chainId = 1,
             addresses = validAddresses,
             walletAddress = TestFixtures.WALLET_ADDRESS,
-            amount = 100.0,
+            amount = BigDecimal("100.0"),
             decimals = 18,
             nonce = BigInteger.valueOf(42)
         )
@@ -90,7 +91,7 @@ class TransactionBuildingTest {
             chainId = 1,
             addresses = validAddresses,
             walletAddress = TestFixtures.WALLET_ADDRESS,
-            amount = 100.5,
+            amount = BigDecimal("100.5"),
             decimals = 6,
             nonce = BigInteger.ONE
         )
@@ -104,7 +105,7 @@ class TransactionBuildingTest {
             chainId = 1,
             addresses = validAddresses,
             walletAddress = TestFixtures.WALLET_ADDRESS,
-            amount = 0.0,
+            amount = BigDecimal.ZERO,
             decimals = 18,
             nonce = BigInteger.ZERO
         )
@@ -117,12 +118,12 @@ class TransactionBuildingTest {
         val (json1, salt1) = RainTransactionBuilderImpl.buildEIP712Message(
             chainId = 1, addresses = validAddresses,
             walletAddress = TestFixtures.WALLET_ADDRESS,
-            amount = 100.0, decimals = 18, nonce = BigInteger.ONE
+            amount = BigDecimal("100.0"), decimals = 18, nonce = BigInteger.ONE
         )
         val (json2, salt2) = RainTransactionBuilderImpl.buildEIP712Message(
             chainId = 1, addresses = validAddresses,
             walletAddress = TestFixtures.WALLET_ADDRESS,
-            amount = 100.0, decimals = 18, nonce = BigInteger.ONE
+            amount = BigDecimal("100.0"), decimals = 18, nonce = BigInteger.ONE
         )
 
         assertThat(salt1).isNotEqualTo(salt2)
@@ -134,12 +135,12 @@ class TransactionBuildingTest {
         val (mainnet, _) = RainTransactionBuilderImpl.buildEIP712Message(
             chainId = 1, addresses = validAddresses,
             walletAddress = TestFixtures.WALLET_ADDRESS,
-            amount = 100.0, decimals = 18, nonce = BigInteger.ONE
+            amount = BigDecimal("100.0"), decimals = 18, nonce = BigInteger.ONE
         )
         val (polygon, _) = RainTransactionBuilderImpl.buildEIP712Message(
             chainId = 137, addresses = validAddresses,
             walletAddress = TestFixtures.WALLET_ADDRESS,
-            amount = 100.0, decimals = 18, nonce = BigInteger.ONE
+            amount = BigDecimal("100.0"), decimals = 18, nonce = BigInteger.ONE
         )
 
         assertThat(mainnet).contains("\"chainId\": 1")
@@ -164,7 +165,7 @@ class TransactionBuildingTest {
             chainId = 1,
             addresses = validAddresses,
             walletAddress = TestFixtures.WALLET_ADDRESS,
-            amount = 1.0,
+            amount = BigDecimal("1.0"),
             decimals = 18,
             nonce = null
         )
@@ -180,7 +181,7 @@ class TransactionBuildingTest {
                     chainId = 999,
                     addresses = validAddresses,
                     walletAddress = TestFixtures.WALLET_ADDRESS,
-                    amount = 100.0,
+                    amount = BigDecimal("100.0"),
                     decimals = 18,
                     nonce = null
                 )
@@ -194,7 +195,7 @@ class TransactionBuildingTest {
             chainId = 999,
             addresses = validAddresses,
             walletAddress = TestFixtures.WALLET_ADDRESS,
-            amount = 100.0,
+            amount = BigDecimal("100.0"),
             decimals = 18,
             nonce = BigInteger.ONE
         )
@@ -211,7 +212,7 @@ class TransactionBuildingTest {
                 RainTransactionBuilderImpl.buildEIP712Message(
                     chainId = 1, addresses = bad,
                     walletAddress = TestFixtures.WALLET_ADDRESS,
-                    amount = 100.0, decimals = 18, nonce = BigInteger.ONE
+                    amount = BigDecimal("100.0"), decimals = 18, nonce = BigInteger.ONE
                 )
             }
         }
@@ -225,7 +226,7 @@ class TransactionBuildingTest {
                 RainTransactionBuilderImpl.buildEIP712Message(
                     chainId = 1, addresses = bad,
                     walletAddress = TestFixtures.WALLET_ADDRESS,
-                    amount = 100.0, decimals = 18, nonce = BigInteger.ONE
+                    amount = BigDecimal("100.0"), decimals = 18, nonce = BigInteger.ONE
                 )
             }
         }
@@ -238,7 +239,7 @@ class TransactionBuildingTest {
                 RainTransactionBuilderImpl.buildEIP712Message(
                     chainId = 1, addresses = validAddresses,
                     walletAddress = "0xnope",
-                    amount = 100.0, decimals = 18, nonce = BigInteger.ONE
+                    amount = BigDecimal("100.0"), decimals = 18, nonce = BigInteger.ONE
                 )
             }
         }
@@ -250,7 +251,7 @@ class TransactionBuildingTest {
     fun `buildWithdrawTransactionData encodes 0x-prefixed hex calldata`() {
         val data = RainTransactionBuilderImpl.buildWithdrawTransactionData(
             addresses = validAddresses,
-            amount = 100.0,
+            amount = BigDecimal("100.0"),
             decimals = 18,
             saltBytes = ByteArray(32) { 0x11.toByte() },
             signatureData = "0x" + "42".repeat(65),
@@ -272,7 +273,7 @@ class TransactionBuildingTest {
         // Just verify it doesn't throw — the timestamp is parsed and embedded.
         val data = RainTransactionBuilderImpl.buildWithdrawTransactionData(
             addresses = validAddresses,
-            amount = 1.0,
+            amount = BigDecimal("1.0"),
             decimals = 18,
             saltBytes = ByteArray(32) { 0x11.toByte() },
             signatureData = "0x" + "42".repeat(65),
@@ -290,7 +291,7 @@ class TransactionBuildingTest {
         val ex = runCatching {
             RainTransactionBuilderImpl.buildWithdrawTransactionData(
                 addresses = validAddresses,
-                amount = 100.0,
+                amount = BigDecimal("100.0"),
                 decimals = 18,
                 saltBytes = ByteArray(32),
                 signatureData = "0x" + "42".repeat(65),
@@ -311,7 +312,7 @@ class TransactionBuildingTest {
         assertThrows(RainError.InvalidConfig::class.java) {
             RainTransactionBuilderImpl.buildWithdrawTransactionData(
                 addresses = bad,
-                amount = 100.0,
+                amount = BigDecimal("100.0"),
                 decimals = 18,
                 saltBytes = ByteArray(32),
                 signatureData = "0x" + "42".repeat(65),
@@ -328,7 +329,7 @@ class TransactionBuildingTest {
     fun `buildWithdrawTransactionData accepts 6-decimal tokens (USDC-like)`() {
         val data = RainTransactionBuilderImpl.buildWithdrawTransactionData(
             addresses = validAddresses,
-            amount = 100.5,
+            amount = BigDecimal("100.5"),
             decimals = 6,
             saltBytes = ByteArray(32) { 0x11.toByte() },
             signatureData = "0x" + "42".repeat(65),

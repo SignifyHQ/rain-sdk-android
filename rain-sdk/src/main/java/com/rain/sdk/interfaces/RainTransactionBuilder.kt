@@ -2,6 +2,7 @@ package com.rain.sdk.interfaces
 
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainWithdrawAddresses
+import java.math.BigDecimal
 import java.math.BigInteger
 
 /**
@@ -24,7 +25,7 @@ interface RainTransactionBuilder {
         chainId: Int,
         addresses: RainWithdrawAddresses,
         walletAddress: String,
-        amount: Double,
+        amount: BigDecimal,
         decimals: Int,
         nonce: BigInteger? = null,
     ): Pair<String, ByteArray>
@@ -34,10 +35,11 @@ interface RainTransactionBuilder {
      */
     fun buildWithdrawTransactionData(
         addresses: RainWithdrawAddresses,
-        amount: Double,
+        amount: BigDecimal,
         decimals: Int,
         saltBytes: ByteArray,
         signatureData: String,
         adminSignature: RainAdminSignature
     ): String
+
 }

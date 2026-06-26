@@ -12,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import java.math.BigDecimal
 import java.math.BigInteger
 import java.util.Base64
 
@@ -95,7 +96,7 @@ class RainSdkManagerTurnkeyTest {
         val result = manager.withdrawCollateral(
             chainId = chainId,
             addresses = addresses,
-            amount = 100.0,
+            amount = BigDecimal("100.0"),
             decimals = 18,
             adminSignature = adminSignature,
             nonce = BigInteger.valueOf(42), // explicit nonce, builder skips its RPC

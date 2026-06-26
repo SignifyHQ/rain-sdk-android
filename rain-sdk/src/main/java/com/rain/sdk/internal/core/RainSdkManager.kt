@@ -40,6 +40,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.math.BigDecimal
 import java.math.BigInteger
 import android.graphics.Bitmap
 import com.rain.sdk.utils.QRGenerator
@@ -279,7 +280,7 @@ internal class RainSdkManager(
   override suspend fun withdrawCollateral(
     chainId: Int,
     addresses: RainWithdrawAddresses,
-    amount: Double,
+    amount: BigDecimal,
     decimals: Int,
     adminSignature: RainAdminSignature,
     nonce: BigInteger?,
@@ -317,7 +318,7 @@ internal class RainSdkManager(
     from: String,
     to: String,
     data: String
-  ): Double {
+  ): BigDecimal {
     if (!isInitialized) {
       throw RainError.SdkNotInitialized()
     }
@@ -327,7 +328,7 @@ internal class RainSdkManager(
       from = from,
       to = to,
       data = data
-    )
+    ).toBigDecimal()
   }
 
   override suspend fun estimateWithdrawalFee(
@@ -348,7 +349,7 @@ internal class RainSdkManager(
     val request = WithdrawCollateralRequest(
       chainId = chainId,
       addresses = addresses,
-      amount = amount,
+      amount = amount.toBigDecimal(),
       decimals = decimals,
       adminSignature = adminSignature,
       walletAddress = walletAddress,
@@ -404,7 +405,7 @@ internal class RainSdkManager(
   override suspend fun sendNativeToken(
     chainId: Int,
     toAddress: String,
-    amount: Double
+    amount: BigDecimal
   ): RainTokenTransferResult {
     if (!isInitialized) {
       throw RainError.SdkNotInitialized()
@@ -427,7 +428,7 @@ internal class RainSdkManager(
     chainId: Int,
     contractAddress: String,
     toAddress: String,
-    amount: Double,
+    amount: BigDecimal,
     decimals: Int?
   ): RainTokenTransferResult {
     if (!isInitialized) {

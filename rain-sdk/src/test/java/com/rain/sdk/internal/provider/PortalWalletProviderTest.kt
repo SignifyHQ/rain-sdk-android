@@ -23,6 +23,7 @@ import org.web3j.abi.TypeReference
 import org.web3j.abi.datatypes.Address
 import org.web3j.abi.datatypes.Function
 import org.web3j.abi.datatypes.generated.Uint256
+import java.math.BigDecimal
 import java.math.BigInteger
 import kotlin.math.pow
 
@@ -45,7 +46,7 @@ class PortalWalletProviderTest {
         val chainId = 43114
         val fromAddress = "0x1234567890123456789012345678901234567890"
         val toAddress = "0x0987654321098765432109876543210987654321"
-        val amountInEth = 1.5
+        val amountInEth = BigDecimal("1.5")
         val expectedValueWeiHex = EthereumConverter.convertEthToWeiHex(amountInEth)
         val expectedTxHash = "0xHash"
 
@@ -83,12 +84,12 @@ class PortalWalletProviderTest {
         val fromAddress = "0x1234567890123456789012345678901234567890"
         val toAddress = "0x0987654321098765432109876543210987654321"
         val contractAddress = "0x1111111111111111111111111111111111111111"
-        val amount = 100.0
+        val amount = BigDecimal("100.0")
         val decimals = 6
         val expectedTxHash = "0xERC20Hash"
-        
+
         // Calculate expected data
-        val tokenAmount = amount.toBigDecimal()
+        val tokenAmount = amount
             .multiply(java.math.BigDecimal.TEN.pow(decimals))
             .toBigInteger()
         val function = Function(

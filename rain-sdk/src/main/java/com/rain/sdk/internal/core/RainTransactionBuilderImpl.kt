@@ -27,6 +27,7 @@ import org.web3j.protocol.Web3j
 import org.web3j.protocol.core.DefaultBlockParameterName
 import org.web3j.protocol.core.methods.request.Transaction
 import org.web3j.utils.Numeric
+import java.math.BigDecimal
 import java.math.BigInteger
 import java.security.SecureRandom
 import java.time.Instant
@@ -84,7 +85,7 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
     chainId: Int,
     addresses: RainWithdrawAddresses,
     walletAddress: String,
-    amount: Double,
+    amount: BigDecimal,
     decimals: Int,
     nonce: BigInteger?
   ): Pair<String, ByteArray> {
@@ -123,7 +124,7 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
 
   override fun buildWithdrawTransactionData(
     addresses: RainWithdrawAddresses,
-    amount: Double,
+    amount: BigDecimal,
     decimals: Int,
     saltBytes: ByteArray,
     signatureData: String,

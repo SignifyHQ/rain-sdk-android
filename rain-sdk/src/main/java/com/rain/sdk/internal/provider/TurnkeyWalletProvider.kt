@@ -186,10 +186,10 @@ internal class TurnkeyWalletProvider(
     override suspend fun sendNativeToken(
         chainId: Int,
         toAddress: String,
-        amountInEth: Double
+        amountInEth: BigDecimal
     ): String {
         if (SolanaChains.isSolanaChain(chainId)) {
-            return sendSolanaNative(chainId, toAddress, amountInEth)
+            return sendSolanaNative(chainId, toAddress, amountInEth.toDouble())
         }
         val from = getWalletAddress(chainId)
         val valueHex = EthereumConverter.convertEthToWeiHex(amountInEth)
@@ -206,14 +206,14 @@ internal class TurnkeyWalletProvider(
         chainId: Int,
         contractAddress: String,
         toAddress: String,
-        amount: Double,
+        amount: BigDecimal,
         decimals: Int
     ): String {
         if (SolanaChains.isSolanaChain(chainId)) {
             throw RainError.InvalidConfig("SPL token transfers are not supported on Solana chainId=$chainId")
         }
         val from = getWalletAddress(chainId)
-        val tokenAmount = amount.toBigDecimal()
+        val tokenAmount = amount
             .multiply(BigDecimal.TEN.pow(decimals))
             .toBigInteger()
         val function = Web3jFunction(

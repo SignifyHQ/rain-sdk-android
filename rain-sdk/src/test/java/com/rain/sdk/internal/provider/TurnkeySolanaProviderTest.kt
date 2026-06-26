@@ -17,6 +17,7 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import java.math.BigDecimal
 import java.math.BigInteger
 
 /**
@@ -183,7 +184,7 @@ class TurnkeySolanaProviderTest {
         }
         val provider = makeProvider(client = client)
 
-        val result = provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, 0.5)
+        val result = provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5"))
 
         assertThat(result).isEqualTo(signature)
         assertThat(client.ethSendTransactionCalls).isEmpty()
@@ -214,7 +215,7 @@ class TurnkeySolanaProviderTest {
         }
         val provider = makeProvider(client = client)
 
-        val result = provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, 0.5)
+        val result = provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5"))
 
         assertThat(result).isEqualTo(turnkeySignature)
     }
@@ -279,7 +280,7 @@ class TurnkeySolanaProviderTest {
 
     @Test(expected = com.rain.sdk.internal.error.RainError.InvalidConfig::class)
     fun `sendToken (SPL) is unsupported on solana`() = runBlocking {
-        makeProvider().sendToken(devnet, "anyMint", MockTurnkey.DEFAULT_SOLANA_RECIPIENT, 1.0, 6)
+        makeProvider().sendToken(devnet, "anyMint", MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("1.0"), 6)
         Unit
     }
 }

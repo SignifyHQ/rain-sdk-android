@@ -20,6 +20,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
+import java.math.BigDecimal
 
 // NOTE: The balance/RPC tests that previously lived here referenced Portal SDK types
 // (GetAssetsByChainResponse, TokenBalance, PortalRequestMethod) and a `getBalances`
@@ -278,7 +279,7 @@ class RainSdkManagerTest {
       chainId = 1,
       contractAddress = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
       toAddress = "0xfedcbafedcbafedcbafedcbafedcbafedcbafedc",
-      amount = 1.0,
+      amount = BigDecimal("1.0"),
       decimals = null
     )
 

@@ -16,6 +16,7 @@ import org.junit.Test
 import org.web3j.protocol.Web3j
 import org.web3j.protocol.core.Request
 import org.web3j.protocol.core.methods.response.EthCall
+import java.math.BigDecimal
 import java.math.BigInteger
 import java.util.concurrent.CompletableFuture
 
@@ -109,7 +110,7 @@ class RainTransactionBuilderImplTest {
       chainId = chainId,
       addresses = addresses,
       walletAddress = "0x2222222222222222222222222222222222222222",
-      amount = 1.0,
+      amount = BigDecimal("1.0"),
       decimals = 18,
       nonce = null
     )
@@ -134,7 +135,7 @@ class RainTransactionBuilderImplTest {
         chainId = chainId,
         addresses = addresses,
         walletAddress = "0x2222222222222222222222222222222222222222",
-        amount = 1.0,
+        amount = BigDecimal("1.0"),
         decimals = 18,
         nonce = null
       )

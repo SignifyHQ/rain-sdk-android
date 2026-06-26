@@ -5,6 +5,7 @@ import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionResult
 import com.rain.sdk.models.Token
+import java.math.BigDecimal
 import java.math.BigInteger
 
 /**
@@ -88,13 +89,13 @@ internal open class StubWalletProvider : WalletProvider {
     override suspend fun sendNativeToken(
         chainId: Int,
         toAddress: String,
-        amountInEth: Double
+        amountInEth: BigDecimal
     ): String {
         sendNativeTokenCalls += SendTokenCall(
             chainId = chainId,
             contractAddress = "",
             toAddress = toAddress,
-            amount = amountInEth,
+            amount = amountInEth.toDouble(),
             decimals = 18
         )
         return sendNativeTokenHashToReturn
@@ -104,10 +105,10 @@ internal open class StubWalletProvider : WalletProvider {
         chainId: Int,
         contractAddress: String,
         toAddress: String,
-        amount: Double,
+        amount: BigDecimal,
         decimals: Int
     ): String {
-        sendTokenCalls += SendTokenCall(chainId, contractAddress, toAddress, amount, decimals)
+        sendTokenCalls += SendTokenCall(chainId, contractAddress, toAddress, amount.toDouble(), decimals)
         return sendTokenHashToReturn
     }
 
