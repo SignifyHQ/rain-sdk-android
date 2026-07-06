@@ -87,8 +87,10 @@ interface RainClient {
 
     /**
      * Gets the wallet address for a specific chain. For EVM chains this matches [getWalletAddress]
-     * (a hex address); for Solana chains (e.g. `RainChain.SOLANA_DEVNET`) it returns the
-     * Turnkey Solana account's base58 address.
+     * (a hex address). A provider that also holds non-EVM accounts (one advertising
+     * [Capability.MULTI_CHAIN]) returns the address matching [chainId]'s family — e.g. a base58
+     * address for a Solana chain id (`RainChain.SOLANA_*`). EVM-only providers return the hex
+     * address regardless.
      *
      * @param chainId The numeric chain ID (EVM chain ID, or a `RainChain.SOLANA_*` sentinel).
      * @return The wallet address for that chain's family.
