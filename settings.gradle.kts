@@ -15,5 +15,7 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "rain-sdk-android"
-include(":rain-sdk")
+include(":rain-core")
+include(":rain-portal")
+include(":rain-privy")
 include(":app")

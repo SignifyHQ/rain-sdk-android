@@ -41,7 +41,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.Screen
 import com.rain.sdk.sample.WalletChain
 
@@ -62,11 +62,11 @@ private val featureActions = listOf(
 @Composable
 fun HomeScreen(
     innerPadding: PaddingValues,
-    rainClient: RainClient,
+    session: RainSession,
     selectedChain: WalletChain,
     onChainSelected: (WalletChain) -> Unit,
     onNavigate: (Screen) -> Unit,
-    viewModel: HomeViewModel = viewModel(factory = HomeViewModelFactory(rainClient))
+    viewModel: HomeViewModel = viewModel(factory = HomeViewModelFactory(session))
 ) {
     val state by viewModel.state.collectAsState()
     val application = LocalContext.current.applicationContext as Application
