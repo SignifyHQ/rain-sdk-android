@@ -1,13 +1,14 @@
 # Rain SDK for Android
 
-Android SDK that integrates [Portal](https://portalhq.io) MPC wallet or [Turnkey](https://turnkey.com) with Rain collateral withdrawal: build EIP-712 messages, compose withdrawal transactions, sign and submit via the active wallet provider, and estimate fees.
+Android SDK that integrates [Portal](https://portalhq.io) MPC wallet or [Turnkey](https://turnkey.com) with Rain collateral withdrawal: build EIP-712 messages, compose withdrawal transactions, sign and submit via a registered wallet provider, and estimate fees.
 
-- **Portal wallet integration** — Initialize with a Portal session token and RPC endpoints; use the connected MPC wallet for signing and sending transactions.
-- **Turnkey wallet integration** — Initialize with an authenticated `TurnkeyContext` (passkeys / auth proxy / OAuth / OTP handled outside Rain by the Turnkey Kotlin SDK). See [docs/TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md).
-- **Wallet-agnostic mode** — Initialize with RPC endpoints only (no wallet provider) to use transaction-building APIs (EIP-712 message, withdraw calldata) with your own wallet or backend.
+- **Portal wallet integration** — Register a `PortalProvider` with a Portal session token and resolve a client; use the connected MPC wallet for signing and sending transactions.
+- **Turnkey wallet integration** — Register a `TurnkeyProvider` with an authenticated `TurnkeyContext` (passkeys / auth proxy / OAuth / OTP handled outside Rain by the Turnkey Kotlin SDK). See [docs/TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md).
+- **Wallet-agnostic utilities** — The `transactionBuilder` (EIP-712 message, withdraw calldata) is available straight off `RainSdk` from the configured RPC endpoints, with no wallet provider resolved — use it with your own wallet or backend.
+- **Pluggable providers** — Bring your own `WalletProvider` behind a `RainProvider` descriptor and register it; resolve providers by id or by `Capability`.
 - **EIP-712 message building** — Build typed data for admin signature required by the collateral contract.
 - **Withdrawal transaction building** — Build ABI-encoded withdraw calldata for submission.
-- **Full withdrawal flow** — Builds the transaction, signs via Portal, and submits; returns the transaction hash.
+- **Full withdrawal flow** — Builds the transaction, signs via the backing provider, and submits; returns the transaction hash.
 - **Fee estimation** — Returns the estimated gas cost in the chain's native token (e.g. AVAX).
 - **Wallet information** — Get current wallet address and generate a QR code `Bitmap` for it.
 - **Balances** — Get native and ERC-20 token balances for the current wallet.
@@ -126,7 +127,7 @@ val exporter = rain.first { Capability.EXPORT in it.capabilities }
 val address = client.getWalletAddress()
 ```
 
-### 4. Check Balances
+### 5. Check Balances
 
 ```kotlin
 import com.rain.sdk.models.Token
@@ -157,36 +158,38 @@ client.registerTokens(
 Each `Balance` exposes `rawAmount` (`BigInteger`, exact base units), `decimals`, `symbol`,
 `name`, plus derived `decimalAmount` (`BigDecimal`) and `formatted` (`String`) for display.
 
-### 5. Send Tokens
+### 6. Send Tokens
 
 ```kotlin
+import java.math.BigDecimal
+
 // `client` is the RainClient resolved in Quick Start (rain.provider(...))
 
 // Send native token (AVAX)
 val result = client.sendNativeToken(
     chainId = 43114,
     toAddress = "0x...",
-    amount = 0.1
+    amount = BigDecimal("0.1")
 )
 println("Tx Hash: ${result.transactionHash}")
 
-// Send ERC-20 token (e.g. USDC)
+// Send ERC-20 token (e.g. USDC). Omit decimals to let the SDK resolve them.
 val result = client.sendToken(
     chainId = 43114,
     contractAddress = "0x...",
     toAddress = "0x...",
-    amount = 100.0,
-    decimals = 6
+    amount = BigDecimal("100.0")
 )
 ```
 
-### 6. Withdraw Collateral
+### 7. Withdraw Collateral
 
 The SDK uses `RainWithdrawAddresses` and `RainAdminSignature` to group withdrawal parameters:
 
 ```kotlin
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.models.RainAdminSignature
+import java.math.BigDecimal
 
 val addresses = RainWithdrawAddresses(
     proxyAddress = "0x...",
@@ -201,11 +204,11 @@ val adminSignature = RainAdminSignature(
     expiresAt = "2024-12-31T23:59:59Z"
 )
 
-// Auto-send: sign and submit via Portal, returns tx hash
+// Auto-send: sign and submit via the backing provider, returns tx hash
 val result = client.withdrawCollateral(
     chainId = 43114,
     addresses = addresses,
-    amount = 100.0,
+    amount = BigDecimal("100.0"),
     decimals = 6,
     adminSignature = adminSignature,
     autoSend = true
@@ -216,7 +219,7 @@ println("Tx Hash: ${result.transactionHash}")
 val result = client.withdrawCollateral(
     chainId = 43114,
     addresses = addresses,
-    amount = 100.0,
+    amount = BigDecimal("100.0"),
     decimals = 6,
     adminSignature = adminSignature,
     autoSend = false
@@ -224,7 +227,7 @@ val result = client.withdrawCollateral(
 println("Tx Data: ${result.transactionData}")
 ```
 
-### 7. Estimate Gas
+### 8. Estimate Gas
 
 ```kotlin
 val fee = client.estimateGas(
@@ -236,7 +239,7 @@ val fee = client.estimateGas(
 println("Estimated fee: $fee AVAX")
 ```
 
-### 8. Transaction History
+### 9. Transaction History
 
 ```kotlin
 import com.rain.sdk.models.RainTransactionOrder
@@ -253,7 +256,7 @@ result.transactions.forEach { tx ->
 }
 ```
 
-### 9. QR Code Generation
+### 10. QR Code Generation
 
 ```kotlin
 val bitmap = client.generateAddressQRCode(
