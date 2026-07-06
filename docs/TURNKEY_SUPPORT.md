@@ -1,6 +1,6 @@
 # Turnkey Support
 
-Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provider, alongside the existing Portal MPC integration. Turnkey authentication (passkeys, OAuth, OTP, auth proxy) happens **outside** Rain — the host app uses the official [Turnkey Kotlin SDK](https://docs.turnkey.com/sdks/kotlin/getting-started) to authenticate the user and then hands the live `TurnkeyContext` to Rain for wallet operations.
+Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provider, alongside the Portal MPC adapter. Turnkey ships as the `TurnkeyProvider` adapter, which currently lives inside the `rain-core` module (package `com.rain.sdk.turnkey`). Turnkey authentication (passkeys, OAuth, OTP, auth proxy) happens **outside** Rain — the host app uses the official [Turnkey Kotlin SDK](https://docs.turnkey.com/sdks/kotlin/getting-started) to authenticate the user and then hands the live `TurnkeyContext` to Rain via `TurnkeyConfig` for wallet operations.
 
 ## Requirements
 
@@ -10,7 +10,7 @@ Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provide
 
 ## Adding the dependency
 
-The Turnkey artifacts ship transitively with `rain-sdk` via `api(...)`, so consumers don't need to add them explicitly. Internally Rain pulls in:
+The Turnkey artifacts ship transitively with `rain-core` via `api(...)`, so consumers don't need to add them explicitly. Internally Rain pulls in:
 
 ```
 com.turnkey:sdk-kotlin:2.0.0
@@ -20,13 +20,13 @@ com.turnkey:types:2.0.0
 
 ## Architectural split
 
-Rain SDK's public Turnkey surface is exactly one entry point: `RainClient.initializeTurnkey(turnkey, rpcEndpoints, chainId, walletAddress)`. Everything *before* that call — `TurnkeyContext.initSuspend`, OTP/passkey/OAuth flows, sub-org provisioning, wallet creation — is host-app code, written against Turnkey's own Kotlin SDK. This split keeps Rain free of Turnkey's auth-UI surface.
+Rain SDK's public Turnkey surface is exactly one boundary: registering a `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress))` with the `RainSdk` builder, then resolving `rain.provider(ProviderId.TURNKEY)`. Everything *before* that — `TurnkeyContext.initSuspend`, OTP/passkey/OAuth flows, sub-org provisioning, wallet creation — is host-app code, written against Turnkey's own Kotlin SDK. This split keeps Rain free of Turnkey's auth-UI surface.
 
 | Layer | Who owns it | Examples |
 |---|---|---|
-| Authentication (pre-init) | Your app | `TurnkeyContext.initSuspend`, `initOtp`, `loginOrSignUpWithOtp`, `createWallet` |
-| Hand-off | Boundary call | `rainClient.initializeTurnkey(turnkeyContext, …)` |
-| Wallet operations (post-init) | Rain SDK | `rainClient.getWalletAddress()`, `getBalance()`, `sendNativeToken()`, `withdrawCollateral()` |
+| Authentication (pre-register) | Your app | `TurnkeyContext.initSuspend`, `initOtp`, `loginOrSignUpWithOtp`, `createWallet` |
+| Hand-off | Boundary | `RainSdk.builder().register(TurnkeyProvider(TurnkeyConfig(turnkeyContext, …)))` → `rain.provider(ProviderId.TURNKEY)` |
+| Wallet operations (post-resolve) | Rain SDK | `client.getWalletAddress()`, `getBalance()`, `sendNativeToken()`, `withdrawCollateral()` |
 
 ## Reference auth glue (sample app)
 
@@ -36,7 +36,7 @@ The sample app ships a ready-to-copy helper that drives the email-OTP path end-t
 
 ```kotlin
 object TurnkeyAuthSample {
-    val context: TurnkeyContext            // hand to RainClient.initializeTurnkey
+    val context: TurnkeyContext            // hand to TurnkeyConfig / TurnkeyProvider
     val subOrganizationId: String?         // null until login completes
 
     fun hasActiveSession(): Boolean        // true if a persisted session is still valid
@@ -70,12 +70,19 @@ TurnkeyAuthSample.ensureEthereumWallet()
 // Optional, for Solana support:
 // TurnkeyAuthSample.ensureSolanaWallet()
 
-rainClient.initializeTurnkey(
-    turnkey = TurnkeyAuthSample.context,
-    rpcEndpoints = mapOf(43113 to "https://api.avax-test.network/ext/bc/C/rpc"),
-    chainId = 43113,
-    walletAddress = null
-)
+val rain = RainSdk.builder()
+    .rpcEndpoints(mapOf(43113 to "https://api.avax-test.network/ext/bc/C/rpc"))
+    .register(
+        TurnkeyProvider(
+            TurnkeyConfig(
+                turnkey = TurnkeyAuthSample.context,
+                walletAddress = null // first Ethereum account from TurnkeyContext.wallets
+            )
+        )
+    )
+    .build()
+
+val client = rain.provider(ProviderId.TURNKEY)
 ```
 
 Copy `TurnkeyAuthSample.kt` into your own app and adapt as needed (swap email OTP for passkey / OAuth by calling the corresponding `TurnkeyContext.*` methods — same shape).
@@ -87,7 +94,7 @@ If you'd rather not use the helper, you can drive Turnkey directly from your `Ap
 ```kotlin
 import com.rain.sdk.RainSdk
 import com.turnkey.core.TurnkeyContext
-import com.turnkey.core.models.TurnkeyConfig
+import com.turnkey.core.models.TurnkeyConfig  // NOTE: Turnkey's config, not Rain's TurnkeyConfig
 import com.turnkey.core.models.AuthConfig
 
 class MyApp : Application() {
@@ -125,26 +132,43 @@ class MyApp : Application() {
 }
 ```
 
-Once the user is authenticated and `TurnkeyContext.session` is populated, hand it to Rain:
+Once the user is authenticated and `TurnkeyContext.session` is populated, hand it to Rain by
+registering a `TurnkeyProvider`:
 
 ```kotlin
-val client = RainSdk.getInstance().client
+import com.rain.sdk.RainSdk
+import com.rain.sdk.provider.ProviderId
+import com.rain.sdk.turnkey.TurnkeyConfig
+import com.rain.sdk.turnkey.TurnkeyProvider
 
-client.initializeTurnkey(
-    turnkey = TurnkeyContext,
-    rpcEndpoints = mapOf(
-        43114 to "https://avalanche-c-chain-rpc.publicnode.com",
-        43113 to "https://avalanche-fuji-c-chain-rpc.publicnode.com"
-    ),
-    walletAddress = null // omit to use the first Ethereum account from TurnkeyContext.wallets
-)
+val rain = RainSdk.builder()
+    .rpcEndpoints(
+        mapOf(
+            43114 to "https://avalanche-c-chain-rpc.publicnode.com",
+            43113 to "https://avalanche-fuji-c-chain-rpc.publicnode.com"
+        )
+    )
+    .register(
+        TurnkeyProvider(
+            TurnkeyConfig(
+                turnkey = TurnkeyContext,
+                walletAddress = null // omit to use the first Ethereum account from TurnkeyContext.wallets
+            )
+        )
+    )
+    .build()
+
+val client = rain.provider(ProviderId.TURNKEY)
 ```
 
-`initializeTurnkey` is a `suspend` function — it probes the Turnkey wallet list during init and throws `RainError.ProviderError` if no usable Ethereum account is available.
+`rain.provider(...)` is a `suspend` function — resolving the Turnkey provider probes the Turnkey
+wallet list and throws `RainError.WalletUnavailable` if no usable Ethereum account is available.
+You can register other adapters (e.g. `PortalProvider`) on the same builder and resolve each
+independently; providers no longer replace one another.
 
 ## What Rain uses Turnkey for
 
-After `initializeTurnkey`, every wallet operation routes through Turnkey:
+After the Turnkey-backed `client` is resolved, every wallet operation routes through Turnkey:
 
 | Rain operation | Turnkey API used |
 |----------------|------------------|
@@ -163,12 +187,13 @@ EIP-712 signing uses `TurnkeyContext.signRawPayload` with `PAYLOAD_ENCODING_EIP7
 
 ## Accessing the Turnkey instance
 
-After init you can still reach the Turnkey singleton through Rain for advanced operations:
+Rain no longer exposes vendor getters (the old `RainSdk.turnkey` / `client.turnkey` are gone —
+core references no concrete vendor type). You already own the `TurnkeyContext` — it's the singleton
+you authenticated and passed to `TurnkeyConfig` — so keep your own reference for advanced Turnkey
+operations:
 
 ```kotlin
-val turnkey: TurnkeyContext = RainSdk.getInstance().turnkey
-// or
-val turnkey = RainSdk.getInstance().client.turnkey
+val turnkey: TurnkeyContext = TurnkeyAuthSample.context  // the same instance you registered
 ```
 
 ## Error handling
@@ -184,13 +209,27 @@ Turnkey-specific errors are mapped into the standard `RainError` hierarchy:
 
 Network errors raised during direct RPC calls (balances, fee estimation) surface as `RainError.NetworkError`.
 
-## Mutual exclusion with Portal
+## Registering alongside Portal
 
-`initializeTurnkey` and `initializePortal` are mutually exclusive — calling one swaps the active wallet provider and clears the other. The most recently called wins.
+Turnkey and Portal are no longer mutually exclusive. Register both adapters on the same builder and
+resolve each to its own `RainClient` — one SDK instance, two independent provider-bound clients:
+
+```kotlin
+val rain = RainSdk.builder()
+    .rpcEndpoints(endpoints)
+    .register(PortalProvider(PortalConfig(portalSessionToken)))
+    .register(TurnkeyProvider(TurnkeyConfig(turnkeyContext)))
+    .build()
+
+val portalClient = rain.provider(ProviderId.PORTAL)
+val turnkeyClient = rain.provider(ProviderId.TURNKEY)
+```
+
+Each client is bound to its provider for its lifetime; there is no "active provider" to swap.
 
 ## Bouncy Castle dependency conflict (downstream consumers)
 
-Turnkey (via `com.turnkey:crypto` and `com.turnkey:encoding`) depends on **`org.bouncycastle:bcprov-jdk15to18:1.82`**, while web3j 4.10 (a transitive dependency of rain-sdk) depends on **`org.bouncycastle:bcprov-jdk18on:1.73`**. Both artifacts publish overlapping `org.bouncycastle.*` class names, so dex-ing them together fails with errors like:
+Turnkey (via `com.turnkey:crypto` and `com.turnkey:encoding`) depends on **`org.bouncycastle:bcprov-jdk15to18:1.82`**, while web3j 4.10 (a transitive dependency of rain-core) depends on **`org.bouncycastle:bcprov-jdk18on:1.73`**. Both artifacts publish overlapping `org.bouncycastle.*` class names, so dex-ing them together fails with errors like:
 
 ```
 Duplicate class org.bouncycastle.asn1.pkcs.EncryptionScheme found in modules
