@@ -16,13 +16,25 @@ Android SDK that integrates [Portal](https://portalhq.io) MPC wallet or [Turnkey
 
 ## Installation
 
-Add the dependency to your module's `build.gradle.kts`:
+The SDK is modular (ports & adapters): a vendor-free **`rain-core`** plus one adapter module per
+wallet provider. Link only the providers you use — an unselected provider's vendor SDK never enters
+your dependency graph.
 
 ```kotlin
 dependencies {
-    implementation("com.rain.sdk:rain-sdk:1.0.0")
+    // Portal-only app: pulls rain-core transitively. Turnkey is never fetched or shipped.
+    implementation("io.github.spartan-quanhongtran:rain-portal:1.0.1")
+
+    // Or, for Turnkey (the Turnkey adapter currently ships inside rain-core):
+    // implementation("io.github.spartan-quanhongtran:rain-core:1.0.1")
 }
 ```
+
+| Module        | Contains                                                                 |
+|---------------|--------------------------------------------------------------------------|
+| `rain-core`   | The `WalletProvider` port, capability model, provider registry, all Rain domain logic, **and the Turnkey adapter** (in `com.rain.sdk.turnkey`, for now). |
+| `rain-portal` | The Portal MPC adapter (`PortalProvider`); depends on `rain-core` + `portal-android`. |
+| `rain-privy`  | The Privy embedded-key adapter (`PrivyProvider`) — **skeleton**; proves a net-new provider costs existing clients nothing. Operations throw `NotImplementedError` until the Privy SDK is wired. |
 
 ## Requirements
 
@@ -37,19 +49,22 @@ Use this when you want the SDK to use Portal for signing and sending transaction
 
 ```kotlin
 import com.rain.sdk.RainSdk
+import com.rain.sdk.portal.PortalConfig
+import com.rain.sdk.portal.PortalProvider
+import com.rain.sdk.provider.ProviderId
 
-val client = RainSdk.getInstance().client
-
-client.initializePortal(
-    portalSessionToken = "<your-portal-session-token>",
-    rpcEndpoints = mapOf(
-        43114 to "https://avalanche-c-chain-rpc.publicnode.com",
-        43113 to "https://avalanche-fuji-c-chain-rpc.publicnode.com"
+val rain = RainSdk.builder()
+    .rpcEndpoints(
+        mapOf(
+            43114 to "https://avalanche-c-chain-rpc.publicnode.com",
+            43113 to "https://avalanche-fuji-c-chain-rpc.publicnode.com"
+        )
     )
-)
+    .register(PortalProvider(PortalConfig(sessionToken = "<your-portal-session-token>")))
+    .build()
 
-// Access the Portal instance when needed (e.g. for UI)
-val portal = RainSdk.getInstance().portal
+// Resolve the Portal-backed client (suspending — resolves the wallet on first access).
+val client = rain.provider(ProviderId.PORTAL)
 ```
 
 ### 2. Initialize with Turnkey (full wallet flow)
@@ -60,44 +75,55 @@ Turnkey authentication happens **outside Rain SDK** — the host app drives Turn
 
 ```kotlin
 import com.rain.sdk.RainSdk
+import com.rain.sdk.provider.ProviderId
+import com.rain.sdk.turnkey.TurnkeyConfig
+import com.rain.sdk.turnkey.TurnkeyProvider
 import com.turnkey.core.TurnkeyContext
 
 // Turnkey is initialized in your Application.onCreate() and the user has authenticated
 // (TurnkeyContext.session.value is non-null).
 
-val client = RainSdk.getInstance().client
+val rain = RainSdk.builder()
+    .rpcEndpoints(
+        mapOf(
+            43114 to "https://avalanche-c-chain-rpc.publicnode.com",
+            43113 to "https://avalanche-fuji-c-chain-rpc.publicnode.com"
+        )
+    )
+    .register(
+        TurnkeyProvider(
+            TurnkeyConfig(
+                turnkey = TurnkeyContext,
+                walletAddress = null // omit to use the first Ethereum account from TurnkeyContext.wallets
+            )
+        )
+    )
+    .build()
 
-client.initializeTurnkey(
-    turnkey = TurnkeyContext,
-    rpcEndpoints = mapOf(
-        43114 to "https://avalanche-c-chain-rpc.publicnode.com",
-        43113 to "https://avalanche-fuji-c-chain-rpc.publicnode.com"
-    ),
-    walletAddress = null // omit to use the first Ethereum account from TurnkeyContext.wallets
-)
+val client = rain.provider(ProviderId.TURNKEY)
 ```
 
 **Reference auth glue:** [`app/src/main/java/com/rain/sdk/sample/TurnkeyAuthSample.kt`](app/src/main/java/com/rain/sdk/sample/TurnkeyAuthSample.kt) shows the full email-OTP flow (init, send OTP, verify, ensure wallet) you'd write in your own app. Copy/adapt that file.
 
 See [docs/TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md) for the full Turnkey integration guide.
 
-### 3. Initialize without a wallet provider (wallet-agnostic)
+### 3. Bring your own provider, or resolve by capability
 
-Use this when you only need transaction building (EIP-712 message, calldata) and will sign/submit elsewhere.
+The registry is designed for the multi-provider case; a single-provider app is just the trivial
+`N = 1` instance of it. Register your own `WalletProvider` adapter (Coinbase, Privy, Dynamic, a custom
+MPC stack) behind a `RainProvider` descriptor, then resolve providers by id or by capability:
 
 ```kotlin
-import com.rain.sdk.RainSdk
+import com.rain.sdk.provider.Capability
 
-val txBuilder = RainSdk.getInstance().transactionBuilder
-
-// buildEIP712Message, buildWithdrawTransactionData are available;
-// withdrawCollateral with autoSend requires a wallet provider (Portal or Turnkey).
+// …or resolve the first registered provider with a given capability
+val exporter = rain.first { Capability.EXPORT in it.capabilities }
 ```
 
-### 3. Get Wallet Address
+### 4. Get Wallet Address
 
 ```kotlin
-val address = RainSdk.getInstance().client.getWalletAddress()
+val address = client.getWalletAddress()
 ```
 
 ### 4. Check Balances
@@ -106,7 +132,7 @@ val address = RainSdk.getInstance().client.getWalletAddress()
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
 
-val client = RainSdk.getInstance().client
+// `client` is the RainClient resolved in Quick Start (rain.provider(...))
 
 // Native token balance (e.g. AVAX) — exact rawAmount plus resolved decimals/symbol/name
 val native = client.getBalance(chainId = 43114, token = Token.Native)
@@ -134,7 +160,7 @@ Each `Balance` exposes `rawAmount` (`BigInteger`, exact base units), `decimals`,
 ### 5. Send Tokens
 
 ```kotlin
-val client = RainSdk.getInstance().client
+// `client` is the RainClient resolved in Quick Start (rain.provider(...))
 
 // Send native token (AVAX)
 val result = client.sendNativeToken(
@@ -176,7 +202,7 @@ val adminSignature = RainAdminSignature(
 )
 
 // Auto-send: sign and submit via Portal, returns tx hash
-val result = RainSdk.getInstance().client.withdrawCollateral(
+val result = client.withdrawCollateral(
     chainId = 43114,
     addresses = addresses,
     amount = 100.0,
@@ -187,7 +213,7 @@ val result = RainSdk.getInstance().client.withdrawCollateral(
 println("Tx Hash: ${result.transactionHash}")
 
 // Manual: get raw transaction data for custom submission
-val result = RainSdk.getInstance().client.withdrawCollateral(
+val result = client.withdrawCollateral(
     chainId = 43114,
     addresses = addresses,
     amount = 100.0,
@@ -201,7 +227,7 @@ println("Tx Data: ${result.transactionData}")
 ### 7. Estimate Gas
 
 ```kotlin
-val fee = RainSdk.getInstance().client.estimateGas(
+val fee = client.estimateGas(
     chainId = 43114,
     from = walletAddress,
     to = controllerAddress,
@@ -215,7 +241,7 @@ println("Estimated fee: $fee AVAX")
 ```kotlin
 import com.rain.sdk.models.RainTransactionOrder
 
-val result = RainSdk.getInstance().client.getTransactions(
+val result = client.getTransactions(
     chainId = 43114,
     limit = 20,
     offset = 0,
@@ -230,7 +256,7 @@ result.transactions.forEach { tx ->
 ### 9. QR Code Generation
 
 ```kotlin
-val bitmap = RainSdk.getInstance().client.generateAddressQRCode(
+val bitmap = client.generateAddressQRCode(
     width = 500,
     height = 500
 )

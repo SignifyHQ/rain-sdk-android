@@ -5,8 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.rain.sdk.RainChain
-import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.NetworkClient
+import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.TurnkeyAuthSample
 import com.rain.sdk.sample.WalletChain
@@ -19,11 +19,11 @@ import kotlinx.coroutines.launch
 enum class WalletMode { Portal, Turnkey }
 
 class HomeViewModel(
-    private val rainClient: RainClient
+    private val session: RainSession
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
-        HomeUiState(isInitialized = rainClient.isInitialized)
+        HomeUiState(isInitialized = session.isInitialized)
     )
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
@@ -72,38 +72,40 @@ class HomeViewModel(
         val tokenMask = SampleLog.maskToken(_state.value.sessionToken)
         SampleLog.i("Portal.init", "calling initializePortal sessionToken=$tokenMask chainId=${RainChain.AVALANCHE_TESTNET}")
 
-        try {
-            // Initialize with every EVM chain's RPC (Fuji + Base Sepolia) so the chain
-            // dropdown and Rain collateral (which lives on Base Sepolia) both work; the
-            // screens pick the active chain via `selectedChain`.
-            val rpcConfig = WalletChain.entries
-                .filter { !it.isSolana }
-                .associate { it.chainId to it.rpcUrl }
+        viewModelScope.launch {
+            try {
+                // Initialize with every EVM chain's RPC (Fuji + Base Sepolia) so the chain
+                // dropdown and Rain collateral (which lives on Base Sepolia) both work; the
+                // screens pick the active chain via `selectedChain`.
+                val rpcConfig = WalletChain.entries
+                    .filter { !it.isSolana }
+                    .associate { it.chainId to it.rpcUrl }
 
-            rainClient.initializePortal(
-                portalSessionToken = _state.value.sessionToken,
-                rpcEndpoints = rpcConfig,
-                chainId = RainChain.AVALANCHE_TESTNET
-            )
+                session.initializePortal(
+                    sessionToken = _state.value.sessionToken,
+                    rpcEndpoints = rpcConfig,
+                    chainId = RainChain.AVALANCHE_TESTNET
+                )
 
-            SampleLog.i("Portal.init", "success — isInitialized=${rainClient.isInitialized}")
-            // Recovery (Portal backup share) is no longer available via the Rain API, so a
-            // successful init goes straight to the feature grid instead of gating on recovery.
-            _state.update {
-                it.copy(
-                    isInitialized = rainClient.isInitialized,
-                    statusText = "SDK Initialized Successfully!",
-                    needsRecovery = false,
-                    isRecovered = true
-                )
-            }
-        } catch (e: Exception) {
-            SampleLog.e("Portal.init", "failed: ${e.message}", e)
-            _state.update {
-                it.copy(
-                    statusText = "Error: ${e.message}",
-                    isInitialized = false
-                )
+                SampleLog.i("Portal.init", "success — isInitialized=${session.isInitialized}")
+                // Recovery (Portal backup share) is no longer available via the Rain API, so a
+                // successful init goes straight to the feature grid instead of gating on recovery.
+                _state.update {
+                    it.copy(
+                        isInitialized = session.isInitialized,
+                        statusText = "SDK Initialized Successfully!",
+                        needsRecovery = false,
+                        isRecovered = true
+                    )
+                }
+            } catch (e: Exception) {
+                SampleLog.e("Portal.init", "failed: ${e.message}", e)
+                _state.update {
+                    it.copy(
+                        statusText = "Error: ${e.message}",
+                        isInitialized = false
+                    )
+                }
             }
         }
     }
@@ -236,22 +238,22 @@ class HomeViewModel(
 
                 // Initialize with every supported chain's RPC so the dropdown can switch
                 // between the EVM and Solana wallets without re-initializing.
-                rainClient.initializeTurnkey(
+                session.initializeTurnkey(
                     turnkey = TurnkeyAuthSample.context,
                     rpcEndpoints = WalletChain.rpcEndpoints,
                     chainId = RainChain.AVALANCHE_TESTNET,
                     walletAddress = null
                 )
-                val evmAddress = runCatching { rainClient.getWalletAddress(WalletChain.EVM.chainId) }.getOrNull()
-                val solAddress = runCatching { rainClient.getWalletAddress(WalletChain.SOLANA.chainId) }.getOrNull()
+                val evmAddress = runCatching { session.client?.getWalletAddress(WalletChain.EVM.chainId) }.getOrNull()
+                val solAddress = runCatching { session.client?.getWalletAddress(WalletChain.SOLANA.chainId) }.getOrNull()
                 SampleLog.i(
                     "Turnkey.rainInit",
-                    "success — isInitialized=${rainClient.isInitialized} evm=$evmAddress sol=$solAddress"
+                    "success — isInitialized=${session.isInitialized} evm=$evmAddress sol=$solAddress"
                 )
                 _state.update {
                     it.copy(
                         isLoading = false,
-                        isInitialized = rainClient.isInitialized,
+                        isInitialized = session.isInitialized,
                         isRecovered = true,
                         statusText = "Rain initialized with Turnkey — wallet ready"
                     )
@@ -301,12 +303,12 @@ data class HomeUiState(
 )
 
 class HomeViewModelFactory(
-    private val rainClient: RainClient
+    private val session: RainSession
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(HomeViewModel::class.java)) {
-            return HomeViewModel(rainClient) as T
+            return HomeViewModel(session) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
