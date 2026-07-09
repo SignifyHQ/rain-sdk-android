@@ -40,14 +40,29 @@ dependencies {
     // Vendor-free core: the WalletProvider port, models, registry, and domain logic.
     api(project(":rain-core"))
 
-    // NOTE: skeleton only. The real Privy embedded-wallet SDK will be added here as an
-    // `implementation` dependency (a private detail of this module) when the adapter is built out.
+    // Privy SDK. `api` (not `implementation`) because PrivyConfig exposes the `Privy` type to
+    // consumers — the host initializes/authenticates Privy and hands the singleton in, mirroring
+    // how rain-core's TurnkeyConfig exposes TurnkeyContext.
+    api(libs.privy.core)
+
+    // Web3j for ERC-20 ABI encoding in sendToken calldata. Shares core's Bouncy Castle note.
+    implementation(libs.web3j.core) {
+        exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
+    }
 
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.coroutines.android)
     implementation(libs.timber)
+    implementation(libs.androidx.annotation)
+    // Own JSON-RPC read path: core's JsonRpcClient/ChainReader are module-internal, so out-of-module
+    // adapters can't reuse them. Privy's EIP-1193 provider handles custody (sign/send) only.
+    implementation(libs.okhttp)
 
     testImplementation(libs.junit)
+    testImplementation(libs.mockk)
     testImplementation(libs.truth)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.json)
 }
 
 mavenPublishing {
@@ -55,7 +70,7 @@ mavenPublishing {
 
     pom {
         name.set("Rain SDK Android — Privy adapter")
-        description.set("Privy embedded-wallet provider for the Rain Android SDK (skeleton)")
+        description.set("Privy embedded-wallet provider for the Rain Android SDK")
         url.set("https://github.com/SignifyHQ/rain-sdk-android")
         licenses {
             license {

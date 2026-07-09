@@ -4,10 +4,13 @@ import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.portal.PortalConfig
 import com.rain.sdk.portal.PortalProvider
+import com.rain.sdk.privy.PrivyConfig
+import com.rain.sdk.privy.PrivyProvider
 import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.turnkey.TurnkeyConfig
 import com.rain.sdk.turnkey.TurnkeyProvider
 import com.turnkey.core.TurnkeyContext
+import io.privy.sdk.Privy
 
 /**
  * App-side holder around the modular [RainSdk].
@@ -55,6 +58,20 @@ class RainSession {
             .build()
         rain = sdk
         client = sdk.provider(ProviderId.TURNKEY)
+    }
+
+    /** Builds the SDK with the Privy provider and resolves the Privy-backed client. */
+    suspend fun initializePrivy(
+        privy: Privy,
+        rpcEndpoints: Map<Int, String>,
+        walletAddress: String? = null,
+    ) {
+        val sdk = RainSdk.builder()
+            .rpcEndpoints(rpcEndpoints)
+            .register(PrivyProvider(PrivyConfig(privy = privy, walletAddress = walletAddress)))
+            .build()
+        rain = sdk
+        client = sdk.provider(ProviderId.PRIVY)
     }
 
     fun reset() {

@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.rain.sdk.RainChain
 import com.rain.sdk.sample.NetworkClient
+import com.rain.sdk.sample.PrivyAuthSample
 import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.TurnkeyAuthSample
@@ -16,7 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class WalletMode { Portal, Turnkey }
+enum class WalletMode { Portal, Turnkey, Privy }
 
 class HomeViewModel(
     private val session: RainSession
@@ -64,6 +65,22 @@ class HomeViewModel(
 
     fun onTurnkeyOtpCodeChanged(value: String) {
         _state.update { it.copy(turnkeyOtpCode = value) }
+    }
+
+    fun onPrivyAppIdChanged(value: String) {
+        _state.update { it.copy(privyAppId = value) }
+    }
+
+    fun onPrivyAppClientIdChanged(value: String) {
+        _state.update { it.copy(privyAppClientId = value) }
+    }
+
+    fun onPrivyEmailChanged(value: String) {
+        _state.update { it.copy(privyEmail = value) }
+    }
+
+    fun onPrivyOtpCodeChanged(value: String) {
+        _state.update { it.copy(privyOtpCode = value) }
     }
 
     fun initializeSdk() {
@@ -270,11 +287,134 @@ class HomeViewModel(
         }
     }
 
-    fun clearSession() {
-        SampleLog.i("Home", "clearing session (Turnkey logout + UI reset)")
+    fun sendPrivyOtp(app: Application) {
+        val s = _state.value
+        if (s.privyAppId.isBlank() || s.privyAppClientId.isBlank() || s.privyEmail.isBlank()) {
+            _state.update { it.copy(statusText = "App ID, App Client ID, and Email are required") }
+            return
+        }
+
+        SampleLog.i("Privy.otpInit", "starting email-OTP flow email=${SampleLog.maskEmail(s.privyEmail)}")
+        _state.update { it.copy(isLoading = true, statusText = "Initializing Privy...") }
         viewModelScope.launch {
-            // Real logout so the next run requires a fresh OTP (and resume detects no session).
+            try {
+                PrivyAuthSample.init(app, s.privyAppId, s.privyAppClientId)
+
+                // Privy restores a prior authenticated session during init; skip the OTP if so.
+                if (PrivyAuthSample.hasActiveSession()) {
+                    SampleLog.i("Privy.otpInit", "existing session restored — skipping OTP")
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            privySessionActive = true,
+                            statusText = "Existing Privy session restored — initialize Rain to continue"
+                        )
+                    }
+                    return@launch
+                }
+
+                _state.update { it.copy(statusText = "Sending OTP to ${s.privyEmail}...") }
+                PrivyAuthSample.sendEmailOtp(s.privyEmail)
+
+                SampleLog.i("Privy.otpInit", "OTP sent")
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        privyOtpSent = true,
+                        statusText = "OTP sent — check your email"
+                    )
+                }
+            } catch (e: Exception) {
+                SampleLog.e("Privy.otpInit", "failed: ${e.message}", e)
+                _state.update {
+                    it.copy(isLoading = false, statusText = "Privy OTP init failed: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun verifyPrivyOtp() {
+        val s = _state.value
+        if (!s.privyOtpSent) {
+            _state.update { it.copy(statusText = "Send OTP first") }
+            return
+        }
+        if (s.privyOtpCode.isBlank()) {
+            _state.update { it.copy(statusText = "OTP code required") }
+            return
+        }
+
+        SampleLog.i("Privy.otpVerify", "verifying OTP")
+        _state.update { it.copy(isLoading = true, statusText = "Verifying OTP...") }
+        viewModelScope.launch {
+            try {
+                PrivyAuthSample.verifyEmailOtp(s.privyOtpCode, s.privyEmail)
+                SampleLog.i("Privy.otpVerify", "session active")
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        privySessionActive = true,
+                        statusText = "Privy session active — initialize Rain to continue"
+                    )
+                }
+            } catch (e: Exception) {
+                SampleLog.e("Privy.otpVerify", "failed: ${e.message}", e)
+                _state.update {
+                    it.copy(isLoading = false, statusText = "OTP verification failed: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun initializeRainWithPrivy() {
+        if (!_state.value.privySessionActive) {
+            _state.update { it.copy(statusText = "Verify OTP first") }
+            return
+        }
+        SampleLog.i("Privy.rainInit", "initializing Rain w/ Privy (EVM)")
+        _state.update { it.copy(isLoading = true, statusText = "Initializing Rain with Privy...") }
+        viewModelScope.launch {
+            try {
+                val created = PrivyAuthSample.ensureEthereumWallet()
+                if (created) {
+                    _state.update { it.copy(statusText = "Provisioned Privy wallet, initializing Rain...") }
+                }
+
+                // Privy is EVM-only here; initialize with the EVM chains' RPC endpoints.
+                val rpcConfig = WalletChain.entries
+                    .filter { !it.isSolana }
+                    .associate { it.chainId to it.rpcUrl }
+
+                session.initializePrivy(
+                    privy = PrivyAuthSample.privy,
+                    rpcEndpoints = rpcConfig,
+                    walletAddress = null
+                )
+                val evmAddress = runCatching { session.client?.getWalletAddress(WalletChain.EVM.chainId) }.getOrNull()
+                SampleLog.i("Privy.rainInit", "success — isInitialized=${session.isInitialized} evm=$evmAddress")
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        isInitialized = session.isInitialized,
+                        isRecovered = true,
+                        statusText = "Rain initialized with Privy — wallet ready"
+                    )
+                }
+            } catch (e: Exception) {
+                SampleLog.e("Privy.rainInit", "failed: ${e.message}", e)
+                _state.update {
+                    it.copy(isLoading = false, statusText = "Rain Privy init failed: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun clearSession() {
+        SampleLog.i("Home", "clearing session (provider logout + UI reset)")
+        viewModelScope.launch {
+            // Real logout so the next run requires fresh auth (and resume detects no session).
             TurnkeyAuthSample.logout()
+            PrivyAuthSample.logout()
             _state.update {
                 HomeUiState(statusText = "Session Cleared", mode = it.mode)
             }
@@ -295,6 +435,12 @@ data class HomeUiState(
     val turnkeyOtpEncryptionBundle: String? = null,
     val turnkeyOtpCode: String = "",
     val turnkeySessionActive: Boolean = false,
+    val privyAppId: String = "",
+    val privyAppClientId: String = "",
+    val privyEmail: String = "",
+    val privyOtpSent: Boolean = false,
+    val privyOtpCode: String = "",
+    val privySessionActive: Boolean = false,
     val isInitialized: Boolean = false,
     val needsRecovery: Boolean = false,
     val isRecovered: Boolean = false,
