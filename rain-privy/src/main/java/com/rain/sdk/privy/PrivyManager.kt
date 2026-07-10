@@ -6,6 +6,8 @@ import io.privy.wallet.ethereum.EmbeddedEthereumWallet
 import io.privy.wallet.ethereum.EthereumChain
 import io.privy.wallet.ethereum.EthereumRpcRequest
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
 
 /**
@@ -18,6 +20,14 @@ import timber.log.Timber
 internal class PrivyManager(
     private val privy: Privy,
 ) {
+
+    /**
+     * Serializes [sendTransaction]. Privy's EIP-1193 provider is stateful: [sendTransaction] points
+     * it at a chain via `switchChain` and then broadcasts, so two concurrent sends to different
+     * chains could interleave the switch of one with the request of the other. Signing takes no
+     * chain state, so only sends are guarded.
+     */
+    private val sendMutex = Mutex()
 
     /**
      * Resolves the embedded Ethereum wallet to sign with. Uses [addressOverride] when supplied,
@@ -65,11 +75,21 @@ internal class PrivyManager(
         transactionJson: String,
     ): String {
         val wallet = resolveWallet(walletAddress)
-        wallet.provider.switchChain(EthereumChain.Custom(rpcUrl))
-        return request(wallet, EthereumRpcRequest.ethSendTransaction(transactionJson))
+        return sendMutex.withLock {
+            wallet.provider.switchChain(EthereumChain.Custom(rpcUrl))
+            request(wallet, EthereumRpcRequest.ethSendTransaction(transactionJson))
+        }
     }
 
-    /** Issues an RPC request through the wallet's provider, unwrapping the [Result] and data. */
+    /**
+     * Issues an RPC request through the wallet's provider, unwrapping the [Result] and data.
+     *
+     * Failures bubble up raw (only logged here) rather than being wrapped in [RainError]. Core's
+     * `TransactionExecutor` / `TransactionSigner` short-circuit on any `RainError` before their
+     * `ErrorMapper` runs, so pre-wrapping would hide user-rejection / insufficient-funds behind a
+     * generic `ProviderError`. Letting the raw Privy error through lets the mapper classify it —
+     * matching how the Portal and Turnkey adapters surface signing/broadcast failures.
+     */
     private suspend fun request(
         wallet: EmbeddedEthereumWallet,
         rpcRequest: EthereumRpcRequest,
@@ -80,11 +100,11 @@ internal class PrivyManager(
             throw e
         } catch (e: Exception) {
             Timber.e(e, "Rain SDK: Privy RPC request failed for ${rpcRequest.method}")
-            throw RainError.ProviderError(e)
+            throw e
         }
         return result.getOrElse { error ->
             Timber.e(error, "Rain SDK: Privy RPC request failed for ${rpcRequest.method}")
-            throw RainError.ProviderError(error)
+            throw error
         }.data
     }
 }
