@@ -12,8 +12,13 @@ import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.utils.EthereumConverter
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import org.json.JSONObject
+import timber.log.Timber
 import org.web3j.abi.FunctionEncoder
 import org.web3j.abi.TypeReference
 import org.web3j.abi.datatypes.Address
@@ -48,13 +53,19 @@ internal class PrivyWalletProvider(
 
     @Volatile
     private var cachedAddress: String? = null
+    private val cachedAddressLock = Mutex()
 
     // ---------- address ----------
 
     override suspend fun getWalletAddress(): String {
         walletAddressOverride?.takeIf { it.isNotEmpty() }?.let { return it }
         cachedAddress?.let { return it }
-        return manager.getAddress(walletAddressOverride).also { cachedAddress = it }
+        // Lock so concurrent first-access callers resolve the address once (parity with Turnkey),
+        // rather than each firing a redundant Privy lookup.
+        return cachedAddressLock.withLock {
+            cachedAddress?.let { return@withLock it }
+            manager.getAddress(walletAddressOverride).also { cachedAddress = it }
+        }
     }
 
     // ---------- high-level send ----------
@@ -140,14 +151,25 @@ internal class PrivyWalletProvider(
         }
     }
 
-    override suspend fun getBalances(chainId: Int): List<Balance> = coroutineScope {
+    override suspend fun getBalances(chainId: Int): List<Balance> = supervisorScope {
         val walletAddress = getWalletAddress()
+        // Native is essential: its failure propagates (it is awaited directly below). Per-token
+        // reads are best-effort — a single bad/failing contract must not drop the whole list, so
+        // each is wrapped and skipped on failure. A semaphore caps concurrent RPC calls; without
+        // it a large token registry would fan out one connection per token at once.
         val nativeDeferred = async { fetchNativeBalance(chainId, walletAddress) }
+        val gate = Semaphore(MAX_CONCURRENT_BALANCE_READS)
         val contractDeferred = tokenStore.registeredTokens(chainId).map { info ->
-            async { fetchContractBalance(chainId, walletAddress, info.address) }
+            async {
+                runCatching { gate.withPermit { fetchContractBalance(chainId, walletAddress, info.address) } }
+                    .onFailure { e ->
+                        Timber.w(e, "Rain SDK: Privy balance read failed for token=${info.address} chainId=$chainId; skipping")
+                    }
+                    .getOrNull()
+            }
         }
         val output = mutableListOf(nativeDeferred.await())
-        output += contractDeferred.awaitAll().filter { it.rawAmount > BigInteger.ZERO }
+        output += contractDeferred.awaitAll().filterNotNull().filter { it.rawAmount > BigInteger.ZERO }
         output
     }
 
@@ -214,5 +236,10 @@ internal class PrivyWalletProvider(
         val tx = mutableMapOf("from" to from, "to" to to, "value" to value.ifEmpty { "0x0" })
         if (data.isNotEmpty() && data != "0x") tx["data"] = data
         return tx
+    }
+
+    private companion object {
+        /** Upper bound on simultaneous per-token balance RPC calls in [getBalances]. */
+        const val MAX_CONCURRENT_BALANCE_READS = 8
     }
 }
