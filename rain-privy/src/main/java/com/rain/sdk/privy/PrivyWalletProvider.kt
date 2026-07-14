@@ -10,6 +10,7 @@ import com.rain.sdk.models.Token
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.utils.EthereumConverter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.supervisorScope
@@ -108,6 +109,20 @@ internal class PrivyWalletProvider(
         value: String,
     ): String {
         val rpcUrl = rpcUrlFor(chainId)
+
+        // Simulate the transaction first via eth_call to catch failures
+        // (e.g. insufficient funds, contract reverts) — no balance fetch needed,
+        // the node validates it for free. Mirrors the Portal adapter and the iOS Privy adapter.
+        try {
+            rpcClient.callForHexResult(
+                rpcUrl, "eth_call", listOf(rpcTransactionObject(from, to, data, value), "latest")
+            )
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Timber.e(e, "Rain SDK: Transaction simulation failed (eth_call)")
+            throw RainError.TransactionSimulationFailed(e)
+        }
+
         val transactionJson = JSONObject().apply {
             put("from", from)
             put("to", to)

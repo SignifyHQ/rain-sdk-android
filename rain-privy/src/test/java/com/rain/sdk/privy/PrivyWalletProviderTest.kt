@@ -1,11 +1,13 @@
 package com.rain.sdk.privy
 
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.NativeCurrency
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.every
@@ -77,6 +79,43 @@ class PrivyWalletProviderTest {
     }
 
     @Test
+    fun `sendTransaction simulates via eth_call before broadcasting`() = runBlocking {
+        val manager = mockk<PrivyManager>()
+        coEvery { manager.sendTransaction(WALLET, RPC, any()) } returns "0xHASH"
+        val rpc = mockk<PrivyRpcClient>()
+        val simulationParams = slot<List<Any>>()
+        coEvery { rpc.callForHexResult(RPC, "eth_call", capture(simulationParams)) } returns "0x"
+
+        val wallet = provider(manager, rpc)
+        val hash = wallet.sendTransaction(chainId = 1, from = WALLET, to = TO, data = "0xabcdef", value = "0x1")
+
+        assertThat(hash).isEqualTo("0xHASH")
+        // The simulation call carries the same transaction object, against the latest block.
+        val callObject = simulationParams.captured.first() as Map<*, *>
+        assertThat(callObject["from"]).isEqualTo(WALLET)
+        assertThat(callObject["to"]).isEqualTo(TO)
+        assertThat(callObject["data"]).isEqualTo("0xabcdef")
+        assertThat(callObject["value"]).isEqualTo("0x1")
+        assertThat(simulationParams.captured.last()).isEqualTo("latest")
+        coVerify(exactly = 1) { manager.sendTransaction(WALLET, RPC, any()) }
+    }
+
+    @Test
+    fun `a failing eth_call simulation surfaces as TransactionSimulationFailed without broadcasting`() = runBlocking {
+        val manager = mockk<PrivyManager>()
+        val rpc = mockk<PrivyRpcClient>()
+        coEvery { rpc.callForHexResult(RPC, "eth_call", any()) } throws RuntimeException("execution reverted")
+
+        val wallet = provider(manager, rpc)
+        val error = runCatching {
+            wallet.sendTransaction(chainId = 1, from = WALLET, to = TO, data = "0x", value = "0x1")
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(RainError.TransactionSimulationFailed::class.java)
+        coVerify(exactly = 0) { manager.sendTransaction(any(), any(), any()) }
+    }
+
+    @Test
     fun `estimateTransactionFee multiplies gas limit by gas price`() = runBlocking {
         val manager = mockk<PrivyManager>()
         val rpc = mockk<PrivyRpcClient>()
@@ -120,8 +159,15 @@ class PrivyWalletProviderTest {
         assertThat(balances.map { it.token }).containsExactly(Token.Native, Token.Contract("0xUSDC"))
     }
 
-    private fun provider(manager: PrivyManager) =
-        PrivyWalletProvider(manager, mapOf(1 to RPC), mockk<TokenMetadataStore>())
+    private fun provider(manager: PrivyManager, rpc: PrivyRpcClient = simulationPassingRpc()) =
+        PrivyWalletProvider(manager, mapOf(1 to RPC), mockk<TokenMetadataStore>(), rpcClient = rpc)
+
+    /** An RPC client whose pre-broadcast `eth_call` simulation always succeeds. */
+    private fun simulationPassingRpc(): PrivyRpcClient {
+        val rpc = mockk<PrivyRpcClient>()
+        coEvery { rpc.callForHexResult(RPC, "eth_call", any()) } returns "0x"
+        return rpc
+    }
 
     /** Pulls the `to` field out of an `eth_call` params list (first param is the call object). */
     private fun callTarget(params: List<Any>): String? =
