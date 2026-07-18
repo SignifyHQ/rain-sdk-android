@@ -37,15 +37,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.WalletChain
 
 @Composable
 fun CollateralWithdrawScreen(
     innerPadding: PaddingValues,
+    rainSdk: RainSdk,
     rainClient: RainClient,
     onBack: () -> Unit,
-    viewModel: CollateralWithdrawViewModel = viewModel(factory = CollateralWithdrawViewModelFactory(rainClient))
+    viewModel: CollateralWithdrawViewModel = viewModel(factory = CollateralWithdrawViewModelFactory(rainSdk, rainClient))
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current

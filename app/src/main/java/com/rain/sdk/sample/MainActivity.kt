@@ -73,9 +73,10 @@ fun SampleApp() {
                 )
             }
             composable(Screen.WalletInfo.route) {
-                WithClient(session, navController) { client ->
+                WithClient(session, navController) { sdk, client ->
                     WalletInfoScreen(
                         innerPadding = innerPadding,
+                        rainSdk = sdk,
                         rainClient = client,
                         selectedChain = selectedChain,
                         onBack = { navController.popBackStack() }
@@ -83,9 +84,10 @@ fun SampleApp() {
                 }
             }
             composable(Screen.Balances.route) {
-                WithClient(session, navController) { client ->
+                WithClient(session, navController) { sdk, client ->
                     BalancesScreen(
                         innerPadding = innerPadding,
+                        rainSdk = sdk,
                         rainClient = client,
                         selectedChain = selectedChain,
                         onBack = { navController.popBackStack() }
@@ -93,7 +95,7 @@ fun SampleApp() {
                 }
             }
             composable(Screen.SendTokens.route) {
-                WithClient(session, navController) { client ->
+                WithClient(session, navController) { _, client ->
                     SendTokensScreen(
                         innerPadding = innerPadding,
                         rainClient = client,
@@ -103,16 +105,17 @@ fun SampleApp() {
                 }
             }
             composable(Screen.CollateralWithdraw.route) {
-                WithClient(session, navController) { client ->
+                WithClient(session, navController) { sdk, client ->
                     CollateralWithdrawScreen(
                         innerPadding = innerPadding,
+                        rainSdk = sdk,
                         rainClient = client,
                         onBack = { navController.popBackStack() }
                     )
                 }
             }
             composable(Screen.TransactionHistory.route) {
-                WithClient(session, navController) { client ->
+                WithClient(session, navController) { _, client ->
                     TransactionHistoryScreen(
                         innerPadding = innerPadding,
                         rainClient = client,
@@ -127,20 +130,22 @@ fun SampleApp() {
 
 /**
  * Feature screens are only reachable from the home grid after initialization, so the resolved
- * [RainClient] is present. This guard supplies the real client to [content]; if it's somehow null
- * (e.g. process death mid-flow) it pops back to home rather than crashing.
+ * [RainClient] (and the [com.rain.sdk.RainSdk] that produced it) are present. This guard supplies
+ * both to [content]; if either is somehow null (e.g. process death mid-flow) it pops back to home
+ * rather than crashing.
  */
 @Composable
 private fun WithClient(
     session: RainSession,
     navController: NavController,
-    content: @Composable (RainClient) -> Unit,
+    content: @Composable (com.rain.sdk.RainSdk, RainClient) -> Unit,
 ) {
+    val sdk = session.rain
     val client = session.client
-    if (client == null) {
+    if (sdk == null || client == null) {
         LaunchedEffect(Unit) { navController.popBackStack() }
     } else {
-        content(client)
+        content(sdk, client)
     }
 }
 

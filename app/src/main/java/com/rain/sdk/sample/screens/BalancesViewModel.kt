@@ -3,9 +3,9 @@ package com.rain.sdk.sample.screens
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.models.Token
-import com.rain.sdk.sample.NetworkClient
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class BalancesViewModel(
+    private val rainSdk: RainSdk,
     private val rainClient: RainClient
 ) : ViewModel() {
 
@@ -86,8 +87,8 @@ class BalancesViewModel(
             _state.update { it.copy(collateralError = "SDK not initialized") }
             return
         }
-        if (!NetworkClient.isConfigured) {
-            SampleLog.w("Balances.collateral", "NetworkClient not configured")
+        if (!rainSdk.isRainApiConfigured) {
+            SampleLog.w("Balances.collateral", "Rain API not configured")
             _state.update { it.copy(collateralError = "Rain Api-Key and User ID required") }
             return
         }
@@ -97,23 +98,10 @@ class BalancesViewModel(
 
         viewModelScope.launch {
             try {
-                val contractResponse = NetworkClient.fetchCollateralContract()
-                if (contractResponse.result.isFailure) {
-                    val err = contractResponse.result.exceptionOrNull()
-                    SampleLog.e("Balances.collateral", "fetchCollateralContract failed: ${err?.message}", err)
-                    _state.update {
-                        it.copy(
-                            isCollateralLoading = false,
-                            collateralError = "Failed to fetch contract: ${err?.message}"
-                        )
-                    }
-                    return@launch
-                }
-
-                val contract = contractResponse.result.getOrThrow()
+                val contract = rainSdk.fetchCollateralContract()
                 val tokens = contract.tokens
 
-                val collateralAddress = contract.address
+                val collateralAddress = contract.proxyAddress
                 SampleLog.i(
                     "Balances.collateral",
                     "success — address=$collateralAddress tokens=${tokens.size}"
@@ -128,7 +116,7 @@ class BalancesViewModel(
                         name = token.name ?: "",
                         address = token.address,
                         decimals = token.decimals ?: 18,
-                        balance = token.balance,
+                        balance = token.balanceAmount?.toDouble() ?: 0.0,
                         exchangeRate = token.exchangeRate
                     )
                 }
@@ -222,12 +210,13 @@ data class WalletTokenBalance(
 }
 
 class BalancesViewModelFactory(
+    private val rainSdk: RainSdk,
     private val rainClient: RainClient
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(BalancesViewModel::class.java)) {
-            return BalancesViewModel(rainClient) as T
+            return BalancesViewModel(rainSdk, rainClient) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
