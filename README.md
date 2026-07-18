@@ -17,25 +17,25 @@ Android SDK that integrates [Portal](https://portalhq.io) MPC wallet or [Turnkey
 
 ## Installation
 
-The SDK is modular (ports & adapters): a vendor-free **`rain-core`** plus one adapter module per
+The SDK is modular (ports & adapters): a vendor-free **`rain-core-android`** plus one adapter module per
 wallet provider. Link only the providers you use — an unselected provider's vendor SDK never enters
 your dependency graph.
 
 ```kotlin
 dependencies {
-    // Portal-only app: pulls rain-core transitively. Turnkey is never fetched or shipped.
-    implementation("io.github.spartan-quanhongtran:rain-portal:1.0.1")
+    // Portal-only app: pulls rain-core-android transitively. Turnkey is never fetched or shipped.
+    implementation("io.github.spartan-quanhongtran:rain-portal-android:1.0.1")
 
-    // Or, for Turnkey (the Turnkey adapter currently ships inside rain-core):
-    // implementation("io.github.spartan-quanhongtran:rain-core:1.0.1")
+    // Or, for Turnkey (the Turnkey adapter currently ships inside rain-core-android):
+    // implementation("io.github.spartan-quanhongtran:rain-core-android:1.0.1")
 }
 ```
 
 | Module        | Contains                                                                 |
 |---------------|--------------------------------------------------------------------------|
-| `rain-core`   | The `WalletProvider` port, capability model, provider registry, all Rain domain logic, **and the Turnkey adapter** (in `com.rain.sdk.turnkey`, for now). |
-| `rain-portal` | The Portal MPC adapter (`PortalProvider`); depends on `rain-core` + `portal-android`. |
-| `rain-privy`  | The Privy embedded-key adapter (`PrivyProvider`) — **skeleton**; proves a net-new provider costs existing clients nothing. Operations throw `NotImplementedError` until the Privy SDK is wired. |
+| `rain-core-android`   | The `WalletProvider` port, capability model, provider registry, all Rain domain logic, **and the Turnkey adapter** (in `com.rain.sdk.turnkey`, for now). |
+| `rain-portal-android` | The Portal MPC adapter (`PortalProvider`); depends on `rain-core-android` + `portal-android`. |
+| `rain-privy-android`  | The Privy embedded-key adapter (`PrivyProvider`) — **skeleton**; proves a net-new provider costs existing clients nothing. Operations throw `NotImplementedError` until the Privy SDK is wired. |
 
 ## Requirements
 
@@ -182,9 +182,48 @@ val result = client.sendToken(
 )
 ```
 
-### 7. Withdraw Collateral
+### 7. Rain API: Collateral Contracts & Admin Signature
 
-The SDK uses `RainWithdrawAddresses` and `RainAdminSignature` to group withdrawal parameters:
+The SDK talks to the Rain issuing API directly — supply your program **Api-Key** and Rain
+**userId** and it handles session (CST) minting, caching, and refresh internally. Credentials
+are never persisted by the SDK. In production, prefer minting server-to-server and keeping the
+Api-Key off the device.
+
+```kotlin
+import com.rain.sdk.models.RainApiEnvironment
+import java.math.BigInteger
+
+val rain = RainSdk.builder()
+    .rpcEndpoints(mapOf(84532 to "https://sepolia.base.org"))
+    .register(/* provider */)
+    .rainApiEnvironment(RainApiEnvironment.Dev) // default; Production / Custom(baseUrl) available
+    .rainApiCredentials(apiKey = "…", userId = "…") // or configureRainApi(...) at runtime
+    .build()
+
+// Or set / replace credentials later (e.g. entered in your UI):
+rain.configureRainApi(apiKey = "…", userId = "…")
+
+// GET /v1/issuing/users/{userId}/contracts — token name/symbol/decimals are enriched from
+// the SDK token store or an on-chain read (best-effort; null when unresolvable)
+val contract = rain.fetchCollateralContract()   // first contract, or RainError.NoCollateralContracts
+val contracts = rain.fetchCollateralContracts() // full list
+
+// GET /v1/issuing/users/{userId}/signatures/withdrawals
+// Throws RainError.SignatureNotReady(status, retryAfter) while Rain prepares the signature.
+val adminSignature = rain.fetchAdminSignature(
+    chainId = contract.chainId,
+    tokenAddress = contract.tokens.first().address,
+    amountBaseUnits = BigInteger("100000000"), // base units
+    adminAddress = contract.adminAddresses.first(),
+    recipientAddress = "0x..."
+)
+```
+
+### 8. Withdraw Collateral
+
+The SDK uses `RainWithdrawAddresses` and `RainAdminSignature` to group withdrawal parameters.
+Both are typically produced by the Rain API methods above (`fetchCollateralContract` supplies
+the addresses, `fetchAdminSignature` returns a ready `RainAdminSignature`):
 
 ```kotlin
 import com.rain.sdk.models.RainWithdrawAddresses
@@ -227,7 +266,7 @@ val result = client.withdrawCollateral(
 println("Tx Data: ${result.transactionData}")
 ```
 
-### 8. Estimate Gas
+### 9. Estimate Gas
 
 ```kotlin
 val fee = client.estimateGas(
@@ -239,7 +278,7 @@ val fee = client.estimateGas(
 println("Estimated fee: $fee AVAX")
 ```
 
-### 9. Transaction History
+### 10. Transaction History
 
 ```kotlin
 import com.rain.sdk.models.RainTransactionOrder
@@ -256,7 +295,7 @@ result.transactions.forEach { tx ->
 }
 ```
 
-### 10. QR Code Generation
+### 11. QR Code Generation
 
 ```kotlin
 val bitmap = client.generateAddressQRCode(

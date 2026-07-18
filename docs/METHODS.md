@@ -1,6 +1,6 @@
 # Rain SDK for Android — Method Reference
 
-Reference for the Rain SDK public API. The SDK is **modular**: `rain-core` carries the
+Reference for the Rain SDK public API. The SDK is **modular**: `rain-core-android` carries the
 vendor-free port, registry, and domain logic; each wallet provider ships as its own adapter
 (`PortalProvider`, `TurnkeyProvider`, …). You assemble a `RainSdk` with a builder, register the
 provider adapters your app ships, then resolve a `RainClient` per provider.
@@ -102,8 +102,8 @@ Each adapter is a `RainProvider` descriptor that owns its vendor SDK as a privat
 
 | Adapter | Module | Config | Notes |
 |---------|--------|--------|-------|
-| `PortalProvider(PortalConfig(sessionToken, chainId?))` | `rain-portal` | `sessionToken: String`, `chainId: Int?` | Portal MPC signer (EVM). Advertises `EXPORT`, `RECOVERY`. |
-| `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?))` | `rain-core` | `turnkey: TurnkeyContext`, `walletAddress: String?` | Turnkey P256 signer (EVM + Solana). Advertises `MULTI_CHAIN`, `BIOMETRIC_GATE`. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
+| `PortalProvider(PortalConfig(sessionToken, chainId?))` | `rain-portal-android` | `sessionToken: String`, `chainId: Int?` | Portal MPC signer (EVM). Advertises `EXPORT`, `RECOVERY`. |
+| `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?))` | `rain-core-android` | `turnkey: TurnkeyContext`, `walletAddress: String?` | Turnkey P256 signer (EVM + Solana). Advertises `MULTI_CHAIN`, `BIOMETRIC_GATE`. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
 
 **Bring your own provider:** implement the `WalletProvider` port and a `RainProvider` descriptor
 (with your own `ProviderId`), then `register(...)` it. Core needs no change — the `transactionBuilder`

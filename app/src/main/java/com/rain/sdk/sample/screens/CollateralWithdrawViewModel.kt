@@ -3,11 +3,11 @@ package com.rain.sdk.sample.screens
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainWithdrawAddresses
-import com.rain.sdk.models.Token
-import com.rain.sdk.sample.NetworkClient
 import com.rain.sdk.sample.SampleLog
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class CollateralWithdrawViewModel(
+    private val rainSdk: RainSdk,
     private val rainClient: RainClient
 ) : ViewModel() {
 
@@ -33,40 +34,23 @@ class CollateralWithdrawViewModel(
                 val walletAddress = rainClient.getWalletAddress()
                 SampleLog.d("Withdraw.contract", "wallet address=$walletAddress")
 
-                val contractResponse = NetworkClient.fetchCollateralContract()
-                if (contractResponse.result.isFailure) {
-                    val err = contractResponse.result.exceptionOrNull()
-                    SampleLog.e("Withdraw.contract", "fetchCollateralContract failed: ${err?.message}", err)
-                    _state.update {
-                        it.copy(
-                            isLoadingContract = false,
-                            errorText = "Failed to fetch contract: ${err?.message}"
-                        )
-                    }
-                    return@launch
-                }
-
-                val contract = contractResponse.result.getOrThrow()
+                val contract = rainSdk.fetchCollateralContract()
                 SampleLog.i(
                     "Withdraw.contract",
-                    "contract=${contract.address} tokens=${contract.tokens.size} chainId=${contract.chainId}"
+                    "contract=${contract.proxyAddress} tokens=${contract.tokens.size} chainId=${contract.chainId}"
                 )
 
-                // Rain's /contracts response omits token decimals/symbol, so resolve them
-                // on-chain via the SDK (getBalance carries decimals + symbol). Falls back to 6
-                // (these collateral tokens are stablecoins) if the read fails — e.g. the SDK
-                // wasn't initialized with this contract's chain RPC.
-                val chainIdInt = contract.chainId.toInt()
+                // The SDK enriches token name/symbol/decimals from its token store / on-chain
+                // reads. Fall back to 6 decimals (these collateral tokens are stablecoins) when
+                // enrichment couldn't resolve them — e.g. the SDK wasn't initialized with this
+                // contract's chain RPC.
                 val tokens = contract.tokens.map { token ->
-                    val meta = runCatching {
-                        rainClient.getBalance(chainIdInt, Token.Contract(token.address))
-                    }.getOrNull()
                     WithdrawTokenOption(
-                        name = meta?.name ?: token.name ?: "Token",
-                        symbol = meta?.symbol ?: token.symbol ?: "",
+                        name = token.name ?: "Token",
+                        symbol = token.symbol ?: "",
                         address = token.address,
-                        decimals = meta?.decimals ?: token.decimals ?: 6,
-                        balance = token.balance
+                        decimals = token.decimals ?: 6,
+                        balance = token.balanceAmount?.toDouble() ?: 0.0
                     )
                 }
 
@@ -74,7 +58,7 @@ class CollateralWithdrawViewModel(
                     it.copy(
                         walletAddress = walletAddress,
                         recipientAddress = walletAddress,
-                        proxyAddress = contract.address,
+                        proxyAddress = contract.proxyAddress,
                         controllerAddress = contract.controllerAddress,
                         chainId = contract.chainId,
                         adminAddress = contract.adminAddresses.firstOrNull() ?: "",
@@ -192,24 +176,18 @@ class CollateralWithdrawViewModel(
                 val cached = current.adminSignature?.takeIf { current.signatureKey == signatureKey }
                 val adminSig = cached ?: run {
                     SampleLog.d("Withdraw.execute", "fetching fresh admin signature")
-                    val sigResponse = NetworkClient.fetchAdminSignature(
-                        chainId = current.chainId,
-                        token = signatureKey.tokenAddress,
-                        amount = amountBaseUnits,
-                        adminAddress = current.adminAddress,
-                        recipientAddress = current.recipientAddress
-                    )
-                    if (sigResponse.result.isFailure) {
-                        val err = sigResponse.result.exceptionOrNull()
-                        SampleLog.e("Withdraw.execute", "fetchAdminSignature failed: ${err?.message}", err)
-                        throw Exception(friendlySignatureError(err?.message))
+                    try {
+                        rainSdk.fetchAdminSignature(
+                            chainId = current.chainId,
+                            tokenAddress = signatureKey.tokenAddress,
+                            amountBaseUnits = amountBaseUnits,
+                            adminAddress = current.adminAddress,
+                            recipientAddress = current.recipientAddress
+                        )
+                    } catch (e: RainError) {
+                        SampleLog.e("Withdraw.execute", "fetchAdminSignature failed: ${e.message}", e)
+                        throw Exception(friendlySignatureError(e))
                     }
-                    val (sigDetails, expiresAt) = sigResponse.result.getOrThrow()
-                    RainAdminSignature(
-                        salt = sigDetails.salt,
-                        signature = sigDetails.data,
-                        expiresAt = expiresAt
-                    )
                 }
                 // Cache it (with the inputs it's bound to) so a retry after a transient send
                 // failure reuses the same signature instead of triggering
@@ -224,7 +202,7 @@ class CollateralWithdrawViewModel(
                 )
 
                 val result = rainClient.withdrawCollateral(
-                    chainId = current.chainId.toInt(),
+                    chainId = current.chainId,
                     addresses = addresses,
                     amount = amountBd,
                     decimals = token.decimals,
@@ -259,13 +237,16 @@ class CollateralWithdrawViewModel(
      * pending — re-using inputs reuses the cached signature, but a stale one server-side needs
      * to clear (or settle) first.
      */
-    private fun friendlySignatureError(raw: String?): String {
-        val message = raw ?: "Failed to get signature"
-        return if (message.contains("active signature", ignoreCase = true)) {
-            "A withdrawal signature is already active for this account. Wait for the previous " +
-                "withdrawal to settle (or its signature to expire) before requesting a new one."
-        } else {
-            "Failed to get signature: $message"
+    private fun friendlySignatureError(error: RainError): String {
+        val message = error.message ?: "Failed to get signature"
+        return when {
+            error is RainError.SignatureNotReady ->
+                "Withdrawal signature is not ready yet" +
+                    (error.retryAfter?.let { " — retry in ${it}s" } ?: "")
+            message.contains("active signature", ignoreCase = true) ->
+                "A withdrawal signature is already active for this account. Wait for the previous " +
+                    "withdrawal to settle (or its signature to expire) before requesting a new one."
+            else -> "Failed to get signature: $message"
         }
     }
 }
@@ -297,7 +278,7 @@ data class CollateralWithdrawUiState(
     val proxyAddress: String = "",
     val controllerAddress: String = "",
     val adminAddress: String = "",
-    val chainId: Long = 0,
+    val chainId: Int = 0,
     val availableTokens: List<WithdrawTokenOption> = emptyList(),
     val selectedTokenIndex: Int = -1,
     val amount: String = "",
@@ -333,12 +314,13 @@ data class CollateralWithdrawUiState(
 }
 
 class CollateralWithdrawViewModelFactory(
+    private val rainSdk: RainSdk,
     private val rainClient: RainClient
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(CollateralWithdrawViewModel::class.java)) {
-            return CollateralWithdrawViewModel(rainClient) as T
+            return CollateralWithdrawViewModel(rainSdk, rainClient) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

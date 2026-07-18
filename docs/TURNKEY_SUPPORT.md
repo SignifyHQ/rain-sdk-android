@@ -1,6 +1,6 @@
 # Turnkey Support
 
-Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provider, alongside the Portal MPC adapter. Turnkey ships as the `TurnkeyProvider` adapter, which currently lives inside the `rain-core` module (package `com.rain.sdk.turnkey`). Turnkey authentication (passkeys, OAuth, OTP, auth proxy) happens **outside** Rain — the host app uses the official [Turnkey Kotlin SDK](https://docs.turnkey.com/sdks/kotlin/getting-started) to authenticate the user and then hands the live `TurnkeyContext` to Rain via `TurnkeyConfig` for wallet operations.
+Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provider, alongside the Portal MPC adapter. Turnkey ships as the `TurnkeyProvider` adapter, which currently lives inside the `rain-core-android` module (package `com.rain.sdk.turnkey`). Turnkey authentication (passkeys, OAuth, OTP, auth proxy) happens **outside** Rain — the host app uses the official [Turnkey Kotlin SDK](https://docs.turnkey.com/sdks/kotlin/getting-started) to authenticate the user and then hands the live `TurnkeyContext` to Rain via `TurnkeyConfig` for wallet operations.
 
 ## Requirements
 
@@ -10,7 +10,7 @@ Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provide
 
 ## Adding the dependency
 
-The Turnkey artifacts ship transitively with `rain-core` via `api(...)`, so consumers don't need to add them explicitly. Internally Rain pulls in:
+The Turnkey artifacts ship transitively with `rain-core-android` via `api(...)`, so consumers don't need to add them explicitly. Internally Rain pulls in:
 
 ```
 com.turnkey:sdk-kotlin:2.0.0
@@ -229,7 +229,7 @@ Each client is bound to its provider for its lifetime; there is no "active provi
 
 ## Bouncy Castle dependency conflict (downstream consumers)
 
-Turnkey (via `com.turnkey:crypto` and `com.turnkey:encoding`) depends on **`org.bouncycastle:bcprov-jdk15to18:1.82`**, while web3j 4.10 (a transitive dependency of rain-core) depends on **`org.bouncycastle:bcprov-jdk18on:1.73`**. Both artifacts publish overlapping `org.bouncycastle.*` class names, so dex-ing them together fails with errors like:
+Turnkey (via `com.turnkey:crypto` and `com.turnkey:encoding`) depends on **`org.bouncycastle:bcprov-jdk15to18:1.82`**, while web3j 4.10 (a transitive dependency of rain-core-android) depends on **`org.bouncycastle:bcprov-jdk18on:1.73`**. Both artifacts publish overlapping `org.bouncycastle.*` class names, so dex-ing them together fails with errors like:
 
 ```
 Duplicate class org.bouncycastle.asn1.pkcs.EncryptionScheme found in modules

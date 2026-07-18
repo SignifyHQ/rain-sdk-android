@@ -4,8 +4,8 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
-import com.rain.sdk.sample.NetworkClient
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class WalletInfoViewModel(
+    private val rainSdk: RainSdk,
     private val rainClient: RainClient
 ) : ViewModel() {
 
@@ -54,27 +55,14 @@ class WalletInfoViewModel(
                     return@launch
                 }
 
-                val contractResponse = NetworkClient.fetchCollateralContract()
-                if (contractResponse.result.isFailure) {
-                    val err = contractResponse.result.exceptionOrNull()
-                    SampleLog.e("WalletInfo", "fetchCollateralContract failed: ${err?.message}", err)
-                    _state.update {
-                        it.copy(
-                            isLoading = false,
-                            errorText = "Failed to fetch collateral: ${err?.message}"
-                        )
-                    }
-                    return@launch
-                }
-
-                val contract = contractResponse.result.getOrThrow()
-                SampleLog.d("WalletInfo", "collateral address=${contract.address}")
-                val collateralQr = rainClient.generateAddressQRCode(contract.address)
+                val contract = rainSdk.fetchCollateralContract()
+                SampleLog.d("WalletInfo", "collateral address=${contract.proxyAddress}")
+                val collateralQr = rainClient.generateAddressQRCode(contract.proxyAddress)
 
                 SampleLog.i("WalletInfo", "success")
                 _state.update {
                     it.copy(
-                        collateralAddress = contract.address,
+                        collateralAddress = contract.proxyAddress,
                         collateralQrBitmap = collateralQr,
                         isLoading = false
                     )
@@ -109,12 +97,13 @@ data class WalletInfoUiState(
 }
 
 class WalletInfoViewModelFactory(
+    private val rainSdk: RainSdk,
     private val rainClient: RainClient
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(WalletInfoViewModel::class.java)) {
-            return WalletInfoViewModel(rainClient) as T
+            return WalletInfoViewModel(rainSdk, rainClient) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

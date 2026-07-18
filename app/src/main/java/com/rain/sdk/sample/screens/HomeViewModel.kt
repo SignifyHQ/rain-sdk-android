@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.rain.sdk.RainChain
-import com.rain.sdk.sample.NetworkClient
 import com.rain.sdk.sample.PrivyAuthSample
 import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.SampleLog
@@ -28,6 +27,12 @@ class HomeViewModel(
     )
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
+    init {
+        // Apply the (dev-default) credentials so the SDK is configured even when the user
+        // never edits the fields.
+        session.configureRainApi(_state.value.rainApiKey, _state.value.userId)
+    }
+
     fun onModeChanged(mode: WalletMode) {
         SampleLog.d("Home", "mode changed: $mode")
         _state.update { it.copy(mode = mode) }
@@ -39,12 +44,12 @@ class HomeViewModel(
 
     fun onRainApiKeyChanged(value: String) {
         _state.update { it.copy(rainApiKey = value) }
-        NetworkClient.configure(value, _state.value.userId)
+        session.configureRainApi(value, _state.value.userId)
     }
 
     fun onUserIdChanged(value: String) {
         _state.update { it.copy(userId = value) }
-        NetworkClient.configure(_state.value.rainApiKey, value)
+        session.configureRainApi(_state.value.rainApiKey, value)
     }
 
     fun onPinChanged(value: String) {
@@ -425,8 +430,9 @@ class HomeViewModel(
 data class HomeUiState(
     val mode: WalletMode = WalletMode.Turnkey,
     val sessionToken: String = "",
-    val rainApiKey: String = "",
-    val userId: String = "",
+    // Dev-only defaults; clear before release.
+    val rainApiKey: String = "183e782b19016d4ee4c5a97e269c130d41fd3963",
+    val userId: String = "0a0eb6d6-f109-46b0-a09a-adf10b564525",
     val pin: String = "",
     val turnkeyOrgId: String = "",
     val turnkeyAuthProxyConfigId: String = "",
@@ -435,8 +441,8 @@ data class HomeUiState(
     val turnkeyOtpEncryptionBundle: String? = null,
     val turnkeyOtpCode: String = "",
     val turnkeySessionActive: Boolean = false,
-    val privyAppId: String = "",
-    val privyAppClientId: String = "",
+    val privyAppId: String = "cmqffvqfu00xh0dl70hgq9qyw",
+    val privyAppClientId: String = "client-WY6aRWodKbyNL5djJVCTNCyKNbuNV4TXFmdy5Hnc3xHBQ",
     val privyEmail: String = "",
     val privyOtpSent: Boolean = false,
     val privyOtpCode: String = "",
