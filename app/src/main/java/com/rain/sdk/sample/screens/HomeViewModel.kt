@@ -164,18 +164,29 @@ class HomeViewModel(
             try {
                 TurnkeyAuthSample.init(app, s.turnkeyOrgId, s.turnkeyAuthProxyConfigId)
 
-                // Turnkey restores a valid session from secure storage during init. If one is
-                // present, skip the OTP round-trip and go straight to initializing Rain.
+                // Turnkey restores a valid session from secure storage during init. Only reuse
+                // it when it provably belongs to the email being logged in — otherwise entering
+                // a different email would silently continue as the previous user. On mismatch
+                // (or when the owner can't be determined) log out and run the full OTP flow.
                 if (TurnkeyAuthSample.hasActiveSession()) {
-                    SampleLog.i("Turnkey.otpInit", "existing session restored — skipping OTP")
-                    _state.update {
-                        it.copy(
-                            isLoading = false,
-                            turnkeySessionActive = true,
-                            statusText = "Existing Turnkey session restored — initialize Rain to continue"
-                        )
+                    val sessionEmail = TurnkeyAuthSample.activeSessionEmail()
+                    if (sessionEmail != null && sessionEmail.trim().equals(s.turnkeyEmail.trim(), ignoreCase = true)) {
+                        SampleLog.i("Turnkey.otpInit", "existing session restored for this email — skipping OTP")
+                        _state.update {
+                            it.copy(
+                                isLoading = false,
+                                turnkeySessionActive = true,
+                                statusText = "Existing Turnkey session restored — initialize Rain to continue"
+                            )
+                        }
+                        return@launch
                     }
-                    return@launch
+                    SampleLog.w(
+                        "Turnkey.otpInit",
+                        "restored session belongs to ${SampleLog.maskEmail(sessionEmail)}, " +
+                            "not ${SampleLog.maskEmail(s.turnkeyEmail)} — logging out"
+                    )
+                    TurnkeyAuthSample.logout()
                 }
 
                 _state.update { it.copy(statusText = "Sending OTP to ${s.turnkeyEmail}...") }
@@ -305,17 +316,29 @@ class HomeViewModel(
             try {
                 PrivyAuthSample.init(app, s.privyAppId, s.privyAppClientId)
 
-                // Privy restores a prior authenticated session during init; skip the OTP if so.
+                // Privy restores a prior authenticated session during init. Only reuse it when
+                // it provably belongs to the email being logged in — otherwise entering a
+                // different email would silently continue as the previous user. On mismatch
+                // (or when the owner can't be determined) log out and run the full OTP flow.
                 if (PrivyAuthSample.hasActiveSession()) {
-                    SampleLog.i("Privy.otpInit", "existing session restored — skipping OTP")
-                    _state.update {
-                        it.copy(
-                            isLoading = false,
-                            privySessionActive = true,
-                            statusText = "Existing Privy session restored — initialize Rain to continue"
-                        )
+                    val sessionEmail = PrivyAuthSample.activeSessionEmail()
+                    if (sessionEmail != null && sessionEmail.trim().equals(s.privyEmail.trim(), ignoreCase = true)) {
+                        SampleLog.i("Privy.otpInit", "existing session restored for this email — skipping OTP")
+                        _state.update {
+                            it.copy(
+                                isLoading = false,
+                                privySessionActive = true,
+                                statusText = "Existing Privy session restored — initialize Rain to continue"
+                            )
+                        }
+                        return@launch
                     }
-                    return@launch
+                    SampleLog.w(
+                        "Privy.otpInit",
+                        "restored session belongs to ${SampleLog.maskEmail(sessionEmail)}, " +
+                            "not ${SampleLog.maskEmail(s.privyEmail)} — logging out"
+                    )
+                    PrivyAuthSample.logout()
                 }
 
                 _state.update { it.copy(statusText = "Sending OTP to ${s.privyEmail}...") }

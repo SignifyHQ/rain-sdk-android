@@ -27,6 +27,7 @@ import org.web3j.protocol.Web3j
 import org.web3j.protocol.core.DefaultBlockParameterName
 import org.web3j.protocol.core.methods.request.Transaction
 import org.web3j.utils.Numeric
+import timber.log.Timber
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.security.SecureRandom
@@ -78,6 +79,44 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
       if (e is CancellationException) throw e
       if (e is RainError) throw e
       throw RainError.NetworkError(cause = e)
+    }
+  }
+
+  override suspend fun isCollateralAdmin(
+    rpcUrl: String,
+    proxyAddress: String,
+    walletAddress: String
+  ): Boolean? {
+    return try {
+      val validProxyAddress = RainHexUtils.validateAndChecksum(proxyAddress, "proxyAddress")
+      val validWallet = RainHexUtils.validateAndChecksum(walletAddress, "walletAddress")
+
+      val function = Web3jFunction(
+        RainConstants.FUNC_IS_ADMIN,
+        listOf(Address(validWallet)),
+        listOf(object : TypeReference<Bool>() {})
+      )
+
+      val response = withContext(Dispatchers.IO) {
+        web3jFactory(rpcUrl).ethCall(
+          Transaction.createEthCallTransaction(null, validProxyAddress, FunctionEncoder.encode(function)),
+          DefaultBlockParameterName.LATEST
+        ).sendAsync().get()
+      }
+
+      // A revert means the collateral exposes no `isAdmin` — unknown, not unauthorized.
+      if (response.error != null) {
+        Timber.d("Rain SDK: isAdmin unavailable on $validProxyAddress: ${response.error.message}")
+        return null
+      }
+
+      FunctionReturnDecoder.decode(response.value, function.outputParameters)
+        .firstOrNull()?.value as? Boolean
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      Timber.d(e, "Rain SDK: isAdmin preflight failed; skipping the check")
+      null
     }
   }
 

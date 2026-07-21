@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.transaction
 
+import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.core.RainTransactionBuilderImpl
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
@@ -43,6 +44,7 @@ internal class TransactionCoordinator(
     try {
       // Step 1: Validate
       validator.validateWithdrawRequest(request)
+      requireCollateralAdmin(request)
 
       // Step 2: Build EIP-712 message
       val (typedDataJson, saltBytes) = RainTransactionBuilderImpl.buildEIP712Message(
@@ -96,6 +98,26 @@ internal class TransactionCoordinator(
   }
 
   /**
+   * Throws [RainError.WalletNotAuthorized] when the signing wallet is not a collateral admin.
+   * Only a definitive `false` blocks — an unknown result proceeds, so a check that cannot run
+   * never blocks a withdrawal.
+   */
+  private suspend fun requireCollateralAdmin(request: WithdrawCollateralRequest) {
+    val rpcUrl = RainConfig.getInstance().getRpcUrl(request.chainId) ?: return
+    val isAdmin = RainTransactionBuilderImpl.isCollateralAdmin(
+      rpcUrl = rpcUrl,
+      proxyAddress = request.addresses.proxyAddress,
+      walletAddress = request.walletAddress
+    )
+    if (isAdmin == false) {
+      throw RainError.WalletNotAuthorized(
+        walletAddress = request.walletAddress,
+        proxyAddress = request.addresses.proxyAddress
+      )
+    }
+  }
+
+  /**
    * Estimates gas for any transaction using the active wallet provider.
    *
    * @param chainId The chain ID
@@ -145,6 +167,7 @@ internal class TransactionCoordinator(
     try {
       // Step 1: Validate
       validator.validateWithdrawRequest(request)
+      requireCollateralAdmin(request)
 
       // Step 2: Build EIP-712 message
       val (typedDataJson, saltBytes) = RainTransactionBuilderImpl.buildEIP712Message(
