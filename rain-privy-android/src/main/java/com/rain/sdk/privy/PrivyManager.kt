@@ -5,6 +5,9 @@ import io.privy.sdk.Privy
 import io.privy.wallet.ethereum.EmbeddedEthereumWallet
 import io.privy.wallet.ethereum.EthereumChain
 import io.privy.wallet.ethereum.EthereumRpcRequest
+import io.privy.wallet.transactions.GetTransactionsParams
+import io.privy.wallet.transactions.TransactionChain
+import io.privy.wallet.transactions.TransactionsPage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -99,6 +102,17 @@ internal class PrivyManager(
             request(wallet, EthereumRpcRequest.ethSendTransaction(transactionJson))
         }
     }
+
+    /**
+     * Fetches one page of transaction history for the signing wallet via Privy's indexer.
+     *
+     * Failures bubble up raw for the same reason as [request]: core's error mapping classifies
+     * the underlying Privy error, and pre-wrapping would hide it.
+     */
+    suspend fun getTransactions(
+        walletAddress: String?,
+        params: GetTransactionsParams<TransactionChain.Evm>,
+    ): TransactionsPage = resolveWallet(walletAddress).getTransactions(params).getOrThrow()
 
     /**
      * Issues an RPC request through the wallet's provider, unwrapping the [Result] and data.

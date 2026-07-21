@@ -12,6 +12,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.privy.sdk.Privy
+import io.privy.wallet.transactions.TransactionsPage
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 
@@ -75,14 +76,22 @@ class PrivyProviderTest {
     }
 
     @Test
-    fun `getTransactions returns empty as privy exposes no history`() = runBlocking {
+    fun `getTransactions fetches history through the manager on an indexed chain`() = runBlocking {
+        val manager = mockk<PrivyManager>()
+        coEvery { manager.getAddress(null) } returns "0xWALLET"
+        coEvery { manager.getTransactions("0xWALLET", any()) } returns
+            TransactionsPage(transactions = emptyList(), nextCursor = null)
+        val tokenStore = mockk<TokenMetadataStore>()
+        coEvery { tokenStore.registeredTokens(1) } returns emptyList()
         val wallet = PrivyWalletProvider(
-            manager = mockk(),
+            manager = manager,
             rpcEndpoints = emptyMap(),
-            tokenStore = mockk<TokenMetadataStore>(),
+            tokenStore = tokenStore,
         )
         val result = wallet.getTransactions(chainId = 1)
         assertThat(result.transactions).isEmpty()
+        // No registered tokens, so history is a single native-asset query.
+        coVerify(exactly = 1) { manager.getTransactions("0xWALLET", any()) }
     }
 
     @Test
