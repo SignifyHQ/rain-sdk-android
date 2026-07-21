@@ -22,6 +22,8 @@ enum class RainErrorCode(val code: String) {
   TRANSACTION_SIMULATION_FAILED("RAIN_403"),
   WALLET_UNAVAILABLE("RAIN_404"),
   WITHDRAWAL_REVERTED_BY_NETWORK("RAIN_405"),
+  INVALID_AMOUNT("RAIN_406"),
+  WALLET_NOT_AUTHORIZED("RAIN_407"),
 
   PROVIDER_ERROR("RAIN_501"),
   INTERNAL_LOGIC_ERROR("RAIN_502")
@@ -106,6 +108,24 @@ sealed class RainError(
    */
   class WithdrawalRevertedByNetwork(details: String = "Withdrawal reverted by the network", cause: Throwable? = null) :
     RainError(RainErrorCode.WITHDRAWAL_REVERTED_BY_NETWORK, details, cause)
+
+  /**
+   * The amount is invalid for the token — more decimal places than the token supports, or
+   * negative/unrepresentable. Mirrors iOS `RainSDKError.invalidAmount`.
+   */
+  class InvalidAmount(val amount: String, val reason: String) :
+    RainError(RainErrorCode.INVALID_AMOUNT, "Invalid amount ($amount): $reason")
+
+  /**
+   * The signing wallet is not an admin of the collateral contract. `withdrawAsset` verifies the
+   * withdrawal signature against the collateral's admin set, so a non-admin signer reverts
+   * on-chain with `InvalidSignature()`.
+   */
+  class WalletNotAuthorized(val walletAddress: String, val proxyAddress: String) :
+    RainError(
+      RainErrorCode.WALLET_NOT_AUTHORIZED,
+      "Wallet $walletAddress is not an admin of collateral contract $proxyAddress"
+    )
 
   // --- 5xx Internal ---
   class ProviderError(cause: Throwable?) :

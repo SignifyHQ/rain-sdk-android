@@ -70,6 +70,73 @@ class RainTransactionBuilderImplTest {
   }
 
   @Test
+  fun `isCollateralAdmin returns true when the contract says so`() = runBlocking {
+    val mockEthCall = mockk<Request<*, EthCall>>()
+    val mockResponse = EthCall()
+    mockResponse.result = "0x0000000000000000000000000000000000000000000000000000000000000001"
+
+    every { mockWeb3j.ethCall(any(), any()) } returns mockEthCall
+    every { mockEthCall.sendAsync() } returns CompletableFuture.completedFuture(mockResponse)
+
+    val result = RainTransactionBuilderImpl.isCollateralAdmin(
+      rpcUrl = "https://rpc.com",
+      proxyAddress = "0x1111111111111111111111111111111111111111",
+      walletAddress = "0x2222222222222222222222222222222222222222"
+    )
+
+    assertThat(result).isTrue()
+  }
+
+  @Test
+  fun `isCollateralAdmin returns false when the wallet is not an admin`() = runBlocking {
+    val mockEthCall = mockk<Request<*, EthCall>>()
+    val mockResponse = EthCall()
+    mockResponse.result = "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+    every { mockWeb3j.ethCall(any(), any()) } returns mockEthCall
+    every { mockEthCall.sendAsync() } returns CompletableFuture.completedFuture(mockResponse)
+
+    val result = RainTransactionBuilderImpl.isCollateralAdmin(
+      rpcUrl = "https://rpc.com",
+      proxyAddress = "0x1111111111111111111111111111111111111111",
+      walletAddress = "0x2222222222222222222222222222222222222222"
+    )
+
+    assertThat(result).isFalse()
+  }
+
+  @Test
+  fun `isCollateralAdmin returns null when the call reverts`() = runBlocking {
+    val mockEthCall = mockk<Request<*, EthCall>>()
+    val mockResponse = EthCall()
+    mockResponse.error = org.web3j.protocol.core.Response.Error(3, "execution reverted")
+
+    every { mockWeb3j.ethCall(any(), any()) } returns mockEthCall
+    every { mockEthCall.sendAsync() } returns CompletableFuture.completedFuture(mockResponse)
+
+    val result = RainTransactionBuilderImpl.isCollateralAdmin(
+      rpcUrl = "https://rpc.com",
+      proxyAddress = "0x1111111111111111111111111111111111111111",
+      walletAddress = "0x2222222222222222222222222222222222222222"
+    )
+
+    assertThat(result).isNull()
+  }
+
+  @Test
+  fun `isCollateralAdmin returns null when the RPC fails`() = runBlocking {
+    every { mockWeb3j.ethCall(any(), any()) } throws RuntimeException("connection reset")
+
+    val result = RainTransactionBuilderImpl.isCollateralAdmin(
+      rpcUrl = "https://rpc.com",
+      proxyAddress = "0x1111111111111111111111111111111111111111",
+      walletAddress = "0x2222222222222222222222222222222222222222"
+    )
+
+    assertThat(result).isNull()
+  }
+
+  @Test
   fun `getLatestNonce uses real network and returns nonce gt 0`() = runBlocking {
     // Use real network for this test
     RainTransactionBuilderImpl.resetFactory()

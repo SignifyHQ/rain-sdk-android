@@ -42,6 +42,23 @@ object TurnkeyAuthSample {
         return session.expiry > nowSeconds + SESSION_MIN_REMAINING_SECONDS
     }
 
+    /**
+     * Email address of the user the restored session belongs to, or null if it cannot be
+     * determined. Callers deciding whether to reuse a restored session MUST compare this
+     * against the email being logged in — a valid session for a *different* email must not
+     * be reused, or the caller would silently act as the previous user.
+     */
+    suspend fun activeSessionEmail(): String? {
+        if (!hasActiveSession()) return null
+        return TurnkeyContext.user.value?.userEmail
+            ?: runCatching {
+                TurnkeyContext.refreshUser()
+                TurnkeyContext.user.value?.userEmail
+            }.onFailure {
+                SampleLog.w("TurnkeyAuth", "refreshUser failed while resolving session owner: ${it.message}")
+            }.getOrNull()
+    }
+
     /** Clears all stored Turnkey sessions (full logout). Safe no-op if none exist. */
     suspend fun logout() {
         runCatching { TurnkeyContext.clearAllSessions() }

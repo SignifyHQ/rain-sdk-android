@@ -27,6 +27,8 @@ class RainErrorCodeParityTest {
             RainErrorCode.TRANSACTION_SIMULATION_FAILED to "RAIN_403",
             RainErrorCode.WALLET_UNAVAILABLE to "RAIN_404",
             RainErrorCode.WITHDRAWAL_REVERTED_BY_NETWORK to "RAIN_405",
+            RainErrorCode.INVALID_AMOUNT to "RAIN_406",
+            RainErrorCode.WALLET_NOT_AUTHORIZED to "RAIN_407",
             RainErrorCode.PROVIDER_ERROR to "RAIN_501",
             RainErrorCode.INTERNAL_LOGIC_ERROR to "RAIN_502",
         )

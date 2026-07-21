@@ -2,6 +2,7 @@ package com.rain.sdk.sample
 
 import android.app.Application
 import io.privy.auth.AuthState
+import io.privy.auth.LinkedAccount
 import io.privy.sdk.Privy
 import io.privy.sdk.PrivyConfig
 import io.privy.logging.PrivyLogLevel
@@ -47,6 +48,22 @@ object PrivyAuthSample {
     /** True when Privy restored an authenticated session from a prior run (skips the OTP round-trip). */
     suspend fun hasActiveSession(): Boolean =
         runCatching { privy.getAuthState() is AuthState.Authenticated }.getOrDefault(false)
+
+    /**
+     * Email address linked to the restored Privy session, or null if it cannot be determined.
+     * Callers deciding whether to reuse a restored session MUST compare this against the email
+     * being logged in — a valid session for a *different* email must not be reused, or the
+     * caller would silently act as the previous user.
+     */
+    suspend fun activeSessionEmail(): String? = runCatching {
+        if (privy.getAuthState() !is AuthState.Authenticated) return@runCatching null
+        privy.getUser()?.linkedAccounts
+            ?.filterIsInstance<LinkedAccount.EmailAccount>()
+            ?.firstOrNull()
+            ?.emailAddress
+    }.onFailure {
+        SampleLog.w("PrivyAuth", "failed to resolve session owner: ${it.message}")
+    }.getOrNull()
 
     /** Logs the Privy user out. Safe no-op if not authenticated. */
     suspend fun logout() {

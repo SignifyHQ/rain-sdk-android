@@ -3,6 +3,7 @@ package com.rain.sdk.internal.constants
 internal object RainConstants {
     const val FUNC_ADMIN_NONCE = "adminNonce"
     const val FUNC_WITHDRAW_ASSET = "withdrawAsset"
+    const val FUNC_IS_ADMIN = "isAdmin"
 
     // Network Config
     const val NETWORK_TIMEOUT_SECONDS = 30L
