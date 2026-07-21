@@ -4,8 +4,16 @@ import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.NativeCurrency
+import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
+import io.privy.wallet.transactions.GetTransactionsParams
+import io.privy.wallet.transactions.Transaction as PrivyTransaction
+import io.privy.wallet.transactions.TransactionChain
+import io.privy.wallet.transactions.TransactionDetails
+import io.privy.wallet.transactions.TransactionStatus
+import io.privy.wallet.transactions.TransactionType
+import io.privy.wallet.transactions.TransactionsPage
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -159,8 +167,241 @@ class PrivyWalletProviderTest {
         assertThat(balances.map { it.token }).containsExactly(Token.Native, Token.Contract("0xUSDC"))
     }
 
+    // ---------- getTransactions ----------
+
+    @Test
+    fun `getTransactions returns empty for a chain Privy does not index without calling Privy`() = runBlocking {
+        val manager = mockk<PrivyManager>()
+
+        val wallet = PrivyWalletProvider(manager, mapOf(BASE_SEPOLIA to RPC), mockk(), rpcClient = mockk())
+        val result = wallet.getTransactions(chainId = BASE_SEPOLIA)
+
+        assertThat(result.transactions).isEmpty()
+        coVerify(exactly = 0) { manager.getTransactions(any(), any()) }
+    }
+
+    @Test
+    fun `getTransactions maps Privy transactions onto RainTransaction`() = runBlocking {
+        val manager = mockk<PrivyManager>()
+        coEvery { manager.getAddress(null) } returns WALLET
+        coEvery { manager.getTransactions(WALLET, any()) } returns TransactionsPage(
+            transactions = listOf(
+                privyTransaction(
+                    hash = "0xABC",
+                    createdAt = 1_700_000_000_000,
+                    privyTransactionId = "privy-tx-id",
+                    details = privyDetails(asset = "usdc", rawValue = "1500000", rawValueDecimals = 6),
+                )
+            ),
+            nextCursor = null,
+        )
+
+        val result = historyProvider(manager).getTransactions(chainId = 1)
+
+        val tx = result.transactions.single()
+        assertThat(tx.hash).isEqualTo("0xABC")
+        assertThat(tx.from).isEqualTo(WALLET)
+        assertThat(tx.to).isEqualTo(TO)
+        assertThat(tx.value).isEqualTo("1.5")
+        assertThat(tx.symbol).isEqualTo("usdc")
+        assertThat(tx.tokenAddress).isNull()
+        assertThat(tx.chainId).isEqualTo("1")
+        assertThat(tx.blockTimestamp).isEqualTo("2023-11-14T22:13:20Z")
+        assertThat(tx.metadata).containsEntry("status", "confirmed")
+        assertThat(tx.metadata).containsEntry("caip2", "eip155:1")
+        assertThat(tx.metadata).containsEntry("type", "transferSent")
+    }
+
+    @Test
+    fun `getTransactions routes a contract-address asset to tokenAddress instead of symbol`() = runBlocking {
+        val manager = mockk<PrivyManager>()
+        coEvery { manager.getAddress(null) } returns WALLET
+        coEvery { manager.getTransactions(WALLET, any()) } returns TransactionsPage(
+            transactions = listOf(
+                privyTransaction(details = privyDetails(asset = CONTRACT))
+            ),
+            nextCursor = null,
+        )
+
+        val tx = historyProvider(manager).getTransactions(chainId = 1).transactions.single()
+
+        assertThat(tx.tokenAddress).isEqualTo(CONTRACT)
+        assertThat(tx.symbol).isNull()
+    }
+
+    @Test
+    fun `getTransactions falls back to privyTransactionId when a pending transaction has no hash`() = runBlocking {
+        val manager = mockk<PrivyManager>()
+        coEvery { manager.getAddress(null) } returns WALLET
+        coEvery { manager.getTransactions(WALLET, any()) } returns TransactionsPage(
+            transactions = listOf(
+                privyTransaction(hash = null, privyTransactionId = "privy-tx-1", status = TransactionStatus.Pending)
+            ),
+            nextCursor = null,
+        )
+
+        val tx = historyProvider(manager).getTransactions(chainId = 1).transactions.single()
+
+        assertThat(tx.hash).isEqualTo("privy-tx-1")
+        assertThat(tx.metadata).containsEntry("status", "pending")
+    }
+
+    @Test
+    fun `getTransactions follows the cursor until offset plus limit rows are collected`() = runBlocking {
+        val manager = mockk<PrivyManager>()
+        coEvery { manager.getAddress(null) } returns WALLET
+        val params = mutableListOf<GetTransactionsParams<TransactionChain.Evm>>()
+        coEvery { manager.getTransactions(WALLET, capture(params)) } returnsMany listOf(
+            TransactionsPage(
+                transactions = (0 until 3).map { privyTransaction(hash = "0xA$it", createdAt = 5_000L - it) },
+                nextCursor = "cursor-1",
+            ),
+            TransactionsPage(
+                transactions = (0 until 2).map { privyTransaction(hash = "0xB$it", createdAt = 2_000L - it) },
+                nextCursor = "cursor-2",
+            ),
+        )
+
+        val result = historyProvider(manager).getTransactions(chainId = 1, limit = 3, offset = 2)
+
+        // Needs 5 rows: page one (3 rows, limit 5) then page two via cursor (2 rows, limit 2).
+        assertThat(params).hasSize(2)
+        assertThat(params[0].limit).isEqualTo(5)
+        assertThat(params[0].cursor).isNull()
+        assertThat(params[0].chain).isEqualTo(TransactionChain.Evm.Ethereum)
+        assertThat(params[0].assets).containsExactly("eth")
+        assertThat(params[0].tokens).isNull()
+        assertThat(params[1].limit).isEqualTo(2)
+        assertThat(params[1].cursor).isEqualTo("cursor-1")
+        // Newest-first by default; offset 2 drops the two newest, limit 3 keeps the rest.
+        assertThat(result.transactions.map { it.hash }).containsExactly("0xA2", "0xB0", "0xB1").inOrder()
+    }
+
+    @Test
+    fun `getTransactions stops paging when history is exhausted and honors ASC order`() = runBlocking {
+        val manager = mockk<PrivyManager>()
+        coEvery { manager.getAddress(null) } returns WALLET
+        coEvery { manager.getTransactions(WALLET, any()) } returns TransactionsPage(
+            transactions = listOf(
+                privyTransaction(hash = "0xNEW", createdAt = 2_000),
+                privyTransaction(hash = "0xOLD", createdAt = 1_000),
+            ),
+            nextCursor = null,
+        )
+
+        val result = historyProvider(manager).getTransactions(chainId = 1, limit = 10, order = RainTransactionOrder.ASC)
+
+        coVerify(exactly = 1) { manager.getTransactions(WALLET, any()) }
+        assertThat(result.transactions.map { it.hash }).containsExactly("0xOLD", "0xNEW").inOrder()
+    }
+
+    @Test
+    fun `getTransactions propagates Privy failures`() = runBlocking {
+        val manager = mockk<PrivyManager>()
+        coEvery { manager.getAddress(null) } returns WALLET
+        coEvery { manager.getTransactions(WALLET, any()) } throws RuntimeException("indexer down")
+
+        val error = runCatching { historyProvider(manager).getTransactions(chainId = 1) }.exceptionOrNull()
+
+        assertThat(error).hasMessageThat().isEqualTo("indexer down")
+    }
+
+    @Test
+    fun `getTransactions merges native and registered-token history and dedupes overlapping rows`() = runBlocking {
+        val manager = mockk<PrivyManager>()
+        coEvery { manager.getAddress(null) } returns WALLET
+        val params = mutableListOf<GetTransactionsParams<TransactionChain.Evm>>()
+        coEvery { manager.getTransactions(WALLET, capture(params)) } returnsMany listOf(
+            TransactionsPage(
+                transactions = listOf(privyTransaction(hash = "0xNATIVE", createdAt = 3_000)),
+                nextCursor = null,
+            ),
+            TransactionsPage(
+                transactions = listOf(
+                    privyTransaction(hash = "0xTOKEN", createdAt = 2_000),
+                    privyTransaction(hash = "0xNATIVE", createdAt = 3_000),
+                ),
+                nextCursor = null,
+            ),
+        )
+
+        val usdc = TokenInfo(chainId = 1, address = CONTRACT, symbol = "USDC", decimals = 6, name = "USD Coin")
+        val result = historyProvider(manager, tokens = listOf(usdc)).getTransactions(chainId = 1)
+
+        // One native-asset query plus one token-address query; the duplicate row appears once.
+        assertThat(params).hasSize(2)
+        assertThat(params[0].assets).containsExactly("eth")
+        assertThat(params[0].tokens).isNull()
+        assertThat(params[1].assets).isNull()
+        assertThat(params[1].tokens).containsExactly(CONTRACT)
+        assertThat(result.transactions.map { it.hash }).containsExactly("0xNATIVE", "0xTOKEN").inOrder()
+    }
+
+    @Test
+    fun `getTransactions keeps native history when a token query fails`() = runBlocking<Unit> {
+        val manager = mockk<PrivyManager>()
+        coEvery { manager.getAddress(null) } returns WALLET
+        coEvery {
+            manager.getTransactions(WALLET, match<GetTransactionsParams<TransactionChain.Evm>> { it.assets != null })
+        } returns TransactionsPage(
+            transactions = listOf(privyTransaction(hash = "0xNATIVE")),
+            nextCursor = null,
+        )
+        coEvery {
+            manager.getTransactions(WALLET, match<GetTransactionsParams<TransactionChain.Evm>> { it.tokens != null })
+        } throws RuntimeException("bad token filter")
+
+        val usdc = TokenInfo(chainId = 1, address = CONTRACT, symbol = "USDC", decimals = 6, name = "USD Coin")
+        val result = historyProvider(manager, tokens = listOf(usdc)).getTransactions(chainId = 1)
+
+        assertThat(result.transactions.map { it.hash }).containsExactly("0xNATIVE")
+    }
+
+    // privyTransactionId defaults to null so fixtures dedupe by their distinct hashes.
+    private fun privyTransaction(
+        hash: String? = "0xHASH",
+        createdAt: Long = 1_700_000_000_000,
+        status: TransactionStatus = TransactionStatus.Confirmed,
+        privyTransactionId: String? = null,
+        details: TransactionDetails? = privyDetails(),
+    ) = PrivyTransaction(
+        caip2 = "eip155:1",
+        transactionHash = hash,
+        userOperationHash = null,
+        status = status,
+        createdAt = createdAt,
+        sponsored = false,
+        privyTransactionId = privyTransactionId,
+        walletId = "wallet-id",
+        details = details,
+    )
+
+    private fun privyDetails(
+        asset: String = "eth",
+        rawValue: String = "1000000000000000000",
+        rawValueDecimals: Int = 18,
+    ) = TransactionDetails(
+        type = TransactionType.TransferSent,
+        sender = WALLET,
+        senderPrivyUserId = null,
+        recipient = TO,
+        recipientPrivyUserId = null,
+        chain = "ethereum",
+        asset = asset,
+        rawValue = rawValue,
+        rawValueDecimals = rawValueDecimals,
+        displayValues = emptyMap(),
+    )
+
     private fun provider(manager: PrivyManager, rpc: PrivyRpcClient = simulationPassingRpc()) =
         PrivyWalletProvider(manager, mapOf(1 to RPC), mockk<TokenMetadataStore>(), rpcClient = rpc)
+
+    /** A provider for history tests: token store seeded with [tokens], RPC never touched. */
+    private fun historyProvider(manager: PrivyManager, tokens: List<TokenInfo> = emptyList()): PrivyWalletProvider {
+        val tokenStore = mockk<TokenMetadataStore>()
+        coEvery { tokenStore.registeredTokens(1) } returns tokens
+        return PrivyWalletProvider(manager, mapOf(1 to RPC), tokenStore, rpcClient = mockk())
+    }
 
     /** An RPC client whose pre-broadcast `eth_call` simulation always succeeds. */
     private fun simulationPassingRpc(): PrivyRpcClient {
@@ -178,5 +419,7 @@ class PrivyWalletProviderTest {
         const val WALLET = "0x000000000000000000000000000000000000dEaD"
         const val TO = "0x1111111111111111111111111111111111111111"
         const val CONTRACT = "0x2222222222222222222222222222222222222222"
+        /** A chain Privy's transaction indexer does not support. */
+        const val BASE_SEPOLIA = 84532
     }
 }

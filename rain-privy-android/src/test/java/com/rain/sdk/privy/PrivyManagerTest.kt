@@ -14,6 +14,9 @@ import io.privy.wallet.ethereum.EmbeddedEthereumWallet
 import io.privy.wallet.ethereum.EmbeddedEthereumWalletProvider
 import io.privy.wallet.ethereum.EthereumChain
 import io.privy.wallet.ethereum.EthereumRpcResponse
+import io.privy.wallet.transactions.GetTransactionsParams
+import io.privy.wallet.transactions.TransactionChain
+import io.privy.wallet.transactions.TransactionsPage
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 
@@ -114,6 +117,35 @@ class PrivyManagerTest {
 
         // Must NOT be pre-wrapped in RainError — core's ErrorMapper needs the raw error to
         // classify user-rejection / insufficient-funds.
+        assertThat(error).isSameInstanceAs(raw)
+        assertThat(error).isNotInstanceOf(RainError::class.java)
+    }
+
+    @Test
+    fun `getTransactions unwraps the page from the resolved wallet`() = runBlocking {
+        val provider = mockk<EmbeddedEthereumWalletProvider>()
+        val w = wallet(WALLET, provider)
+        val page = TransactionsPage(transactions = emptyList(), nextCursor = "cursor-1")
+        coEvery { w.getTransactions(any()) } returns Result.success(page)
+        val manager = PrivyManager(privyWith(listOf(w)))
+
+        val params = GetTransactionsParams<TransactionChain.Evm>(chain = TransactionChain.Evm.Base, limit = 5)
+        assertThat(manager.getTransactions(WALLET, params)).isSameInstanceAs(page)
+        coVerify(exactly = 1) { w.getTransactions(params) }
+    }
+
+    @Test
+    fun `getTransactions bubbles the raw failure rather than wrapping it`() = runBlocking {
+        val provider = mockk<EmbeddedEthereumWalletProvider>()
+        val w = wallet(WALLET, provider)
+        val raw = IllegalStateException("wallet does not support transaction history")
+        coEvery { w.getTransactions(any()) } returns Result.failure(raw)
+        val manager = PrivyManager(privyWith(listOf(w)))
+
+        val error = runCatching {
+            manager.getTransactions(WALLET, GetTransactionsParams(chain = TransactionChain.Evm.Base))
+        }.exceptionOrNull()
+
         assertThat(error).isSameInstanceAs(raw)
         assertThat(error).isNotInstanceOf(RainError::class.java)
     }

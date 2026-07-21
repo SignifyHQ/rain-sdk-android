@@ -17,7 +17,7 @@ maven-publish = "0.30.0"
 # -- Core SDK Dependencies --
 portal-android = "8.4.0"
 turnkey = "2.0.0"
-privy = "0.12.0"
+privy = "0.13.0"
 # Security: pin Turnkey transitive deps above CVE-affected versions.
 # bitcoinj < 0.17.1 = GHSA-hfcf-v2f8-x9pc (P2PKH/P2WPKH verify bypass).
 # protobuf-javalite < 3.25.5 = GHSA-735f-pc8j-v9w8 (DoS).
