@@ -1,6 +1,7 @@
 package com.rain.sdk.portal
 
 import com.rain.sdk.RainChain
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
@@ -38,6 +39,12 @@ class PortalProvider(
         setOf(Capability.EXPORT, Capability.RECOVERY)
 
     override suspend fun create(context: ProviderContext): WalletProvider {
+        // Portal treats the session token as its API key; an empty one would fail every call
+        // downstream with an opaque vendor error. Fail fast instead.
+        if (config.sessionToken.isBlank()) {
+            throw RainError.Unauthorized("Portal session token must not be empty")
+        }
+
         val rpcEndpoints = context.rpcEndpoints
 
         // Portal addresses chains as CAIP-2 `eip155:<chainId>` identifiers.

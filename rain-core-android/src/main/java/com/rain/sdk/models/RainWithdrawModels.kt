@@ -37,7 +37,7 @@ data class RainWithdrawAddresses(
  * 
  * @property salt The salt used for the admin signature.
  * @property signature The hex string of the admin signature.
- * @property expiresAt The expiration timestamp (as a String, usually ISO-8601 or unix timestamp).
+ * @property expiresAt The expiration timestamp (ISO-8601 String, e.g. "2030-12-31T23:59:59Z").
  */
 data class RainAdminSignature(
     val salt: String,

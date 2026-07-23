@@ -118,11 +118,17 @@ internal class PrivyWalletProvider(
         // the node validates it for free. Mirrors the Portal adapter and the iOS Privy adapter.
         try {
             rpcClient.callForHexResult(
-                rpcUrl, "eth_call", listOf(rpcTransactionObject(from, to, data, value), "latest")
+                rpcUrl, "eth_call", listOf(rpcTransactionObject(from, to, data, value), "latest"),
+                purpose = RpcCallPurpose.SIMULATION
             )
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             Timber.e(e, "Rain SDK: Transaction simulation failed (eth_call)")
+            // Node errors the RPC client already classified (insufficient funds, simulation
+            // failure) surface as themselves; anything else is a simulation failure.
+            if (e is RainError.InsufficientFunds || e is RainError.TransactionSimulationFailed) {
+                throw e
+            }
             throw RainError.TransactionSimulationFailed(e)
         }
 
@@ -148,15 +154,16 @@ internal class PrivyWalletProvider(
         to: String,
         data: String,
         value: String,
-    ): Double {
+    ): BigDecimal {
         val rpcUrl = rpcUrlFor(chainId)
         val gasLimitHex = rpcClient.callForHexResult(
-            rpcUrl, "eth_estimateGas", listOf(rpcTransactionObject(from, to, data, value))
+            rpcUrl, "eth_estimateGas", listOf(rpcTransactionObject(from, to, data, value)),
+            purpose = RpcCallPurpose.SIMULATION
         )
         val gasPriceHex = rpcClient.callForHexResult(rpcUrl, "eth_gasPrice", emptyList())
-        val gasLimit = EthereumConverter.parseHexToBigInteger(gasLimitHex)
-        val gasPrice = EthereumConverter.parseHexToBigInteger(gasPriceHex)
-        return EthereumConverter.convertWeiToEth(gasLimit.multiply(gasPrice))
+        val gasLimit = EthereumConverter.parseHexToBigIntegerStrict(gasLimitHex)
+        val gasPrice = EthereumConverter.parseHexToBigIntegerStrict(gasPriceHex)
+        return EthereumConverter.convertWeiToEthDecimal(gasLimit.multiply(gasPrice))
     }
 
     // ---------- balances ----------
@@ -198,7 +205,7 @@ internal class PrivyWalletProvider(
         return Balance(
             token = Token.Native,
             chainId = chainId,
-            rawAmount = EthereumConverter.parseHexToBigInteger(hex),
+            rawAmount = EthereumConverter.parseHexToBigIntegerStrict(hex),
             decimals = native.decimals,
             symbol = native.symbol,
             name = native.name
@@ -222,7 +229,7 @@ internal class PrivyWalletProvider(
         return Balance(
             token = Token.Contract(address),
             chainId = chainId,
-            rawAmount = EthereumConverter.parseHexToBigInteger(hex),
+            rawAmount = EthereumConverter.parseHexToBigIntegerStrict(hex),
             decimals = info.decimals,
             symbol = info.symbol,
             name = info.name
@@ -236,13 +243,15 @@ internal class PrivyWalletProvider(
      *
      * Privy's endpoint requires exactly one of an `asset` or `token` filter per request, so full
      * history is assembled from one native-asset query plus token-address queries over the
-     * registered tokens (chunked to the server's 10-filter cap). The native query is essential
-     * (its failure propagates); token queries are best-effort, mirroring [getBalances]. Privy
-     * paginates by cursor while the SDK contract is limit/offset, so each query collects pages
-     * until `offset + limit` rows are gathered (or history is exhausted); the merged rows are
-     * deduped, sorted by `createdAt` per [order] (newest first by default, matching Turnkey) and
-     * sliced. Chains Privy does not index (e.g. Base Sepolia) return an empty result rather than
-     * failing, preserving the previous always-empty behavior.
+     * registered tokens (chunked to the server's 10-filter cap). Every query is essential: a
+     * failure in the native query or any token chunk fails the whole call rather than silently
+     * returning partial history (Privy vendor errors classify to RainError in
+     * [PrivyManager.getTransactions]). Privy paginates by cursor while the SDK contract is
+     * limit/offset, so each query collects pages until `offset + limit` rows are gathered (or
+     * history is exhausted); the merged rows are deduped, sorted by `createdAt` per [order]
+     * (newest first by default, matching Turnkey) and sliced. Chains Privy does not index
+     * (e.g. Base Sepolia) return an empty result rather than failing, preserving the previous
+     * always-empty behavior.
      */
     override suspend fun getTransactions(
         chainId: Int,
@@ -263,11 +272,7 @@ internal class PrivyWalletProvider(
             .map { it.address }
             .chunked(MAX_TRANSACTION_FILTERS_PER_REQUEST)
             .forEach { chunk ->
-                runCatching {
-                    collectTransactions(walletAddress, chain.chain, assets = null, tokens = chunk, needed = needed)
-                }
-                    .onSuccess { collected += it }
-                    .onFailure { e -> if (e is CancellationException) throw e }
+                collected += collectTransactions(walletAddress, chain.chain, assets = null, tokens = chunk, needed = needed)
             }
 
         val deduped = collected.distinctBy { it.privyTransactionId ?: it.transactionHash ?: it }

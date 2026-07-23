@@ -44,7 +44,7 @@ class TransactionCoordinatorTest {
     val from = "0x123"
     val to = "0x456"
     val data = "0x789"
-    val expectedFee = 0.00042
+    val expectedFee = java.math.BigDecimal("0.00042")
 
     coEvery {
       walletProvider.estimateTransactionFee(chainId, from, to, data, "0x0")
@@ -52,6 +52,6 @@ class TransactionCoordinatorTest {
 
     val fee = coordinator.estimateGas(chainId, from, to, data)
 
-    assertThat(fee).isWithin(1e-10).of(expectedFee)
+    assertThat(fee).isEqualTo(expectedFee)
   }
 }

@@ -37,7 +37,7 @@ class SendTokensViewModel(
         _state.update { it.copy(isErc20Mode = isErc20, txHash = null, errorText = null) }
     }
 
-    fun sendNativeToken(chain: WalletChain = WalletChain.EVM) {
+    fun sendNative(chain: WalletChain = WalletChain.EVM) {
         val current = _state.value
         val amount = current.amount.toBigDecimalOrNull()
         if (amount == null || amount <= BigDecimal.ZERO) {
@@ -58,9 +58,9 @@ class SendTokensViewModel(
 
         viewModelScope.launch {
             try {
-                val result = rainClient.sendNativeToken(
+                val result = rainClient.sendNative(
                     chainId = chain.chainId,
-                    toAddress = current.recipientAddress,
+                    to = current.recipientAddress,
                     amount = amount
                 )
                 SampleLog.i("Send.native", "success txHash=${result.transactionHash}")

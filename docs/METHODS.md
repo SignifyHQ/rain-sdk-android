@@ -105,6 +105,19 @@ Each adapter is a `RainProvider` descriptor that owns its vendor SDK as a privat
 | `PortalProvider(PortalConfig(sessionToken, chainId?))` | `rain-portal-android` | `sessionToken: String`, `chainId: Int?` | Portal MPC signer (EVM). Advertises `EXPORT`, `RECOVERY`. |
 | `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?))` | `rain-core-android` | `turnkey: TurnkeyContext`, `walletAddress: String?` | Turnkey P256 signer (EVM + Solana). Advertises `MULTI_CHAIN`, `BIOMETRIC_GATE`. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
 
+#### Platform differences (Portal)
+
+Both adapters construct the vendor `Portal` with `autoApprove = true`,
+`FeatureFlags(isMultiBackupEnabled = true)`, and the same `eip155:<chainId> → rpcUrl` RPC config.
+Two differences are vendor-shaped and intentional:
+
+- **Storage backends.** portal-android registers backup storage at backup-call time, so this
+  adapter passes none at construction. PortalSwift takes iCloud / keychain / password storage at
+  construction instead, so the iOS adapter passes them to its `Portal` initializer.
+- **`chainId`.** `PortalConfig.chainId` is Android-only: portal-android's constructor accepts a
+  legacy `legacyEthChainId`, while PortalSwift 7.x has no equivalent parameter, so iOS's
+  `PortalConfig` omits it.
+
 **Bring your own provider:** implement the `WalletProvider` port and a `RainProvider` descriptor
 (with your own `ProviderId`), then `register(...)` it. Core needs no change — the `transactionBuilder`
 utilities are available regardless of which provider you register.
@@ -193,16 +206,20 @@ Estimates the gas fee required for a transaction.
 
 ---
 
-### estimateWithdrawalFee(chainId, addresses, amount, decimals, adminSignature, nonce?)
+### estimateWithdrawalFee(chainId, addresses, amount, decimals, salt, signature, expiresAt)
 
-Estimates the total fee required to execute a collateral withdrawal transaction.
+Estimates the total fee required to execute a collateral withdrawal transaction. Mirrors the iOS
+`estimateWithdrawalFee` API: the withdrawal authorization (`salt` / `signature` / `expiresAt`, as
+returned by `fetchAdminSignature`) is caller-supplied and embedded in the estimated calldata.
 
-Internally builds + signs the EIP-712 payload, then runs `eth_estimateGas` against the withdrawal
-controller — does not broadcast.
+Internally builds the EIP-712 payload, signs it with the wallet, then runs `eth_estimateGas`
+against the withdrawal controller. Nothing is broadcast.
 
-> **Signing side effect.** The estimate signs for real (its `eth_estimateGas` calldata needs a valid signature), so estimate-then-withdraw signs twice. iOS differs: it takes a caller-supplied signature (`salt` / `signature` / `expiresAt`) and doesn't sign.
+> **Signing side effect.** The estimated calldata embeds a wallet signature the controller
+> verifies (a placeholder would revert the estimate), so estimate-then-withdraw signs twice.
+> iOS signs during estimation for the same reason.
 
-- **Returns:** `Double` — estimated withdrawal fee in the chain's native token.
+- **Returns:** `BigDecimal`, the estimated withdrawal fee in the chain's native token.
 - **Throws:** `RainError` if estimation fails.
 - **Suspend:** Yes
 
@@ -210,10 +227,15 @@ controller — does not broadcast.
 |-----------|------|-------------|
 | `chainId` | `Int` | Target network chain ID. |
 | `addresses` | `RainWithdrawAddresses` | All addresses required for the withdrawal (controller, proxy, token, recipient). |
-| `amount` | `Double` | Human-readable amount to withdraw. |
+| `amount` | `BigDecimal` | Human-readable amount to withdraw. |
 | `decimals` | `Int` | Token decimals (e.g. 6 for USDC, 18 for most tokens). |
-| `adminSignature` | `RainAdminSignature` | Admin authorization signature (same payload used by `withdrawCollateral`). |
-| `nonce` | `BigInteger?` | Optional nonce; if `null`, the SDK resolves it from the contract. |
+| `salt` | `String` | Withdrawal signature salt (base64), from the Rain API. |
+| `signature` | `String` | Hex-encoded withdrawal signature, from the Rain API. |
+| `expiresAt` | `String` | Withdrawal signature expiry (ISO-8601), from the Rain API. |
+
+A deprecated overload `estimateWithdrawalFee(chainId, addresses, amount: Double, decimals,
+adminSignature, nonce?)` returning `Double` delegates to this method and is slated for removal
+in the next major version.
 
 ---
 
@@ -235,9 +257,11 @@ Hosts can hand the result to any provider for signing / broadcast. Mirrors the i
 
 ---
 
-### sendNativeToken(chainId, toAddress, amount)
+### sendNative(chainId, to, amount)
 
 Sends native tokens (e.g. AVAX) from the current wallet.
+
+> `sendNativeToken(chainId, toAddress, amount)` is a deprecated alias that delegates to this method.
 
 - **Returns:** `RainTokenTransferResult` — containing the transaction hash.
 - **Throws:** `RainError` if send fails.
@@ -246,7 +270,7 @@ Sends native tokens (e.g. AVAX) from the current wallet.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `chainId` | `Int` | Target network chain ID. |
-| `toAddress` | `String` | Recipient wallet address. |
+| `to` | `String` | Recipient wallet address. |
 | `amount` | `BigDecimal` | Amount in human-readable form (e.g. `BigDecimal("0.1")` for 0.1 AVAX). |
 
 ---
@@ -488,9 +512,9 @@ Builds ABI-encoded withdraw calldata for the collateral proxy contract.
 | **`RainProvider`** | Registrable provider descriptor: `id`, `capabilities`, and a suspend `create(context)` that materializes the `WalletProvider`. Implemented by `PortalProvider`, `TurnkeyProvider`, and host-supplied providers. |
 | **`WalletProvider`** | The port each adapter implements. Public so hosts can ship their own wallet stack. |
 | **`RainWithdrawAddresses`** | `proxyAddress`, `controllerAddress`, `tokenAddress`, `recipientAddress`. Has `validated()` method for address checksumming. |
-| **`RainAdminSignature`** | `salt` (String), `signature` (hex String), `expiresAt` (String, ISO-8601 or unix timestamp). |
+| **`RainAdminSignature`** | `salt` (String), `signature` (hex String), `expiresAt` (String, ISO-8601). |
 | **`RainWithdrawResult`** | `transactionHash` (String?, present if auto-sent), `transactionData` (String?, present if not auto-sent). Has `isAutoSent` and `isTransactionData` helper properties. |
-| **`RainTokenTransferResult`** | `transactionHash` (String). Returned by `sendNativeToken` and `sendToken`. |
+| **`RainTokenTransferResult`** | `transactionHash` (String). Returned by `sendNative` and `sendToken`. |
 | **`RainTransactionParameters`** | `from`, `to`, `value` (hex wei), `data` (hex calldata). Wallet-agnostic transaction parameter bag returned by `composeTransactionParameters`. |
 | **`RainTransaction`** | Transaction record: `hash`, `from`, `to`, `value`, `blockNumber`, `blockTimestamp`, `gas`, `gasPrice`, `chainId`, `symbol`, `tokenAddress`, `metadata`. |
 | **`RainTransactionResult`** | `transactions: List<RainTransaction>`. Returned by `getTransactions`. |

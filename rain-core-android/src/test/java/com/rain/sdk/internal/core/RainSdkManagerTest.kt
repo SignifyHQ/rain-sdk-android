@@ -61,11 +61,27 @@ class RainSdkBuilderTest {
     }
 
     @Test
-    fun `build throws InvalidConfig when no providers registered`() {
+    fun `build succeeds with zero providers (wallet-agnostic mode)`() {
+        // transactionBuilder + Rain API work without any wallet provider.
+        val sdk = RainSdk.builder()
+            .rpcEndpoints(mapOf(1 to "https://rpc.test"))
+            .build()
+
+        assertThat(sdk.providerIds).isEmpty()
+        assertThat(sdk.transactionBuilder).isNotNull()
+    }
+
+    @Test
+    fun `resolving a provider on a provider-less SDK throws InvalidConfig`() {
+        val sdk = RainSdk.builder()
+            .rpcEndpoints(mapOf(1 to "https://rpc.test"))
+            .build()
+
         assertThrows(RainError.InvalidConfig::class.java) {
-            RainSdk.builder()
-                .rpcEndpoints(mapOf(1 to "https://rpc.test"))
-                .build()
+            runBlocking { sdk.provider(ProviderId.PORTAL) }
+        }
+        assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking { sdk.first { true } }
         }
     }
 

@@ -171,7 +171,7 @@ fun SendTokensScreen(
         Button(
             onClick = {
                 if (isErc20) viewModel.sendErc20Token(selectedChain)
-                else viewModel.sendNativeToken(selectedChain)
+                else viewModel.sendNative(selectedChain)
             },
             enabled = !state.isSending,
             modifier = Modifier.fillMaxWidth()

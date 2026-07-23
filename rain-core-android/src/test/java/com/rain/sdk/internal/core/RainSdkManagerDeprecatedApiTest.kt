@@ -2,12 +2,14 @@ package com.rain.sdk.internal.core
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.config.RainConfig
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
 import java.math.BigInteger
@@ -95,5 +97,26 @@ class RainSdkManagerDeprecatedApiTest {
         stub.balanceToReturn = ethBalance
 
         assertThat(manager.getNativeBalance(chainId = 1)).isEqualTo(1.5)
+    }
+
+    @Test
+    fun `deprecated Double sendToken rejects a non-finite amount with InvalidAmount`(): Unit = runBlocking {
+        val (manager, stub) = TestManagers.stubProviderManager()
+
+        for (amount in listOf(Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY)) {
+            assertThrows(RainError.InvalidAmount::class.java) {
+                runBlocking {
+                    manager.sendToken(
+                        chainId = 1,
+                        contractAddress = TestFixtures.USDC_ADDRESS,
+                        toAddress = TestFixtures.RECIPIENT_ADDRESS,
+                        amount = amount,
+                        decimals = 6
+                    )
+                }
+            }
+        }
+        // The guard fires before delegation, so nothing reaches the provider.
+        assertThat(stub.sendTokenCalls).isEmpty()
     }
 }

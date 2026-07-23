@@ -92,7 +92,9 @@ class PrivyWalletProviderTest {
         coEvery { manager.sendTransaction(WALLET, RPC, any()) } returns "0xHASH"
         val rpc = mockk<PrivyRpcClient>()
         val simulationParams = slot<List<Any>>()
-        coEvery { rpc.callForHexResult(RPC, "eth_call", capture(simulationParams)) } returns "0x"
+        coEvery {
+            rpc.callForHexResult(RPC, "eth_call", capture(simulationParams), RpcCallPurpose.SIMULATION)
+        } returns "0x"
 
         val wallet = provider(manager, rpc)
         val hash = wallet.sendTransaction(chainId = 1, from = WALLET, to = TO, data = "0xabcdef", value = "0x1")
@@ -112,7 +114,9 @@ class PrivyWalletProviderTest {
     fun `a failing eth_call simulation surfaces as TransactionSimulationFailed without broadcasting`() = runBlocking {
         val manager = mockk<PrivyManager>()
         val rpc = mockk<PrivyRpcClient>()
-        coEvery { rpc.callForHexResult(RPC, "eth_call", any()) } throws RuntimeException("execution reverted")
+        coEvery {
+            rpc.callForHexResult(RPC, "eth_call", any(), RpcCallPurpose.SIMULATION)
+        } throws RuntimeException("execution reverted")
 
         val wallet = provider(manager, rpc)
         val error = runCatching {
@@ -127,14 +131,14 @@ class PrivyWalletProviderTest {
     fun `estimateTransactionFee multiplies gas limit by gas price`() = runBlocking {
         val manager = mockk<PrivyManager>()
         val rpc = mockk<PrivyRpcClient>()
-        coEvery { rpc.callForHexResult(RPC, "eth_estimateGas", any()) } returns "0x5208" // 21000
+        coEvery { rpc.callForHexResult(RPC, "eth_estimateGas", any(), RpcCallPurpose.SIMULATION) } returns "0x5208" // 21000
         coEvery { rpc.callForHexResult(RPC, "eth_gasPrice", any()) } returns "0x3b9aca00" // 1 gwei
 
         val wallet = PrivyWalletProvider(manager, mapOf(1 to RPC), mockk(), rpcClient = rpc)
         val fee = wallet.estimateTransactionFee(1, WALLET, TO, "0x", "0x0")
 
-        // 21000 * 1e9 wei = 2.1e13 wei = 0.000021 ETH
-        assertThat(fee).isWithin(1e-12).of(0.000021)
+        // 21000 * 1e9 wei = 2.1e13 wei = 0.000021 ETH, exactly
+        assertThat(fee).isEqualToIgnoringScale(java.math.BigDecimal("0.000021"))
     }
 
     @Test
@@ -338,7 +342,7 @@ class PrivyWalletProviderTest {
     }
 
     @Test
-    fun `getTransactions keeps native history when a token query fails`() = runBlocking<Unit> {
+    fun `getTransactions fails the whole call when a token query fails instead of returning partial history`() = runBlocking<Unit> {
         val manager = mockk<PrivyManager>()
         coEvery { manager.getAddress(null) } returns WALLET
         coEvery {
@@ -347,14 +351,42 @@ class PrivyWalletProviderTest {
             transactions = listOf(privyTransaction(hash = "0xNATIVE")),
             nextCursor = null,
         )
+        // PrivyManager surfaces mapped RainErrors for Privy vendor failures; that mapped error
+        // must fail the whole call rather than being swallowed into native-only history.
+        val mapped = RainError.ProviderError(RuntimeException("bad token filter"))
         coEvery {
             manager.getTransactions(WALLET, match<GetTransactionsParams<TransactionChain.Evm>> { it.tokens != null })
-        } throws RuntimeException("bad token filter")
+        } throws mapped
 
         val usdc = TokenInfo(chainId = 1, address = CONTRACT, symbol = "USDC", decimals = 6, name = "USD Coin")
-        val result = historyProvider(manager, tokens = listOf(usdc)).getTransactions(chainId = 1)
+        val error = runCatching {
+            historyProvider(manager, tokens = listOf(usdc)).getTransactions(chainId = 1)
+        }.exceptionOrNull()
 
-        assertThat(result.transactions.map { it.hash }).containsExactly("0xNATIVE")
+        assertThat(error).isSameInstanceAs(mapped)
+    }
+
+    @Test
+    fun `getTransactions surfaces an auth failure on a token query as TokenExpired`() = runBlocking<Unit> {
+        val manager = mockk<PrivyManager>()
+        coEvery { manager.getAddress(null) } returns WALLET
+        coEvery {
+            manager.getTransactions(WALLET, match<GetTransactionsParams<TransactionChain.Evm>> { it.assets != null })
+        } returns TransactionsPage(
+            transactions = listOf(privyTransaction(hash = "0xNATIVE")),
+            nextCursor = null,
+        )
+        // What PrivyManager maps a Privy AuthenticationException to (see PrivyManagerTest).
+        coEvery {
+            manager.getTransactions(WALLET, match<GetTransactionsParams<TransactionChain.Evm>> { it.tokens != null })
+        } throws RainError.TokenExpired()
+
+        val usdc = TokenInfo(chainId = 1, address = CONTRACT, symbol = "USDC", decimals = 6, name = "USD Coin")
+        val error = runCatching {
+            historyProvider(manager, tokens = listOf(usdc)).getTransactions(chainId = 1)
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(RainError.TokenExpired::class.java)
     }
 
     // privyTransactionId defaults to null so fixtures dedupe by their distinct hashes.
@@ -406,7 +438,7 @@ class PrivyWalletProviderTest {
     /** An RPC client whose pre-broadcast `eth_call` simulation always succeeds. */
     private fun simulationPassingRpc(): PrivyRpcClient {
         val rpc = mockk<PrivyRpcClient>()
-        coEvery { rpc.callForHexResult(RPC, "eth_call", any()) } returns "0x"
+        coEvery { rpc.callForHexResult(RPC, "eth_call", any(), RpcCallPurpose.SIMULATION) } returns "0x"
         return rpc
     }
 

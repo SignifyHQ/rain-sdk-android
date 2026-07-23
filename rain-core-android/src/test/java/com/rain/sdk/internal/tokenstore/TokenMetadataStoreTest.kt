@@ -113,4 +113,13 @@ class TokenMetadataStoreTest {
         // Unknown chain falls back to an ETH-like default.
         assertThat(store.nativeCurrency(123456).symbol).isEqualTo("ETH")
     }
+
+    @Test
+    fun `nativeCurrencyOrNull returns null for an unknown chain instead of a default`() {
+        val store = TokenMetadataStore(MockChainReader())
+        assertThat(store.nativeCurrencyOrNull(43114)?.symbol).isEqualTo("AVAX")
+        assertThat(store.nativeCurrencyOrNull(com.rain.sdk.RainChain.SOLANA_MAINNET)?.symbol)
+            .isEqualTo("SOL")
+        assertThat(store.nativeCurrencyOrNull(123456)).isNull()
+    }
 }

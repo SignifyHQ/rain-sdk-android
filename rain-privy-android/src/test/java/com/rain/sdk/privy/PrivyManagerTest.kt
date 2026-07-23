@@ -151,6 +151,48 @@ class PrivyManagerTest {
     }
 
     @Test
+    fun `getTransactions classifies a Privy authentication failure as TokenExpired`() = runBlocking {
+        val provider = mockk<EmbeddedEthereumWalletProvider>()
+        val w = wallet(WALLET, provider)
+        coEvery { w.getTransactions(any()) } returns
+            Result.failure(io.privy.auth.AuthenticationException("User must be authenticated before calling refresh."))
+        val manager = PrivyManager(privyWith(listOf(w)))
+
+        val error = runCatching {
+            manager.getTransactions(WALLET, GetTransactionsParams(chain = TransactionChain.Evm.Base))
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(RainError.TokenExpired::class.java)
+    }
+
+    @Test
+    fun `request classifies a Privy authentication failure as TokenExpired`() = runBlocking {
+        val provider = mockk<EmbeddedEthereumWalletProvider>()
+        coEvery { provider.request(any()) } returns
+            Result.failure(io.privy.auth.AuthenticationException("User must be authenticated before calling refresh."))
+        val manager = PrivyManager(privyWith(listOf(wallet(WALLET, provider))))
+
+        val error = runCatching { manager.signTypedData(WALLET, "{}") }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(RainError.TokenExpired::class.java)
+    }
+
+    @Test
+    fun `request classifies a Privy wallet rejection as UserRejected`() = runBlocking {
+        val provider = mockk<EmbeddedEthereumWalletProvider>()
+        every { provider.switchChain(any()) } just Runs
+        coEvery { provider.request(any()) } returns
+            Result.failure(io.privy.wallet.EmbeddedWalletException("User rejected the request"))
+        val manager = PrivyManager(privyWith(listOf(wallet(WALLET, provider))))
+
+        val error = runCatching {
+            manager.sendTransaction(walletAddress = WALLET, rpcUrl = RPC, transactionJson = "{}")
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(RainError.UserRejected::class.java)
+    }
+
+    @Test
     fun `request bubbles a raw exception thrown by the provider call`() = runBlocking {
         val provider = mockk<EmbeddedEthereumWalletProvider>()
         val raw = RuntimeException("insufficient funds for gas")

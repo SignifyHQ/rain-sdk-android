@@ -43,7 +43,8 @@ internal class JsonRpcClient(
      *
      * - Throws [RainError.InvalidRpcUrl] when [rpcUrl] doesn't parse as an HTTP/S URL.
      * - Throws [RainError.NetworkError] for transport failures and non-JSON bodies.
-     * - Wraps RPC `error` objects as [RainError.WithdrawalRevertedByNetwork] for reverts,
+     * - Wraps RPC `error` objects as [RainError.TransactionSimulationFailed] for reverts
+     *   (withdrawal flows translate that to [RainError.WithdrawalRevertedByNetwork]),
      *   otherwise [RainError.InternalError] with the RPC code/message.
      */
     suspend fun call(
@@ -90,8 +91,10 @@ internal class JsonRpcClient(
             val code = err.optInt("code", -1)
             val message = err.optString("message", "Unknown RPC error")
             if (message.contains("revert", ignoreCase = true)) {
-                throw RainError.WithdrawalRevertedByNetwork(
-                    details = "Withdrawal reverted by the network: $message"
+                // Withdrawal flows translate this to WithdrawalRevertedByNetwork in
+                // TransactionCoordinator; plain sends and reads must not surface RAIN_405.
+                throw RainError.TransactionSimulationFailed(
+                    IllegalStateException("RPC error [$code]: $message")
                 )
             }
             throw RainError.InternalError("RPC error [$code]: $message")

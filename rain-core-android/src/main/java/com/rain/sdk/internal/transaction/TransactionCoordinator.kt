@@ -7,6 +7,7 @@ import com.rain.sdk.internal.provider.WalletProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.math.BigDecimal
 
 /**
  * Orchestrates the complete transaction flow.
@@ -87,6 +88,10 @@ internal class TransactionCoordinator(
         Pair(null, transactionData)
       }
 
+    } catch (e: RainError.TransactionSimulationFailed) {
+      // A simulation failure on the withdrawal path means the node reverted the withdrawal
+      // itself (duplicate withdrawal, already-used signature, contract guard tripped).
+      throw RainError.WithdrawalRevertedByNetwork(cause = e)
     } catch (e: RainError) {
       // Re-throw RainError as-is
       throw e
@@ -131,7 +136,7 @@ internal class TransactionCoordinator(
     from: String,
     to: String,
     data: String
-  ): Double = withContext(Dispatchers.IO) {
+  ): BigDecimal = withContext(Dispatchers.IO) {
     val provider = walletProvider() ?: throw RainError.SdkNotInitialized()
     try {
       provider.estimateTransactionFee(
@@ -163,7 +168,7 @@ internal class TransactionCoordinator(
    */
   suspend fun estimateWithdrawalFee(
     request: WithdrawCollateralRequest
-  ): Double = withContext(Dispatchers.IO) {
+  ): BigDecimal = withContext(Dispatchers.IO) {
     try {
       // Step 1: Validate
       validator.validateWithdrawRequest(request)
@@ -205,6 +210,10 @@ internal class TransactionCoordinator(
         data = transactionData,
         value = "0x0"
       )
+    } catch (e: RainError.TransactionSimulationFailed) {
+      // The fee estimate simulates the withdrawal; a revert here means the network would
+      // reject the withdrawal itself (duplicate, used signature, contract guard tripped).
+      throw RainError.WithdrawalRevertedByNetwork(cause = e)
     } catch (e: RainError) {
       throw e
     } catch (e: Exception) {

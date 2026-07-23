@@ -73,7 +73,7 @@ internal open class StubWalletProvider : WalletProvider {
     var sendTokenHashToReturn: String = "0x" + "0".repeat(64)
     var sendTransactionHashToReturn: String = "0x" + "0".repeat(64)
     var signTypedDataToReturn: String = "0x" + "0".repeat(130)
-    var estimateTransactionFeeToReturn: Double = 0.0
+    var estimateTransactionFeeToReturn: BigDecimal = BigDecimal.ZERO
 
     val sendNativeTokenCalls = mutableListOf<SendTokenCall>()
     val sendTokenCalls = mutableListOf<SendTokenCall>()
@@ -158,7 +158,7 @@ internal open class StubWalletProvider : WalletProvider {
         to: String,
         data: String,
         value: String
-    ): Double {
+    ): BigDecimal {
         estimateTransactionFeeCalls += EstimateTransactionFeeCall(chainId, from, to, data, value)
         return estimateTransactionFeeToReturn
     }

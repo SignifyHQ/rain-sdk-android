@@ -16,6 +16,16 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
+ * What a JSON-RPC call is for; drives how node error messages are classified.
+ *
+ * - [READ] is a plain state read (balances, gas price): a "revert" in an error message never
+ *   means a failed simulation there.
+ * - [SIMULATION] executes the transaction against the node (`eth_call` pre-flight,
+ *   `eth_estimateGas`): a "revert" means the transaction cannot succeed.
+ */
+internal enum class RpcCallPurpose { READ, SIMULATION }
+
+/**
  * Minimal JSON-RPC 2.0 client for Privy's read path (balances, gas, fee estimates).
  *
  * Core's `JsonRpcClient` is module-internal, so this out-of-module adapter carries its own. Privy's
@@ -39,7 +49,8 @@ internal class PrivyRpcClient(
     suspend fun callForHexResult(
         rpcUrl: String,
         method: String,
-        params: List<Any>
+        params: List<Any>,
+        purpose: RpcCallPurpose = RpcCallPurpose.READ
     ): String {
         val parsedUrl = rpcUrl.toHttpUrlOrNull()
             ?: throw RainError.InvalidRpcUrl(rpcUrl)
@@ -77,7 +88,7 @@ internal class PrivyRpcClient(
             val err = response.getJSONObject("error")
             val code = err.optInt("code", -1)
             val message = err.optString("message", "Unknown RPC error")
-            throw RainError.InternalError("RPC error [$code]: $message")
+            throw classifyNodeError(code, message, purpose)
         }
 
         val result = response.opt("result")
@@ -85,6 +96,31 @@ internal class PrivyRpcClient(
             throw RainError.InternalError("Unexpected RPC result for method $method")
         }
         return result
+    }
+
+    /**
+     * Classifies a node JSON-RPC error by message, aware of what the call was [purpose]d for:
+     * - [RpcCallPurpose.SIMULATION]: "revert" maps to [RainError.TransactionSimulationFailed]
+     *   (checked before "insufficient funds" so "execution reverted: insufficient allowance"
+     *   classifies as a simulation failure), then "insufficient funds" maps to
+     *   [RainError.InsufficientFunds].
+     * - [RpcCallPurpose.READ]: only "insufficient funds" maps to [RainError.InsufficientFunds];
+     *   a read can never fail simulation.
+     *
+     * No message keyword maps to [RainError.UserRejected]: nodes and gateways produce "denied"
+     * for auth and rate-limit failures, never for user rejections (those come from the wallet
+     * layer, not JSON-RPC). Anything else falls back to [RainError.InternalError] with the code
+     * and message preserved.
+     */
+    private fun classifyNodeError(code: Int, message: String, purpose: RpcCallPurpose): RainError {
+        val lower = message.lowercase()
+        val details = "RPC error [$code]: $message"
+        return when {
+            purpose == RpcCallPurpose.SIMULATION && lower.contains("revert") ->
+                RainError.TransactionSimulationFailed(RainError.InternalError(details))
+            lower.contains("insufficient funds") -> RainError.InsufficientFunds()
+            else -> RainError.InternalError(details)
+        }
     }
 
     private fun paramsToJsonArray(params: List<Any>): JSONArray {

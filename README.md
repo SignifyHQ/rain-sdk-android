@@ -35,12 +35,12 @@ dependencies {
 |---------------|--------------------------------------------------------------------------|
 | `rain-core-android`   | The `WalletProvider` port, capability model, provider registry, all Rain domain logic, **and the Turnkey adapter** (in `com.rain.sdk.turnkey`, for now). |
 | `rain-portal-android` | The Portal MPC adapter (`PortalProvider`); depends on `rain-core-android` + `portal-android`. |
-| `rain-privy-android`  | The Privy embedded-key adapter (`PrivyProvider`) — **skeleton**; proves a net-new provider costs existing clients nothing. Operations throw `NotImplementedError` until the Privy SDK is wired. |
+| `rain-privy-android`  | The Privy embedded-key adapter (`PrivyProvider`); depends on `rain-core-android` + `privy-core`. |
 
 ## Requirements
 
 - Android SDK 28+ (Turnkey-compatible)
-- Kotlin 1.8+
+- Kotlin 2.2.x (the SDK is built with Kotlin 2.2.20)
 
 ## Quick Start
 
@@ -166,9 +166,9 @@ import java.math.BigDecimal
 // `client` is the RainClient resolved in Quick Start (rain.provider(...))
 
 // Send native token (AVAX)
-val result = client.sendNativeToken(
+val result = client.sendNative(
     chainId = 43114,
-    toAddress = "0x...",
+    to = "0x...",
     amount = BigDecimal("0.1")
 )
 println("Tx Hash: ${result.transactionHash}")
@@ -312,4 +312,4 @@ For a complete reference of all public methods, parameters, types, and error cod
 
 ## License
 
-See the [LICENSE](LICENSE) file for details.
+Apache License 2.0. See the [LICENSE](LICENSE) file for details.
