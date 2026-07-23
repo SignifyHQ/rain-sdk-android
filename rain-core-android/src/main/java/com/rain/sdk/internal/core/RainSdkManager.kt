@@ -140,9 +140,35 @@ internal class RainSdkManager(
       from = from,
       to = to,
       data = data
-    ).toBigDecimal()
+    )
   }
 
+  override suspend fun estimateWithdrawalFee(
+    chainId: Int,
+    addresses: RainWithdrawAddresses,
+    amount: BigDecimal,
+    decimals: Int,
+    salt: String,
+    signature: String,
+    expiresAt: String
+  ): BigDecimal = estimateWithdrawalFee(
+    chainId = chainId,
+    addresses = addresses,
+    amount = amount,
+    decimals = decimals,
+    adminSignature = RainAdminSignature(salt = salt, signature = signature, expiresAt = expiresAt),
+    nonce = null
+  )
+
+  @Deprecated(
+    message = "Use the BigDecimal overload, which takes the withdrawal authorization as " +
+        "salt / signature / expiresAt and returns an exact BigDecimal " +
+        "instead of a lossy Double.",
+    replaceWith = ReplaceWith(
+      "estimateWithdrawalFee(chainId, addresses, amount.toBigDecimal(), decimals, " +
+          "adminSignature.salt, adminSignature.signature, adminSignature.expiresAt)"
+    )
+  )
   override suspend fun estimateWithdrawalFee(
     chainId: Int,
     addresses: RainWithdrawAddresses,
@@ -151,6 +177,28 @@ internal class RainSdkManager(
     adminSignature: RainAdminSignature,
     nonce: BigInteger?
   ): Double {
+    if (!amount.isFinite()) {
+      throw RainError.InvalidAmount(amount.toString(), "amount must be a finite number")
+    }
+    return estimateWithdrawalFee(
+      chainId = chainId,
+      addresses = addresses,
+      amount = amount.toBigDecimal(),
+      decimals = decimals,
+      adminSignature = adminSignature,
+      nonce = nonce
+    ).toDouble()
+  }
+
+  /** Shared estimation path: validate, build EIP-712, sign, build calldata, `eth_estimateGas`. */
+  private suspend fun estimateWithdrawalFee(
+    chainId: Int,
+    addresses: RainWithdrawAddresses,
+    amount: BigDecimal,
+    decimals: Int,
+    adminSignature: RainAdminSignature,
+    nonce: BigInteger?
+  ): BigDecimal {
     if (!isInitialized) {
       throw RainError.SdkNotInitialized()
     }
@@ -160,7 +208,7 @@ internal class RainSdkManager(
     val request = WithdrawCollateralRequest(
       chainId = chainId,
       addresses = addresses,
-      amount = amount.toBigDecimal(),
+      amount = amount,
       decimals = decimals,
       adminSignature = adminSignature,
       walletAddress = walletAddress,
@@ -211,9 +259,9 @@ internal class RainSdkManager(
     }
   }
 
-  override suspend fun sendNativeToken(
+  override suspend fun sendNative(
     chainId: Int,
-    toAddress: String,
+    to: String,
     amount: BigDecimal
   ): RainTokenTransferResult {
     if (!isInitialized) {
@@ -221,7 +269,7 @@ internal class RainSdkManager(
     }
 
     return try {
-      val txHash = walletProvider.sendNativeToken(chainId, toAddress, amount)
+      val txHash = walletProvider.sendNativeToken(chainId, to, amount)
       RainTokenTransferResult(transactionHash = txHash)
     } catch (e: Exception) {
       if (e is CancellationException) throw e

@@ -36,13 +36,13 @@ class RainSdkManagerSendTokenTest {
     // ---- guards: not initialized -------------------------------------------------
 
     @Test
-    fun `sendNativeToken throws SdkNotInitialized before initialization`() {
+    fun `sendNative throws SdkNotInitialized before initialization`() {
         val manager = TestManagers.uninitializedManager()
         assertThrows(RainError.SdkNotInitialized::class.java) {
             runBlocking {
-                manager.sendNativeToken(
+                manager.sendNative(
                     chainId = 1,
-                    toAddress = TestFixtures.RECIPIENT_ADDRESS,
+                    to = TestFixtures.RECIPIENT_ADDRESS,
                     amount = BigDecimal("1.0")
                 )
             }
@@ -67,14 +67,14 @@ class RainSdkManagerSendTokenTest {
     // ---- happy paths via the stub provider ---------------------------------------
 
     @Test
-    fun `sendNativeToken returns provider tx hash and forwards toAddress + amount`(): Unit = runBlocking {
+    fun `sendNative returns provider tx hash and forwards recipient + amount`(): Unit = runBlocking {
         val (manager, stub) = TestManagers.stubProviderManager()
         val expectedHash = "0x" + "a".repeat(64)
         stub.sendNativeTokenHashToReturn = expectedHash
 
-        val result = manager.sendNativeToken(
+        val result = manager.sendNative(
             chainId = 1,
-            toAddress = TestFixtures.RECIPIENT_ADDRESS,
+            to = TestFixtures.RECIPIENT_ADDRESS,
             amount = BigDecimal("1.5")
         )
 
@@ -84,6 +84,25 @@ class RainSdkManagerSendTokenTest {
         assertThat(call.chainId).isEqualTo(1)
         assertThat(call.toAddress).isEqualTo(TestFixtures.RECIPIENT_ADDRESS)
         assertThat(call.amount).isEqualTo(1.5)
+    }
+
+    @Suppress("DEPRECATION")
+    @Test
+    fun `deprecated sendNativeToken shim delegates to sendNative`(): Unit = runBlocking {
+        val (manager, stub) = TestManagers.stubProviderManager()
+        val expectedHash = "0x" + "c".repeat(64)
+        stub.sendNativeTokenHashToReturn = expectedHash
+
+        val result = manager.sendNativeToken(
+            chainId = 1,
+            toAddress = TestFixtures.RECIPIENT_ADDRESS,
+            amount = BigDecimal("0.5")
+        )
+
+        assertThat(result.transactionHash).isEqualTo(expectedHash)
+        val call = stub.sendNativeTokenCalls.single()
+        assertThat(call.toAddress).isEqualTo(TestFixtures.RECIPIENT_ADDRESS)
+        assertThat(call.amount).isEqualTo(0.5)
     }
 
     @Suppress("DEPRECATION")
@@ -150,7 +169,7 @@ class RainSdkManagerSendTokenTest {
     // ---- error wrapping ----------------------------------------------------------
 
     @Test
-    fun `sendNativeToken wraps generic provider exception as ProviderError`() {
+    fun `sendNative wraps generic provider exception as ProviderError`() {
         assumeJdk24()
         val failing = object : StubWalletProvider() {
             override suspend fun sendNativeToken(
@@ -165,9 +184,9 @@ class RainSdkManagerSendTokenTest {
 
         val ex = runCatching {
             runBlocking {
-                manager.sendNativeToken(
+                manager.sendNative(
                     chainId = 1,
-                    toAddress = TestFixtures.RECIPIENT_ADDRESS,
+                    to = TestFixtures.RECIPIENT_ADDRESS,
                     amount = BigDecimal("1.0")
                 )
             }

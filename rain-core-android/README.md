@@ -54,7 +54,7 @@ The primary entry point. Accessed via `RainSdk.getInstance().client`.
 - `getNativeBalance(chainId)`: Gets the native token balance.
 - `getERC20Balance(chainId, tokenAddress, decimals)`: Gets specific ERC-20 balance.
 - `getERC20Balances(chainId)`: Gets all ERC-20 balances for the wallet.
-- `sendNativeToken(...)`: Transfers native cryptocurrency.
+- `sendNative(...)`: Transfers native cryptocurrency.
 - `sendToken(...)`: Transfers ERC-20 tokens.
 - `getTransactions(...)`: Fetches transaction history for a specific chain.
 - `withdrawCollateral(...)`: Orchestrates the full withdrawal flow.

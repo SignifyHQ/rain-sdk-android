@@ -151,8 +151,8 @@ class TurnkeyAdapterTest {
             value = "0x0"
         )
 
-        val expected = 20_000_000_000.0 * 21_000.0 / 1e18
-        assertThat(fee).isWithin(1e-12).of(expected)
+        // 21000 * 20 gwei = 4.2e14 wei = 0.00042 ETH, exactly.
+        assertThat(fee).isEqualToIgnoringScale(java.math.BigDecimal("0.00042"))
         assertThat(rpc.recordedMethods).containsAtLeast("eth_estimateGas", "eth_gasPrice")
     }
 

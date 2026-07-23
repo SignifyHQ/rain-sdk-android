@@ -114,7 +114,7 @@ val result = rainClient.getTransactions(
 import java.math.BigDecimal
 
 // Sending Native Token
-val res = rainClient.sendNativeToken(chainId, recipient, BigDecimal("0.1"))
+val res = rainClient.sendNative(chainId, recipient, BigDecimal("0.1"))
 
 // Sending ERC-20 Token
 val res = rainClient.sendToken(chainId, contract, recipient, BigDecimal("10.0"), 6)

@@ -54,7 +54,7 @@ internal class EvmChainReader(
             method = "eth_getBalance",
             params = listOf(walletAddress, "latest")
         )
-        return EthereumConverter.convertHexToDouble(hex, DEFAULT_NATIVE_DECIMALS)
+        return EthereumConverter.convertHexToDecimal(hex, DEFAULT_NATIVE_DECIMALS).toDouble()
     }
 
     override suspend fun getERC20Balance(
@@ -73,10 +73,10 @@ internal class EvmChainReader(
             method = "eth_call",
             params = listOf(callParams, "latest")
         )
-        return EthereumConverter.convertHexToDouble(
+        return EthereumConverter.convertHexToDecimal(
             hex,
             decimals ?: RainClient.DEFAULT_ERC20_DECIMALS
-        )
+        ).toDouble()
     }
 
     override suspend fun getBalances(
@@ -223,7 +223,17 @@ internal class EvmChainReader(
                 )
                 return@forEachIndexed
             }
-            output += tokenBalance(chainId, token, result.returnData)
+            output += try {
+                tokenBalance(chainId, token, result.returnData)
+            } catch (e: RainError.InternalError) {
+                // Per-token failures stay non-fatal on the batched path too: a malformed
+                // balanceOf payload omits the token, mirroring the parallel fallback.
+                Timber.w(
+                    e,
+                    "Rain SDK: malformed balanceOf payload for token ${token.symbol ?: token.address} (${token.address}) on chain $chainId — omitting from result"
+                )
+                return@forEachIndexed
+            }
         }
         return output
     }
@@ -288,7 +298,7 @@ internal class EvmChainReader(
         return Balance(
             token = Token.Native,
             chainId = chainId,
-            rawAmount = EthereumConverter.parseHexToBigInteger(hex),
+            rawAmount = EthereumConverter.parseHexToBigIntegerStrict(hex),
             decimals = native.decimals,
             symbol = native.symbol,
             name = native.name
@@ -300,7 +310,7 @@ internal class EvmChainReader(
         Balance(
             token = Token.Contract(token.address),
             chainId = chainId,
-            rawAmount = EthereumConverter.parseHexToBigInteger(hex),
+            rawAmount = EthereumConverter.parseHexToBigIntegerStrict(hex),
             decimals = token.decimals,
             symbol = token.symbol,
             name = token.name

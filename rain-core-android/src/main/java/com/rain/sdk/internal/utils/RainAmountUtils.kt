@@ -11,7 +11,10 @@ internal object RainAmountUtils {
      */
     fun toBaseUnits(amount: BigDecimal, decimals: Int): BigInteger {
         if (amount.scale() > decimals) {
-            throw RainError.InvalidConfig("Amount scale (${amount.scale()}) exceeds token decimals ($decimals)")
+            throw RainError.InvalidAmount(
+                amount = amount.toPlainString(),
+                reason = "amount scale (${amount.scale()}) exceeds token decimals ($decimals)"
+            )
         }
         return amount
             .multiply(BigDecimal.TEN.pow(decimals))

@@ -98,6 +98,10 @@ internal class PrivyManager(
     ): String {
         val wallet = resolveWallet(walletAddress)
         return sendMutex.withLock {
+            // Privy's EthereumChain.Custom (privy-core 0.13.0) only carries an RPC URL; no chain
+            // variant accepts both a custom RPC URL and a chain id. The chain id still reaches the
+            // node because [transactionJson] embeds it, and the named SupportedEthereumChain values
+            // are not used since they would route RPC through Privy's endpoints instead of Rain's.
             wallet.provider.switchChain(EthereumChain.Custom(rpcUrl))
             request(wallet, EthereumRpcRequest.ethSendTransaction(transactionJson))
         }
@@ -106,22 +110,28 @@ internal class PrivyManager(
     /**
      * Fetches one page of transaction history for the signing wallet via Privy's indexer.
      *
-     * Failures bubble up raw for the same reason as [request]: core's error mapping classifies
-     * the underlying Privy error, and pre-wrapping would hide it.
+     * Privy vendor exceptions classify via [PrivyErrorMapping]; anything else bubbles up raw
+     * for the same reason as [request]: core's error mapping classifies the underlying error,
+     * and pre-wrapping would hide it.
      */
     suspend fun getTransactions(
         walletAddress: String?,
         params: GetTransactionsParams<TransactionChain.Evm>,
-    ): TransactionsPage = resolveWallet(walletAddress).getTransactions(params).getOrThrow()
+    ): TransactionsPage = resolveWallet(walletAddress).getTransactions(params).getOrElse { error ->
+        Timber.e(error, "Rain SDK: Privy getTransactions failed")
+        PrivyErrorMapping.mapOrNull(error)?.let { throw it }
+        throw error
+    }
 
     /**
      * Issues an RPC request through the wallet's provider, unwrapping the [Result] and data.
      *
-     * Failures bubble up raw (only logged here) rather than being wrapped in [RainError]. Core's
-     * `TransactionExecutor` / `TransactionSigner` short-circuit on any `RainError` before their
-     * `ErrorMapper` runs, so pre-wrapping would hide user-rejection / insufficient-funds behind a
-     * generic `ProviderError`. Letting the raw Privy error through lets the mapper classify it —
-     * matching how the Portal and Turnkey adapters surface signing/broadcast failures.
+     * Privy vendor exceptions classify into specific [RainError] cases here via
+     * [PrivyErrorMapping] (invalid session, user rejection, insufficient funds, missing wallet).
+     * Non-Privy failures bubble up raw (only logged here) rather than being
+     * wrapped: core's `TransactionExecutor` / `TransactionSigner` short-circuit on any
+     * `RainError` before their `ErrorMapper` runs, so pre-wrapping those would hide
+     * user-rejection / insufficient-funds behind a generic `ProviderError`.
      */
     private suspend fun request(
         wallet: EmbeddedEthereumWallet,
@@ -133,10 +143,12 @@ internal class PrivyManager(
             throw e
         } catch (e: Exception) {
             Timber.e(e, "Rain SDK: Privy RPC request failed for ${rpcRequest.method}")
+            PrivyErrorMapping.mapOrNull(e)?.let { throw it }
             throw e
         }
         return result.getOrElse { error ->
             Timber.e(error, "Rain SDK: Privy RPC request failed for ${rpcRequest.method}")
+            PrivyErrorMapping.mapOrNull(error)?.let { throw it }
             throw error
         }.data
     }

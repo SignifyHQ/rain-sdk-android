@@ -36,7 +36,7 @@ class PrivyRpcClientTest {
     }
 
     @Test
-    fun `maps a JSON-RPC error object to InternalError with code and message`() = runBlocking {
+    fun `maps an unclassified JSON-RPC error object to InternalError with code and message`() = runBlocking {
         server.enqueue(
             MockResponse().setBody("""{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"boom"}}""")
         )
@@ -46,6 +46,62 @@ class PrivyRpcClientTest {
         assertThat(error).isInstanceOf(RainError.InternalError::class.java)
         assertThat(error!!.message).contains("-32000")
         assertThat(error.message).contains("boom")
+    }
+
+    @Test
+    fun `classifies an insufficient-funds node error on a read as InsufficientFunds`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"insufficient funds for gas * price + value"}}"""
+            )
+        )
+        val error = runCatching {
+            client.callForHexResult(url(), "eth_getBalance", emptyList())
+        }.exceptionOrNull()
+        assertThat(error).isInstanceOf(RainError.InsufficientFunds::class.java)
+    }
+
+    @Test
+    fun `classifies an execution-reverted simulation error as TransactionSimulationFailed`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"jsonrpc":"2.0","id":1,"error":{"code":3,"message":"execution reverted"}}"""
+            )
+        )
+        val error = runCatching {
+            client.callForHexResult(url(), "eth_call", emptyList(), purpose = RpcCallPurpose.SIMULATION)
+        }.exceptionOrNull()
+        assertThat(error).isInstanceOf(RainError.TransactionSimulationFailed::class.java)
+        assertThat(error!!.message).contains("execution reverted")
+    }
+
+    @Test
+    fun `a denied node error on a read maps to InternalError, never UserRejected`() = runBlocking {
+        // Nodes and gateways say "denied" for auth / rate-limit failures; there is no user
+        // in the loop on a JSON-RPC read, so this must never classify as UserRejected.
+        server.enqueue(
+            MockResponse().setBody(
+                """{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"access denied"}}"""
+            )
+        )
+        val error = runCatching {
+            client.callForHexResult(url(), "eth_getBalance", emptyList())
+        }.exceptionOrNull()
+        assertThat(error).isInstanceOf(RainError.InternalError::class.java)
+        assertThat(error!!.message).contains("access denied")
+    }
+
+    @Test
+    fun `an execution-reverted error on a read maps to InternalError, not a simulation failure`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"jsonrpc":"2.0","id":1,"error":{"code":3,"message":"execution reverted"}}"""
+            )
+        )
+        val error = runCatching {
+            client.callForHexResult(url(), "eth_getBalance", emptyList())
+        }.exceptionOrNull()
+        assertThat(error).isInstanceOf(RainError.InternalError::class.java)
     }
 
     @Test

@@ -26,14 +26,14 @@ class ErrorMapperTest {
     // ---- mapSigningError -----------------------------------------------------------
 
     @Test
-    fun `mapSigningError returns UserRejected when message contains user`() {
-        val mapped = mapper.mapSigningError(RuntimeException("User cancelled passkey prompt"))
+    fun `mapSigningError returns UserRejected when message contains reject`() {
+        val mapped = mapper.mapSigningError(RuntimeException("User rejected the request"))
         assertThat(mapped).isInstanceOf(RainError.UserRejected::class.java)
     }
 
     @Test
-    fun `mapSigningError returns UserRejected when message contains reject`() {
-        val mapped = mapper.mapSigningError(RuntimeException("Request was rejected"))
+    fun `mapSigningError returns UserRejected when message contains denied`() {
+        val mapped = mapper.mapSigningError(RuntimeException("request denied"))
         assertThat(mapped).isInstanceOf(RainError.UserRejected::class.java)
     }
 
@@ -41,6 +41,15 @@ class ErrorMapperTest {
     fun `mapSigningError returns UserRejected when message contains cancel`() {
         val mapped = mapper.mapSigningError(RuntimeException("Operation cancelled"))
         assertThat(mapped).isInstanceOf(RainError.UserRejected::class.java)
+    }
+
+    @Test
+    fun `mapSigningError does not treat a bare user mention as rejection`() {
+        // "user" alone is not a rejection keyword — this message is a wallet-availability
+        // failure, not the user declining anything.
+        val mapped = mapper.mapSigningError(RuntimeException("User doesn't have an embedded wallet"))
+        assertThat(mapped).isNotInstanceOf(RainError.UserRejected::class.java)
+        assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
     }
 
     @Test

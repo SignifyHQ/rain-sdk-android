@@ -1,5 +1,6 @@
 package com.rain.sdk.utils
 
+import com.rain.sdk.internal.error.RainError
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.math.RoundingMode
@@ -32,14 +33,34 @@ object EthereumConverter {
     /**
      * Converts a Wei hex string to its unit-less Double value.
      */
+    @Deprecated(
+        message = "Double loses precision for large wei values. Use parseHexToBigIntegerStrict for " +
+            "the exact base-unit value, or convertWeiHexToDecimal for the ETH-unit BigDecimal.",
+        replaceWith = ReplaceWith("parseHexToBigIntegerStrict(ethBalanceHexValue)")
+    )
     fun convertWeiHexToDouble(ethBalanceHexValue: String): Double {
         val cleanedHex = ethBalanceHexValue.removePrefix("0x").ifEmpty { "0" }
         return BigInteger(cleanedHex, 16).toDouble()
     }
 
+    /** Converts a Wei hex string to an exact ETH-unit [BigDecimal] (18 decimals). */
+    fun convertWeiHexToDecimal(weiHexValue: String): BigDecimal {
+        val cleanedHex = weiHexValue.removePrefix("0x").ifEmpty { "0" }
+        return BigInteger(cleanedHex, 16).toBigDecimal().movePointLeft(18)
+    }
+
     /** Converts a Wei BigInteger to ETH (Double). */
+    @Deprecated(
+        message = "Double loses precision for large wei values. Use convertWeiToEthDecimal for an " +
+            "exact BigDecimal.",
+        replaceWith = ReplaceWith("convertWeiToEthDecimal(wei)")
+    )
     fun convertWeiToEth(wei: BigInteger): Double =
         wei.toBigDecimal().movePointLeft(18).toDouble()
+
+    /** Converts a Wei BigInteger to an exact ETH-unit [BigDecimal] (18 decimals). */
+    fun convertWeiToEthDecimal(wei: BigInteger): BigDecimal =
+        wei.toBigDecimal().movePointLeft(18)
 
     /** Converts an ETH BigDecimal value to a Wei hex string (exact base-10 scaling). */
     fun convertEthToWeiHex(ethBalance: BigDecimal): String {
@@ -53,6 +74,11 @@ object EthereumConverter {
      * @param hex The hex string (e.g. "0x...")
      * @param decimals The number of decimal places
      */
+    @Deprecated(
+        message = "Double loses precision for large balances. Use convertHexToDecimal for an " +
+            "exact BigDecimal.",
+        replaceWith = ReplaceWith("convertHexToDecimal(hex, decimals)")
+    )
     fun convertHexToDouble(hex: String, decimals: Int): Double {
         val cleanedHex = hex.removePrefix("0x").ifEmpty { "0" }
         return BigInteger(cleanedHex, 16).toBigDecimal().movePointLeft(decimals).toDouble()
@@ -67,16 +93,44 @@ object EthereumConverter {
     /**
      * Converts a hex-encoded uint256 string to an exact [BigInteger] (no precision loss).
      *
-     * Used for balances read directly from chain (`eth_getBalance`, `eth_call balanceOf`),
-     * where the raw base-unit value must be preserved. Returns [BigInteger.ZERO] on a
-     * malformed payload rather than throwing.
+     * Lenient: returns [BigInteger.ZERO] on a malformed or empty payload rather than
+     * throwing, which silently turns a garbage RPC response into a zero value. Money paths
+     * (balance and fee reads) must use [parseHexToBigIntegerStrict] instead; this stays only
+     * for source compatibility.
      */
+    @Deprecated(
+        message = "Returns ZERO on a malformed payload, silently zeroing balances/fees. Use " +
+            "parseHexToBigIntegerStrict, which throws RainError.InternalError instead.",
+        replaceWith = ReplaceWith("parseHexToBigIntegerStrict(hex)")
+    )
     fun parseHexToBigInteger(hex: String): BigInteger {
         val cleaned = hex.removePrefix("0x").removePrefix("0X").ifEmpty { "0" }
         return try {
             BigInteger(cleaned, 16)
         } catch (e: NumberFormatException) {
             BigInteger.ZERO
+        }
+    }
+
+    /**
+     * Converts a hex-encoded uint256 string to an exact [BigInteger], throwing on malformed input.
+     *
+     * The strict variant of [parseHexToBigInteger] for money paths (`eth_getBalance`,
+     * `eth_call balanceOf`, gas reads), where a garbage RPC response must surface as an error
+     * rather than a silent zero balance or fee. Accepts an optional `0x`/`0X` prefix; `"0x0"`
+     * parses to [BigInteger.ZERO].
+     *
+     * @throws RainError.InternalError on non-hex input or an empty/blank payload (`""` or `"0x"`)
+     */
+    fun parseHexToBigIntegerStrict(hex: String): BigInteger {
+        val cleaned = hex.removePrefix("0x").removePrefix("0X")
+        if (cleaned.isBlank()) {
+            throw RainError.InternalError("Malformed hex payload: \"$hex\"")
+        }
+        return try {
+            BigInteger(cleaned, 16)
+        } catch (e: NumberFormatException) {
+            throw RainError.InternalError("Malformed hex payload: \"$hex\"", e)
         }
     }
 

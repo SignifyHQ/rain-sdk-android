@@ -62,6 +62,15 @@ class TokenMetadataStore internal constructor(
         if (SolanaChains.isSolanaChain(chainId)) SolanaChains.NATIVE_CURRENCY
         else TokenRegistry.nativeCurrency(chainId)
 
+    /**
+     * Native currency for a chain, or `null` when the chain is not in the registry. Unlike
+     * [nativeCurrency], this never falls back to an ETH-like default, so callers that must not
+     * show a wrong symbol (e.g. transaction history) can distinguish "unknown chain".
+     */
+    fun nativeCurrencyOrNull(chainId: Int): NativeCurrency? =
+        if (SolanaChains.isSolanaChain(chainId)) SolanaChains.NATIVE_CURRENCY
+        else TokenRegistry.nativeCurrencyByChainId[chainId]
+
     /** All known tokens for a chain (registry + host-registered), in deterministic order. */
     suspend fun registeredTokens(chainId: Int): List<TokenInfo> =
         mutex.withLock { knownTokens[chainId]?.toList() ?: emptyList() }

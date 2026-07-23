@@ -273,15 +273,16 @@ class RainSdk private constructor(
         }
 
         /**
-         * @throws RainError.InvalidConfig if no RPC endpoints or no providers were registered,
-         *   or the Rain API base URL doesn't parse.
+         * Zero registered providers is allowed: the SDK is then wallet-agnostic,
+         * exposing [RainSdk.transactionBuilder] and the Rain API methods; resolving a
+         * [RainSdk.provider] still throws [RainError.InvalidConfig] until one is registered.
+         *
+         * @throws RainError.InvalidConfig if no RPC endpoints were configured, or the Rain API
+         *   base URL doesn't parse.
          */
         fun build(): RainSdk {
             if (rpcEndpoints.isEmpty()) {
                 throw RainError.InvalidConfig("At least one RPC endpoint is required")
-            }
-            if (providers.isEmpty()) {
-                throw RainError.InvalidConfig("Register at least one provider")
             }
             if (rainApiEnvironment.baseUrl.toHttpUrlOrNull() == null) {
                 throw RainError.InvalidConfig(

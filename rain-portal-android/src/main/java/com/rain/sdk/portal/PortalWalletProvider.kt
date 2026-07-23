@@ -84,7 +84,7 @@ internal class PortalWalletProvider(
     offset: Int?,
     order: RainTransactionOrder?
   ): RainTransactionResult {
-    return portalManager.getTransactions(chainId, limit, offset, order)
+    return portalManager.getTransactions(chainId, tokenStore, limit, offset, order)
   }
 
   override suspend fun signTypedData(
@@ -111,7 +111,7 @@ internal class PortalWalletProvider(
     to: String,
     data: String,
     value: String
-  ): Double {
+  ): BigDecimal {
     return portalManager.estimateTransactionFee(chainId, from, to, data, value)
   }
 }

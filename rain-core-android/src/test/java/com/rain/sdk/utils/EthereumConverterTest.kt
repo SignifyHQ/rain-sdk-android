@@ -1,6 +1,7 @@
 package com.rain.sdk.utils
 
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.internal.error.RainError
 import org.junit.Test
 import java.math.BigInteger
 
@@ -12,6 +13,27 @@ import java.math.BigInteger
 class EthereumConverterTest {
 
     @Test
+    fun `convertWeiHexToDecimal converts wei hex to exact ETH units`() {
+        // 1 ETH in wei
+        assertThat(EthereumConverter.convertWeiHexToDecimal("0x0de0b6b3a7640000"))
+            .isEqualToIgnoringScale(java.math.BigDecimal.ONE)
+        // A value Double cannot represent exactly: 1.000000000000000001 ETH
+        assertThat(EthereumConverter.convertWeiHexToDecimal("0x0de0b6b3a7640001"))
+            .isEqualToIgnoringScale(java.math.BigDecimal("1.000000000000000001"))
+        assertThat(EthereumConverter.convertWeiHexToDecimal("0x"))
+            .isEqualToIgnoringScale(java.math.BigDecimal.ZERO)
+    }
+
+    @Test
+    fun `convertWeiToEthDecimal converts a wei BigInteger to exact ETH units`() {
+        assertThat(EthereumConverter.convertWeiToEthDecimal(BigInteger("420000000000000")))
+            .isEqualToIgnoringScale(java.math.BigDecimal("0.00042"))
+        assertThat(EthereumConverter.convertWeiToEthDecimal(BigInteger("1000000000000000001")))
+            .isEqualToIgnoringScale(java.math.BigDecimal("1.000000000000000001"))
+    }
+
+    @Suppress("DEPRECATION")
+    @Test
     fun `parseHexToBigInteger preserves full uint256 precision`() {
         assertThat(EthereumConverter.parseHexToBigInteger("0x0de0b6b3a7640000"))
             .isEqualTo(BigInteger("1000000000000000000"))
@@ -19,6 +41,22 @@ class EthereumConverterTest {
             .isEqualTo(BigInteger("1000000000000000000"))
         assertThat(EthereumConverter.parseHexToBigInteger("0x")).isEqualTo(BigInteger.ZERO)
         assertThat(EthereumConverter.parseHexToBigInteger("0xzz")).isEqualTo(BigInteger.ZERO)
+    }
+
+    @Test
+    fun `parseHexToBigIntegerStrict parses well-formed payloads exactly`() {
+        assertThat(EthereumConverter.parseHexToBigIntegerStrict("0x0")).isEqualTo(BigInteger.ZERO)
+        assertThat(EthereumConverter.parseHexToBigIntegerStrict("0x0de0b6b3a7640000"))
+            .isEqualTo(BigInteger("1000000000000000000"))
+    }
+
+    @Test
+    fun `parseHexToBigIntegerStrict throws InternalError on malformed payloads instead of a silent zero`() {
+        listOf("not-hex", "0xZZ", "", "0x").forEach { bad ->
+            val error = runCatching { EthereumConverter.parseHexToBigIntegerStrict(bad) }.exceptionOrNull()
+            assertThat(error).isInstanceOf(RainError.InternalError::class.java)
+            assertThat(error).hasMessageThat().contains("Malformed hex payload")
+        }
     }
 
     @Test

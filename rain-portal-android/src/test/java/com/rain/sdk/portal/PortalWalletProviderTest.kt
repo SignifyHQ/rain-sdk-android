@@ -207,7 +207,7 @@ class PortalWalletProviderTest {
             )
         )
         coEvery {
-            portalManager.getTransactions(43114, 5, 2, RainTransactionOrder.DESC)
+            portalManager.getTransactions(43114, any(), 5, 2, RainTransactionOrder.DESC)
         } returns expected
 
         val result = portalWalletProvider.getTransactions(
@@ -218,7 +218,7 @@ class PortalWalletProviderTest {
         )
 
         assertThat(result).isSameInstanceAs(expected)
-        coVerify { portalManager.getTransactions(43114, 5, 2, RainTransactionOrder.DESC) }
+        coVerify { portalManager.getTransactions(43114, any(), 5, 2, RainTransactionOrder.DESC) }
     }
 
     // ---- Signing + low-level sendTransaction + fee estimation -------------------
@@ -284,9 +284,10 @@ class PortalWalletProviderTest {
 
     @Test
     fun `estimateTransactionFee delegates to PortalManager`() = runBlocking {
+        val expectedFee = BigDecimal("0.00042")
         coEvery {
             portalManager.estimateTransactionFee(1, TestFixtures.WALLET_ADDRESS, TestFixtures.CONTRACT_ADDRESS, "0x", "0x0")
-        } returns 0.00042
+        } returns expectedFee
 
         val fee = portalWalletProvider.estimateTransactionFee(
             chainId = 1,
@@ -296,6 +297,6 @@ class PortalWalletProviderTest {
             value = "0x0"
         )
 
-        assertThat(fee).isWithin(1e-12).of(0.00042)
+        assertThat(fee).isEqualTo(expectedFee)
     }
 }

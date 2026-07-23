@@ -119,11 +119,43 @@ interface RainClient {
 
     /**
      * Estimates the total fee (in the chain's native token, e.g. ETH/AVAX) required to
+     * execute a collateral withdrawal transaction. The withdrawal authorization
+     * (salt / signature / expiresAt, as returned by
+     * [com.rain.sdk.RainSdk.fetchAdminSignature]) is caller-supplied and embedded in the
+     * estimated calldata.
+     *
+     * Builds the EIP-712 payload, signs it with the wallet, then runs `eth_estimateGas`
+     * against the controller. Nothing is broadcast. Note: the calldata also embeds a wallet
+     * signature the controller verifies, so the estimate signs once with the wallet (a
+     * placeholder signature would revert the estimate).
+     *
+     * @param chainId The chain ID for the transaction.
+     * @param addresses All required addresses for the withdrawal.
+     * @param amount The amount to withdraw (human units).
+     * @param decimals Token decimals.
+     * @param salt The withdrawal signature salt (base64), from the Rain API.
+     * @param signature The hex-encoded withdrawal signature, from the Rain API.
+     * @param expiresAt The withdrawal signature expiry (ISO-8601, e.g.
+     *                  "2030-12-31T23:59:59Z"), from the Rain API.
+     * @return Estimated withdrawal fee in the chain's native token, as an exact [BigDecimal].
+     * @throws RainError if estimation fails.
+     */
+    @Throws(RainError::class)
+    suspend fun estimateWithdrawalFee(
+        chainId: Int,
+        addresses: RainWithdrawAddresses,
+        amount: BigDecimal,
+        decimals: Int,
+        salt: String,
+        signature: String,
+        expiresAt: String
+    ): BigDecimal
+
+    /**
+     * Estimates the total fee (in the chain's native token, e.g. ETH/AVAX) required to
      * execute a collateral withdrawal transaction.
      *
      * Builds + signs the EIP-712 payload, then `eth_estimateGas` against the controller (no broadcast).
-     * Signs for real (a placeholder sig reverts the estimate), so estimate-then-withdraw signs twice;
-     * iOS takes a caller-supplied signature instead.
      *
      * @param chainId The chain ID for the transaction.
      * @param addresses All required addresses for the withdrawal.
@@ -135,6 +167,15 @@ interface RainClient {
      * @return Estimated withdrawal fee in the chain's native token.
      * @throws RainError if estimation fails.
      */
+    @Deprecated(
+        message = "Use the BigDecimal overload, which takes the withdrawal authorization as " +
+            "salt / signature / expiresAt and returns an exact BigDecimal " +
+            "instead of a lossy Double.",
+        replaceWith = ReplaceWith(
+            "estimateWithdrawalFee(chainId, addresses, amount.toBigDecimal(), decimals, " +
+                "adminSignature.salt, adminSignature.signature, adminSignature.expiresAt)"
+        )
+    )
     @Throws(RainError::class)
     suspend fun estimateWithdrawalFee(
         chainId: Int,
@@ -167,19 +208,38 @@ interface RainClient {
     ): RainTransactionParameters
 
     /**
-     * Sends native token (e.g., AVAX).
+     * Sends the chain's native token (e.g. ETH, AVAX).
+     *
+     * @param chainId Network ID
+     * @param to Recipient's wallet address
+     * @param amount Amount to send, in the native token's human unit (e.g. 0.1 AVAX)
+     * @return RainTokenTransferResult containing the transaction hash
+     */
+    @Throws(RainError::class)
+    suspend fun sendNative(
+        chainId: Int,
+        to: String,
+        amount: BigDecimal
+    ): RainTokenTransferResult
+
+    /**
+     * Sends the chain's native token (e.g. ETH, AVAX).
      *
      * @param chainId Network ID
      * @param toAddress Recipient's wallet address
      * @param amount Amount of token to send
      * @return RainTokenTransferResult containing the transaction hash
      */
+    @Deprecated(
+        message = "Renamed to sendNative(chainId, to, amount). This shim delegates to it.",
+        replaceWith = ReplaceWith("sendNative(chainId, toAddress, amount)")
+    )
     @Throws(RainError::class)
     suspend fun sendNativeToken(
         chainId: Int,
         toAddress: String,
         amount: BigDecimal
-    ): RainTokenTransferResult
+    ): RainTokenTransferResult = sendNative(chainId, toAddress, amount)
 
     /**
      * Sends an ERC-20 token.
@@ -227,8 +287,12 @@ interface RainClient {
         toAddress: String,
         amount: Double,
         decimals: Int
-    ): RainTokenTransferResult =
-        sendToken(chainId, contractAddress, toAddress, amount.toBigDecimal(), decimals as Int?)
+    ): RainTokenTransferResult {
+        if (!amount.isFinite()) {
+            throw RainError.InvalidAmount(amount.toString(), "amount must be a finite number")
+        }
+        return sendToken(chainId, contractAddress, toAddress, amount.toBigDecimal(), decimals as Int?)
+    }
 
     /**
      * Fetches a single balance (native or a contract token) for the current wallet.

@@ -116,7 +116,7 @@ internal class PortalManager {
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       if (e is RainError) throw e
-      throw RainError.ProviderError(e)
+      throw PortalErrorMapping.mapAuthOrNull(e) ?: RainError.ProviderError(e)
     }
   }
 
@@ -151,7 +151,7 @@ internal class PortalManager {
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       Timber.e(e, "Rain SDK: Failed to get balances for chainId=$chainId")
-      throw RainError.ProviderError(e)
+      throw PortalErrorMapping.mapAuthOrNull(e) ?: RainError.ProviderError(e)
     }
 
     val output = mutableListOf(native)
@@ -180,12 +180,19 @@ internal class PortalManager {
     val portal = getPortalInstance()
     val walletAddress = getAddress()
     val eip155ChainId = "${PortalNamespace.EIP155.value}:$chainId"
-    val result = portal.request(
-      chainId = eip155ChainId,
-      method = PortalRequestMethod.eth_getBalance,
-      params = listOf(walletAddress, "latest")
-    )
-    val raw = EthereumConverter.parseHexToBigInteger(result.toHexString())
+    val result = try {
+      portal.request(
+        chainId = eip155ChainId,
+        method = PortalRequestMethod.eth_getBalance,
+        params = listOf(walletAddress, "latest")
+      )
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      if (e is RainError) throw e
+      Timber.e(e, "Rain SDK: Failed to get native balance for chainId=$chainId")
+      throw PortalErrorMapping.mapAuthOrNull(e) ?: RainError.ProviderError(e)
+    }
+    val raw = EthereumConverter.parseHexToBigIntegerStrict(result.toHexString())
     val native = tokenStore.nativeCurrency(chainId)
     return Balance(
       token = Token.Native,
@@ -221,7 +228,7 @@ internal class PortalManager {
         method = PortalRequestMethod.eth_call,
         params = listOf(callParams, "latest")
       )
-      val raw = EthereumConverter.parseHexToBigInteger(result.toHexString())
+      val raw = EthereumConverter.parseHexToBigIntegerStrict(result.toHexString())
       Balance(
         token = Token.Contract(address),
         chainId = chainId,
@@ -234,7 +241,7 @@ internal class PortalManager {
       if (e is CancellationException) throw e
       if (e is RainError) throw e
       Timber.e(e, "Rain SDK: Failed to get ERC20 balance via RPC for token=$address chainId=$chainId")
-      throw RainError.ProviderError(e)
+      throw PortalErrorMapping.mapAuthOrNull(e) ?: RainError.ProviderError(e)
     }
   }
 
@@ -256,6 +263,7 @@ internal class PortalManager {
    * Gets the transaction history for the specified chain.
    *
    * @param chainId Numerical chain ID (e.g. 43114)
+   * @param tokenStore Metadata store used to resolve the chain's native currency symbol
    * @param limit Optional maximum number of transactions to return
    * @param offset Optional number of transactions to skip for pagination
    * @param order Optional sort order (ASC or DESC)
@@ -263,6 +271,7 @@ internal class PortalManager {
    */
   suspend fun getTransactions(
     chainId: Int,
+    tokenStore: TokenMetadataStore,
     limit: Int? = null,
     offset: Int? = null,
     order: RainTransactionOrder? = null
@@ -288,7 +297,7 @@ internal class PortalManager {
         portalTransactions.map { tx ->
           async {
             val resolvedValue = resolveTransactionValue(tx, portal, eip155ChainId)
-            val resolvedSymbol = resolveTransactionSymbol(tx, portal, eip155ChainId)
+            val resolvedSymbol = resolveTransactionSymbol(tx, portal, chainId, eip155ChainId, tokenStore)
             RainTransaction(
               hash = tx.hash,
               blockNumber = tx.blockNum,
@@ -311,7 +320,7 @@ internal class PortalManager {
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       Timber.e(e, "Rain SDK: Failed to get transactions for chainId=$chainId")
-      throw RainError.ProviderError(e)
+      throw PortalErrorMapping.mapAuthOrNull(e) ?: RainError.ProviderError(e)
     }
   }
 
@@ -341,6 +350,9 @@ internal class PortalManager {
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       Timber.e(e, "Rain SDK: Failed to sign typed data")
+      // Map Portal-specific failures (401 / invalid API key) here; anything else bubbles raw
+      // so core's ErrorMapper can classify it (user rejection, insufficient funds, ...).
+      PortalErrorMapping.mapAuthOrNull(e)?.let { throw it }
       throw e
     }
   }
@@ -353,7 +365,7 @@ internal class PortalManager {
    * @param to The target contract address
    * @param data Hex-encoded calldata (or "0x" / empty for plain transfers)
    * @param value Hex-encoded wei value
-   * @return Estimated fee in the chain's native token (e.g. ETH/AVAX)
+   * @return Estimated fee in the chain's native token (e.g. ETH/AVAX), as an exact [BigDecimal]
    */
   suspend fun estimateTransactionFee(
     chainId: Int,
@@ -361,7 +373,7 @@ internal class PortalManager {
     to: String,
     data: String,
     value: String = "0x0"
-  ): Double {
+  ): BigDecimal {
     val portal = getPortalInstance()
     val eip155ChainId = "${PortalNamespace.EIP155.value}:$chainId"
 
@@ -377,30 +389,42 @@ internal class PortalManager {
       nonce = null
     )
 
-    val (gasHex, gasPriceHex) = coroutineScope {
-      val gasLimitDeferred = async {
-        portal.request(
-          chainId = eip155ChainId,
-          method = PortalRequestMethod.eth_estimateGas,
-          params = listOf(ethParams)
-        )
-      }
-      val gasPriceDeferred = async {
-        portal.request(
-          chainId = eip155ChainId,
-          method = PortalRequestMethod.eth_gasPrice,
-          params = listOf()
-        )
-      }
+    val (gasHex, gasPriceHex) = try {
+      coroutineScope {
+        val gasLimitDeferred = async {
+          portal.request(
+            chainId = eip155ChainId,
+            method = PortalRequestMethod.eth_estimateGas,
+            params = listOf(ethParams)
+          )
+        }
+        val gasPriceDeferred = async {
+          portal.request(
+            chainId = eip155ChainId,
+            method = PortalRequestMethod.eth_gasPrice,
+            params = listOf()
+          )
+        }
 
-      val gasHex = gasLimitDeferred.await().toHexString()
-      val gasPriceHex = gasPriceDeferred.await().toHexString()
-      Pair(gasHex, gasPriceHex)
+        val gasHex = gasLimitDeferred.await().toHexString()
+        val gasPriceHex = gasPriceDeferred.await().toHexString()
+        Pair(gasHex, gasPriceHex)
+      }
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      if (e is RainError) throw e
+      Timber.e(e, "Rain SDK: Failed to estimate transaction fee")
+      // Map Portal-specific failures first: `eth_estimateGas` simulates the call, so JSON-RPC
+      // error code 3 means the node reverted execution (e.g. an invalid signature in the
+      // calldata); 401 / invalid API key means the session token expired. Anything else bubbles
+      // raw so the caller's generic wrapping applies.
+      PortalErrorMapping.mapSimulationOrNull(e)?.let { throw it }
+      throw e
     }
 
     val gasLimit = java.math.BigInteger(gasHex.removePrefix("0x"), 16)
     val gasPrice = java.math.BigInteger(gasPriceHex.removePrefix("0x"), 16)
-    return EthereumConverter.convertWeiToEth(gasLimit.multiply(gasPrice))
+    return EthereumConverter.convertWeiToEthDecimal(gasLimit.multiply(gasPrice))
   }
 
   /**
@@ -443,6 +467,9 @@ internal class PortalManager {
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       Timber.e(e, "Rain SDK: Transaction simulation failed (eth_call)")
+      // Auth failures (401 / invalid API key) surface as TokenExpired even here; anything
+      // else that fails the pre-flight is a simulation failure.
+      PortalErrorMapping.mapAuthOrNull(e)?.let { throw it }
       throw RainError.TransactionSimulationFailed(e)
     }
 
@@ -458,11 +485,23 @@ internal class PortalManager {
       nonce = null
     )
 
-    val result = portal.request(
-      chainId = eip155ChainId,
-      method = PortalRequestMethod.eth_sendTransaction,
-      params = listOf(params)
-    )
+    val result = try {
+      portal.request(
+        chainId = eip155ChainId,
+        method = PortalRequestMethod.eth_sendTransaction,
+        params = listOf(params)
+      )
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      Timber.e(e, "Rain SDK: Failed to send transaction")
+      // Map Portal-specific failures first: JSON-RPC error code 3 on a send means the node
+      // reverted execution, i.e. the transaction cannot succeed (core translates that to
+      // WithdrawalRevertedByNetwork on the withdrawal flows only); 401 / invalid API key means
+      // the session token expired. Anything else bubbles raw so core's ErrorMapper can
+      // classify it (user rejection, insufficient funds, ...).
+      PortalErrorMapping.mapSimulationOrNull(e)?.let { throw it }
+      throw e
+    }
     return result.toTransactionHash()
   }
 
@@ -523,17 +562,20 @@ internal class PortalManager {
 
   /**
    * Resolves the token symbol for a transaction.
-   * If it's a native transfer (no rawContract), returns "AVAX".
-   * Otherwise fetches the token symbol via eth_call.
+   * Native transfers (no rawContract) resolve the chain's native currency from the token
+   * store's registry; contract transfers fetch the ERC-20 symbol via eth_call. Returns null
+   * when the symbol cannot be determined, rather than guessing a wrong one.
    */
   private suspend fun resolveTransactionSymbol(
     tx: Transaction,
     portal: Portal,
-    eip155ChainId: String
-  ): String {
-    val rawContract = tx.rawContract ?: return "AVAX"
-    val contractAddress = rawContract.address ?: return "AVAX"
-    return fetchErc20Symbol(portal, eip155ChainId, contractAddress) ?: "AVAX"
+    chainId: Int,
+    eip155ChainId: String,
+    tokenStore: TokenMetadataStore
+  ): String? {
+    val nativeSymbol = tokenStore.nativeCurrencyOrNull(chainId)?.symbol
+    val contractAddress = tx.rawContract?.address ?: return nativeSymbol
+    return fetchErc20Symbol(portal, eip155ChainId, contractAddress)
   }
 
   /**
@@ -582,6 +624,8 @@ internal class PortalManager {
     featureFlags: FeatureFlags,
     autoApprove: Boolean
   ): Portal {
+    // No storage backends here by design: portal-android registers backup storage at
+    // backup-call time, not at construction.
     return Portal(
       apiKey = apiKey,
       legacyEthChainId = legacyEthChainId,

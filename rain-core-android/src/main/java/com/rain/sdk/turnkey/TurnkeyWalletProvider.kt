@@ -246,6 +246,7 @@ internal class TurnkeyWalletProvider(
             data = data,
             value = value
         )
+
         val response = client.ethSendTransaction(sendBody)
         val statusId = response.result.sendTransactionStatusId
         return pollForTransactionHash(client, session.organizationId, statusId)
@@ -271,7 +272,7 @@ internal class TurnkeyWalletProvider(
         to: String,
         data: String,
         value: String
-    ): Double {
+    ): BigDecimal {
         val estimateHex = rpcCallForHex(
             chainId = chainId,
             method = "eth_estimateGas",
@@ -285,7 +286,7 @@ internal class TurnkeyWalletProvider(
 
         val gasLimit = BigInteger(estimateHex.strippingHexPrefix().ifEmpty { "0" }, 16)
         val gasPrice = BigInteger(gasPriceHex.strippingHexPrefix().ifEmpty { "0" }, 16)
-        return EthereumConverter.convertWeiToEth(gasLimit.multiply(gasPrice))
+        return EthereumConverter.convertWeiToEthDecimal(gasLimit.multiply(gasPrice))
     }
 
     // ---------- balances ----------

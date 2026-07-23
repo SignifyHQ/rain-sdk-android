@@ -97,12 +97,14 @@ internal class ErrorMapper {
 
     /**
      * Detects if an error indicates user rejection.
-     * Checks for common rejection keywords in error messages.
+     * Checks for common rejection keywords (reject / denied / cancel) in error messages.
+     * A bare "user" mention is deliberately not enough:
+     * messages like "User doesn't have an embedded wallet" are not rejections.
      */
     private fun isUserRejection(e: Throwable): Boolean {
         return e.message?.let { msg ->
-            msg.contains("user", ignoreCase = true) ||
             msg.contains("reject", ignoreCase = true) ||
+            msg.contains("denied", ignoreCase = true) ||
             msg.contains("cancel", ignoreCase = true)
         } ?: false
     }

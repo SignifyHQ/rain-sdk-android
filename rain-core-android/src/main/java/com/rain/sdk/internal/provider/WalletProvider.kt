@@ -147,7 +147,7 @@ interface WalletProvider {
      * @param to The target contract address
      * @param data Hex-encoded calldata (or "0x" / empty for plain transfers)
      * @param value Hex-encoded wei value (e.g. "0x0")
-     * @return Estimated fee in the chain's native token
+     * @return Estimated fee in the chain's native token, as an exact [BigDecimal]
      */
     suspend fun estimateTransactionFee(
         chainId: Int,
@@ -155,5 +155,5 @@ interface WalletProvider {
         to: String,
         data: String,
         value: String
-    ): Double
+    ): BigDecimal
 }
