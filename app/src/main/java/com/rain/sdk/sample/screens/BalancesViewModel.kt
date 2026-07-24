@@ -8,6 +8,7 @@ import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.models.Token
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain
+import java.math.BigDecimal
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,33 +40,32 @@ class BalancesViewModel(
                 val native = rainClient.getBalance(chain.chainId, Token.Native)
                 SampleLog.d("Balances.fetch", "native=${native.formatted} ${native.symbol}")
 
-                // ERC-20 contract balances are an EVM concept; skip for Solana (SPL unsupported).
-                var discoveredErc20Balances: List<WalletTokenBalance> = emptyList()
-                if (!chain.isSolana) {
-                    // Discover every non-zero ERC-20 the wallet holds. Each Balance already
-                    // carries the resolved symbol / name / decimals (from the SDK's registry
-                    // or an on-chain read), so the user picks a token instead of typing a
-                    // contract address + decimals.
-                    discoveredErc20Balances = rainClient.getTokenBalances(chain.chainId)
-                        .mapNotNull { balance ->
-                            (balance.token as? Token.Contract)?.let { contract ->
-                                WalletTokenBalance(
-                                    address = contract.address,
-                                    symbol = balance.symbol,
-                                    name = balance.name,
-                                    decimals = balance.decimals,
-                                    balance = balance.decimalAmount.toDouble()
-                                )
-                            }
+                // Discover every non-zero token the wallet holds — ERC-20s on EVM, SPL tokens
+                // on Solana (sourced from Turnkey's balance API). Each Balance already carries
+                // the resolved symbol / name / decimals, so the user picks a token instead of
+                // typing a contract or mint address plus decimals.
+                val discoveredTokenBalances = rainClient.getTokenBalances(chain.chainId)
+                    .mapNotNull { balance ->
+                        (balance.token as? Token.Contract)?.let { contract ->
+                            WalletTokenBalance(
+                                address = contract.address,
+                                symbol = balance.symbol,
+                                name = balance.name,
+                                decimals = balance.decimals,
+                                balance = balance.decimalAmount
+                            )
                         }
-                        .filter { it.balance > 0.0 }
-                }
+                    }
+                    .filter { it.balance.signum() > 0 }
 
-                SampleLog.i("Balances.fetch", "success — discovered ${discoveredErc20Balances.size} ERC-20(s)")
+                SampleLog.i(
+                    "Balances.fetch",
+                    "success — discovered ${discoveredTokenBalances.size} ${chain.tokenStandard} token(s)"
+                )
                 _state.update {
                     it.copy(
                         nativeBalance = "${native.formatted} ${native.symbol ?: chain.nativeSymbol}",
-                        walletTokenBalances = discoveredErc20Balances,
+                        walletTokenBalances = discoveredTokenBalances,
                         isLoading = false
                     )
                 }
@@ -116,7 +116,7 @@ class BalancesViewModel(
                         name = token.name ?: "",
                         address = token.address,
                         decimals = token.decimals ?: 18,
-                        balance = token.balanceAmount?.toDouble() ?: 0.0,
+                        balance = token.balanceAmount ?: BigDecimal.ZERO,
                         exchangeRate = token.exchangeRate
                     )
                 }
@@ -165,14 +165,14 @@ data class CollateralTokenBalance(
     val name: String,
     val address: String,
     val decimals: Int,
-    val balance: Double,
+    val balance: BigDecimal,
     val exchangeRate: Double
 ) {
     val displayAddress: String
         get() = if (address.length > 12) "${address.take(6)}...${address.takeLast(4)}" else address
 
-    val usdValue: Double
-        get() = balance * exchangeRate
+    val usdValue: BigDecimal
+        get() = balance.multiply(exchangeRate.toBigDecimal())
 }
 
 data class BalancesUiState(
@@ -194,7 +194,7 @@ data class WalletTokenBalance(
     val symbol: String? = null,
     val name: String? = null,
     val decimals: Int = 18,
-    val balance: Double
+    val balance: BigDecimal
 ) {
     val displayAddress: String
         get() = if (address.length > 12) "${address.take(6)}...${address.takeLast(4)}" else address
@@ -205,8 +205,20 @@ data class WalletTokenBalance(
             !name.isNullOrBlank() && !symbol.isNullOrBlank() -> "$name ($symbol)"
             !symbol.isNullOrBlank() -> symbol
             !name.isNullOrBlank() -> name
-            else -> displayAddress
+            else -> "Unnamed token"
         }
+
+    /**
+     * The unit to print after an amount: the symbol when known, otherwise the truncated address.
+     * Never blank, so a balance always says which token it is — an SPL mint has no on-chain
+     * symbol, so an unregistered one is identified by its mint.
+     */
+    val displayUnit: String
+        get() = symbol?.takeIf { it.isNotBlank() } ?: displayAddress
+
+    /** The balance rendered exactly at the token's own scale, trailing zeros stripped. */
+    val formattedBalance: String
+        get() = balance.stripTrailingZeros().toPlainString()
 }
 
 class BalancesViewModelFactory(

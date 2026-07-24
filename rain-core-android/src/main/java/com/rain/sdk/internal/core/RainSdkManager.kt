@@ -1,6 +1,7 @@
 package com.rain.sdk.internal.core
 
 import com.rain.sdk.internal.config.RainConfig
+import com.rain.sdk.internal.constants.SolanaChains
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.internal.error.ErrorMapper
@@ -293,8 +294,13 @@ internal class RainSdkManager(
     return try {
       // Resolve decimals when the caller doesn't supply them: the token store checks its
       // registry first and falls back to an on-chain `decimals()` read for unknown tokens.
+      //
+      // Skipped on Solana: the store enriches through the EVM reader, so an SPL mint would cost
+      // three failing `eth_call`s against a Solana endpoint and then cache an 18-decimal entry
+      // that is almost certainly wrong. The Solana send path reads the mint's own decimals.
       val resolvedDecimals = decimals
-        ?: tokenStore?.tokenInfo(chainId, contractAddress)?.decimals
+        ?: takeUnless { SolanaChains.isSolanaChain(chainId) }
+          ?.let { tokenStore?.tokenInfo(chainId, contractAddress)?.decimals }
         ?: RainClient.DEFAULT_ERC20_DECIMALS
       val txHash = walletProvider.sendToken(chainId, contractAddress, toAddress, amount, resolvedDecimals)
       RainTokenTransferResult(transactionHash = txHash)

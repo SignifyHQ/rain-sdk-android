@@ -49,6 +49,10 @@ androidx-espresso = "3.6.1"
 mockk = "1.13.10"
 truth = "1.4.2"
 json = "20240303"
+# Test-only reference implementation for Solana transaction/address encoding. Never shipped —
+# see the `testImplementation` note in rain-core-android/build.gradle.kts.
+sol4k = "0.8.2"
+sol4k-tweetnacl = "0.1.6"
 
 [libraries]
 # -- Build Tools --
@@ -100,6 +104,10 @@ androidx-compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4
 androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
 truth = { module = "com.google.truth:truth", version.ref = "truth" }
+sol4k = { module = "org.sol4k:sol4k", version.ref = "sol4k" }
+# sol4k's ed25519 primitives — runtime-scoped in its POM, so declared explicitly for the
+# curve-membership assertions in SolanaAddressesTest.
+sol4k-tweetnacl = { module = "org.sol4k:tweetnacl", version.ref = "sol4k-tweetnacl" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "android-gradle-plugin" }

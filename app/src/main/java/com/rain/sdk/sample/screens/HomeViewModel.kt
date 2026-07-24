@@ -399,27 +399,29 @@ class HomeViewModel(
             _state.update { it.copy(statusText = "Verify OTP first") }
             return
         }
-        SampleLog.i("Privy.rainInit", "initializing Rain w/ Privy (EVM)")
+        SampleLog.i("Privy.rainInit", "initializing Rain w/ Privy")
         _state.update { it.copy(isLoading = true, statusText = "Initializing Rain with Privy...") }
         viewModelScope.launch {
             try {
-                val created = PrivyAuthSample.ensureEthereumWallet()
-                if (created) {
-                    _state.update { it.copy(statusText = "Provisioned Privy wallet, initializing Rain...") }
+                val createdEvm = PrivyAuthSample.ensureEthereumWallet()
+                val createdSolana = PrivyAuthSample.ensureSolanaWallet()
+                if (createdEvm || createdSolana) {
+                    _state.update { it.copy(statusText = "Provisioned Privy wallets, initializing Rain...") }
                 }
 
-                // Privy is EVM-only here; initialize with the EVM chains' RPC endpoints.
-                val rpcConfig = WalletChain.entries
-                    .filter { !it.isSolana }
-                    .associate { it.chainId to it.rpcUrl }
-
+                // Initialize with every supported chain's RPC (as on Turnkey) so the dropdown can
+                // switch between the EVM and Solana wallets without re-initializing.
                 session.initializePrivy(
                     privy = PrivyAuthSample.privy,
-                    rpcEndpoints = rpcConfig,
+                    rpcEndpoints = WalletChain.rpcEndpoints,
                     walletAddress = null
                 )
                 val evmAddress = runCatching { session.client?.getWalletAddress(WalletChain.EVM.chainId) }.getOrNull()
-                SampleLog.i("Privy.rainInit", "success — isInitialized=${session.isInitialized} evm=$evmAddress")
+                val solAddress = runCatching { session.client?.getWalletAddress(WalletChain.SOLANA.chainId) }.getOrNull()
+                SampleLog.i(
+                    "Privy.rainInit",
+                    "success — isInitialized=${session.isInitialized} evm=$evmAddress sol=$solAddress"
+                )
                 _state.update {
                     it.copy(
                         isLoading = false,

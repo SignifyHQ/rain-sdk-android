@@ -146,10 +146,10 @@ fun HomeScreen(
         }
 
         if (state.isRecovered) {
-            // Only Turnkey holds a Solana account; Portal and Privy are EVM-only. Force the
-            // selection back to an EVM chain so those providers never read/sign on Solana.
+            // Turnkey and Privy hold a Solana account; Portal is EVM-only. Force the selection
+            // back to an EVM chain so Portal never reads/signs on Solana.
             LaunchedEffect(state.mode, selectedChain) {
-                if (state.mode != WalletMode.Turnkey && selectedChain.isSolana) {
+                if (state.mode == WalletMode.Portal && selectedChain.isSolana) {
                     onChainSelected(WalletChain.EVM)
                 }
             }
@@ -213,8 +213,8 @@ private fun ChainSelector(
     onChainSelected: (WalletChain) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    // Solana only for Turnkey; Portal and Privy are EVM-only.
-    val chains = WalletChain.entries.filter { mode == WalletMode.Turnkey || !it.isSolana }
+    // Solana for Turnkey and Privy; Portal is EVM-only.
+    val chains = WalletChain.entries.filter { mode != WalletMode.Portal || !it.isSolana }
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = "Active wallet",

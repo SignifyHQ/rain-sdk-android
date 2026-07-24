@@ -19,6 +19,12 @@ enum class WalletChain(
     val isSolana: Boolean,
     /** Block-explorer name, e.g. for a "View on Snowtrace" button. */
     val explorerName: String,
+    /** What this chain calls a fungible token — used for labels on the send screen. */
+    val tokenStandard: String,
+    /** A token this chain is likely to have on testnet, pre-filled on the send screen. */
+    val defaultTokenAddress: String,
+    /** A sample recipient. Blank where there is no obvious throwaway address to suggest. */
+    val defaultRecipient: String,
     private val explorerTxPrefix: String,
     private val explorerAddressPrefix: String,
     private val explorerSuffix: String = ""
@@ -30,6 +36,9 @@ enum class WalletChain(
         nativeSymbol = "AVAX",
         isSolana = false,
         explorerName = "Snowtrace",
+        tokenStandard = "ERC-20",
+        defaultTokenAddress = "0x5425890298aed601595a70AB815c96711a31Bc65", // Fuji USDC
+        defaultRecipient = "0x3cA8ac240F6ebeA8684b3E629A8e8C1f0E3bC0Ff",
         explorerTxPrefix = "https://testnet.snowtrace.io/tx/",
         explorerAddressPrefix = "https://testnet.snowtrace.io/address/"
     ),
@@ -40,6 +49,9 @@ enum class WalletChain(
         nativeSymbol = "ETH",
         isSolana = false,
         explorerName = "Basescan",
+        tokenStandard = "ERC-20",
+        defaultTokenAddress = "0x036CbD53842c5426634e7929541eC2318f3dCF7e", // Base Sepolia USDC
+        defaultRecipient = "0x3cA8ac240F6ebeA8684b3E629A8e8C1f0E3bC0Ff",
         explorerTxPrefix = "https://sepolia.basescan.org/tx/",
         explorerAddressPrefix = "https://sepolia.basescan.org/address/"
     ),
@@ -50,10 +62,18 @@ enum class WalletChain(
         nativeSymbol = "SOL",
         isSolana = true,
         explorerName = "Solana Explorer",
+        tokenStandard = "SPL",
+        defaultTokenAddress = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU", // Devnet USDC mint
+        // Left blank on purpose: an SPL transfer creates the recipient's token account at the
+        // sender's expense, so the address is worth typing deliberately rather than defaulting.
+        defaultRecipient = "",
         explorerTxPrefix = "https://explorer.solana.com/tx/",
         explorerAddressPrefix = "https://explorer.solana.com/address/",
         explorerSuffix = "?cluster=devnet"
     );
+
+    /** What the token-address field holds on this chain: a contract on EVM, a mint on Solana. */
+    val tokenAddressLabel: String get() = if (isSolana) "Token Mint Address" else "Token Contract Address"
 
     /** Light client-side address sanity check (the SDK validates authoritatively). */
     fun isValidAddress(address: String): Boolean {

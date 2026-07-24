@@ -127,6 +127,44 @@ sealed class RainError(
       "Wallet $walletAddress is not an admin of collateral contract $proxyAddress"
     )
 
+  // The four cases below are token-transfer failures that callers need to tell apart in the UI.
+  // They carry their own type (and fields) but deliberately reuse existing [RainErrorCode]s:
+  // the code map is a cross-platform contract shared with the iOS SDK — see
+  // RainErrorCodeParityTest — so introducing Android-only codes would fork it. If iOS grows
+  // matching cases, these can be promoted to codes of their own on both platforms at once.
+
+  /**
+   * The wallet holds less of the token than the transfer asks for. A subtype of
+   * [InsufficientFunds]'s code, though the shortfall is in the token rather than in the
+   * chain's native currency.
+   */
+  class InsufficientTokenBalance(
+    val requested: String,
+    val available: String,
+    val token: String
+  ) : RainError(
+    RainErrorCode.INSUFFICIENT_FUNDS,
+    "Insufficient balance for $token: requested $requested, available $available"
+  )
+
+  /**
+   * The wallet has no account for this token, so there is nothing to send. On Solana a balance
+   * lives in a per-mint token account that only exists once the wallet has received the token.
+   */
+  class TokenAccountNotFound(val walletAddress: String, val token: String) :
+    RainError(
+      RainErrorCode.INSUFFICIENT_FUNDS,
+      "Wallet $walletAddress holds no account for token $token"
+    )
+
+  /** No token exists at this address on this chain (wrong address, or wrong cluster/network). */
+  class TokenNotFound(val token: String, val chainId: Int) :
+    RainError(RainErrorCode.INVALID_CONFIG, "No token found at $token on chainId=$chainId")
+
+  /** The recipient address cannot receive this transfer — see [reason]. */
+  class InvalidRecipient(val address: String, val reason: String) :
+    RainError(RainErrorCode.INVALID_CONFIG, "Invalid recipient $address: $reason")
+
   // --- 5xx Internal ---
   class ProviderError(cause: Throwable?) :
     RainError(RainErrorCode.PROVIDER_ERROR, "Provider Error: ${cause?.message}", cause)

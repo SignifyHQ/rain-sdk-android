@@ -55,6 +55,29 @@ class PrivyManagerTest {
     }
 
     @Test
+    fun `resolveSolanaWallet throws WalletUnavailable when user has no solana wallet`() = runBlocking {
+        val privy = privyWith(emptyList())
+        val user = privy.getUser()!!
+        every { user.embeddedSolanaWallets } returns emptyList()
+
+        val manager = PrivyManager(privy)
+        val error = runCatching { manager.getSolanaAddress() }.exceptionOrNull()
+        assertThat(error).isInstanceOf(RainError.WalletUnavailable::class.java)
+    }
+
+    @Test
+    fun `getSolanaAddress returns the first solana wallet's address`() = runBlocking {
+        val privy = privyWith(emptyList())
+        val user = privy.getUser()!!
+        val solanaWallet = mockk<io.privy.wallet.solana.EmbeddedSolanaWallet>().also {
+            every { it.address } returns SOLANA_WALLET
+        }
+        every { user.embeddedSolanaWallets } returns listOf(solanaWallet)
+
+        assertThat(PrivyManager(privy).getSolanaAddress()).isEqualTo(SOLANA_WALLET)
+    }
+
+    @Test
     fun `resolveWallet matches the override case-insensitively`() = runBlocking {
         val provider = mockk<EmbeddedEthereumWalletProvider>()
         val manager = PrivyManager(privyWith(listOf(wallet(WALLET, provider))))
@@ -208,5 +231,6 @@ class PrivyManagerTest {
     private companion object {
         const val RPC = "https://rpc.example/1"
         const val WALLET = "0x000000000000000000000000000000000000dEaD"
+        const val SOLANA_WALLET = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
     }
 }

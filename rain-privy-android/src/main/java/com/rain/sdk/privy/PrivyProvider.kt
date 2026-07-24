@@ -17,9 +17,14 @@ import kotlinx.coroutines.withContext
  * user in, ensure an embedded Ethereum wallet exists (`user.createEthereumWallet()`), then hand the
  * singleton here — mirroring how `TurnkeyConfig` takes an authenticated `TurnkeyContext`.
  *
+ * An Ethereum wallet is required even for Solana-only use — provider creation probes it, matching
+ * Turnkey. Solana operations additionally need an embedded Solana wallet
+ * (`user.createSolanaWallet()`); Rain uses the user's first one.
+ *
  * @param privy The initialized, authenticated `Privy` singleton.
  * @param walletAddress Optional explicit embedded-wallet address; when null Rain uses the user's
- *                      first embedded Ethereum wallet.
+ *                      first embedded Ethereum wallet. Ethereum only — Solana always uses the
+ *                      user's first embedded Solana wallet.
  */
 class PrivyConfig(
     val privy: Privy,
