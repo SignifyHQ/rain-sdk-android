@@ -282,7 +282,8 @@ Sends ERC-20 tokens (EVM chains) from the current wallet. Routed by `chainId`.
 - **Returns:** `RainTokenTransferResult` — containing the transaction hash.
 - **Throws:** `RainError` if send fails.
 - **Throws on Solana chains:** SPL token transfers are not yet implemented; calling this
-  method with a Solana `chainId` (sentinel 101–103) throws `RainError.InvalidConfig`.
+  method with a Solana `chainId` (Rain IDs 900 mainnet / 901 devnet, SDK-internal 902 testnet)
+  throws `RainError.InvalidConfig`.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |

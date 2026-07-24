@@ -5,6 +5,8 @@ import io.privy.sdk.Privy
 import io.privy.wallet.ethereum.EmbeddedEthereumWallet
 import io.privy.wallet.ethereum.EthereumChain
 import io.privy.wallet.ethereum.EthereumRpcRequest
+import io.privy.wallet.solana.EmbeddedSolanaWallet
+import io.privy.wallet.solana.SolanaCluster
 import io.privy.wallet.transactions.GetTransactionsParams
 import io.privy.wallet.transactions.TransactionChain
 import io.privy.wallet.transactions.TransactionsPage
@@ -119,6 +121,60 @@ internal class PrivyManager(
         params: GetTransactionsParams<TransactionChain.Evm>,
     ): TransactionsPage = resolveWallet(walletAddress).getTransactions(params).getOrElse { error ->
         Timber.e(error, "Rain SDK: Privy getTransactions failed")
+        PrivyErrorMapping.mapOrNull(error)?.let { throw it }
+        throw error
+    }
+
+    // ---------- Solana ----------
+
+    /**
+     * Resolves the embedded Solana wallet to sign with — the user's first one. The provider's
+     * address override is an Ethereum address, so it does not participate here.
+     */
+    suspend fun resolveSolanaWallet(): EmbeddedSolanaWallet {
+        val user = privy.getUser() ?: throw RainError.TokenExpired()
+        return user.embeddedSolanaWallets.firstOrNull()
+            ?: throw RainError.WalletUnavailable(
+                "Privy user has no embedded Solana wallet; call createSolanaWallet() first"
+            )
+    }
+
+    /** The Solana signing wallet's base58 address. */
+    suspend fun getSolanaAddress(): String = resolveSolanaWallet().address
+
+    /**
+     * Signs an unsigned Solana transaction and broadcasts it, returning the base58 signature.
+     * Broadcast goes through [rpcUrl] — Rain's configured endpoint — rather than Privy's default
+     * cluster RPC. Unlike [sendTransaction], no mutex: the Solana provider carries no chain state
+     * between calls, so there is nothing to interleave.
+     */
+    suspend fun signAndSendSolanaTransaction(
+        transaction: ByteArray,
+        cluster: SolanaCluster,
+        rpcUrl: String,
+    ): String {
+        val wallet = resolveSolanaWallet()
+        val result = try {
+            wallet.provider.signAndSendTransaction(transaction, cluster, rpcUrl)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.e(e, "Rain SDK: Privy Solana signAndSendTransaction failed")
+            PrivyErrorMapping.mapOrNull(e)?.let { throw it }
+            throw e
+        }
+        return result.getOrElse { error ->
+            Timber.e(error, "Rain SDK: Privy Solana signAndSendTransaction failed")
+            PrivyErrorMapping.mapOrNull(error)?.let { throw it }
+            throw error
+        }
+    }
+
+    /** One page of Solana history via Privy's indexer; error handling as in [getTransactions]. */
+    suspend fun getSolanaTransactions(
+        params: GetTransactionsParams<TransactionChain.Solana>,
+    ): TransactionsPage = resolveSolanaWallet().getTransactions(params).getOrElse { error ->
+        Timber.e(error, "Rain SDK: Privy Solana getTransactions failed")
         PrivyErrorMapping.mapOrNull(error)?.let { throw it }
         throw error
     }

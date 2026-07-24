@@ -150,6 +150,35 @@ class RainSdkManagerSendTokenTest {
     }
 
     @Test
+    fun `sendToken skips the token store on solana chains`(): Unit = runBlocking {
+        // The store enriches through the EVM chain reader, which cannot read an SPL mint: it
+        // would spend three failing calls against a Solana endpoint and then cache an 18-decimal
+        // entry. The Solana provider path reads the mint's own decimals instead.
+        val reader = MockChainReader(decimals = 8, symbol = "WBTC")
+        val (manager, stub) = TestManagers.stubProviderManager(tokenStore = TokenMetadataStore(reader))
+
+        manager.sendToken(
+            chainId = com.rain.sdk.RainChain.SOLANA_DEVNET,
+            contractAddress = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+            toAddress = TestFixtures.RECIPIENT_ADDRESS,
+            amount = BigDecimal("1.0"),
+            decimals = null
+        )
+
+        assertThat(reader.decimalsCalls).isEmpty()
+        // EVM chains keep resolving through the store.
+        manager.sendToken(
+            chainId = 1,
+            contractAddress = TestFixtures.TOKEN_ADDRESS,
+            toAddress = TestFixtures.RECIPIENT_ADDRESS,
+            amount = BigDecimal("1.0"),
+            decimals = null
+        )
+        assertThat(reader.decimalsCalls).hasSize(1)
+        assertThat(stub.sendTokenCalls.last().decimals).isEqualTo(8)
+    }
+
+    @Test
     fun `sendToken falls back to default decimals when no token store is available`(): Unit = runBlocking {
         val (manager, stub) = TestManagers.stubProviderManager()
         // No token store installed.

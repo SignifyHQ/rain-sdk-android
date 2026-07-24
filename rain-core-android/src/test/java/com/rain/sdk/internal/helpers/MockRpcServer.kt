@@ -34,6 +34,12 @@ internal class MockRpcServer {
     private data class Stub(val result: Any? = null, val networkFailure: Boolean = false)
 
     private val stubs = ConcurrentHashMap<String, Stub>()
+
+    /** Stubs keyed by method *and* first parameter, for methods called once per address. */
+    private val paramStubs = ConcurrentHashMap<Pair<String, String>, Stub>()
+
+    /** Stubs keyed by method and a substring of the request body, for deeper params. */
+    private val bodyStubs = ConcurrentHashMap<Pair<String, String>, Stub>()
     private val recorded = mutableListOf<String>()
 
     fun start() {
@@ -41,10 +47,18 @@ internal class MockRpcServer {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val body = request.body.readUtf8()
-                val method = runCatching { JSONObject(body).optString("method", "") }.getOrDefault("")
+                val requestJson = runCatching { JSONObject(body) }.getOrNull()
+                val method = requestJson?.optString("method", "").orEmpty()
                 synchronized(recorded) { recorded += method }
 
-                val stub = stubs[method]
+                // A parameter-specific stub wins over the method-wide one, so a test can give
+                // different answers for e.g. getAccountInfo on a mint vs on a token account.
+                val firstParam = requestJson?.optJSONArray("params")?.optString(0, "").orEmpty()
+                val stub = paramStubs[method to firstParam]
+                    ?: bodyStubs.entries
+                        .firstOrNull { (key, _) -> key.first == method && body.contains(key.second) }
+                        ?.value
+                    ?: stubs[method]
                     ?: return MockResponse().setResponseCode(404).setBody(
                         """{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"unstubbed method $method"}}"""
                     )
@@ -92,12 +106,34 @@ internal class MockRpcServer {
     }
 
     /**
+     * Stub [method] for a specific first parameter — the address, for the account-scoped Solana
+     * reads (`getAccountInfo`), which one flow calls several times for different accounts.
+     */
+    fun stubObjectFor(method: String, firstParam: String, result: Any) {
+        paramStubs[method to firstParam] = Stub(result = result)
+    }
+
+    /**
+     * Stub [method] for requests whose body contains [bodyContains] — for parameters nested
+     * beyond the first, such as the `programId` that distinguishes the two SPL token programs
+     * in `getTokenAccountsByOwner`.
+     */
+    fun stubObjectWhenBodyContains(method: String, bodyContains: String, result: Any) {
+        bodyStubs[method to bodyContains] = Stub(result = result)
+    }
+
+    /**
      * Stub a network failure for [method]. The server disconnects the socket so OkHttp
      * surfaces an `IOException` to the caller — used to drive the `RainError.NetworkError`
      * code path in [com.rain.sdk.internal.provider.TurnkeyWalletProvider].
      */
     fun stubNetworkFailure(method: String) {
         stubs[method] = Stub(networkFailure = true)
+    }
+
+    /** Stub a network failure for [method] only when the request body contains [bodyContains]. */
+    fun stubNetworkFailureWhenBodyContains(method: String, bodyContains: String) {
+        bodyStubs[method to bodyContains] = Stub(networkFailure = true)
     }
 
     /** Methods recorded in dispatch order. Reset by [resetRecordings]. */

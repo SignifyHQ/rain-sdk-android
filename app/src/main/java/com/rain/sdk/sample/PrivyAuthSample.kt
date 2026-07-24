@@ -98,4 +98,19 @@ object PrivyAuthSample {
         SampleLog.i("PrivyAuth", "created embedded wallet address=${wallet.address}")
         return true
     }
+
+    /**
+     * Ensures the authenticated user has an embedded Solana wallet (Rain's Solana operations use
+     * the first one). Returns true if a new wallet was created, false if one already existed.
+     */
+    suspend fun ensureSolanaWallet(): Boolean {
+        val user = privy.getUser() ?: error("Privy user not authenticated")
+        if (user.embeddedSolanaWallets.isNotEmpty()) {
+            SampleLog.d("PrivyAuth", "ensureSolanaWallet — wallet already present")
+            return false
+        }
+        val wallet = user.createSolanaWallet(allowAdditional = false).getOrThrow()
+        SampleLog.i("PrivyAuth", "created embedded Solana wallet address=${wallet.address}")
+        return true
+    }
 }

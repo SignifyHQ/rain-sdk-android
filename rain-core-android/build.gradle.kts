@@ -108,6 +108,17 @@ dependencies {
     // Real org.json implementation for unit tests — production code uses Android's bundled
     // org.json (which AGP stubs on the test JVM and makes throw "not mocked" at runtime).
     testImplementation(libs.json)
+    // Reference implementation of Solana address/transaction encoding, used ONLY as a test
+    // oracle: the SDK's own `internal.solana` package is asserted byte-for-byte against it
+    // (SolanaAddressesTest, SolanaTransactionBuilderTest). Deliberately test-scoped — this is a
+    // published artifact, so consumers must not inherit a Solana library they don't call.
+    testImplementation(libs.sol4k) {
+        // sol4k publishes against kotlin-stdlib 2.4.0, whose metadata this project's Kotlin 2.2
+        // compiler cannot read. Gradle would otherwise raise the whole test classpath to it and
+        // fail every test compile. The project's own stdlib is enough to run sol4k's encoders.
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
+    testImplementation(libs.sol4k.tweetnacl)
 }
 
 mavenPublishing {

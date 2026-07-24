@@ -270,9 +270,13 @@ private fun TransactionCard(tx: RainTransaction, walletAddress: String?, selecte
             if (formattedValue != null && formattedValue != "0") {
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    val unit = tx.symbol ?: selectedChain.nativeSymbol
+                    // Only a transfer with no token address is denominated in the native symbol.
+                    // A token transfer whose symbol is unknown (SPL names live in off-chain
+                    // metadata) shows the bare amount, identified by the mint shown beside it —
+                    // labelling it "SOL" would name the wrong asset entirely.
+                    val unit = tx.symbol ?: selectedChain.nativeSymbol.takeIf { tx.tokenAddress == null }
                     Text(
-                        text = "Value: $formattedValue $unit",
+                        text = listOfNotNull("Value: $formattedValue", unit).joinToString(" "),
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.primary

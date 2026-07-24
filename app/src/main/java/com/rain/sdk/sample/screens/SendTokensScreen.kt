@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,8 +49,11 @@ fun SendTokensScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
-    // SPL token transfers aren't supported; Solana is native-only in the demo.
-    val isErc20 = !selectedChain.isSolana && state.isErc20Mode
+    val isTokenSend = state.isTokenMode
+
+    // Address defaults differ per chain (contract vs mint), so re-seed the form on a switch;
+    // the ViewModel no-ops when the chain is unchanged.
+    LaunchedEffect(selectedChain) { viewModel.onChainChanged(selectedChain) }
 
     Column(
         modifier = Modifier
@@ -78,26 +82,24 @@ fun SendTokensScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Mode Toggle — EVM only (Solana is native SOL only)
-        if (!selectedChain.isSolana) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
-            ) {
-                FilterChip(
-                    selected = !state.isErc20Mode,
-                    onClick = { viewModel.onSendModeChanged(false) },
-                    label = { Text("Native (${selectedChain.nativeSymbol})") }
-                )
-                FilterChip(
-                    selected = state.isErc20Mode,
-                    onClick = { viewModel.onSendModeChanged(true) },
-                    label = { Text("ERC-20 Token") }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
+        // Mode toggle — every chain supports both a native and a token transfer.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+        ) {
+            FilterChip(
+                selected = !state.isTokenMode,
+                onClick = { viewModel.onSendModeChanged(false) },
+                label = { Text("Native (${selectedChain.nativeSymbol})") }
+            )
+            FilterChip(
+                selected = state.isTokenMode,
+                onClick = { viewModel.onSendModeChanged(true) },
+                label = { Text("${selectedChain.tokenStandard} Token") }
+            )
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Form Card
         Card(
@@ -111,20 +113,30 @@ fun SendTokensScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = if (isErc20) "Send ERC-20 Token" else "Send Native ${selectedChain.nativeSymbol}",
+                    text = if (isTokenSend) "Send ${selectedChain.tokenStandard} Token"
+                    else "Send Native ${selectedChain.nativeSymbol}",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
 
-                // ERC-20 specific fields
-                if (isErc20) {
+                // Token-transfer specific fields
+                if (isTokenSend) {
                     OutlinedTextField(
                         value = state.contractAddress,
                         onValueChange = { viewModel.onContractAddressChanged(it) },
-                        label = { Text("Token Contract Address") },
+                        label = { Text(selectedChain.tokenAddressLabel) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        supportingText = { Text("Decimals are resolved automatically by the SDK") }
+                        supportingText = {
+                            Text(
+                                if (selectedChain.isSolana) {
+                                    "Decimals come from the mint. If the recipient has no account " +
+                                        "for this token, one is created and you pay ~0.002 SOL rent."
+                                } else {
+                                    "Decimals are resolved automatically by the SDK"
+                                }
+                            )
+                        }
                     )
                 }
 
@@ -140,7 +152,12 @@ fun SendTokensScreen(
                 OutlinedTextField(
                     value = state.amount,
                     onValueChange = { viewModel.onAmountChanged(it) },
-                    label = { Text(if (isErc20) "Amount (Token Units)" else "Amount (${selectedChain.nativeSymbol})") },
+                    label = {
+                        Text(
+                            if (isTokenSend) "Amount (Token Units)"
+                            else "Amount (${selectedChain.nativeSymbol})"
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
@@ -170,7 +187,7 @@ fun SendTokensScreen(
         // Send Button
         Button(
             onClick = {
-                if (isErc20) viewModel.sendErc20Token(selectedChain)
+                if (isTokenSend) viewModel.sendTokenTransfer(selectedChain)
                 else viewModel.sendNative(selectedChain)
             },
             enabled = !state.isSending,
@@ -178,7 +195,7 @@ fun SendTokensScreen(
         ) {
             Text(
                 if (state.isSending) "Sending..."
-                else if (isErc20) "🔗 Send ERC-20"
+                else if (isTokenSend) "🔗 Send ${selectedChain.tokenStandard}"
                 else "💎 Send ${selectedChain.nativeSymbol}"
             )
         }

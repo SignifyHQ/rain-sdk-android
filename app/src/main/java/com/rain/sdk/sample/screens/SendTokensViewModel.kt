@@ -7,6 +7,8 @@ import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain
 import java.math.BigDecimal
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,6 +23,11 @@ class SendTokensViewModel(
     private val _state = MutableStateFlow(SendTokensUiState())
     val state: StateFlow<SendTokensUiState> = _state.asStateFlow()
 
+    private var seededChain: WalletChain? = null
+
+    /** The in-flight send, if any, so a chain switch can cancel it. */
+    private var sendJob: Job? = null
+
     fun onRecipientChanged(value: String) {
         _state.update { it.copy(recipientAddress = value) }
     }
@@ -33,8 +40,28 @@ class SendTokensViewModel(
         _state.update { it.copy(contractAddress = value) }
     }
 
-    fun onSendModeChanged(isErc20: Boolean) {
-        _state.update { it.copy(isErc20Mode = isErc20, txHash = null, errorText = null) }
+    fun onSendModeChanged(isToken: Boolean) {
+        _state.update { it.copy(isTokenMode = isToken, txHash = null, errorText = null) }
+    }
+
+    /**
+     * Seeds the form for [chain], cancelling any in-flight send from the previous chain.
+     * The token address and recipient are chain-specific, so switching chains re-fills them.
+     * No-op when [chain] is already seeded, so callers may invoke this on every composition.
+     */
+    fun onChainChanged(chain: WalletChain) {
+        if (chain == seededChain) return
+        seededChain = chain
+        sendJob?.cancel()
+        _state.update {
+            it.copy(
+                contractAddress = chain.defaultTokenAddress,
+                recipientAddress = chain.defaultRecipient,
+                isSending = false,
+                txHash = null,
+                errorText = null
+            )
+        }
     }
 
     fun sendNative(chain: WalletChain = WalletChain.EVM) {
@@ -56,7 +83,7 @@ class SendTokensViewModel(
         SampleLog.i("Send.native", "to=${current.recipientAddress} amount=$amount ${chain.nativeSymbol}")
         _state.update { it.copy(isSending = true, errorText = null, txHash = null) }
 
-        viewModelScope.launch {
+        sendJob = viewModelScope.launch {
             try {
                 val result = rainClient.sendNative(
                     chainId = chain.chainId,
@@ -70,6 +97,8 @@ class SendTokensViewModel(
                         txHash = result.transactionHash
                     )
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 SampleLog.e("Send.native", "failed: ${e.message}", e)
                 _state.update {
@@ -82,47 +111,67 @@ class SendTokensViewModel(
         }
     }
 
-    fun sendErc20Token(chain: WalletChain = WalletChain.EVM) {
+    /**
+     * Sends a fungible token: an ERC-20 on EVM chains, an SPL token on Solana. Both go through
+     * the same [RainClient.sendToken] call — the SDK routes on the chain id, resolves the token's
+     * decimals itself, and on Solana creates the recipient's token account if they lack one.
+     */
+    fun sendTokenTransfer(chain: WalletChain = WalletChain.EVM) {
         val current = _state.value
+        val logTag = if (chain.isSolana) "Send.spl" else "Send.erc20"
         val amount = current.amount.toBigDecimalOrNull()
         if (amount == null || amount <= BigDecimal.ZERO) {
             _state.update { it.copy(errorText = "Invalid amount") }
             return
         }
         if (current.contractAddress.isBlank()) {
-            _state.update { it.copy(errorText = "Contract address is required") }
+            _state.update { it.copy(errorText = "${chain.tokenAddressLabel} is required") }
+            return
+        }
+        if (!chain.isValidAddress(current.contractAddress)) {
+            _state.update {
+                it.copy(errorText = "${chain.tokenAddressLabel} is not a valid ${chain.displayName} address")
+            }
             return
         }
         if (current.recipientAddress.isBlank()) {
             _state.update { it.copy(errorText = "Recipient address is required") }
             return
         }
+        if (!chain.isValidAddress(current.recipientAddress)) {
+            _state.update {
+                it.copy(errorText = "Recipient is not a valid ${chain.displayName} address")
+            }
+            return
+        }
 
         SampleLog.i(
-            "Send.erc20",
-            "contract=${current.contractAddress} to=${current.recipientAddress} amount=$amount (decimals resolved by SDK)"
+            logTag,
+            "token=${current.contractAddress} to=${current.recipientAddress} amount=$amount (decimals resolved by SDK)"
         )
         _state.update { it.copy(isSending = true, errorText = null, txHash = null) }
 
-        viewModelScope.launch {
+        sendJob = viewModelScope.launch {
             try {
-                // Decimals are resolved by the SDK (token registry or on-chain decimals()),
-                // so the caller no longer has to supply them.
+                // Decimals are resolved by the SDK — from the token registry or an on-chain
+                // `decimals()` read on EVM, and from the mint account on Solana.
                 val result = rainClient.sendToken(
                     chainId = chain.chainId,
                     contractAddress = current.contractAddress,
                     toAddress = current.recipientAddress,
                     amount = amount
                 )
-                SampleLog.i("Send.erc20", "success txHash=${result.transactionHash}")
+                SampleLog.i(logTag, "success txHash=${result.transactionHash}")
                 _state.update {
                     it.copy(
                         isSending = false,
                         txHash = result.transactionHash
                     )
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                SampleLog.e("Send.erc20", "failed: ${e.message}", e)
+                SampleLog.e(logTag, "failed: ${e.message}", e)
                 _state.update {
                     it.copy(
                         isSending = false,
@@ -134,11 +183,16 @@ class SendTokensViewModel(
     }
 }
 
+/**
+ * Form state for the send screen. The address defaults are seeded per chain by [onChainChanged]
+ * (see [WalletChain.defaultTokenAddress] / [WalletChain.defaultRecipient]), so they no longer
+ * have to be swapped by hand when switching networks.
+ */
 data class SendTokensUiState(
-    val isErc20Mode: Boolean = false,
-    val recipientAddress: String = "0x3cA8ac240F6ebeA8684b3E629A8e8C1f0E3bC0Ff",
+    val isTokenMode: Boolean = false,
+    val recipientAddress: String = WalletChain.EVM.defaultRecipient,
     val amount: String = "0.001",
-    val contractAddress: String = "0x5425890298aed601595a70AB815c96711a31Bc65",
+    val contractAddress: String = WalletChain.EVM.defaultTokenAddress,
     val isSending: Boolean = false,
     val txHash: String? = null,
     val errorText: String? = null

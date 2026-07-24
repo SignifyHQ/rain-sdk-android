@@ -276,60 +276,36 @@ fun BalancesScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // ERC-20 discovery is EVM-only; Solana shows a native-only note instead.
-                if (!selectedChain.isSolana) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFFEAF5FE), RoundedCornerShape(12.dp))
-                            .padding(16.dp)
-                    ) {
-                        Column {
-                            Text(
-                                text = "Will fetch",
-                                color = Color(0xFF1D8EE6),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold
+                // Token discovery works on every chain: ERC-20s on EVM, SPL tokens on Solana.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFEAF5FE), RoundedCornerShape(12.dp))
+                        .padding(16.dp)
+                ) {
+                    Column {
+                        Text(
+                            text = "Will fetch",
+                            color = Color(0xFF1D8EE6),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .background(Color(0xFFE53935), CircleShape)
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .background(Color(0xFFE53935), CircleShape)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "${selectedChain.nativeSymbol} — native token",
-                                    fontSize = 14.sp,
-                                    color = Color(0xFF1D8EE6),
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .background(Color(0xFF1D8EE6), CircleShape)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Every ERC-20 with a balance > 0 (auto-discovered)",
-                                    fontSize = 14.sp,
-                                    color = Color(0xFF1D8EE6),
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "${selectedChain.nativeSymbol} — native token",
+                                fontSize = 14.sp,
+                                color = Color(0xFF1D8EE6),
+                                fontWeight = FontWeight.Medium
+                            )
                         }
-                    }
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFFEAF5FE), RoundedCornerShape(12.dp))
-                            .padding(16.dp)
-                    ) {
+                        Spacer(modifier = Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
@@ -338,7 +314,7 @@ fun BalancesScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "SOL — native balance (devnet)",
+                                text = "Every ${selectedChain.tokenStandard} token with a balance > 0 (auto-discovered)",
                                 fontSize = 14.sp,
                                 color = Color(0xFF1D8EE6),
                                 fontWeight = FontWeight.Medium
@@ -402,14 +378,17 @@ fun BalancesScreen(
                             BalanceCard(
                                 emoji = "🪙",
                                 label = token.displayName,
-                                value = "%.6f".format(token.balance),
-                                subtitle = token.displayAddress
+                                // The unit is always stated: an SPL mint has no on-chain symbol,
+                                // so an unregistered token is named by its mint rather than
+                                // showing a bare number.
+                                value = "${token.formattedBalance} ${token.displayUnit}",
+                                subtitle = "${selectedChain.tokenAddressLabel}: ${token.address}"
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                         }
-                    } else if (!selectedChain.isSolana) {
+                    } else {
                         Text(
-                            text = "No ERC-20 tokens with a balance > 0.",
+                            text = "No ${selectedChain.tokenStandard} tokens with a balance > 0.",
                             fontSize = 14.sp,
                             color = Color.Gray
                         )

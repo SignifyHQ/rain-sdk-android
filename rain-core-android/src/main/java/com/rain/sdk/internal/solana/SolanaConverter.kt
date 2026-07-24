@@ -11,18 +11,13 @@ internal object SolanaConverter {
     const val SOL_DECIMALS = 9
     const val LAMPORTS_PER_SOL = 1_000_000_000L
 
-    private val LAMPORTS_PER_SOL_BD = BigDecimal(LAMPORTS_PER_SOL)
-
     /**
-     * Converts a human-readable SOL amount to whole lamports, truncating any fraction below
-     * one lamport. Parsed via [BigDecimal] string to avoid binary floating-point drift.
+     * Converts a human-readable SOL amount to whole lamports, exactly: an amount finer than one
+     * lamport or beyond the lamport range throws [ArithmeticException] rather than truncating.
      */
-    fun solToLamports(sol: Double): Long {
-        require(sol >= 0.0) { "SOL amount must be non-negative: $sol" }
-        return BigDecimal(sol.toString())
-            .multiply(LAMPORTS_PER_SOL_BD)
-            .toBigInteger()
-            .longValueExact()
+    fun solToLamports(sol: BigDecimal): Long {
+        require(sol.signum() >= 0) { "SOL amount must be non-negative: ${sol.toPlainString()}" }
+        return sol.movePointRight(SOL_DECIMALS).toBigIntegerExact().longValueExact()
     }
 
     /** Formats raw lamports as a human-readable SOL [BigDecimal] (`lamports / 1e9`). */
