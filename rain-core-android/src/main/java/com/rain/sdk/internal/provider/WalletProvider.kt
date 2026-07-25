@@ -1,5 +1,7 @@
 package com.rain.sdk.internal.provider
 
+import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionResult
@@ -156,4 +158,18 @@ interface WalletProvider {
         data: String,
         value: String
     ): BigDecimal
+
+    /**
+     * Signs and broadcasts a pre-composed Solana transaction with the wallet's ed25519 key,
+     * returning the transaction signature. Core composes the transaction (all preflights and
+     * simulation already done); only the signing step is vendor-specific.
+     *
+     * Defaults to unsupported so EVM-only providers need no change.
+     */
+    suspend fun sendSolanaTransaction(
+        chainId: Int,
+        unsigned: UnsignedSolanaTransfer
+    ): String = throw RainError.InvalidConfig(
+        "Provider '${id.value}' cannot sign Solana transactions"
+    )
 }

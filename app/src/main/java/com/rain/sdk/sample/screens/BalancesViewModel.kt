@@ -81,7 +81,7 @@ class BalancesViewModel(
         }
     }
 
-    fun fetchCollateralBalances() {
+    fun fetchCollateralBalances(chain: WalletChain = WalletChain.EVM) {
         if (!rainClient.isInitialized) {
             SampleLog.w("Balances.collateral", "SDK not initialized")
             _state.update { it.copy(collateralError = "SDK not initialized") }
@@ -93,12 +93,25 @@ class BalancesViewModel(
             return
         }
 
-        SampleLog.i("Balances.collateral", "fetching collateral contract")
+        SampleLog.i("Balances.collateral", "fetching collateral contract chain=${chain.displayName}")
         _state.update { it.copy(isCollateralLoading = true, collateralError = null) }
 
         viewModelScope.launch {
             try {
-                val contract = rainSdk.fetchCollateralContract()
+                // Rain provisions one collateral contract per chain family — pick the one
+                // matching the active chain (Solana cluster exact, any EVM otherwise).
+                val contract = rainSdk.fetchCollateralContracts()
+                    .firstOrNull { chain.ownsCollateralContract(it.chainId) }
+                if (contract == null) {
+                    SampleLog.w("Balances.collateral", "no collateral contract for ${chain.displayName}")
+                    _state.update {
+                        it.copy(
+                            isCollateralLoading = false,
+                            collateralError = "No collateral contract on ${chain.displayName}"
+                        )
+                    }
+                    return@launch
+                }
                 val tokens = contract.tokens
 
                 val collateralAddress = contract.proxyAddress

@@ -144,7 +144,66 @@ class TurnkeySolanaProviderTest {
     }
 
     @Test
-    fun `getBalances on solana reads SPL amounts from chain and names them from Turnkey`() = runBlocking {
+    fun `getBalance for an spl mint Turnkey lists uses Turnkey's amount and metadata`() = runBlocking {
+        val mint = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
+        val client = MockTurnkeyClient(
+            mockBalances = listOf(
+                V1AssetBalance(
+                    balance = "100500000",
+                    caip19 = "$devnetCaip2/token:$mint",
+                    decimals = 6L, display = null, name = "USD Coin", symbol = "USDC"
+                )
+            )
+        )
+        val solanaReader = MockChainReader()
+        val provider = makeProvider(client = client, solanaReader = solanaReader)
+
+        val balance = provider.getBalance(devnet, Token.Contract(mint))
+
+        assertThat(balance.rawAmount).isEqualTo(BigInteger.valueOf(100_500_000L))
+        assertThat(balance.decimals).isEqualTo(6)
+        assertThat(balance.symbol).isEqualTo("USDC")
+        assertThat(balance.name).isEqualTo("USD Coin")
+        // The node is never consulted when Turnkey lists the mint.
+        assertThat(solanaReader.balanceCalls).isEmpty()
+    }
+
+    @Test
+    fun `getBalance for an spl mint Turnkey does not list falls back to the node`() = runBlocking {
+        // Turnkey omits zero balances, and on a cluster it does not index every mint looks like
+        // a zero — so a missing entry is re-read from the node.
+        val mint = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
+        val client = MockTurnkeyClient(mockBalances = emptyList())
+        val solanaReader = MockChainReader(
+            balance = Balance(Token.Contract(mint), devnet, BigInteger.valueOf(2_500_000L), 6)
+        )
+        val provider = makeProvider(client = client, solanaReader = solanaReader)
+
+        val balance = provider.getBalance(devnet, Token.Contract(mint))
+
+        assertThat(balance.rawAmount).isEqualTo(BigInteger.valueOf(2_500_000L))
+        assertThat(solanaReader.balanceCalls).hasSize(1)
+    }
+
+    @Test
+    fun `getBalance for an spl mint falls back to the node when Turnkey fails`() = runBlocking {
+        val mint = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
+        val client = MockTurnkeyClient().apply {
+            walletAddressBalancesError = RuntimeException("turnkey unavailable")
+        }
+        val solanaReader = MockChainReader(
+            balance = Balance(Token.Contract(mint), devnet, BigInteger.valueOf(2_500_000L), 6)
+        )
+        val provider = makeProvider(client = client, solanaReader = solanaReader)
+
+        val balance = provider.getBalance(devnet, Token.Contract(mint))
+
+        assertThat(balance.rawAmount).isEqualTo(BigInteger.valueOf(2_500_000L))
+        assertThat(solanaReader.balanceCalls).hasSize(1)
+    }
+
+    @Test
+    fun `getBalances on solana uses Turnkey's SPL list when it indexes the cluster`() = runBlocking {
         val usdcMint = MockTurnkey.DEFAULT_SOLANA_RECIPIENT // valid 32-byte base58 stand-in for a mint
         val client = MockTurnkeyClient(
             mockBalances = listOf(
@@ -154,14 +213,13 @@ class TurnkeySolanaProviderTest {
                     decimals = 9L, display = null, name = "Solana", symbol = "SOL"
                 ),
                 V1AssetBalance(
-                    // Turnkey's own SPL figure is deliberately different: the chain wins.
                     balance = "100500000",
                     caip19 = "$devnetCaip2/token:$usdcMint",
                     decimals = 6L, display = null, name = "USD Coin", symbol = "USDC"
                 )
             )
         )
-        stubDiscoveredTokenAccounts(mint = usdcMint, amount = "20000000", decimals = 6)
+        // No RPC stubs installed: the node is never consulted when Turnkey lists SPL assets.
         val provider = makeProvider(client = client, solanaReader = null)
 
         val balances = provider.getBalances(devnet)
@@ -171,16 +229,17 @@ class TurnkeySolanaProviderTest {
         assertThat(sol.decimalAmount.toDouble()).isWithin(1e-9).of(2.5)
 
         val usdc = balances.single { it.token == Token.Contract(usdcMint) }
-        // Amount from `getTokenAccountsByOwner`, symbol/name from Turnkey.
-        assertThat(usdc.decimalAmount.toDouble()).isWithin(1e-6).of(20.0)
+        // Amount and naming both from Turnkey's asset entry.
+        assertThat(usdc.rawAmount).isEqualTo(BigInteger.valueOf(100_500_000L))
         assertThat(usdc.symbol).isEqualTo("USDC")
+        assertThat(usdc.name).isEqualTo("USD Coin")
         assertThat(client.walletAddressBalanceCalls.single().caip2).isEqualTo(devnetCaip2)
     }
 
     @Test
     fun `getBalances on solana still lists SPL tokens Turnkey does not index`() = runBlocking {
         // Devnet mints are absent from Turnkey's asset list. Because it also omits zero balances,
-        // trusting it would report a funded wallet as empty — so the chain is the source.
+        // an SPL-less answer is treated as "not indexed" and the list is read from the node.
         val mint = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
         val client = MockTurnkeyClient(
             mockBalances = listOf(
@@ -191,6 +250,7 @@ class TurnkeySolanaProviderTest {
                 )
             )
         )
+        rpc.stubObject("getBalance", balanceResult(5_000_000_000L))
         stubDiscoveredTokenAccounts(mint = mint, amount = "20000000", decimals = 6)
         val provider = makeProvider(client = client, solanaReader = null)
 
@@ -220,6 +280,7 @@ class TurnkeySolanaProviderTest {
                 )
             )
         )
+        rpc.stubObject("getBalance", balanceResult(5_000_000_000L))
         stubDiscoveredTokenAccounts(mint = mint, amount = "20000000", decimals = 6)
         val provider = TurnkeyWalletProvider(
             turnkey = MockTurnkey(
@@ -243,6 +304,8 @@ class TurnkeySolanaProviderTest {
 
     @Test
     fun `getBalances on solana keeps the native balance when token discovery fails`() = runBlocking {
+        // Turnkey lists no SPL assets, so the list is read from the node; discovery is
+        // per-program tolerant, so a failed enumeration still yields the native balance.
         val client = MockTurnkeyClient(
             mockBalances = listOf(
                 V1AssetBalance(
@@ -252,6 +315,7 @@ class TurnkeySolanaProviderTest {
                 )
             )
         )
+        rpc.stubObject("getBalance", balanceResult(5_000_000_000L))
         // getTokenAccountsByOwner left unstubbed -> the RPC call fails.
         val provider = makeProvider(client = client, solanaReader = null)
 
@@ -260,6 +324,11 @@ class TurnkeySolanaProviderTest {
         assertThat(balances).hasSize(1)
         assertThat(balances.single().decimalAmount.toDouble()).isWithin(1e-9).of(5.0)
     }
+
+    private fun balanceResult(lamports: Long): JSONObject =
+        JSONObject()
+            .put("context", JSONObject().put("slot", 1))
+            .put("value", lamports)
 
     /** Stubs `getTokenAccountsByOwner` so the real Solana reader discovers one holding. */
     private fun stubDiscoveredTokenAccounts(mint: String, amount: String, decimals: Int) {
@@ -553,6 +622,115 @@ class TurnkeySolanaProviderTest {
         // A real, lookup-able address beats reporting nothing.
         assertThat(tx.to).isEqualTo(destinationAta)
         assertThat(tx.value).isEqualTo("2.5")
+    }
+
+    @Test
+    fun `getTransactions on solana recovers the recipient wallet from the create-account instruction`(): Unit = runBlocking {
+        // A first-time transfer carries the recipient's wallet in its own ATA-creation
+        // instruction, so no node read is needed to resolve it.
+        val mint = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
+        val recipientWallet = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
+        val destinationAta = SolanaAddresses.associatedTokenAddress(
+            Base58.decode(recipientWallet), Base58.decode(mint), SolanaPrograms.TOKEN
+        )
+        val unsignedTx = SolanaTransactionBuilder.buildUnsignedHex(
+            feePayer = Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS),
+            recentBlockhash = MockTurnkey.DEFAULT_SOLANA_ADDRESS,
+            instructions = listOf(
+                SolanaInstructions.createAssociatedTokenAccountIdempotent(
+                    tokenProgramId = SolanaPrograms.TOKEN,
+                    payer = Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS),
+                    associatedAccount = destinationAta,
+                    owner = Base58.decode(recipientWallet),
+                    mint = Base58.decode(mint)
+                ),
+                SolanaInstructions.transferChecked(
+                    tokenProgramId = SolanaPrograms.TOKEN,
+                    source = SolanaAddresses.associatedTokenAddress(
+                        Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS),
+                        Base58.decode(mint),
+                        SolanaPrograms.TOKEN
+                    ),
+                    mint = Base58.decode(mint),
+                    destination = destinationAta,
+                    owner = Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS),
+                    amount = java.math.BigInteger.valueOf(1_500_000L),
+                    decimals = 6
+                )
+            )
+        )
+        // getAccountInfo deliberately unstubbed: the wallet must come from the blob itself.
+        val client = MockTurnkeyClient(
+            mockActivities = listOf(
+                MockTurnkey.makeSolanaActivity(
+                    id = "act-spl-create",
+                    signWith = MockTurnkey.DEFAULT_SOLANA_ADDRESS,
+                    caip2 = devnetCaip2,
+                    unsignedTransaction = unsignedTx,
+                    sendTransactionStatusId = "sol-status-spl-create"
+                )
+            )
+        )
+
+        val tx = makeProvider(client = client).getTransactions(devnet, limit = 10).transactions.single()
+
+        assertThat(tx.to).isEqualTo(recipientWallet)
+        assertThat(tx.value).isEqualTo("1.5")
+        assertThat(tx.tokenAddress).isEqualTo(mint)
+    }
+
+    @Test
+    fun `getTransactions on solana decodes a bare transfer built by other tooling`(): Unit = runBlocking {
+        // TokenInstruction::Transfer (tag 3): @solana/spl-token's default, never produced by this
+        // SDK but present in the same Turnkey activity feed when other tooling drives the wallet.
+        // It carries neither mint nor decimals.
+        val source = ByteArray(32) { (it + 11).toByte() }
+        val destination = ByteArray(32) { (it + 55).toByte() }
+        val data = ByteArray(9)
+        data[0] = 3
+        var amount = 250L
+        for (i in 0 until 8) {
+            data[1 + i] = (amount and 0xFF).toByte()
+            amount = amount ushr 8
+        }
+        val unsignedTx = SolanaTransactionBuilder.buildUnsignedHex(
+            feePayer = Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS),
+            recentBlockhash = MockTurnkey.DEFAULT_SOLANA_ADDRESS,
+            instructions = listOf(
+                com.rain.sdk.internal.solana.Instruction(
+                    programId = SolanaPrograms.TOKEN,
+                    accounts = listOf(
+                        com.rain.sdk.internal.solana.AccountMeta.writable(source),
+                        com.rain.sdk.internal.solana.AccountMeta.writable(destination),
+                        com.rain.sdk.internal.solana.AccountMeta.signer(
+                            Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS)
+                        )
+                    ),
+                    data = data
+                )
+            )
+        )
+        val client = MockTurnkeyClient(
+            mockActivities = listOf(
+                MockTurnkey.makeSolanaActivity(
+                    id = "act-bare",
+                    signWith = MockTurnkey.DEFAULT_SOLANA_ADDRESS,
+                    caip2 = devnetCaip2,
+                    unsignedTransaction = unsignedTx,
+                    sendTransactionStatusId = "sol-status-bare"
+                )
+            )
+        )
+
+        val tx = makeProvider(client = client).getTransactions(devnet, limit = 10).transactions.single()
+
+        // The row lists rather than showing as undecodable; the destination token account is the
+        // best recoverable recipient and the unscaled amount stays in the metadata.
+        assertThat(tx.hash).isEqualTo("sol-status-bare")
+        assertThat(tx.to).isEqualTo(Base58.encode(destination))
+        assertThat(tx.value).isNull() // no decimals on the wire and no mint to read them from
+        assertThat(tx.tokenAddress).isNull()
+        assertThat(tx.metadata?.get("rawAmount")).isEqualTo("250")
     }
 
     // ---------- SPL transfers ----------

@@ -6,6 +6,7 @@ import com.rain.sdk.internal.network.chainreader.JsonRpcClient
 import org.json.JSONObject
 import timber.log.Timber
 import java.math.BigInteger
+import java.util.Base64
 
 /**
  * Thin Solana JSON-RPC helper layered on the shared [JsonRpcClient]. Solana RPC returns JSON
@@ -90,6 +91,26 @@ internal class SolanaRpcClient(
     /** Whether anything exists at [address] — used to decide if a token account must be created. */
     suspend fun accountExists(rpcUrl: String, address: String): Boolean =
         getAccountInfo(rpcUrl, address) != null
+
+    /**
+     * `getAccountInfo` with raw base64 data, or null when no account exists — for accounts the
+     * SDK parses itself (Rain's collateral program accounts), where `jsonParsed` has nothing.
+     */
+    suspend fun getAccountRaw(rpcUrl: String, address: String): SolanaRawAccount? {
+        val response = jsonRpcClient.call(
+            rpcUrl,
+            "getAccountInfo",
+            listOf(address, mapOf("encoding" to "base64", "commitment" to "confirmed"))
+        )
+        val result = response.optJSONObject("result")
+            ?: throw RainError.InternalError("Unexpected getAccountInfo response for $address")
+        val value = result.optJSONObject("value") ?: return null
+        val base64 = value.optJSONArray("data")?.optString(0).orEmpty()
+        return SolanaRawAccount(
+            ownerProgram = value.optString("owner", ""),
+            data = Base64.getDecoder().decode(base64)
+        )
+    }
 
     /**
      * Decimals and owning token program for [mint], or null when [mint] is not an SPL mint on
@@ -221,6 +242,12 @@ internal class SolanaRpcClient(
 }
 
 /** The fields of a `getAccountInfo` result the SDK reads. */
+/** Raw account bytes plus the program that owns the account. */
+internal data class SolanaRawAccount(
+    val ownerProgram: String,
+    val data: ByteArray
+)
+
 internal data class SolanaAccountInfo(
     /** Program that owns the account — the System Program for a plain wallet. */
     val ownerProgram: String,

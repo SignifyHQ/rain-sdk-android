@@ -14,11 +14,15 @@ internal object SolanaPrograms {
     const val TOKEN_ADDRESS = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
     const val TOKEN_2022_ADDRESS = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
     const val ASSOCIATED_TOKEN_ADDRESS = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+    const val ED25519_VERIFY_ADDRESS = "Ed25519SigVerify111111111111111111111111111"
+    const val SYSVAR_INSTRUCTIONS_ADDRESS = "Sysvar1nstructions1111111111111111111111111"
 
     val SYSTEM: ByteArray = Base58.decode(SYSTEM_ADDRESS)
     val TOKEN: ByteArray = Base58.decode(TOKEN_ADDRESS)
     val TOKEN_2022: ByteArray = Base58.decode(TOKEN_2022_ADDRESS)
     val ASSOCIATED_TOKEN: ByteArray = Base58.decode(ASSOCIATED_TOKEN_ADDRESS)
+    val ED25519_VERIFY: ByteArray = Base58.decode(ED25519_VERIFY_ADDRESS)
+    val SYSVAR_INSTRUCTIONS: ByteArray = Base58.decode(SYSVAR_INSTRUCTIONS_ADDRESS)
 
     /** True when [address] is one of the two SPL token programs. */
     fun isTokenProgram(address: String): Boolean =

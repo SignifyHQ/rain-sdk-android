@@ -17,7 +17,12 @@ internal object SolanaConverter {
      */
     fun solToLamports(sol: BigDecimal): Long {
         require(sol.signum() >= 0) { "SOL amount must be non-negative: ${sol.toPlainString()}" }
-        return sol.movePointRight(SOL_DECIMALS).toBigIntegerExact().longValueExact()
+        val lamports = sol.movePointRight(SOL_DECIMALS).toBigIntegerExact()
+        // `BigInteger.longValueExact()` needs API 31; minSdk is lower, so range-check by hand.
+        if (lamports.bitLength() > 63) {
+            throw ArithmeticException("BigInteger out of long range: $lamports")
+        }
+        return lamports.toLong()
     }
 
     /** Formats raw lamports as a human-readable SOL [BigDecimal] (`lamports / 1e9`). */

@@ -12,7 +12,6 @@ import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.network.chainreader.JsonRpcClient
 import com.rain.sdk.internal.network.chainreader.SolanaChainReader
 import com.rain.sdk.internal.solana.SolanaConverter
-import com.rain.sdk.internal.constants.SolanaPrograms
 import com.rain.sdk.internal.solana.SolanaRpcClient
 import com.rain.sdk.internal.solana.SolanaTransactionDecoder
 import com.rain.sdk.internal.solana.SolanaTransferComposer
@@ -46,7 +45,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
-import timber.log.Timber
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.text.SimpleDateFormat
@@ -309,7 +307,7 @@ internal class TurnkeyWalletProvider(
     override suspend fun getBalance(chainId: Int, token: Token): Balance {
         val walletAddress = getWalletAddress(chainId)
 
-        // Solana has its own balance policy (Turnkey-first with an RPC fallback for native SOL),
+        // Solana has its own balance policy (Turnkey-first with an RPC fallback),
         // so it branches out before the EVM logic below.
         if (SolanaChains.isSolanaChain(chainId)) {
             return solanaBalance(chainId, walletAddress, token)
@@ -344,44 +342,51 @@ internal class TurnkeyWalletProvider(
     }
 
     /**
-     * Solana balance read.
-     *
-     * Native SOL comes from Turnkey, falling back to the Solana RPC reader if that call fails.
-     *
-     * SPL balances are read from the chain instead: Turnkey's asset list does not report SPL
-     * holdings on every cluster (devnet mints are absent), and because it omits zero balances a
-     * missing entry is indistinguishable from "not indexed" — which would silently report a
-     * funded wallet as empty. The chain is authoritative for the amount; Turnkey is still
-     * consulted, best-effort, for the symbol and name it would otherwise supply.
+     * Solana balance read. Turnkey is the primary source, with the Solana RPC reader as the
+     * fallback for both native SOL and SPL tokens — Turnkey does not index every cluster (devnet
+     * in particular), and the node always does.
      */
     private suspend fun solanaBalance(chainId: Int, walletAddress: String, token: Token): Balance =
-        when (token) {
-            is Token.Native -> runCatching {
-                nativeBalance(chainId, fetchBalances(chainId, walletAddress), caip2For(chainId))
-            }.getOrElse {
-                chainReaderFor(chainId).getBalance(
-                    chainId = chainId,
-                    walletAddress = walletAddress,
-                    token = Token.Native,
-                    tokenInfo = null
-                )
+        runCatching {
+            val balances = fetchBalances(chainId, walletAddress)
+            val caip2 = caip2For(chainId)
+            when (token) {
+                is Token.Native -> nativeBalance(chainId, balances, caip2)
+                is Token.Contract -> splBalance(chainId, walletAddress, balances, caip2, token.address)
             }
-
-            is Token.Contract -> {
-                val registered = registeredSplToken(chainId, token.address)
-                val onChain = chainReaderFor(chainId).getBalance(
-                    chainId = chainId,
-                    walletAddress = walletAddress,
-                    token = token,
-                    tokenInfo = registered
-                )
-                val metadata = turnkeySplMetadata(chainId, walletAddress, token.address)
-                onChain.copy(
-                    symbol = metadata?.symbol ?: onChain.symbol,
-                    name = metadata?.name ?: onChain.name
-                )
-            }
+        }.getOrElse {
+            chainReaderFor(chainId).getBalance(
+                chainId = chainId,
+                walletAddress = walletAddress,
+                token = token,
+                tokenInfo = (token as? Token.Contract)?.let { registeredSplToken(chainId, it.address) }
+            )
         }
+
+    /**
+     * Builds an SPL [Balance] for [mint] from a Turnkey asset list.
+     *
+     * Turnkey omits zero balances, and on a cluster it does not index every mint looks like a
+     * zero — so a missing entry is re-read from the node rather than reported as zero with
+     * unknown decimals.
+     */
+    private suspend fun splBalance(
+        chainId: Int,
+        walletAddress: String,
+        balances: List<V1AssetBalance>,
+        caip2: String,
+        mint: String
+    ): Balance {
+        val asset = balances.firstOrNull { tokenAddressFromCaip19(it.caip19 ?: "", caip2) == mint }
+            ?: return chainReaderFor(chainId).getBalance(
+                chainId = chainId,
+                walletAddress = walletAddress,
+                token = Token.Contract(mint),
+                tokenInfo = registeredSplToken(chainId, mint)
+            )
+        val raw = runCatching { BigInteger(asset.balance ?: "0") }.getOrDefault(BigInteger.ZERO)
+        return contractBalanceFrom(chainId, mint, raw, asset)
+    }
 
     /**
      * Host-registered metadata for [mint], if any.
@@ -392,17 +397,6 @@ internal class TurnkeyWalletProvider(
      */
     private suspend fun registeredSplToken(chainId: Int, mint: String): TokenInfo? =
         tokenStore.registeredTokens(chainId).firstOrNull { it.address.equals(mint, ignoreCase = true) }
-
-    /** Turnkey's asset entry for [mint], or null when unavailable — never fatal, it is naming. */
-    private suspend fun turnkeySplMetadata(
-        chainId: Int,
-        walletAddress: String,
-        mint: String
-    ): V1AssetBalance? = runCatching {
-        val caip2 = caip2For(chainId)
-        fetchBalances(chainId, walletAddress)
-            .firstOrNull { tokenAddressFromCaip19(it.caip19 ?: "", caip2) == mint }
-    }.getOrNull()
 
     override suspend fun getBalances(chainId: Int): List<Balance> {
         val walletAddress = getWalletAddress(chainId)
@@ -434,69 +428,47 @@ internal class TurnkeyWalletProvider(
     }
 
     /**
-     * Native SOL plus every SPL token the wallet holds.
+     * Native SOL plus every SPL token the wallet holds — Turnkey-first.
      *
-     * SPL holdings are enumerated from the chain (`getTokenAccountsByOwner`), which reports what
-     * the wallet actually owns on any cluster. Turnkey supplies the native balance and, where it
-     * indexes them, symbols and names for the discovered mints — but it is never the source of
-     * the SPL list, because a cluster it does not index would look like an empty wallet.
-     *
-     * Each source degrades independently: if Turnkey is unavailable the native balance falls back
-     * to RPC and the tokens simply go unnamed; if RPC discovery fails the native balance is still
-     * returned.
+     * Turnkey does not index every cluster: on devnet / testnet it errors, or answers with SOL
+     * and no SPL assets at all. Discovering the wallet's token accounts from the node covers
+     * both cases; on mainnet, where Turnkey does list SPL assets, its richer metadata wins.
      */
     private suspend fun solanaBalances(chainId: Int, walletAddress: String): List<Balance> {
-        val turnkeyAssets = runCatching { fetchBalances(chainId, walletAddress) }.getOrNull()
         val caip2 = caip2For(chainId)
-
-        val native = if (turnkeyAssets != null) {
-            nativeBalance(chainId, turnkeyAssets, caip2)
-        } else {
-            chainReaderFor(chainId)
-                .getBalance(chainId, walletAddress, Token.Native, tokenInfo = null)
+        val turnkeyAssets = runCatching { fetchBalances(chainId, walletAddress) }.getOrNull()
+        val listsSplAssets = turnkeyAssets.orEmpty().any {
+            tokenAddressFromCaip19(it.caip19 ?: "", caip2) != null
+        }
+        if (turnkeyAssets == null || !listsSplAssets) {
+            return solanaBalancesFromNode(chainId, walletAddress)
         }
 
-        val assetsByMint = turnkeyAssets.orEmpty()
-            .mapNotNull { asset ->
-                tokenAddressFromCaip19(asset.caip19 ?: "", caip2)?.let { it to asset }
-            }
-            .toMap()
-
-        val rpcUrl = rpcEndpoints[chainId]
-        val holdings = if (rpcUrl == null) emptyList() else runCatching {
-            listOf(SolanaPrograms.TOKEN_ADDRESS, SolanaPrograms.TOKEN_2022_ADDRESS)
-                .flatMap { solanaRpcClient.getTokenAccountsByOwner(rpcUrl, walletAddress, it) }
-        }.getOrElse {
-            Timber.w(it, "Rain SDK: Solana token discovery failed for $walletAddress")
-            emptyList()
+        val output = mutableListOf(nativeBalance(chainId, turnkeyAssets, caip2))
+        for (balance in turnkeyAssets) {
+            val caip19 = balance.caip19 ?: continue
+            val tokenAddress = tokenAddressFromCaip19(caip19, caip2) ?: continue
+            val raw = runCatching { BigInteger(balance.balance ?: "0") }.getOrDefault(BigInteger.ZERO)
+            if (raw <= BigInteger.ZERO) continue
+            output += contractBalanceFrom(chainId, tokenAddress, raw, balance)
         }
+        return output
+    }
 
-        // Naming falls back to host-registered tokens, so a mint no indexer covers can still be
-        // labelled by the caller rather than shown as a bare address.
-        val registeredByMint = tokenStore.registeredTokens(chainId).associateBy { it.address }
-
-        return buildList {
-            add(native)
-            // A wallet can hold more than one token account for the same mint, so report the
-            // total per mint rather than one entry per account.
-            holdings
-                .groupBy { it.mint }
-                .forEach { (mint, accounts) ->
-                    val total = accounts.fold(BigInteger.ZERO) { sum, it -> sum + it.amount }
-                    if (total <= BigInteger.ZERO) return@forEach
-                    val asset = assetsByMint[mint]
-                    val registered = registeredByMint[mint]
-                    add(
-                        Balance(
-                            token = Token.Contract(mint),
-                            chainId = chainId,
-                            rawAmount = total,
-                            decimals = accounts.first().decimals,
-                            symbol = asset?.symbol ?: registered?.symbol,
-                            name = asset?.name ?: registered?.name
-                        )
-                    )
-                }
+    /**
+     * Native SOL plus the SPL tokens the wallet holds, read from the node. Zero balances are
+     * dropped, matching every other chain. Naming falls back to host-registered tokens, so a
+     * mint no indexer covers can still be labelled by the caller rather than shown as a bare
+     * address.
+     */
+    private suspend fun solanaBalancesFromNode(chainId: Int, walletAddress: String): List<Balance> {
+        val all = chainReaderFor(chainId).getBalances(
+            chainId,
+            walletAddress,
+            tokenStore.registeredTokens(chainId)
+        )
+        return all.filter { balance ->
+            balance.token is Token.Native || balance.rawAmount > BigInteger.ZERO
         }
     }
 
@@ -684,36 +656,54 @@ internal class TurnkeyWalletProvider(
         return RainTransactionResult(transactions = transactions)
     }
 
-    /** Renders one decoded Solana activity as a [RainTransaction]. */
+    /**
+     * Renders one decoded Solana activity as a [RainTransaction]. SPL rows resolve their decimals
+     * and recipient wallet from the node when the transaction itself didn't carry them; both
+     * reads are best-effort, so a row always lists.
+     */
     private suspend fun solanaTransaction(chainId: Int, draft: SolanaActivityDraft): RainTransaction {
         val hash = draft.sendTransactionStatusId ?: draft.id
         val timestamp = iso8601(draft.timestampSeconds)
 
         return when (val transfer = draft.transfer) {
-            is SolanaTransactionDecoder.SplTransfer -> RainTransaction(
-                hash = hash,
-                blockNumber = null,
-                blockTimestamp = timestamp,
-                from = draft.from,
-                // Falls back to the token account when the owner cannot be read — a real address
-                // the user can look up, rather than nothing.
-                to = resolveTokenAccountOwner(chainId, transfer.destination) ?: transfer.destination,
-                value = BigDecimal(transfer.amount)
-                    .movePointLeft(transfer.decimals)
-                    .stripTrailingZeros()
-                    .toPlainString(),
-                gas = null,
-                gasPrice = null,
-                chainId = chainId.toString(),
-                // SPL symbols live in off-chain metadata the SDK does not read; the mint
-                // identifies the asset.
-                symbol = null,
-                tokenAddress = transfer.mint,
-                metadata = mapOf(
-                    "destinationTokenAccount" to transfer.destination,
-                    "sourceTokenAccount" to transfer.source
+            is SolanaTransactionDecoder.SplTransfer -> {
+                // TransferChecked carries the decimals; the bare Transfer instruction does not.
+                val decimals = transfer.decimals
+                    ?: transfer.mint?.let { resolveMintDecimals(chainId, it) }
+                RainTransaction(
+                    hash = hash,
+                    blockNumber = null,
+                    blockTimestamp = timestamp,
+                    from = draft.from,
+                    // The recipient wallet comes from the transaction's own account-creation
+                    // instruction when it has one, and from the node otherwise. Falls back to the
+                    // token account when the owner cannot be read — a real address the user can
+                    // look up, rather than nothing.
+                    to = transfer.destinationOwner
+                        ?: resolveTokenAccountOwner(chainId, transfer.destination)
+                        ?: transfer.destination,
+                    // Without decimals the base-unit amount cannot be scaled honestly; the raw
+                    // amount stays available in the metadata.
+                    value = decimals?.let {
+                        BigDecimal(transfer.amount)
+                            .movePointLeft(it)
+                            .stripTrailingZeros()
+                            .toPlainString()
+                    },
+                    gas = null,
+                    gasPrice = null,
+                    chainId = chainId.toString(),
+                    // SPL symbols live in off-chain metadata the SDK does not read; the mint
+                    // identifies the asset.
+                    symbol = null,
+                    tokenAddress = transfer.mint,
+                    metadata = mapOf(
+                        "destinationTokenAccount" to transfer.destination,
+                        "sourceTokenAccount" to transfer.source,
+                        "rawAmount" to transfer.amount.toString()
+                    )
                 )
-            )
+            }
 
             is SolanaTransactionDecoder.NativeTransfer -> RainTransaction(
                 hash = hash,
@@ -721,8 +711,8 @@ internal class TurnkeyWalletProvider(
                 blockTimestamp = timestamp,
                 from = draft.from,
                 to = transfer.to,
-                value = if (transfer.lamports == 0L) "0" else {
-                    SolanaConverter.lamportsToSol(BigInteger.valueOf(transfer.lamports))
+                value = if (transfer.lamports.signum() == 0) "0" else {
+                    SolanaConverter.lamportsToSol(transfer.lamports)
                         .stripTrailingZeros()
                         .toPlainString()
                 },
@@ -758,6 +748,12 @@ internal class TurnkeyWalletProvider(
         return runCatching {
             solanaRpcClient.getTokenAccount(rpcUrl, tokenAccount)?.owner?.takeIf { it.isNotEmpty() }
         }.getOrNull()
+    }
+
+    /** The mint's decimals, or null when they cannot be read. Never fatal. */
+    private suspend fun resolveMintDecimals(chainId: Int, mint: String): Int? {
+        val rpcUrl = rpcEndpoints[chainId] ?: return null
+        return runCatching { solanaRpcClient.getMintInfo(rpcUrl, mint)?.decimals }.getOrNull()
     }
 
     private data class SolanaActivityDraft(
@@ -917,6 +913,15 @@ internal class TurnkeyWalletProvider(
             solanaTransferComposer.composeSplToken(chainId, from, mintAddress, toAddress, amount)
         return submitSolanaTransaction(chainId, from, unsigned)
     }
+
+    /**
+     * Signs and broadcasts a core-composed Solana transaction (e.g. a collateral withdrawal)
+     * with the Turnkey Solana account. The fee payer is always this wallet.
+     */
+    override suspend fun sendSolanaTransaction(
+        chainId: Int,
+        unsigned: UnsignedSolanaTransfer
+    ): String = submitSolanaTransaction(chainId, getWalletAddress(chainId), unsigned)
 
     /**
      * Signs and broadcasts a composed transfer through Turnkey, then resolves the signature:

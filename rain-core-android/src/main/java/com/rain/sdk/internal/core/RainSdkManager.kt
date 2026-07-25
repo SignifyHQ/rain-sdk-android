@@ -6,6 +6,8 @@ import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.internal.error.ErrorMapper
 import com.rain.sdk.internal.provider.WalletProvider
+import com.rain.sdk.internal.solana.SolanaCollateralWithdrawComposer
+import com.rain.sdk.internal.solana.SolanaRpcClient
 import com.rain.sdk.internal.transaction.TransactionCoordinator
 import com.rain.sdk.internal.transaction.TransactionExecutor
 import com.rain.sdk.internal.transaction.TransactionSigner
@@ -63,6 +65,16 @@ internal class RainSdkManager(
   /** Chains the SDK was initialized with; [getAllBalances] fans out across them. */
   private val configuredChainIds: List<Int> = rpcEndpoints.keys.toList()
 
+  private val configuredRpcEndpoints: Map<Int, String> = rpcEndpoints.toMap()
+
+  /** Composes Solana collateral withdrawals; the provider only signs the result. */
+  private val solanaWithdrawComposer by lazy {
+    SolanaCollateralWithdrawComposer(
+      solanaRpcClient = SolanaRpcClient(),
+      rpcUrlResolver = configuredRpcEndpoints::get
+    )
+  }
+
   /**
    * Host-registered tokens applied to the live store. Thread-safe because [registerTokens] is a
    * non-suspend public API callable from any thread.
@@ -102,6 +114,37 @@ internal class RainSdkManager(
   ): RainWithdrawResult {
     if (!isInitialized) {
       throw RainError.SdkNotInitialized()
+    }
+
+    // Solana withdrawals go through Rain's on-chain collateral program rather than an EVM
+    // coordinator contract: core composes the two-instruction transaction (ed25519 proof of
+    // Rain's signature + the program's withdraw instruction) and the provider signs it.
+    if (SolanaChains.isSolanaChain(chainId)) {
+      val owner = walletProvider.getWalletAddress(chainId)
+      val amountBaseUnits = try {
+        amount.movePointRight(decimals).toBigIntegerExact()
+      } catch (e: ArithmeticException) {
+        throw RainError.InvalidAmount(
+          amount.toPlainString(),
+          "this token supports at most $decimals decimal places"
+        )
+      }
+      val unsigned = solanaWithdrawComposer.composeWithdraw(
+        chainId = chainId,
+        ownerAddress = owner,
+        collateralAddress = addresses.proxyAddress,
+        mintAddress = addresses.tokenAddress,
+        recipientAddress = addresses.recipientAddress,
+        amountBaseUnits = amountBaseUnits,
+        adminSignature = adminSignature
+      )
+      if (!autoSend) {
+        // Same contract as the EVM path: hand back the prepared (unsigned) transaction for
+        // manual submission instead of broadcasting.
+        return RainWithdrawResult(transactionHash = null, transactionData = unsigned.transactionHex)
+      }
+      val signature = walletProvider.sendSolanaTransaction(chainId, unsigned)
+      return RainWithdrawResult(transactionHash = signature, transactionData = null)
     }
 
     val walletAddress = walletProvider.getWalletAddress()

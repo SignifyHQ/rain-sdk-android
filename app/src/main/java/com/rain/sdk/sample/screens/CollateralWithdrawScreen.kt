@@ -46,16 +46,16 @@ fun CollateralWithdrawScreen(
     innerPadding: PaddingValues,
     rainSdk: RainSdk,
     rainClient: RainClient,
+    selectedChain: WalletChain,
     onBack: () -> Unit,
     viewModel: CollateralWithdrawViewModel = viewModel(factory = CollateralWithdrawViewModelFactory(rainSdk, rainClient))
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
 
-    LaunchedEffect(Unit) {
-        if (state.availableTokens.isEmpty() && !state.isLoadingContract) {
-            viewModel.loadContractInfo()
-        }
+    // Re-load whenever the active chain changes so the screen shows that chain's contract.
+    LaunchedEffect(selectedChain) {
+        viewModel.loadContractInfo(selectedChain)
     }
 
     Column(

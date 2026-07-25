@@ -97,8 +97,8 @@ internal object SolanaAddresses {
 
     // ---------- ed25519 curve membership ----------
 
-    /** Field prime for Curve25519: 2^255 - 19. */
-    private val P = BigInteger.TWO.pow(255).subtract(BigInteger.valueOf(19))
+    /** Field prime for Curve25519: 2^255 - 19. (`BigInteger.TWO` needs API 33; minSdk is lower.) */
+    private val P = BigInteger.valueOf(2).pow(255).subtract(BigInteger.valueOf(19))
 
     /** Edwards curve constant d = -121665/121666 (mod P). */
     private val D = BigInteger(
