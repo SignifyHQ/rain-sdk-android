@@ -254,6 +254,30 @@ class TurnkeyWalletProviderTest {
     }
 
     @Test
+    fun `getTransactions renders a large wei value exactly, not through Double`() = runBlocking {
+        val turnkey = MockTurnkey()
+        // 12345678901234567890 wei — above 2^53, so a Double round-trip would corrupt it.
+        val activities = listOf(
+            MockTurnkey.makeActivity(
+                id = "act-1",
+                from = "0xfrom",
+                to = "0xto",
+                caip2 = "eip155:1",
+                value = "12345678901234567890",
+                data = "0x",
+                sendTransactionStatusId = "sid-1"
+            )
+        )
+        turnkey.turnkeyClient = MockTurnkeyClient(mockActivities = activities)
+        val provider = makeProvider(turnkey = turnkey)
+
+        val result = provider.getTransactions(chainId = 1, limit = null, offset = null, order = null)
+
+        assertThat(result.transactions).hasSize(1)
+        assertThat(result.transactions[0].value).isEqualTo("12.34567890123456789")
+    }
+
+    @Test
     fun `sendTransaction throws TokenExpired when session missing`() {
         val turnkey = MockTurnkey(session = null)
         val provider = makeProvider(turnkey = turnkey)

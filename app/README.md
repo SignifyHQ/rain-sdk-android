@@ -1,132 +1,112 @@
-# Rain SDK Sample App
+# Rain SDK Sample App (Android)
 
-This application demonstrates how to integrate and use the Rain SDK in a real-world Android environment. It showcases the full lifecycle of an MPC wallet initialization and a collateral withdrawal flow.
+A Jetpack Compose sample that exercises the public Rain SDK surface with a real wallet provider:
+connect a wallet, read balances, send tokens, withdraw collateral, and list transaction history.
 
-## Project Structure
+---
 
-The sample app follows a modern MVVM architecture using Jetpack Compose (if applicable) or standardized View Binding.
+## Requirements
 
-- `MainActivity.kt`: The UI entry point. It handles user interactions and displays status updates.
-- `SampleViewModel.kt`: Orchestrates the business logic, interacts with the `RainClient`, and manages UI state.
-- `NetworkClient.kt`: A mock implementation representing your backend API, providing necessary authorization like `adminSignature`.
+- Android Studio with its bundled JBR (JDK 21)
+- An emulator or device on API 26+
+- The SDK modules in this repo (`:rain-core-android`, `:rain-portal-android`, `:rain-privy-android`)
 
-## Quick Start (Manual Testing Flow)
+## How to run
 
-To test the full withdrawal flow, follow these exact steps:
+1. Open the repo root in Android Studio.
+2. Select the **app** run configuration and a device.
+3. Run.
 
-### 1. Obtain Tokens
+---
 
-Since the sample app interacts with Rain's staging/production environment, you need valid tokens:
+## Screens
 
-- **Rain Access Token**: Copy this from your login session in the main Rain application.
-- **Portal Session Token**: This is the MPC-specific token, usually found alongside your session data in the main app.
+| Screen | What it exercises |
+|---|---|
+| **Home** | Provider choice (Portal / Turnkey / Privy), Rain API credentials, auth, `RainSdk` build, active-chain dropdown, feature grid |
+| **Wallet & QR** | `getWalletAddress(chainId)` and the collateral deposit address from `fetchCollateralContracts()`, each with a QR bitmap from `generateAddressQRCode(address)` |
+| **Balances** | Collateral balances (Rain API) plus the wallet's own native and token balances (`getBalance`, `getTokenBalances`) |
+| **Send Tokens** | `sendNative` and `sendToken` (ERC-20 on EVM, SPL on Solana) |
+| **Collateral Withdraw** | `fetchAdminSignature` + `withdrawCollateral`, on both EVM and Solana collateral |
+| **Transaction History** | `getTransactions(chainId, limit, offset, order)`, newest-first |
 
-### 2. Configure the App
+Every feature screen reads the chain picked in the **Active wallet** dropdown on Home, so switching
+networks needs no re-initialization: the SDK is built with all chains' RPC endpoints at once (see
+`WalletChain.rpcEndpoints`).
 
-1. Launch the sample app on an emulator or physical device.
-2. In the **2. Configuration** section:
-   - Paste the **Portal Session Token**.
-   - Paste the **Rain Access Token**.
+## Networks
 
-### 3. Initialize and Recover
+`WalletChain` defines the three demo networks — Avalanche Fuji, Base Sepolia, and Solana devnet —
+along with each one's RPC URL, native symbol, explorer links, default token / recipient, and address
+validation. Portal holds no Solana account, so selecting Portal restricts the dropdown to the EVM
+chains.
 
-1. Click **3. Initialize SDK**. If successful, the status will show "SDK Initialized Successfully!".
-2. If the wallet was previously created, a **Wallet Recovery Required** section will appear.
-   - Enter your **PIN** (the one you set during wallet creation in the main app).
-   - Click **Recover Wallet**.
+## Providers
 
-### 4. Verify Wallet
+Auth is the host app's responsibility; the SDK only wants an authenticated provider handle. Both
+sample auth drivers are reference code you would write yourself:
 
-1. Click **4. Get Wallet Address**. This confirms the MPC share is correctly loaded and the SDK can interact with the wallet.
-2. Observe the **Status** text to see your wallet address.
+- **Portal** — paste a Portal session token on Home and tap *Initialize SDK*.
+- **Turnkey** (`TurnkeyAuthSample`) — parent organization ID + auth proxy config ID + email OTP.
+  Sign-up and login share one `completeOtp` path; an EVM and a Solana wallet are provisioned if the
+  sub-org lacks them.
+- **Privy** (`PrivyAuthSample`) — app ID + app client ID + email OTP; embedded Ethereum and Solana
+  wallets are created on first sign-in.
 
-### 5. Utilities & Transactions
+Rain API credentials (program `Api-Key` + Rain `userId`) are separate from the wallet provider: they
+authenticate the contract and withdrawal-signature calls, and are entered in their own card on Home.
+Nothing is persisted — the fields are re-entered each launch.
 
-1. **Generate QR Code**: Click **Generate QR Code** to see a visual QR of your address.
-2. **Estimate Gas**: Click **Estimate Gas** to calculate the fee for a sample withdrawal.
-3. **Get Balances**: Click **Get Balances** to fetch current native and ERC-20 balances.
-4. **Get Transactions**: Click **6. Get Transactions** to see recent history.
+`RainSession` also calls `registerTokens` after resolving Turnkey and Privy. That is not a
+workaround the SDK needs in production — it is the same mechanism a host app uses when a token
+cannot be discovered on chain. An SPL mint carries no on-chain symbol, and the built-in token
+registry is mainnet-only, so naming the testnet mints keeps the balance screen readable.
 
-### 6. Execute Tokens & Withdrawal
+## Notes
 
-1. Click **5. Test Withdraw Collateral**.
-2. **Send Native Token**: Enter recipient and amount, then click **Send Native**.
-3. **Send ERC-20 Token**: Enter contract, recipient, and amount, then click **Send Token**.
-4. Monitor the **Status** for transaction hashes (`0x...`).
+- **Portal wallet recovery** is unavailable: the Rain API has no backup-share endpoint yet (it is
+  slated to move behind `POST /v1/issuing/users/{userId}/wallet`). The PIN field on Home surfaces
+  that state rather than calling a dead endpoint.
+- **Solana history** rows carry the Turnkey activity id rather than a resolvable signature, so those
+  rows are not linked to an explorer.
 
-### 6. Fetch Transaction History
+## Project structure
 
-1. Click **6. Get Transactions**.
-2. The app will fetch the most recent transactions for the configured chain and display them in the status log.
-
-## Key Code Snippets
-
-### Initializing the SDK
-
-Located in `SampleViewModel.kt`. Note that we specify the chain and RPC:
-
-```kotlin
-rainClient.initializePortal(
-    portalSessionToken = sessionToken,
-    rpcEndpoints = mapOf(RainChain.AVALANCHE_TESTNET to "https://api.avax-test.network/ext/bc/C/rpc"),
-    chainId = RainChain.AVALANCHE_TESTNET
-)
+```
+app/src/main/java/com/rain/sdk/sample/
+├── MainActivity.kt          # App entry + Compose navigation host
+├── Screen.kt                # Route definitions for the six screens
+├── RainSession.kt           # Holds the built RainSdk + resolved RainClient
+├── WalletChain.kt           # Demo networks, explorer links, address validation
+├── SampleLog.kt             # Logging helper
+├── TurnkeyAuthSample.kt     # Turnkey email-OTP + wallet provisioning
+├── PrivyAuthSample.kt       # Privy email-OTP + embedded wallets
+└── screens/                 # One Screen + ViewModel pair per feature
+    ├── HomeScreen / HomeViewModel
+    ├── WalletInfoScreen / WalletInfoViewModel
+    ├── BalancesScreen / BalancesViewModel
+    ├── SendTokensScreen / SendTokensViewModel
+    ├── CollateralWithdrawScreen / CollateralWithdrawViewModel
+    └── TransactionHistoryScreen / TransactionHistoryViewModel
 ```
 
-### The Withdrawal Logic
+---
 
-The sample app simplifies the complex flow into a one-liner after fetching necessary data:
+## Key code
 
-```kotlin
-val txHash = rainClient.withdrawCollateral(
-    chainId = chainId,
-    addresses = RainWithdrawAddresses(
-        proxyAddress = contract.address,
-        controllerAddress = contract.controllerAddress,
-        tokenAddress = tokenAddress,
-        recipientAddress = recipientAddress
-    ),
-    amount = BigDecimal("100.0"),
-    decimals = decimals,
-    adminSignature = RainAdminSignature(
-        salt = signature.salt,
-        signature = signature.data,
-        expiresAt = expiresAt
-    ),
-    nonce = null // SDK auto-resolves nonce
-)
-```
+### Building the SDK
 
-### Fetching Transactions
+From `RainSession` — every provider follows the same builder shape, differing only in the registered
+provider and the `ProviderId` resolved:
 
 ```kotlin
-val result = rainClient.getTransactions(
-    chainId = chainId,
-    limit = 10,
-    offset = 0,
-    order = RainTransactionOrder.DESC
-)
+val sdk = RainSdk.builder()
+    .rpcEndpoints(rpcEndpoints)                                   // Map<Int, String>
+    .register(TurnkeyProvider(TurnkeyConfig(turnkey = turnkey)))
+    .rainApiCredentials(apiKey, userId)                           // optional
+    .build()
+val client = sdk.provider(ProviderId.TURNKEY)
 ```
 
-### Token Transfers & Balances
-
-```kotlin
-import java.math.BigDecimal
-
-// Sending Native Token
-val res = rainClient.sendNative(chainId, recipient, BigDecimal("0.1"))
-
-// Sending ERC-20 Token
-val res = rainClient.sendToken(chainId, contract, recipient, BigDecimal("10.0"), 6)
-
-// Fetching Balances
-val native = rainClient.getNativeBalanceDecimal(chainId)
-val token = rainClient.getERC20BalanceDecimal(chainId, contract, 6)
-```
-
-### QR & Gas Utilities
-
-```kotlin
-val bitmap = rainClient.generateAddressQRCode()
-val gasEth = rainClient.estimateGasDecimal(chainId, from, to, txData)
-```
+For the SDK methods the screens call and their full parameter lists, see
+[Method overview](../docs/METHODS.md).

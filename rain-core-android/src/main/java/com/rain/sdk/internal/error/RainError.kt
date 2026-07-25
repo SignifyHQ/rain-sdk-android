@@ -111,7 +111,7 @@ sealed class RainError(
 
   /**
    * The amount is invalid for the token — more decimal places than the token supports, or
-   * negative/unrepresentable. Mirrors iOS `RainSDKError.invalidAmount`.
+   * negative/unrepresentable.
    */
   class InvalidAmount(val amount: String, val reason: String) :
     RainError(RainErrorCode.INVALID_AMOUNT, "Invalid amount ($amount): $reason")
@@ -128,10 +128,9 @@ sealed class RainError(
     )
 
   // The four cases below are token-transfer failures that callers need to tell apart in the UI.
-  // They carry their own type (and fields) but deliberately reuse existing [RainErrorCode]s:
-  // the code map is a cross-platform contract shared with the iOS SDK — see
-  // RainErrorCodeParityTest — so introducing Android-only codes would fork it. If iOS grows
-  // matching cases, these can be promoted to codes of their own on both platforms at once.
+  // They carry their own type (and fields) but deliberately reuse existing [RainErrorCode]s: the
+  // code map is a published contract host apps switch on (see RainErrorCodeParityTest), so adding
+  // codes here would break it. Promote them to codes of their own in a deliberate version bump.
 
   /**
    * The wallet holds less of the token than the transfer asks for. A subtype of

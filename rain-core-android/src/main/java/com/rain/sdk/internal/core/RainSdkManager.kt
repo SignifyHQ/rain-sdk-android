@@ -403,7 +403,7 @@ internal class RainSdkManager(
   override fun registerTokens(tokens: List<TokenInfo>) {
     if (tokens.isEmpty()) return
     registeredTokens.addAll(tokens)
-    // Apply to the live store too. Fire-and-forget like iOS.
+    // Apply to the live store too, fire-and-forget so registration stays synchronous.
     tokenStore?.let { store ->
       tokenRegistrationScope.launch { store.register(tokens) }
     }

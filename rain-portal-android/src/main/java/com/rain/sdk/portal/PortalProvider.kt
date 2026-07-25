@@ -24,9 +24,8 @@ class PortalConfig(
 /**
  * Portal adapter — the registrable [RainProvider] for Portal's MPC signer.
  *
- * Lives in the `rain-portal-android` module and owns the PortalSwift / `portal-android` dependency as a
- * private detail. Core never imports Portal; linking this module is what pulls Portal onto the
- * classpath.
+ * Lives in the `rain-portal-android` module and owns the `portal-android` dependency as a private
+ * detail. Core never imports Portal; linking this module is what pulls Portal onto the classpath.
  */
 class PortalProvider(
     private val config: PortalConfig,

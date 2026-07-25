@@ -7,9 +7,8 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Test
 
 /**
- * Mirrors the iOS `TokenMetadataStoreTests`: registry-seeded lookups skip enrichment,
- * unknown tokens enrich exactly once and cache, and host-registered tokens are returned
- * without an on-chain read.
+ * Registry-seeded lookups skip enrichment, unknown tokens enrich exactly once and cache, and
+ * host-registered tokens are returned without an on-chain read.
  */
 class TokenMetadataStoreTest {
 

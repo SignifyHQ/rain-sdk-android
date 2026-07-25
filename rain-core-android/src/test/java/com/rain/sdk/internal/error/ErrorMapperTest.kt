@@ -107,4 +107,40 @@ class ErrorMapperTest {
         assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
         assertThat(mapped.cause).isSameInstanceAs(cause)
     }
+
+    // ---- Turnkey HTTP status -------------------------------------------------------
+    //
+    // The Turnkey Kotlin SDK throws a plain RuntimeException carrying the status only in the
+    // message, in two generated shapes. Both must classify to the same RainError.
+
+    @Test
+    fun `a 401 from the query path maps to TokenExpired`() {
+        val e = RuntimeException("HTTP error from /public/v1/query/get_activity: 401")
+        assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.TokenExpired::class.java)
+        assertThat(mapper.mapSigningError(e)).isInstanceOf(RainError.TokenExpired::class.java)
+    }
+
+    @Test
+    fun `a 401 from the activity path maps to TokenExpired`() {
+        val e = RuntimeException("HTTP error calling ACTIVITY_TYPE_ETH_SEND_TRANSACTION request\nError: {}\nCode: 401")
+        assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.TokenExpired::class.java)
+    }
+
+    @Test
+    fun `a 403 maps to Unauthorized`() {
+        val e = RuntimeException("HTTP error from /public/v1/query/get_activity: 403")
+        assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.Unauthorized::class.java)
+    }
+
+    @Test
+    fun `other HTTP statuses stay ProviderError`() {
+        val e = RuntimeException("HTTP error from /public/v1/query/get_activity: 500")
+        assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    @Test
+    fun `a non-HTTP message ending in digits is not treated as a status`() {
+        val e = RuntimeException("Something failed for wallet 401")
+        assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.ProviderError::class.java)
+    }
 }

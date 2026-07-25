@@ -15,7 +15,7 @@ sealed class Token {
     /** An ERC-20 token identified by its on-chain contract [address]. */
     class Contract(val address: String) : Token() {
         // Case-insensitive equality / hashing so checksummed and lowercased addresses
-        // compare equal (matches the iOS `Token` value type).
+        // compare equal.
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
             return other is Contract && address.lowercase() == other.address.lowercase()
@@ -34,7 +34,7 @@ sealed class Token {
         }
 
     companion object {
-        /** Convenience factory mirroring the iOS `.contract(address:)` case. */
+        /** Convenience factory for [Contract], for callers who prefer a function over the class. */
         fun contract(address: String): Token = Contract(address)
     }
 }

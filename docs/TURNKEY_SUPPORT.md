@@ -181,6 +181,42 @@ After the Turnkey-backed `client` is resolved, every wallet operation routes thr
 | `client.getTransactions(...)` | `TurnkeyClient.getActivities` (filtered to `ACTIVITY_TYPE_ETH_SEND_TRANSACTION`) |
 | `client.estimateGas(...)` | RPC `eth_estimateGas` + `eth_gasPrice` |
 
+On Solana chain ids the same methods route to `TurnkeyClient.solSendTransaction` /
+`getWalletAddressBalances` and the Solana account instead — see [Solana notes](#solana-notes).
+
+## Solana notes
+
+The Turnkey adapter is the SDK's multi-chain provider (it advertises `MULTI_CHAIN`): Solana sentinel
+chain ids (`RainChain.SOLANA_MAINNET` 900 / `SOLANA_DEVNET` 901 / `SOLANA_TESTNET` 902) route
+`getWalletAddress(chainId)`, balances, `sendNative`, `sendToken`, `withdrawCollateral`, and
+`getTransactions` to the Turnkey Solana account.
+
+- **Transfers.** Composition and every preflight live in core's `SolanaTransferComposer` (shared with
+  the Privy adapter, so the two cannot drift); the adapter only signs and broadcasts. For SPL that
+  covers recipient validation, resolving the mint's decimals and owning token program on chain,
+  deriving both associated token accounts, creating the recipient's when missing
+  (`CreateIdempotent`, ~0.002 SOL rent paid by the sender), fee checks, and a `simulateTransaction`
+  dry run. Failures surface as `TokenNotFound`, `TokenAccountNotFound`,
+  `InsufficientTokenBalance`, or `InvalidRecipient`.
+- **Balances.** From Turnkey's `get-balances` where it indexes the cluster; where it doesn't (devnet
+  in particular), `getTokenBalances` discovers holdings from the node via `getTokenAccountsByOwner`
+  against both token programs. Solana keeps token metadata off chain, so symbol / name stay null
+  unless the mint is registered.
+- **History.** From Turnkey's activity log (`ACTIVITY_TYPE_SOL_SEND_TRANSACTION`) — sends only, and
+  the row's hash is the Turnkey status id, not an explorer-resolvable signature.
+- **Encoding.** Turnkey hex-decodes `unsignedTransaction` despite the type documenting base64, so
+  Rain sends hex. Turnkey returns a status id rather than a signature; Rain polls for it and falls
+  back to `getSignaturesForAddress`.
+- **Collateral withdrawal.** Authorized differently from EVM: the coordinator executor signs a
+  keccak-encoded withdraw message off chain (that is the admin signature the Rain API returns). Core
+  composes a two-instruction transaction — a native ed25519 proof that the executor signed that exact
+  message, then the program's `withdraw_single_signer_collateral_asset` — reading the collateral
+  account, its coordinator's executors, and the mint's token program from chain, and deriving the
+  collateral-authority PDA and token accounts locally. It simulates, then hands the bytes to the
+  adapter, which signs them **as-is**: re-serializing would invalidate the embedded signature.
+  `proxyAddress` is the collateral account, `tokenAddress` the SPL mint; single-signer collateral
+  only. `autoSend = false` returns the prepared unsigned transaction.
+
 ## Signing
 
 EIP-712 signing uses `TurnkeyContext.signRawPayload` with `PAYLOAD_ENCODING_EIP712` + `HASH_FUNCTION_NO_OP`. Rain normalizes the returned `r`, `s`, `v` components into a `0x`-prefixed 65-byte hex signature compatible with `eth_signTypedData_v4` responses (recovery id auto-adjusted to 27/28 range when needed).
@@ -203,9 +239,15 @@ Turnkey-specific errors are mapped into the standard `RainError` hierarchy:
 | Turnkey error | Mapped to |
 |---------------|-----------|
 | `TurnkeyKotlinError.InvalidSession` | `RainError.TokenExpired` |
+| Turnkey API HTTP 401 | `RainError.TokenExpired` |
+| Turnkey API HTTP 403 | `RainError.Unauthorized` |
 | Config / setup errors (`MissingRpId`, `MissingConfigParam`, `ClientNotInitialized`, `InvalidParameter`, `InvalidResponse`, `InvalidMessage`, `InvalidRefreshTTL`, `OAuthStateMismatch`, `KeyAlreadyExists`, `KeyNotFound`) | `RainError.InternalError` |
 | Wrapper errors whose underlying cause is a user cancellation | `RainError.UserRejected` |
 | Anything else | `RainError.ProviderError` |
+
+The Turnkey Kotlin SDK throws a plain `RuntimeException` for HTTP failures and carries the status
+only inside the message, so `ErrorMapper` parses it out. That is a workaround for a vendor gap —
+it becomes a typed check once the SDK exposes the status code.
 
 Network errors raised during direct RPC calls (balances, fee estimation) surface as `RainError.NetworkError`.
 

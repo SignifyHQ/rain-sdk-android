@@ -157,7 +157,7 @@ internal class PortalManager {
     val output = mutableListOf(native)
     for (entry in tokenBalances) {
       // Portal's TokenBalance exposes the contract address inside the untyped `metadata`
-      // map under "tokenAddress" (iOS reads the same field via metadata.tokenAddress).
+      // map under "tokenAddress".
       val address = entry.metadata["tokenAddress"] as? String
       if (address.isNullOrEmpty()) continue
       val info = tokenStore.tokenInfo(chainId, address)
@@ -293,27 +293,28 @@ internal class PortalManager {
         order = portalOrder
       ).getOrThrow()
 
-      val rainTransactions = coroutineScope {
-        portalTransactions.map { tx ->
-          async {
-            val resolvedValue = resolveTransactionValue(tx, portal, eip155ChainId)
-            val resolvedSymbol = resolveTransactionSymbol(tx, portal, chainId, eip155ChainId, tokenStore)
-            RainTransaction(
-              hash = tx.hash,
-              blockNumber = tx.blockNum,
-              blockTimestamp = tx.metadata?.blockTimestamp,
-              from = tx.from,
-              to = tx.to,
-              value = resolvedValue,
-              gas = null,
-              gasPrice = null,
-              chainId = tx.chainId.toString(),
-              symbol = resolvedSymbol,
-              tokenAddress = tx.rawContract?.address,
-              metadata = null
-            )
-          }
-        }.awaitAll()
+      // Resolve ERC-20 metadata once per unique contract, not once per row: a page of transfers in
+      // the same token would otherwise repeat the identical pair of eth_calls for every row.
+      val metadata = fetchErc20Metadata(portalTransactions, portal, eip155ChainId)
+      val nativeSymbol = tokenStore.nativeCurrencyOrNull(chainId)?.symbol
+
+      val rainTransactions = portalTransactions.map { tx ->
+        val contractAddress = tx.rawContract?.address
+        val entry = contractAddress?.let { metadata[it.lowercase()] }
+        RainTransaction(
+          hash = tx.hash,
+          blockNumber = tx.blockNum,
+          blockTimestamp = tx.metadata?.blockTimestamp,
+          from = tx.from,
+          to = tx.to,
+          value = resolveTransactionValue(tx, entry?.decimals),
+          gas = null,
+          gasPrice = null,
+          chainId = tx.chainId.toString(),
+          symbol = if (contractAddress == null) nativeSymbol else entry?.symbol,
+          tokenAddress = contractAddress,
+          metadata = null
+        )
       }
 
       RainTransactionResult(transactions = rainTransactions)
@@ -505,16 +506,53 @@ internal class PortalManager {
     return result.toTransactionHash()
   }
 
+  /** On-chain ERC-20 metadata for one contract, resolved at most once per `getTransactions` call. */
+  private data class Erc20Metadata(val decimals: Int?, val symbol: String?)
+
   /**
-   * Resolves a human-readable value for a transaction.
-   * Prefers tx.value, falls back to rawContract hex value / decimal.
-   * If rawContract.decimal is null, fetches it on-chain via ERC20 decimals().
+   * Resolves `decimals` and `symbol` for every distinct contract in the page, concurrently.
+   * `decimals` is only read for contracts where at least one row needs it — rows that already
+   * carry a parsed value or a `rawContract.decimal` never trigger the call.
    */
-  private suspend fun resolveTransactionValue(
-    tx: Transaction,
+  private suspend fun fetchErc20Metadata(
+    transactions: List<Transaction>,
     portal: Portal,
     eip155ChainId: String
-  ): String? {
+  ): Map<String, Erc20Metadata> {
+    val symbolAddresses = transactions.mapNotNull { it.rawContract?.address }.distinctBy { it.lowercase() }
+    if (symbolAddresses.isEmpty()) return emptyMap()
+
+    val decimalsNeeded = transactions
+      .filter { tx ->
+        tx.value == null &&
+          tx.rawContract?.value != null &&
+          tx.rawContract?.decimal?.toIntOrNull() == null
+      }
+      .mapNotNull { it.rawContract?.address?.lowercase() }
+      .toSet()
+
+    return coroutineScope {
+      symbolAddresses.map { address ->
+        async {
+          val key = address.lowercase()
+          val symbol = async { fetchErc20Symbol(portal, eip155ChainId, address) }
+          val decimals = if (key in decimalsNeeded) {
+            fetchErc20Decimals(portal, eip155ChainId, address)
+          } else {
+            null
+          }
+          key to Erc20Metadata(decimals = decimals, symbol = symbol.await())
+        }
+      }.awaitAll().toMap()
+    }
+  }
+
+  /**
+   * Resolves a human-readable value for a transaction.
+   * Prefers tx.value, falls back to rawContract hex value / decimal, then to the pre-resolved
+   * on-chain `decimals` for the contract.
+   */
+  private fun resolveTransactionValue(tx: Transaction, resolvedDecimals: Int?): String? {
     // If Portal already provides a parsed value, use it
     tx.value?.let { return it.toString() }
 
@@ -522,10 +560,7 @@ internal class PortalManager {
     val rawContract = tx.rawContract ?: return null
     val hexValue = rawContract.value ?: return null
 
-    // Get decimal: from rawContract first, then on-chain call
-    val decimal = rawContract.decimal?.toIntOrNull()
-      ?: rawContract.address?.let { fetchErc20Decimals(portal, eip155ChainId, it) }
-      ?: return null
+    val decimal = rawContract.decimal?.toIntOrNull() ?: resolvedDecimals ?: return null
 
     return try {
       EthereumConverter.convertHexToDecimal(hexValue, decimal).toPlainString()
@@ -558,24 +593,6 @@ internal class PortalManager {
       Timber.w(e, "Rain SDK: Failed to fetch decimals for contract=$contractAddress")
       null
     }
-  }
-
-  /**
-   * Resolves the token symbol for a transaction.
-   * Native transfers (no rawContract) resolve the chain's native currency from the token
-   * store's registry; contract transfers fetch the ERC-20 symbol via eth_call. Returns null
-   * when the symbol cannot be determined, rather than guessing a wrong one.
-   */
-  private suspend fun resolveTransactionSymbol(
-    tx: Transaction,
-    portal: Portal,
-    chainId: Int,
-    eip155ChainId: String,
-    tokenStore: TokenMetadataStore
-  ): String? {
-    val nativeSymbol = tokenStore.nativeCurrencyOrNull(chainId)?.symbol
-    val contractAddress = tx.rawContract?.address ?: return nativeSymbol
-    return fetchErc20Symbol(portal, eip155ChainId, contractAddress)
   }
 
   /**

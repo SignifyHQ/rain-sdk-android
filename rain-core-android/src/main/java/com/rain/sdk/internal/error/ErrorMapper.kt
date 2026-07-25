@@ -23,7 +23,7 @@ internal class ErrorMapper {
         return when {
             e is TurnkeyKotlinError -> mapTurnkeyError(e)
             isUserRejection(e) -> RainError.UserRejected()
-            else -> RainError.ProviderError(e)
+            else -> mapTurnkeyHttpStatus(e) ?: RainError.ProviderError(e)
         }
     }
 
@@ -40,7 +40,7 @@ internal class ErrorMapper {
             e is TurnkeyKotlinError -> mapTurnkeyError(e)
             isUserRejection(e) -> RainError.UserRejected()
             isInsufficientFunds(e) -> RainError.InsufficientFunds()
-            else -> RainError.ProviderError(e)
+            else -> mapTurnkeyHttpStatus(e) ?: RainError.ProviderError(e)
         }
     }
 
@@ -96,6 +96,32 @@ internal class ErrorMapper {
     }
 
     /**
+     * Maps a Turnkey API HTTP failure to [RainError.TokenExpired] (401) or
+     * [RainError.Unauthorized] (403).
+     *
+     * The Kotlin SDK throws a plain `RuntimeException` and carries the status only inside the
+     * message, in one of two generated shapes:
+     *   "HTTP error from <path>: <code>"
+     *   "HTTP error calling <activityType> request\nError: <body>\nCode: <code>"
+     * so the status has to be parsed out. Returns `null` for anything that is not a recognizable
+     * HTTP failure, leaving the caller's fallback in place. Replace this with a typed check once
+     * the Turnkey SDK exposes the status code.
+     */
+    private fun mapTurnkeyHttpStatus(e: Throwable): RainError? {
+        val message = e.message ?: return null
+        if (!message.startsWith(TURNKEY_HTTP_ERROR_PREFIX)) return null
+        val status = TURNKEY_HTTP_STATUS_REGEX.find(message)
+            ?.groupValues?.getOrNull(1)
+            ?.toIntOrNull()
+            ?: return null
+        return when (status) {
+            401 -> RainError.TokenExpired()
+            403 -> RainError.Unauthorized("Turnkey rejected the request: HTTP $status")
+            else -> null
+        }
+    }
+
+    /**
      * Detects if an error indicates user rejection.
      * Checks for common rejection keywords (reject / denied / cancel) in error messages.
      * A bare "user" mention is deliberately not enough:
@@ -115,5 +141,12 @@ internal class ErrorMapper {
      */
     private fun isInsufficientFunds(e: Exception): Boolean {
         return e.message?.contains("insufficient", ignoreCase = true) ?: false
+    }
+
+    private companion object {
+        const val TURNKEY_HTTP_ERROR_PREFIX = "HTTP error"
+
+        /** Trailing ": <code>" or "Code: <code>" — the two shapes the Turnkey SDK generates. */
+        val TURNKEY_HTTP_STATUS_REGEX = Regex("""(?:Code:\s*|:\s*)(\d{3})\s*$""")
     }
 }

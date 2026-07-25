@@ -1,19 +1,25 @@
 # Rain SDK for Android
 
-Android SDK that integrates [Portal](https://portalhq.io) MPC wallet or [Turnkey](https://turnkey.com) with Rain collateral withdrawal: build EIP-712 messages, compose withdrawal transactions, sign and submit via a registered wallet provider, and estimate fees.
+Android SDK that connects an MPC or embedded wallet — [Portal](https://portalhq.io),
+[Turnkey](https://turnkey.com), or [Privy](https://privy.io) — to Rain collateral: build EIP-712
+messages, compose withdrawal transactions, sign and submit via a registered wallet provider, read
+balances and history, and estimate fees. Works on EVM chains and Solana.
 
 - **Portal wallet integration** — Register a `PortalProvider` with a Portal session token and resolve a client; use the connected MPC wallet for signing and sending transactions.
 - **Turnkey wallet integration** — Register a `TurnkeyProvider` with an authenticated `TurnkeyContext` (passkeys / auth proxy / OAuth / OTP handled outside Rain by the Turnkey Kotlin SDK). See [docs/TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md).
+- **Privy wallet integration** — Register a `PrivyProvider` with an authenticated `Privy` instance; embedded EVM and Solana wallets are used for custody.
+- **Solana support** — Native SOL and SPL transfers, balances, history, and collateral withdrawal, on the same `RainClient` methods as EVM. See [Solana](#9-solana).
 - **Wallet-agnostic utilities** — The `transactionBuilder` (EIP-712 message, withdraw calldata) is available straight off `RainSdk` from the configured RPC endpoints, with no wallet provider resolved — use it with your own wallet or backend.
 - **Pluggable providers** — Bring your own `WalletProvider` behind a `RainProvider` descriptor and register it; resolve providers by id or by `Capability`.
 - **EIP-712 message building** — Build typed data for admin signature required by the collateral contract.
 - **Withdrawal transaction building** — Build ABI-encoded withdraw calldata for submission.
-- **Full withdrawal flow** — Builds the transaction, signs via the backing provider, and submits; returns the transaction hash.
+- **Full withdrawal flow** — Builds the transaction, signs via the backing provider, and submits; returns the transaction hash, or the prepared calldata when `autoSend = false`.
 - **Fee estimation** — Returns the estimated gas cost in the chain's native token (e.g. AVAX).
 - **Wallet information** — Get current wallet address and generate a QR code `Bitmap` for it.
-- **Balances** — Get native and ERC-20 token balances for the current wallet.
+- **Balances** — Get native, ERC-20, and SPL token balances for the current wallet.
 - **Transaction history** — Get transactions for the current wallet with optional pagination and sort order.
-- **Send tokens** — Send native or ERC-20 tokens from the current wallet.
+- **Send tokens** — Send native, ERC-20, or SPL tokens from the current wallet.
+- **Exact money handling** — Public money APIs are `BigDecimal`; base-unit conversion is exact and rejects an amount finer than the token's scale rather than truncating it.
 
 ## Installation
 
@@ -266,7 +272,34 @@ val result = client.withdrawCollateral(
 println("Tx Data: ${result.transactionData}")
 ```
 
-### 9. Estimate Gas
+### 9. Solana
+
+Solana uses the same `RainClient` methods as EVM — the SDK routes on the chain ID. `RainChain`
+exposes the sentinel IDs (`SOLANA_MAINNET` 900, `SOLANA_DEVNET` 901, `SOLANA_TESTNET` 902); these
+are Rain's routing IDs, not Solana chain IDs. Register a Solana RPC URL against them like any other
+chain.
+
+```kotlin
+val client = rain.provider(ProviderId.TURNKEY)   // or PRIVY; Portal has no Solana account
+val chainId = RainChain.SOLANA_DEVNET
+
+client.getWalletAddress(chainId)                 // the Solana account, not the EVM address
+client.getBalance(chainId, Token.Native)         // SOL
+client.getTokenBalances(chainId)                 // SPL holdings
+client.sendNative(chainId, recipientBase58, BigDecimal("0.01"))
+client.sendToken(chainId, mintAddress, recipientBase58, BigDecimal("1.5"))
+```
+
+`withdrawCollateral` works unchanged, with `proxyAddress` as the collateral account and
+`tokenAddress` as the SPL mint. Under the hood the withdrawal is authorized by Rain's coordinator
+signing a message off chain rather than by EVM calldata, so the SDK composes and simulates a
+collateral-program transaction and the provider signs it; `autoSend = false` returns those prepared
+bytes. See [TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md#solana-notes) for the details.
+
+An SPL mint's decimals are read from the chain, so a `decimals` argument is a hint only. Mints carry
+no on-chain symbol — `registerTokens(...)` names the ones you want displayed.
+
+### 10. Estimate Gas
 
 ```kotlin
 val fee = client.estimateGas(
@@ -278,7 +311,7 @@ val fee = client.estimateGas(
 println("Estimated fee: $fee AVAX")
 ```
 
-### 10. Transaction History
+### 11. Transaction History
 
 ```kotlin
 import com.rain.sdk.models.RainTransactionOrder
@@ -295,7 +328,7 @@ result.transactions.forEach { tx ->
 }
 ```
 
-### 11. QR Code Generation
+### 12. QR Code Generation
 
 ```kotlin
 val bitmap = client.generateAddressQRCode(

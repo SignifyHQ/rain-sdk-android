@@ -4,6 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.NativeCurrency
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.spyk
@@ -114,6 +115,28 @@ class PortalManagerTransactionsTest {
         val transaction = result.transactions.single()
         assertThat(transaction.symbol).isNull()
         assertThat(transaction.tokenAddress).isEqualTo(contractAddress)
+    }
+
+    @Test
+    fun `repeated transfers in one token resolve its metadata once, not per row`() = runBlocking {
+        val contractAddress = "0x9876543210987654321098765432109876543210"
+        val portal = mockk<Portal>(relaxed = true)
+        // Five rows, same token: the old code issued one symbol() eth_call per row.
+        coEvery {
+            portal.api.getTransactions(any(), any(), any(), any())
+        } returns Result.success(List(5) { contractTransfer(43114, contractAddress) })
+        coEvery {
+            portal.request(any(), any(), any(), null as RequestOptions?)
+        } throws RuntimeException("symbol fetch failed")
+        val tokenStore = mockk<TokenMetadataStore>()
+        every { tokenStore.nativeCurrencyOrNull(43114) } returns
+            NativeCurrency(symbol = "AVAX", name = "Avalanche")
+
+        val result = managerWith(portal).getTransactions(chainId = 43114, tokenStore = tokenStore)
+
+        assertThat(result.transactions).hasSize(5)
+        // Rows carry rawContract.decimal, so only symbol() is needed — once for the one address.
+        coVerify(exactly = 1) { portal.request(any(), any(), any(), null as RequestOptions?) }
     }
 
     @Test
