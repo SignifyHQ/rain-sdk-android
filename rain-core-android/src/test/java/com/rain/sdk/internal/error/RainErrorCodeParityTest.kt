@@ -4,13 +4,13 @@ import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 
 /**
- * Pins the error-code map shared with the iOS SDK (see its ErrorMappingTests).
- * A failure here means the platforms have drifted — fix the code, not the test.
+ * Pins the published `RAIN_*` error codes. These are a public contract host apps switch on,
+ * so a failure here means the code changed — fix the code, not the test.
  */
 class RainErrorCodeParityTest {
 
     @Test
-    fun `error codes match the cross-platform map`() {
+    fun `error codes match the published contract`() {
         val expected = mapOf(
             RainErrorCode.SDK_NOT_INITIALIZED to "RAIN_101",
             RainErrorCode.INVALID_CONFIG to "RAIN_102",

@@ -287,6 +287,39 @@ class TransactionBuildingTest {
     }
 
     @Test
+    fun `buildWithdrawTransactionData accepts a unix-seconds expiresAt`() {
+        // Rain's API has returned both unix-seconds and ISO-8601 shapes.
+        val data = RainTransactionBuilderImpl.buildWithdrawTransactionData(
+            addresses = validAddresses,
+            amount = BigDecimal("1.0"),
+            decimals = 18,
+            saltBytes = ByteArray(32) { 0x11.toByte() },
+            signatureData = "0x" + "42".repeat(65),
+            adminSignature = RainAdminSignature(
+                salt = Base64.getEncoder().encodeToString(ByteArray(32)),
+                signature = "0x" + "bb".repeat(65),
+                expiresAt = "1735689600"
+            )
+        )
+        assertThat(data).startsWith("0x")
+
+        // Same instant expressed as ISO-8601 must encode identically.
+        val iso = RainTransactionBuilderImpl.buildWithdrawTransactionData(
+            addresses = validAddresses,
+            amount = BigDecimal("1.0"),
+            decimals = 18,
+            saltBytes = ByteArray(32) { 0x11.toByte() },
+            signatureData = "0x" + "42".repeat(65),
+            adminSignature = RainAdminSignature(
+                salt = Base64.getEncoder().encodeToString(ByteArray(32)),
+                signature = "0x" + "bb".repeat(65),
+                expiresAt = Instant.ofEpochSecond(1735689600).toString()
+            )
+        )
+        assertThat(data).isEqualTo(iso)
+    }
+
+    @Test
     fun `buildWithdrawTransactionData throws InvalidConfig for malformed expiresAt`() {
         val ex = runCatching {
             RainTransactionBuilderImpl.buildWithdrawTransactionData(

@@ -38,6 +38,7 @@ module isn't on the classpath simply can't be registered.
 | `providerIds` | `Set<ProviderId>` | Ids of every provider the host registered. |
 | `providers` | `Collection<RainProvider>` | The registered provider descriptors, for capability resolution. |
 | `transactionBuilder` | `RainTransactionBuilder` | Wallet-agnostic transaction-building utilities. Needs no resolved provider — available straight off the SDK once `build()` succeeds. |
+| `isRainApiConfigured` | `Boolean` | True once an Api-Key and userId have been supplied. |
 
 ### Methods
 
@@ -82,6 +83,63 @@ be rebuilt via `builder()` before further use.
 
 - **Suspend:** No
 
+### Rain API (issuing)
+
+The SDK talks to the Rain issuing API directly: supply a program **Api-Key** and Rain **userId**
+(builder `rainApiCredentials(apiKey, userId)` or `configureRainApi(apiKey, userId)` at runtime) and
+it mints, caches, and refreshes the client session token internally. Credentials are never
+persisted. Select the environment with `rainApiEnvironment(...)` (`Dev` default, `Production`,
+`Custom(url)`).
+
+These methods need no wallet provider — only the credentials and RPC endpoints.
+
+#### configureRainApi(apiKey, userId)
+
+Sets or replaces the Api-Key / userId pair at runtime. The cached session token is discarded lazily;
+the next API call re-mints against the new pair.
+
+- **Suspend:** No
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `apiKey` | `String` | Rain program Api-Key. |
+| `userId` | `String` | Rain user ID the contracts and signatures belong to. |
+
+#### fetchCollateralContracts(): List\<RainCollateralContract\>
+
+Fetches the user's collateral contracts (`GET /v1/issuing/users/{userId}/contracts`). Token
+`name` / `symbol` / `decimals` are enriched from the SDK token store (registry, host-registered
+tokens, or an on-chain read) — best-effort, so a failed lookup leaves them null.
+
+- **Throws:** `RainError.ApiNotConfigured` when no credentials were supplied.
+- **Suspend:** Yes
+
+#### fetchCollateralContract(): RainCollateralContract
+
+Convenience for the common single-contract case: the first collateral contract.
+
+- **Throws:** `RainError.NoCollateralContracts` when the user has none.
+- **Suspend:** Yes
+
+#### fetchAdminSignature(chainId, tokenAddress, amountBaseUnits, adminAddress, recipientAddress, isAmountNative): RainAdminSignature
+
+Fetches the admin withdrawal signature
+(`GET /v1/issuing/users/{userId}/signatures/withdrawals`) that authorizes a `withdrawCollateral`
+call.
+
+- **Throws:** `RainError.SignatureNotReady` while Rain prepares the signature; retry after the
+  carried `retryAfter` seconds.
+- **Suspend:** Yes
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `chainId` | `Int` | Target network chain ID. |
+| `tokenAddress` | `String` | Token contract address to withdraw (SPL mint on Solana). |
+| `amountBaseUnits` | `BigInteger` | Withdrawal amount in the token's base units. |
+| `adminAddress` | `String` | One of the contract's `adminAddresses`. |
+| `recipientAddress` | `String` | Withdrawal recipient. |
+| `isAmountNative` | `Boolean` | Defaults to `true`. |
+
 ---
 
 ## RainSdk.Builder
@@ -94,7 +152,13 @@ never names a vendor SDK itself.
 | `rpcEndpoints(endpoints: Map<Int, String>)` | Sets the `chainId → RPC URL` map every provider shares. **Required.** |
 | `register(provider: RainProvider)` | Registers a provider adapter (e.g. `PortalProvider`, `TurnkeyProvider`). Re-registering the same id replaces the prior one. |
 | `registerTokens(tokens: List<TokenInfo>)` | Seeds the shared token store with extra token metadata. |
-| `build(): RainSdk` | Validates endpoints (fail-fast on a bad URL / chain id) and returns the SDK. Throws `RainError.InvalidConfig` if no RPC endpoints or no providers were registered. |
+| `rainApiEnvironment(environment: RainApiEnvironment)` | Selects the Rain issuing API environment. Defaults to `Dev`. |
+| `rainApiCredentials(apiKey: String, userId: String)` | Supplies the Rain program Api-Key and userId at build time — same effect as `configureRainApi` on the built instance. |
+| `build(): RainSdk` | Validates endpoints (fail-fast on a bad URL / chain id) and returns the SDK. Throws `RainError.InvalidConfig` if no RPC endpoints were configured, or the Rain API base URL does not parse. |
+
+Registering **zero** providers is allowed: the SDK is then wallet-agnostic, exposing
+`transactionBuilder` and the Rain API methods. Resolving `provider(id)` throws
+`RainError.InvalidConfig` until a provider is registered.
 
 ### Provider adapters
 
@@ -104,19 +168,18 @@ Each adapter is a `RainProvider` descriptor that owns its vendor SDK as a privat
 |---------|--------|--------|-------|
 | `PortalProvider(PortalConfig(sessionToken, chainId?))` | `rain-portal-android` | `sessionToken: String`, `chainId: Int?` | Portal MPC signer (EVM). Advertises `EXPORT`, `RECOVERY`. |
 | `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?))` | `rain-core-android` | `turnkey: TurnkeyContext`, `walletAddress: String?` | Turnkey P256 signer (EVM + Solana). Advertises `MULTI_CHAIN`, `BIOMETRIC_GATE`. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
+| `PrivyProvider(PrivyConfig(privy, walletAddress?))` | `rain-privy-android` | `privy: Privy`, `walletAddress: String?` | Privy embedded-wallet signer (EVM + Solana). Advertises `EXPORT`, `RECOVERY`. |
 
-#### Platform differences (Portal)
+#### Portal construction
 
-Both adapters construct the vendor `Portal` with `autoApprove = true`,
-`FeatureFlags(isMultiBackupEnabled = true)`, and the same `eip155:<chainId> → rpcUrl` RPC config.
-Two differences are vendor-shaped and intentional:
+The adapter constructs the vendor `Portal` with `autoApprove = true`,
+`FeatureFlags(isMultiBackupEnabled = true)`, and an `eip155:<chainId> → rpcUrl` RPC config. Two
+vendor-shaped details are worth knowing:
 
-- **Storage backends.** portal-android registers backup storage at backup-call time, so this
-  adapter passes none at construction. PortalSwift takes iCloud / keychain / password storage at
-  construction instead, so the iOS adapter passes them to its `Portal` initializer.
-- **`chainId`.** `PortalConfig.chainId` is Android-only: portal-android's constructor accepts a
-  legacy `legacyEthChainId`, while PortalSwift 7.x has no equivalent parameter, so iOS's
-  `PortalConfig` omits it.
+- **Storage backends.** portal-android registers backup storage at backup-call time, so the
+  adapter passes none at construction.
+- **`chainId`.** `PortalConfig.chainId` feeds portal-android's legacy `legacyEthChainId`
+  constructor parameter.
 
 **Bring your own provider:** implement the `WalletProvider` port and a `RainProvider` descriptor
 (with your own `ProviderId`), then `register(...)` it. Core needs no change — the `transactionBuilder`
@@ -216,16 +279,15 @@ Estimates the gas fee required for a transaction.
 
 ### estimateWithdrawalFee(chainId, addresses, amount, decimals, salt, signature, expiresAt)
 
-Estimates the total fee required to execute a collateral withdrawal transaction. Mirrors the iOS
-`estimateWithdrawalFee` API: the withdrawal authorization (`salt` / `signature` / `expiresAt`, as
-returned by `fetchAdminSignature`) is caller-supplied and embedded in the estimated calldata.
+Estimates the total fee required to execute a collateral withdrawal transaction. The withdrawal
+authorization (`salt` / `signature` / `expiresAt`, as returned by `fetchAdminSignature`) is
+caller-supplied and embedded in the estimated calldata.
 
 Internally builds the EIP-712 payload, signs it with the wallet, then runs `eth_estimateGas`
 against the withdrawal controller. Nothing is broadcast.
 
 > **Signing side effect.** The estimated calldata embeds a wallet signature the controller
 > verifies (a placeholder would revert the estimate), so estimate-then-withdraw signs twice.
-> iOS signs during estimation for the same reason.
 
 - **Returns:** `BigDecimal`, the estimated withdrawal fee in the chain's native token.
 - **Throws:** `RainError` if estimation fails.
@@ -251,8 +313,7 @@ in the next major version.
 
 Composes a wallet-agnostic transaction parameter bag for a contract call. Pure helper —
 returns a Rain-owned `RainTransactionParameters` struct with `value` pre-set to `"0x0"`.
-Hosts can hand the result to any provider for signing / broadcast. Mirrors the iOS
-`composeTransactionParameters` API.
+Hosts can hand the result to any provider for signing / broadcast.
 
 - **Returns:** `RainTransactionParameters` — `from`, `to`, `value` (`"0x0"`), `data`.
 - **Suspend:** No

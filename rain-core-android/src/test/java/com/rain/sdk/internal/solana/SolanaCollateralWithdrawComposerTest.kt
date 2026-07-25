@@ -98,6 +98,9 @@ class SolanaCollateralWithdrawComposerTest {
             )
 
             val hex = unsigned.transactionHex
+            // Golden bytes: pins the full serialization so composition drift is caught here
+            // rather than on chain. Deterministic because the stubbed blockhash is fixed.
+            assertThat(hex).isEqualTo(GOLDEN_WITHDRAW_TX_HEX)
             // The ed25519 instruction embeds the executor key, Rain's signature, and the exact
             // 32-byte message the executor signed — verified against the live signature.
             assertThat(hex).contains(SolanaTransactionBuilder.hexEncode(Base58.decode(executor)))
@@ -213,4 +216,24 @@ class SolanaCollateralWithdrawComposerTest {
                 JSONObject().put("type", "mint").put("info", JSONObject().put("decimals", decimals))
             )
         )
+
+    private companion object {
+        /** Full serialized withdraw transaction for the fixtures above, pinned byte-for-byte. */
+        const val GOLDEN_WITHDRAW_TX_HEX =
+        "010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000" +
+        "00000000000000000000000000000000000100070c292a5b419bea8cd6c5ef3831ed093377684808afba6a0539fa0cbb" +
+        "cfcfd7020919204dc2efd47006f5f095dfcfff8c2811bdb39f9bd6e7ea149dc2036ea28e589ab92d4c9217f2ea4521db" +
+        "018240fdf2b101512b607ae3e0a1346634f799dcf05fe8b40a3afbbe885fda41ee87fa5e3c3c519ae399616b2d492c60" +
+        "5ffbe1f9698642eb182389419107cce6e26289dfe20d8884d912cde4a886035373d3351eb1d39d034b4f990b70a468e1" +
+        "0c0c22a5190ef250f83557ce255fd15d5d28f11a5e3b442cb3912157f13a933d0134282d032b5ffecd01a2dbf1b77906" +
+        "08df002ea706ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a906a7d517187bd16635dad4" +
+        "0455fdc2c0c124c68f215675a5dbbacb5f08000000000000000000000000000000000000000000000000000000000000" +
+        "0000000000037d46d67c93fbbe12f9428f838d40ff0570744927f48a64fcca70448000000087773927c913f674c8e5fb" +
+        "da44d29773d1d3e89532e3aa88de306103d95eca663b442cb3912157f13a933d0134282d032b5ffecd01a2dbf1b77906" +
+        "08df002ea7020a00900101003000ffff1000ffff70002000ffff744c71db3aaa2ad54d972ce8729c447cc7d57e27f551" +
+        "94623a1edf21452d1cdb4d1302f27a2e3c15f385ce2c8ac622a2d35f11bb07029186af5d40edac4562ed6b3152a9c19e" +
+        "a20ba5e851fb92ed1cb0abfd2c10318bb546c533d0d18925590377229dff3a1aca1bf472323ba0cdf247669970593ab8" +
+        "f64b31d7e1e74d28e8f40b0b0005010200060304070809380d1940536fb846f10100000000000000db98636a00000000" +
+        "4d04340a6744e9f749ce2e9a165e97ebc00a4c44e06162a63eea0abd6a416f9c"
+    }
 }

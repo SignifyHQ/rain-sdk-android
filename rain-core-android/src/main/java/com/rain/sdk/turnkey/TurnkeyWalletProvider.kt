@@ -587,7 +587,7 @@ internal class TurnkeyWalletProvider(
                 blockTimestamp = iso8601(draft.timestampSeconds),
                 from = draft.from,
                 to = draft.to,
-                value = decimalStringToDouble(draft.value, DEFAULT_NATIVE_DECIMALS).toString(),
+                value = scaledDecimalString(draft.value, DEFAULT_NATIVE_DECIMALS),
                 gas = null,
                 gasPrice = null,
                 chainId = draft.chainId.toString(),
@@ -1070,9 +1070,15 @@ internal class TurnkeyWalletProvider(
         return caip2.substringAfterLast(":", "").toIntOrNull() ?: 0
     }
 
-    private fun decimalStringToDouble(balance: String?, decimals: Int): Double {
-        if (balance.isNullOrEmpty()) return 0.0
-        return BigDecimal(balance).movePointLeft(decimals).toDouble()
+    /**
+     * Scales a base-unit amount down without going through [Double] — a wei value above 2^53
+     * would otherwise render inexactly or in scientific notation.
+     */
+    private fun scaledDecimalString(balance: String?, decimals: Int): String {
+        if (balance.isNullOrEmpty()) return "0"
+        val scaled = runCatching { BigDecimal(balance).movePointLeft(decimals) }.getOrNull()
+            ?: return "0"
+        return scaled.stripTrailingZeros().toPlainString()
     }
 
     private fun decimalStringFromHex(hex: String): String {

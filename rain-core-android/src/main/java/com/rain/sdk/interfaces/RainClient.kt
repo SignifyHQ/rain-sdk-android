@@ -193,8 +193,8 @@ interface RainClient {
      * struct with `value` pre-set to `"0x0"` (no native value). Leave gas, nonce, and fee
      * calculation to the caller or the active wallet provider.
      *
-     * Mirrors the iOS `composeTransactionParameters` API. Returns a Rain-owned struct so the
-     * public surface does not leak Portal- or Turnkey-specific types.
+     * Returns a Rain-owned struct so the public surface does not leak Portal- or
+     * Turnkey-specific types.
      *
      * @param walletAddress Address of the sender wallet.
      * @param contractAddress Target smart contract address.

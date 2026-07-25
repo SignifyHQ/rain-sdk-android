@@ -174,11 +174,7 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
 
       val amountBaseUnits = RainAmountUtils.toBaseUnits(amount, decimals)
 
-      val expiryTimestamp = try {
-        Instant.parse(adminSignature.expiresAt).toEpochMilli() / 1000
-      } catch (e: Exception) {
-        throw RainError.InvalidConfig("Invalid expiresAt format: ${adminSignature.expiresAt}. Exception: $e")
-      }
+      val expiryTimestamp = parseExpiresAt(adminSignature.expiresAt)
 
       val function = Web3jFunction(
         RainConstants.FUNC_WITHDRAW_ASSET,
@@ -204,4 +200,16 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
     }
   }
 
+  /**
+   * Accepts either a unix-seconds string or an ISO-8601 instant, in that order — Rain's API has
+   * returned both shapes.
+   */
+  private fun parseExpiresAt(expiresAt: String): Long {
+    val trimmed = expiresAt.trim()
+    trimmed.toLongOrNull()?.let { return it }
+    return runCatching { Instant.parse(trimmed).epochSecond }.getOrNull()
+      ?: throw RainError.InvalidConfig(
+        "Invalid expiresAt format: $expiresAt. Expected a unix-seconds or ISO-8601 string."
+      )
+  }
 }

@@ -20,10 +20,9 @@ import kotlinx.coroutines.sync.withLock
  * `decimals()` / `symbol()` through a [ChainReader], then cached so a given token is only
  * enriched once.
  *
- * A [Mutex] guards the registry and cache maps (the iOS counterpart uses an `actor`). The
- * lock is held only for in-memory map access — never across the enrichment RPC — so
- * concurrent `tokenInfo` calls for different tokens don't serialize behind each other's
- * network round-trips.
+ * A [Mutex] guards the registry and cache maps. The lock is held only for in-memory map access
+ * — never across the enrichment RPC — so concurrent `tokenInfo` calls for different tokens don't
+ * serialize behind each other's network round-trips.
  */
 class TokenMetadataStore internal constructor(
     private val chainReader: ChainReader,

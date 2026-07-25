@@ -12,28 +12,29 @@ import java.math.BigDecimal
 internal class TransactionValidator {
     
     /**
-     * Validates a withdraw collateral request.
-     * 
-     * @param request The request to validate
-     * @throws RainError.InvalidConfig if validation fails
+     * Validates a withdraw collateral request. An unusable chain is a config error; an unusable
+     * amount or scale is an amount error.
+     *
+     * @throws RainError.InvalidConfig for a non-positive chainId
+     * @throws RainError.InvalidAmount for a non-positive amount or negative decimals
      */
     fun validateWithdrawRequest(request: WithdrawCollateralRequest) {
-        // Validate chain ID
         if (request.chainId <= 0) {
             throw RainError.InvalidConfig("Invalid chainId: ${request.chainId}. Must be a positive integer.")
         }
-        
-        // Validate amount
+
         if (request.amount <= BigDecimal.ZERO) {
-            throw RainError.InvalidConfig("Invalid amount: ${request.amount}. Must be greater than zero.")
+            throw RainError.InvalidAmount(
+                request.amount.toPlainString(),
+                "amount must be greater than zero"
+            )
         }
-        
-        // Validate decimals
+
         if (request.decimals < 0) {
-            throw RainError.InvalidConfig("Invalid decimals: ${request.decimals}. Must be non-negative.")
+            throw RainError.InvalidAmount(
+                request.amount.toPlainString(),
+                "decimals must be non-negative, got ${request.decimals}"
+            )
         }
-        
-        // Additional validations can be added here as needed
-        // For example: address format validation, expiry time validation, etc.
     }
 }

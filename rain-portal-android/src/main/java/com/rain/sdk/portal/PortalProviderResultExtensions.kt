@@ -8,7 +8,7 @@ import io.portalhq.android.provider.data.PortalProviderRpcResponse
 /**
  * Portal-specific bridge from a [PortalProviderResult] to a normalized hex string.
  *
- * Kept here (rather than inside [EthereumConverter]) so the converter has no `PortalSwift`
+ * Kept here (rather than inside [EthereumConverter]) so the converter has no `portal-android`
  * dependency and can be reused from non-Portal code paths. The normalization rules
  * (`nil` / missing-prefix / too-short fallback to `"0x0"`) live in
  * [EthereumConverter.normalizedHexString] so both paths agree.

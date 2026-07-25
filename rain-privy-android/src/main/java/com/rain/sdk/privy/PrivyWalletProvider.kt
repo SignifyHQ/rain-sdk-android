@@ -166,7 +166,7 @@ internal class PrivyWalletProvider(
 
         // Simulate the transaction first via eth_call to catch failures
         // (e.g. insufficient funds, contract reverts) — no balance fetch needed,
-        // the node validates it for free. Mirrors the Portal adapter and the iOS Privy adapter.
+        // the node validates it for free. Mirrors the Portal adapter.
         try {
             rpcClient.callForHexResult(
                 rpcUrl, "eth_call", listOf(rpcTransactionObject(from, to, data, value), "latest"),
