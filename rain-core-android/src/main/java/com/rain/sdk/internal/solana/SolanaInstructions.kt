@@ -55,7 +55,8 @@ internal object SolanaInstructions {
      */
     private const val ATA_CREATE_IDEMPOTENT_INDEX = 1
 
-    private val U64_LIMIT = BigInteger.TWO.pow(64)
+    // `BigInteger.TWO` needs API 33; minSdk is lower.
+    private val U64_LIMIT = BigInteger.valueOf(2).pow(64)
 
     /** Moves native SOL between system accounts. */
     fun systemTransfer(from: ByteArray, to: ByteArray, lamports: Long): Instruction {
@@ -136,6 +137,113 @@ internal object SolanaInstructions {
         ),
         data = byteArrayOf(ATA_CREATE_IDEMPOTENT_INDEX.toByte())
     )
+
+    /**
+     * Native ed25519-program verification of a single [signature] by [signer] over [message].
+     *
+     * Layout matches Rain's `Ed25519ExtendedProgram`: count + padding, one 14-byte offsets
+     * struct (with `u16::MAX` as the instruction index, meaning "this instruction"), then
+     * pubkey ‖ signature ‖ message. The instruction has no accounts; programs read its result
+     * back through the instructions sysvar.
+     */
+    fun ed25519Verify(signer: ByteArray, signature: ByteArray, message: ByteArray): Instruction {
+        require(signer.size == 32) { "ed25519 signer must be 32 bytes, got ${signer.size}" }
+        require(signature.size == 64) { "ed25519 signature must be 64 bytes, got ${signature.size}" }
+        require(message.size == 32) { "ed25519 message must be 32 bytes, got ${message.size}" }
+
+        val pubkeyOffset = 2 + 14 // count + padding + one offsets struct
+        val signatureOffset = pubkeyOffset + 32
+        val messageOffset = signatureOffset + 64
+
+        val data = ByteArray(messageOffset + 32)
+        data[0] = 1 // signature count
+        writeU16LE(data, 2, signatureOffset)
+        writeU16LE(data, 4, ED25519_THIS_INSTRUCTION)
+        writeU16LE(data, 6, pubkeyOffset)
+        writeU16LE(data, 8, ED25519_THIS_INSTRUCTION)
+        writeU16LE(data, 10, messageOffset)
+        writeU16LE(data, 12, message.size)
+        writeU16LE(data, 14, ED25519_THIS_INSTRUCTION)
+        signer.copyInto(data, pubkeyOffset)
+        signature.copyInto(data, signatureOffset)
+        message.copyInto(data, messageOffset)
+
+        return Instruction(
+            programId = SolanaPrograms.ED25519_VERIFY,
+            accounts = emptyList(),
+            data = data
+        )
+    }
+
+    /**
+     * Rain collateral program (v2.02): `withdraw_single_signer_collateral_asset`.
+     *
+     * Account order and the borsh-encoded request follow the program's Anchor IDL. [owner] both
+     * signs the transaction and pays the fee; the coordinator's authorization arrives via a
+     * preceding [ed25519Verify] instruction, and [coordinatorSignatureSalt] ties this request to
+     * that signature's domain.
+     */
+    fun withdrawSingleSignerCollateralAsset(
+        programId: ByteArray,
+        owner: ByteArray,
+        coordinator: ByteArray,
+        collateral: ByteArray,
+        collateralAuthority: ByteArray,
+        destination: ByteArray,
+        asset: ByteArray,
+        collateralTokenAccount: ByteArray,
+        destinationTokenAccount: ByteArray,
+        tokenProgramId: ByteArray,
+        amountBaseUnits: BigInteger,
+        expiresAtEpochSeconds: Long,
+        coordinatorSignatureSalt: ByteArray
+    ): Instruction {
+        require(amountBaseUnits.signum() >= 0 && amountBaseUnits < U64_LIMIT) {
+            "Withdrawal amount out of u64 range: $amountBaseUnits"
+        }
+        require(coordinatorSignatureSalt.size == 32) {
+            "Coordinator signature salt must be 32 bytes, got ${coordinatorSignatureSalt.size}"
+        }
+
+        // Borsh: discriminator ‖ WithdrawSingleSignerCollateralAssetRequest
+        //   { amount_in_asset: u64, signature_expiration_time: i64, coordinator_signature_salt: [u8; 32] }
+        val data = ByteArray(8 + 8 + 8 + 32)
+        WITHDRAW_SINGLE_SIGNER_DISCRIMINATOR.copyInto(data, 0)
+        writeU64LE(data, 8, amountBaseUnits)
+        writeU64LE(data, 16, BigInteger.valueOf(expiresAtEpochSeconds))
+        coordinatorSignatureSalt.copyInto(data, 24)
+
+        return Instruction(
+            programId = programId,
+            accounts = listOf(
+                AccountMeta.signerAndWritable(owner),
+                AccountMeta.readonly(coordinator),
+                AccountMeta.writable(collateral),
+                AccountMeta.writable(collateralAuthority),
+                AccountMeta.writable(destination),
+                AccountMeta.readonly(asset),
+                AccountMeta.writable(collateralTokenAccount),
+                AccountMeta.writable(destinationTokenAccount),
+                AccountMeta.readonly(tokenProgramId),
+                AccountMeta.readonly(SolanaPrograms.SYSVAR_INSTRUCTIONS),
+                AccountMeta.readonly(SolanaPrograms.SYSTEM)
+            ),
+            data = data
+        )
+    }
+
+    /** Anchor discriminator `sha256("global:withdraw_single_signer_collateral_asset")[0..8]`. */
+    private val WITHDRAW_SINGLE_SIGNER_DISCRIMINATOR = byteArrayOf(
+        13, 25, 64, 83, 111, 184.toByte(), 70, 241.toByte()
+    )
+
+    /** In an ed25519 offsets struct, `u16::MAX` points the runtime at this same instruction. */
+    private const val ED25519_THIS_INSTRUCTION = 0xFFFF
+
+    private fun writeU16LE(target: ByteArray, offset: Int, value: Int) {
+        target[offset] = (value and 0xFF).toByte()
+        target[offset + 1] = ((value ushr 8) and 0xFF).toByte()
+    }
 
     private fun writeU32LE(target: ByteArray, offset: Int, value: Long) {
         var v = value

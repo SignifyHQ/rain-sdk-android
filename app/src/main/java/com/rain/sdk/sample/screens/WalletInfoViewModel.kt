@@ -49,20 +49,30 @@ class WalletInfoViewModel(
                     )
                 }
 
-                // Rain collateral is an EVM-only concept; skip it for Solana.
-                if (chain.isSolana) {
-                    _state.update { it.copy(isLoading = false) }
+                // Rain provisions one collateral contract per chain family (e.g. Base Sepolia
+                // for EVM, chainId 901 for Solana devnet) — pick the one for the active chain.
+                val contract = rainSdk.fetchCollateralContracts()
+                    .firstOrNull { chain.ownsCollateralContract(it.chainId) }
+                if (contract == null) {
+                    SampleLog.w("WalletInfo", "no collateral contract for ${chain.displayName}")
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            errorText = "No collateral contract on ${chain.displayName}"
+                        )
+                    }
                     return@launch
                 }
-
-                val contract = rainSdk.fetchCollateralContract()
-                SampleLog.d("WalletInfo", "collateral address=${contract.proxyAddress}")
-                val collateralQr = rainClient.generateAddressQRCode(contract.proxyAddress)
+                // Deposits go to the dedicated deposit address when Rain provides one (distinct
+                // from the collateral account on Solana); EVM contracts deposit at the proxy.
+                val depositTarget = contract.depositAddress ?: contract.proxyAddress
+                SampleLog.d("WalletInfo", "collateral address=$depositTarget (chainId=${contract.chainId})")
+                val collateralQr = rainClient.generateAddressQRCode(depositTarget)
 
                 SampleLog.i("WalletInfo", "success")
                 _state.update {
                     it.copy(
-                        collateralAddress = contract.proxyAddress,
+                        collateralAddress = depositTarget,
                         collateralQrBitmap = collateralQr,
                         isLoading = false
                     )

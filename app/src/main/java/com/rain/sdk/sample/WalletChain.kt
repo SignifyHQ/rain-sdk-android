@@ -75,6 +75,14 @@ enum class WalletChain(
     /** What the token-address field holds on this chain: a contract on EVM, a mint on Solana. */
     val tokenAddressLabel: String get() = if (isSolana) "Token Mint Address" else "Token Contract Address"
 
+    /**
+     * True when a Rain collateral contract on [contractChainId] belongs to this wallet. Solana
+     * matches its exact cluster; EVM accepts any EVM contract because Rain deploys the user's
+     * collateral on one EVM chain (Base Sepolia) regardless of which EVM chain is selected.
+     */
+    fun ownsCollateralContract(contractChainId: Int): Boolean =
+        if (isSolana) contractChainId == chainId else contractChainId !in SOLANA_CHAIN_IDS
+
     /** Light client-side address sanity check (the SDK validates authoritatively). */
     fun isValidAddress(address: String): Boolean {
         if (address.isBlank()) return false
@@ -95,6 +103,11 @@ enum class WalletChain(
     companion object {
         private const val BASE58_ALPHABET =
             "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+        /** Rain's Solana chain IDs, for classifying a collateral contract's chain family. */
+        val SOLANA_CHAIN_IDS = setOf(
+            RainChain.SOLANA_MAINNET, RainChain.SOLANA_TESTNET, RainChain.SOLANA_DEVNET
+        )
 
         /** Every chain's RPC endpoint, for initializing the SDK with all chains at once. */
         val rpcEndpoints: Map<Int, String>

@@ -9,6 +9,7 @@ import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.sample.SampleLog
+import com.rain.sdk.sample.WalletChain
 import java.math.BigDecimal
 import java.math.RoundingMode
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,16 +26,29 @@ class CollateralWithdrawViewModel(
     private val _state = MutableStateFlow(CollateralWithdrawUiState())
     val state: StateFlow<CollateralWithdrawUiState> = _state.asStateFlow()
 
-    fun loadContractInfo() {
-        SampleLog.i("Withdraw.contract", "loading contract info")
+    fun loadContractInfo(chain: WalletChain = WalletChain.EVM) {
+        SampleLog.i("Withdraw.contract", "loading contract info chain=${chain.displayName}")
         _state.update { it.copy(isLoadingContract = true, errorText = null) }
 
         viewModelScope.launch {
             try {
-                val walletAddress = rainClient.getWalletAddress()
+                val walletAddress = rainClient.getWalletAddress(chain.chainId)
                 SampleLog.d("Withdraw.contract", "wallet address=$walletAddress")
 
-                val contract = rainSdk.fetchCollateralContract()
+                // Rain provisions one collateral contract per chain family — pick the one
+                // matching the active chain (Solana cluster exact, any EVM otherwise).
+                val contract = rainSdk.fetchCollateralContracts()
+                    .firstOrNull { chain.ownsCollateralContract(it.chainId) }
+                if (contract == null) {
+                    SampleLog.w("Withdraw.contract", "no collateral contract for ${chain.displayName}")
+                    _state.update {
+                        it.copy(
+                            isLoadingContract = false,
+                            errorText = "No collateral contract on ${chain.displayName}"
+                        )
+                    }
+                    return@launch
+                }
                 SampleLog.i(
                     "Withdraw.contract",
                     "contract=${contract.proxyAddress} tokens=${contract.tokens.size} chainId=${contract.chainId}"
@@ -61,6 +75,7 @@ class CollateralWithdrawViewModel(
                         proxyAddress = contract.proxyAddress,
                         controllerAddress = contract.controllerAddress,
                         chainId = contract.chainId,
+                        isSolanaContract = contract.chainId in WalletChain.SOLANA_CHAIN_IDS,
                         adminAddress = contract.adminAddresses.firstOrNull() ?: "",
                         availableTokens = tokens,
                         selectedTokenIndex = if (tokens.isNotEmpty()) 0 else -1,
@@ -167,10 +182,15 @@ class CollateralWithdrawViewModel(
                 // typed value, so a signature cached for the typed amount must NOT be reused —
                 // the contract would revert on the mismatch. Re-using matching inputs avoids the
                 // "active signature already exists" error on a legitimate retry.
+                // Lowercasing normalizes EVM hex addresses only — base58 is case-sensitive.
                 val signatureKey = SignatureKey(
-                    tokenAddress = token.address.lowercase(),
+                    tokenAddress = if (current.isSolanaContract) token.address else token.address.lowercase(),
                     amountBaseUnits = amountBaseUnits.toString(),
-                    recipientAddress = current.recipientAddress.lowercase()
+                    recipientAddress = if (current.isSolanaContract) {
+                        current.recipientAddress
+                    } else {
+                        current.recipientAddress.lowercase()
+                    }
                 )
 
                 val cached = current.adminSignature?.takeIf { current.signatureKey == signatureKey }
@@ -279,6 +299,7 @@ data class CollateralWithdrawUiState(
     val controllerAddress: String = "",
     val adminAddress: String = "",
     val chainId: Int = 0,
+    val isSolanaContract: Boolean = false,
     val availableTokens: List<WithdrawTokenOption> = emptyList(),
     val selectedTokenIndex: Int = -1,
     val amount: String = "",

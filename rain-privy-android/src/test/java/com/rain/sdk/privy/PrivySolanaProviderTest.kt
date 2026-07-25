@@ -133,6 +133,51 @@ class PrivySolanaProviderTest {
         coVerify(exactly = 0) { manager.signAndSendSolanaTransaction(any(), any(), any()) }
     }
 
+    // ---------- core-composed transactions ----------
+
+    @Test
+    fun `sendSolanaTransaction signs and broadcasts a core-composed transaction through privy`(): Unit =
+        runBlocking {
+            // Compose a real transaction through core (as RainSdkManager.withdrawCollateral does),
+            // then hand it to the port hook and pin what reaches Privy.
+            rpc.stub("getLatestBlockhash", envelope(JSONObject().put("blockhash", BLOCKHASH)))
+            val unsigned = SolanaSupport(mapOf(DEVNET to rpc.url()))
+                .composeNativeTransfer(DEVNET, SENDER, RECIPIENT, BigDecimal("0.5"))
+
+            val manager = solanaManager()
+            val transaction = slot<ByteArray>()
+            coEvery {
+                manager.signAndSendSolanaTransaction(
+                    capture(transaction), SolanaCluster.DevNet, rpc.url()
+                )
+            } returns SIGNATURE
+
+            val result = provider(manager).sendSolanaTransaction(DEVNET, unsigned)
+
+            assertThat(result).isEqualTo(SIGNATURE)
+            assertThat(transaction.captured).isEqualTo(unsigned.transaction)
+        }
+
+    @Test
+    fun `sendSolanaTransaction rejects an unconfigured cluster before signing`() {
+        val manager = solanaManager()
+        val unsigned = runBlocking {
+            rpc.stub("getLatestBlockhash", envelope(JSONObject().put("blockhash", BLOCKHASH)))
+            SolanaSupport(mapOf(DEVNET to rpc.url()))
+                .composeNativeTransfer(DEVNET, SENDER, RECIPIENT, BigDecimal.ONE)
+        }
+        val wallet = PrivyWalletProvider(
+            manager, emptyMap(), mockk(),
+            rpcClient = mockk(),
+            solanaSupport = SolanaSupport(emptyMap()),
+        )
+
+        assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking { wallet.sendSolanaTransaction(DEVNET, unsigned) }
+        }
+        coVerify(exactly = 0) { manager.signAndSendSolanaTransaction(any(), any(), any()) }
+    }
+
     // ---------- EVM-only guards ----------
 
     @Test

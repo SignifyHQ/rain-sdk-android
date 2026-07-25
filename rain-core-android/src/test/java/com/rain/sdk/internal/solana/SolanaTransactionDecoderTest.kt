@@ -4,10 +4,13 @@ import com.rain.sdk.internal.constants.SolanaPrograms
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 import java.math.BigInteger
+import java.util.Base64 as JavaBase64
 
 /**
  * Round-trips what [SolanaTransactionBuilder] emits, since transaction history reconstructs a
- * transfer's recipient, amount and asset purely from the stored unsigned transaction.
+ * transfer's recipient, amount and asset purely from the stored unsigned transaction. Also covers
+ * blobs this SDK never produces but the same Turnkey wallet can accrue from other tooling: the
+ * bare SPL `Transfer` instruction and base64 encoding.
  */
 class SolanaTransactionDecoderTest {
 
@@ -33,14 +36,29 @@ class SolanaTransactionDecoderTest {
         decoded as SolanaTransactionDecoder.NativeTransfer
         assertThat(decoded.from).isEqualTo(from)
         assertThat(decoded.to).isEqualTo(to)
-        assertThat(decoded.lamports).isEqualTo(lamports)
+        assertThat(decoded.lamports).isEqualTo(BigInteger.valueOf(lamports))
     }
 
     @Test
     fun `tolerates an optional 0x prefix`() {
         val hex = SolanaTransactionBuilder.buildTransferHex(from, to, 1L, blockhash)
         val decoded = SolanaTransactionDecoder.decode("0x$hex")
-        assertThat((decoded as SolanaTransactionDecoder.NativeTransfer).lamports).isEqualTo(1L)
+        assertThat((decoded as SolanaTransactionDecoder.NativeTransfer).lamports)
+            .isEqualTo(BigInteger.ONE)
+    }
+
+    @Test
+    fun `decodes a base64-encoded transaction`() {
+        // Base64 is the canonical Solana transaction encoding; blobs stored by other tooling
+        // against the same Turnkey wallet plausibly arrive that way.
+        val hex = SolanaTransactionBuilder.buildTransferHex(from, to, 7L, blockhash)
+        val base64 = JavaBase64.getEncoder().encodeToString(hexToBytes(hex))
+
+        val decoded = SolanaTransactionDecoder.decode(base64)
+
+        assertThat((decoded as SolanaTransactionDecoder.NativeTransfer).lamports)
+            .isEqualTo(BigInteger.valueOf(7))
+        assertThat(decoded.to).isEqualTo(to)
     }
 
     @Test
@@ -64,16 +82,21 @@ class SolanaTransactionDecoderTest {
         assertThat(decoded.decimals).isEqualTo(6)
         assertThat(decoded.source).isEqualTo(Base58.encode(sourceAta()))
         assertThat(decoded.destination).isEqualTo(Base58.encode(destinationAta()))
+        // Nothing in this transaction names the wallet behind the destination token account.
+        assertThat(decoded.destinationOwner).isNull()
     }
 
     @Test
-    fun `skips the create-account instruction and finds the transfer`() {
-        // A transfer to a first-time recipient is preceded by a create-token-account instruction.
+    fun `recovers the recipient wallet from an account-creation instruction`() {
+        // A transfer to a first-time recipient is preceded by a create-token-account instruction,
+        // whose account list is the one place the recipient's wallet appears on the wire.
         val decoded = SolanaTransactionDecoder.decode(splTransferHex(createDestination = true))
 
         assertThat(decoded).isInstanceOf(SolanaTransactionDecoder.SplTransfer::class.java)
-        assertThat((decoded as SolanaTransactionDecoder.SplTransfer).amount)
-            .isEqualTo(BigInteger.valueOf(1_500_000L))
+        decoded as SolanaTransactionDecoder.SplTransfer
+        assertThat(decoded.destinationOwner).isEqualTo(to)
+        assertThat(decoded.destination).isEqualTo(Base58.encode(destinationAta()))
+        assertThat(decoded.amount).isEqualTo(BigInteger.valueOf(1_500_000L))
     }
 
     @Test
@@ -84,6 +107,47 @@ class SolanaTransactionDecoderTest {
 
         assertThat(decoded).isInstanceOf(SolanaTransactionDecoder.SplTransfer::class.java)
         assertThat((decoded as SolanaTransactionDecoder.SplTransfer).mint).isEqualTo(mint)
+    }
+
+    @Test
+    fun `decodes the bare transfer instruction other tooling emits`() {
+        // TokenInstruction::Transfer (tag 3) — @solana/spl-token's default. Accounts are
+        // [source, destination, owner] and the data carries neither mint nor decimals.
+        val data = ByteArray(9)
+        data[0] = 3
+        var amount = 250_000L
+        for (i in 0 until 8) {
+            data[1 + i] = (amount and 0xFF).toByte()
+            amount = amount ushr 8
+        }
+        val hex = SolanaTransactionBuilder.buildUnsignedHex(
+            feePayer = fromBytes,
+            recentBlockhash = blockhash,
+            instructions = listOf(
+                Instruction(
+                    programId = SolanaPrograms.TOKEN,
+                    accounts = listOf(
+                        AccountMeta.writable(sourceAta()),
+                        AccountMeta.writable(destinationAta()),
+                        AccountMeta.signer(fromBytes)
+                    ),
+                    data = data
+                )
+            )
+        )
+
+        val decoded = SolanaTransactionDecoder.decode(hex)
+
+        assertThat(decoded).isInstanceOf(SolanaTransactionDecoder.SplTransfer::class.java)
+        decoded as SolanaTransactionDecoder.SplTransfer
+        assertThat(decoded.from).isEqualTo(from)
+        assertThat(decoded.source).isEqualTo(Base58.encode(sourceAta()))
+        assertThat(decoded.destination).isEqualTo(Base58.encode(destinationAta()))
+        assertThat(decoded.amount).isEqualTo(BigInteger.valueOf(250_000L))
+        // The bare instruction carries neither, so history resolves them elsewhere.
+        assertThat(decoded.mint).isNull()
+        assertThat(decoded.decimals).isNull()
+        assertThat(decoded.destinationOwner).isNull()
     }
 
     @Test
@@ -133,4 +197,9 @@ class SolanaTransactionDecoderTest {
         }
         return SolanaTransactionBuilder.buildUnsignedHex(fromBytes, blockhash, instructions)
     }
+
+    private fun hexToBytes(hex: String): ByteArray =
+        ByteArray(hex.length / 2) { i ->
+            ((Character.digit(hex[i * 2], 16) shl 4) or Character.digit(hex[i * 2 + 1], 16)).toByte()
+        }
 }

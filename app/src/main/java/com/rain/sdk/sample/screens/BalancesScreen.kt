@@ -90,137 +90,134 @@ fun BalancesScreen(
             Spacer(modifier = Modifier.width(64.dp))
         }
 
-        // Rain collateral is an EVM-only feature; hide it when the Solana wallet is active.
-        if (!selectedChain.isSolana) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .background(Color(0xFFF5F3FF), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Info,
-                                contentDescription = null,
-                                tint = Color(0xFF6B4EFF),
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Collateral wallet",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                color = Color.Black
-                            )
-                            Text(
-                                text = state.collateralWalletAddress.ifEmpty { "—" }.let { if (it != "—") formatAddress(it) else it },
-                                fontSize = 14.sp,
-                                color = Color.Gray
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .background(Color(0xFFF5F3FF), RoundedCornerShape(16.dp))
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                text = "Collateral",
-                                color = Color(0xFF6B4EFF),
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFFF8F8F8), RoundedCornerShape(12.dp))
-                            .padding(16.dp)
+                            .size(40.dp)
+                            .background(Color(0xFFF5F3FF), CircleShape),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Column {
-                            Text(
-                                text = "Will fetch",
-                                color = Color.Gray,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .background(Color(0xFF6B4EFF), CircleShape)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "All token balances in this wallet",
-                                    fontSize = 14.sp,
-                                    color = Color.DarkGray,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    OutlinedButton(
-                        onClick = { viewModel.fetchCollateralBalances() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Black),
-                        border = BorderStroke(1.dp, Color.Gray)
-                    ) {
-                        if (state.isCollateralLoading) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
-                        } else {
-                            Text("Fetch", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                
-                    // Collateral error and results
-                    if (state.collateralError != null) {
-                        Text(
-                            text = "Error: ${state.collateralError}",
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 16.dp)
+                        Icon(
+                            imageVector = Icons.Filled.Info,
+                            contentDescription = null,
+                            tint = Color(0xFF6B4EFF),
+                            modifier = Modifier.size(24.dp)
                         )
                     }
-                    if (state.collateralBalances.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(text = "Results:", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
-                        state.collateralBalances.forEach { token ->
-                            BalanceCard(
-                                emoji = "🪙",
-                                label = token.symbol,
-                                value = "%.2f".format(token.balance),
-                                subtitle = token.displayAddress
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Collateral wallet",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = Color.Black
+                        )
+                        Text(
+                            text = state.collateralWalletAddress.ifEmpty { "—" }.let { if (it != "—") formatAddress(it) else it },
+                            fontSize = 14.sp,
+                            color = Color.Gray
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFFF5F3FF), RoundedCornerShape(16.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "Collateral",
+                            color = Color(0xFF6B4EFF),
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFF8F8F8), RoundedCornerShape(12.dp))
+                        .padding(16.dp)
+                ) {
+                    Column {
+                        Text(
+                            text = "Will fetch",
+                            color = Color.Gray,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .background(Color(0xFF6B4EFF), CircleShape)
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "All token balances in this wallet",
+                                fontSize = 14.sp,
+                                color = Color.DarkGray,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedButton(
+                    onClick = { viewModel.fetchCollateralBalances(selectedChain) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Black),
+                    border = BorderStroke(1.dp, Color.Gray)
+                ) {
+                    if (state.isCollateralLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
+                    } else {
+                        Text("Fetch", fontWeight = FontWeight.Bold)
+                    }
+                }
+            
+                // Collateral error and results
+                if (state.collateralError != null) {
+                    Text(
+                        text = "Error: ${state.collateralError}",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 16.dp)
+                    )
+                }
+                if (state.collateralBalances.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(text = "Results:", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+                    state.collateralBalances.forEach { token ->
+                        BalanceCard(
+                            emoji = "🪙",
+                            label = token.symbol,
+                            value = "%.2f".format(token.balance),
+                            subtitle = token.displayAddress
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         // --- Internal Wallet Card ---
         Card(

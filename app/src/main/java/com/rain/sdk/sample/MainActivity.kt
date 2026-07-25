@@ -110,6 +110,7 @@ fun SampleApp() {
                         innerPadding = innerPadding,
                         rainSdk = sdk,
                         rainClient = client,
+                        selectedChain = selectedChain,
                         onBack = { navController.popBackStack() }
                     )
                 }

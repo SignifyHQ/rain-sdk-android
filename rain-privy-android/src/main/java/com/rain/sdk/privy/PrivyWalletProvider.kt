@@ -5,6 +5,7 @@ import com.rain.sdk.internal.abi.Erc20Abi
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.solana.SolanaSupport
+import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransaction
@@ -139,6 +140,19 @@ internal class PrivyWalletProvider(
     }
 
     // ---------- low-level send / sign / fee ----------
+
+    /**
+     * Signs and broadcasts a core-composed Solana transaction (e.g. a collateral withdrawal)
+     * with the embedded Solana wallet. Core has already run every preflight and simulation;
+     * Privy only signs with the wallet's ed25519 key and broadcasts to Rain's configured RPC.
+     * The fee payer is always this wallet.
+     */
+    override suspend fun sendSolanaTransaction(
+        chainId: Int,
+        unsigned: UnsignedSolanaTransfer
+    ): String = manager.signAndSendSolanaTransaction(
+        unsigned.transaction, solanaCluster(chainId), rpcUrlFor(chainId)
+    )
 
     override suspend fun sendTransaction(
         chainId: Int,

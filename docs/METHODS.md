@@ -148,18 +148,26 @@ Full withdrawal flow. When `autoSend = true`, builds the transaction, signs via 
 provider, submits, and returns the transaction hash. When `autoSend = false`, returns prepared
 transaction data for manual submission.
 
+On EVM chains this calls `withdrawAsset` on the Rain coordinator contract (EIP-712 admin
+signature + the Rain API signature). On Solana chains it drives Rain's on-chain collateral
+program instead: the SDK reads the collateral account (program id, coordinator, nonce) from the
+chain, verifies nothing is stale by simulating, and submits a transaction carrying an ed25519
+verification of Rain's coordinator signature followed by the program's
+`withdraw_single_signer_collateral_asset` instruction. Only single-signer Solana collateral
+accounts are supported; the wallet must be the account's owner.
+
 - **Returns:** `RainWithdrawResult` — containing either `transactionHash` (if `autoSend=true`) or `transactionData` (if `autoSend=false`).
 - **Throws:** `RainError` if construction, signing, or submission fails.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `chainId` | `Int` | Target network chain ID (e.g. `43114`). |
-| `addresses` | `RainWithdrawAddresses` | All required addresses: proxy, controller, token, recipient. |
+| `chainId` | `Int` | Target network chain ID (e.g. `43114`, or `901` for Solana devnet). |
+| `addresses` | `RainWithdrawAddresses` | All required addresses: proxy, controller, token, recipient. On Solana, `proxyAddress` is the collateral account, `tokenAddress` is the SPL mint, and `controllerAddress` is unused (the coordinator is read from the collateral account). |
 | `amount` | `BigDecimal` | Amount in human-readable token units (e.g. `BigDecimal("100.0")`). |
 | `decimals` | `Int` | Token decimals (e.g. 6 for USDC, 18 for most tokens). |
 | `adminSignature` | `RainAdminSignature` | Admin signature for authorization (salt, signature, expiresAt). |
-| `nonce` | `BigInteger?` | Optional nonce; if `null`, SDK resolves from contract. |
+| `nonce` | `BigInteger?` | Optional nonce; if `null`, SDK resolves from contract. Ignored on Solana — the nonce always comes from the on-chain collateral account. |
 | `autoSend` | `Boolean` | If `true`, sign and send via the backing provider. If `false`, return raw transaction data. Defaults to `false`. |
 
 ---
@@ -277,19 +285,21 @@ Sends native tokens (e.g. AVAX) from the current wallet.
 
 ### sendToken(chainId, contractAddress, toAddress, amount, decimals?)
 
-Sends ERC-20 tokens (EVM chains) from the current wallet. Routed by `chainId`.
+Sends ERC-20 tokens (EVM chains) or SPL tokens (Solana chains) from the current wallet.
+Routed by `chainId`.
 
 - **Returns:** `RainTokenTransferResult` — containing the transaction hash.
 - **Throws:** `RainError` if send fails.
-- **Throws on Solana chains:** SPL token transfers are not yet implemented; calling this
-  method with a Solana `chainId` (Rain IDs 900 mainnet / 901 devnet, SDK-internal 902 testnet)
-  throws `RainError.InvalidConfig`.
+- **On Solana chains** (Rain IDs 900 mainnet / 901 devnet, SDK-internal 902 testnet):
+  `contractAddress` is the SPL mint. The mint's own on-chain `decimals` are authoritative — the
+  `decimals` parameter is ignored — and a missing recipient token account is created in the
+  same transaction at the sender's expense.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `chainId` | `Int` | Target network chain ID. EVM chain ID. (Solana SPL transfers not yet implemented — see note above.) |
-| `contractAddress` | `String` | ERC-20 token contract address. |
+| `chainId` | `Int` | Target network chain ID. |
+| `contractAddress` | `String` | ERC-20 token contract address, or the SPL mint on Solana. |
 | `toAddress` | `String` | Recipient wallet address. |
 | `amount` | `BigDecimal` | Amount in human-readable form (e.g. `BigDecimal("100.0")` for 100 USDC). |
 | `decimals` | `Int?` | Optional token decimals. When `null` (the default), the SDK resolves the token's `decimals()` from its registry or an on-chain read, so callers don't have to track it. |

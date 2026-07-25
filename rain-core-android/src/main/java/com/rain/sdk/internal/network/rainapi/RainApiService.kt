@@ -83,12 +83,22 @@ internal class RainApiService(
      * else direct on-chain reads. Best-effort and concurrent per token: a failed read leaves
      * that field null — never a fabricated default, since wrong decimals would corrupt the
      * caller's base-unit math. (This is deliberately NOT `tokenStore.tokenInfo`, whose
-     * enrichment falls back to 18 decimals on failure.) Solana chains are skipped — the
-     * enrichment path is EVM-only.
+     * enrichment falls back to 18 decimals on failure.) On Solana chains only the registry
+     * is consulted — the on-chain read path is EVM-only, and an SPL mint carries no on-chain
+     * symbol anyway, so host-registered metadata is the sole naming source there.
      */
     private suspend fun enrichTokens(contract: RainCollateralContract): RainCollateralContract {
-        if (contract.tokens.isEmpty() || SolanaChains.isSolanaChain(contract.chainId)) return contract
+        if (contract.tokens.isEmpty()) return contract
         val known = tokenStore.registeredTokens(contract.chainId)
+        if (SolanaChains.isSolanaChain(contract.chainId)) {
+            return contract.copy(
+                tokens = contract.tokens.map { token ->
+                    known.firstOrNull { it.address.equals(token.address, ignoreCase = true) }
+                        ?.let { token.copy(name = it.name, symbol = it.symbol, decimals = it.decimals) }
+                        ?: token
+                }
+            )
+        }
         val enriched = coroutineScope {
             contract.tokens.map { token ->
                 async { enrichToken(contract.chainId, token, known) }
