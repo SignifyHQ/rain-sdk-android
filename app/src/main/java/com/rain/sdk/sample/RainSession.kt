@@ -10,6 +10,8 @@ import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.turnkey.TurnkeyConfig
 import com.rain.sdk.turnkey.TurnkeyProvider
 import com.turnkey.core.TurnkeyContext
+import io.portalhq.android.Portal
+import io.portalhq.android.storage.mobile.PortalNamespace
 import io.privy.sdk.Privy
 
 /**
@@ -57,6 +59,10 @@ class RainSession {
         }
     }
 
+    // Captured during provider resolution so the sample can reach Portal-only APIs the Rain
+    // surface doesn't expose (wallet generation, backup/recover).
+    private var portal: Portal? = null
+
     /** Builds the SDK with the Portal provider and resolves the Portal-backed client. */
     suspend fun initializePortal(
         sessionToken: String,
@@ -65,11 +71,36 @@ class RainSession {
     ) {
         val sdk = RainSdk.builder()
             .rpcEndpoints(rpcEndpoints)
-            .register(PortalProvider(PortalConfig(sessionToken = sessionToken, chainId = chainId)))
+            .register(
+                PortalProvider(
+                    config = PortalConfig(sessionToken = sessionToken, chainId = chainId),
+                    onPortalCreated = { portal = it },
+                )
+            )
             .withSharedConfig()
             .build()
         rain = sdk
         client = sdk.provider(ProviderId.PORTAL)
+    }
+
+    /**
+     * Ensures the Portal client has an EIP-155 wallet, running MPC key generation on first use.
+     * Returns true if a wallet was created, false if one already existed.
+     */
+    suspend fun ensurePortalWallet(): Boolean {
+        val portal = portal ?: error("Portal not initialized")
+
+        // A client with no wallet has no eip155 namespace metadata, and Portal dereferences it
+        // unconditionally — so a missing wallet surfaces as an NPE, not a null address.
+        val existing = runCatching { portal.getAddress(PortalNamespace.EIP155) }.getOrNull()
+        SampleLog.d("Portal.wallet", "ensurePortalWallet existing=${existing != null}")
+        if (!existing.isNullOrBlank()) return false
+
+        val created = portal.createWallet { status ->
+            SampleLog.d("Portal.wallet", "keygen status=$status")
+        }.getOrThrow()
+        SampleLog.i("Portal.wallet", "created wallet eth=${created.ethereumAddress}")
+        return true
     }
 
     /** Builds the SDK with the Turnkey provider and resolves the Turnkey-backed client. */
@@ -108,5 +139,6 @@ class RainSession {
         runCatching { rain?.reset() }
         client = null
         rain = null
+        portal = null
     }
 }

@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <application
+        android:name=".RainSampleApp"
         android:label="Rain SDK Sample"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
