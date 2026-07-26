@@ -515,6 +515,7 @@ internal class PrivyWalletProvider(
         43114 -> PrivyIndexedChain(TransactionChain.Evm.Avalanche, "avax")
         59144 -> PrivyIndexedChain(TransactionChain.Evm.Linea, "eth")
         11155111 -> PrivyIndexedChain(TransactionChain.Evm.Sepolia, "eth")
+        84532 -> PrivyIndexedChain(TransactionChain.Evm.BaseSepolia, "eth")
         else -> null
     }
 
