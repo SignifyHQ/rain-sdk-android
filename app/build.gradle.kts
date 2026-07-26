@@ -49,6 +49,9 @@ dependencies {
     implementation(project(":rain-portal-android"))
     implementation(project(":rain-privy-android"))
 
+    implementation(libs.portal.android)
+    implementation(libs.timber)
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

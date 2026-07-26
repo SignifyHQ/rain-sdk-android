@@ -114,6 +114,29 @@ class TokenMetadataStoreTest {
     }
 
     @Test
+    fun `a fallback decimals is not cached so a later lookup re-reads the chain`() = runBlocking {
+        // A transient RPC failure must not pin the 18-decimals guess for the process lifetime:
+        // caching it would misreport a 6-decimal token's balance by a factor of 10^12.
+        val reader = MockChainReader(decimals = 6, symbol = "EURC")
+        reader.metadataError = RuntimeException("rpc timeout")
+        val store = TokenMetadataStore(reader)
+
+        val failed = store.tokenInfo(chainId = 1, address = unknown)
+        assertThat(failed.decimals).isEqualTo(18)
+
+        reader.metadataError = null
+        val retried = store.tokenInfo(chainId = 1, address = unknown)
+
+        assertThat(retried.decimals).isEqualTo(6)
+        assertThat(retried.symbol).isEqualTo("EURC")
+        assertThat(reader.decimalsCalls).hasSize(2)
+
+        // The successful read is cached — a third lookup issues no further RPC.
+        store.tokenInfo(chainId = 1, address = unknown)
+        assertThat(reader.decimalsCalls).hasSize(2)
+    }
+
+    @Test
     fun `nativeCurrencyOrNull returns null for an unknown chain instead of a default`() {
         val store = TokenMetadataStore(MockChainReader())
         assertThat(store.nativeCurrencyOrNull(43114)?.symbol).isEqualTo("AVAX")

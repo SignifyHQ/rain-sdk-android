@@ -11,6 +11,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import timber.log.Timber
 
 /**
  * Owns per-chain token reference data plus a runtime enrichment cache.
@@ -89,27 +90,45 @@ class TokenMetadataStore internal constructor(
         // Enrich outside the lock so a slow RPC doesn't block lookups for other tokens.
         val enriched = enrich(chainId, address)
 
+        // A fallback `decimals` is a guess, not a fact: caching it would pin a balance that is
+        // wrong by orders of magnitude for the rest of the process. Retry on the next lookup.
+        if (!enriched.decimalsResolved) return enriched.info
+
         return mutex.withLock {
             // Another coroutine may have enriched the same token while we were off-lock.
             enrichmentCache[chainId]?.get(key)?.let { return@withLock it }
-            enrichmentCache.getOrPut(chainId) { mutableMapOf() }[key] = enriched
-            enriched
+            enrichmentCache.getOrPut(chainId) { mutableMapOf() }[key] = enriched.info
+            enriched.info
         }
     }
 
     // ---------- Enrichment ----------
 
+    /** An enrichment result plus whether `decimals` came from the chain or the fallback. */
+    private data class Enriched(val info: TokenInfo, val decimalsResolved: Boolean)
+
     /**
      * Reads `decimals()`, `symbol()` and `name()` in parallel. A failed `decimals()` falls
      * back to the default; a failed `symbol()` / `name()` leaves that field `null`.
      */
-    private suspend fun enrich(chainId: Int, address: String): TokenInfo = coroutineScope {
+    private suspend fun enrich(chainId: Int, address: String): Enriched = coroutineScope {
         val decimalsTask = async {
             runCatching { chainReader.getDecimals(chainId, address) }
-                .getOrElse { e ->
-                    if (e is CancellationException) throw e
-                    RainClient.DEFAULT_ERC20_DECIMALS
-                }
+                .fold(
+                    onSuccess = { it to true },
+                    onFailure = { e ->
+                        if (e is CancellationException) throw e
+                        // Falling back here misreports the balance by orders of magnitude for
+                        // any non-18-decimal token, so it must never fail silently.
+                        Timber.w(
+                            e,
+                            "Rain SDK: decimals() read failed for token=$address " +
+                                "chainId=$chainId — falling back to " +
+                                "${RainClient.DEFAULT_ERC20_DECIMALS}"
+                        )
+                        RainClient.DEFAULT_ERC20_DECIMALS to false
+                    }
+                )
         }
         val symbolTask = async {
             runCatching { chainReader.getSymbol(chainId, address) }
@@ -126,12 +145,16 @@ class TokenMetadataStore internal constructor(
                 }
         }
 
-        TokenInfo(
-            chainId = chainId,
-            address = address,
-            symbol = symbolTask.await(),
-            decimals = decimalsTask.await(),
-            name = nameTask.await()
+        val (decimals, decimalsResolved) = decimalsTask.await()
+        Enriched(
+            info = TokenInfo(
+                chainId = chainId,
+                address = address,
+                symbol = symbolTask.await(),
+                decimals = decimals,
+                name = nameTask.await()
+            ),
+            decimalsResolved = decimalsResolved
         )
     }
 
