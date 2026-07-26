@@ -84,17 +84,28 @@ class RainSession {
     }
 
     /**
-     * Ensures the Portal client has an EIP-155 wallet, running MPC key generation on first use.
-     * Returns true if a wallet was created, false if one already existed.
+     * Ensures this device can sign for the Portal client, running MPC key generation on first
+     * use. Returns true if a wallet was created, false if one was already usable here.
      */
     suspend fun ensurePortalWallet(): Boolean {
         val portal = portal ?: error("Portal not initialized")
 
-        // A client with no wallet has no eip155 namespace metadata, and Portal dereferences it
-        // unconditionally — so a missing wallet surfaces as an NPE, not a null address.
-        val existing = runCatching { portal.getAddress(PortalNamespace.EIP155) }.getOrNull()
-        SampleLog.d("Portal.wallet", "ensurePortalWallet existing=${existing != null}")
-        if (!existing.isNullOrBlank()) return false
+        // Two independent facts: the signing share lives in this device's keychain, the wallet
+        // itself lives on the Portal client. Creating on a client that already has one fails.
+        // An empty keychain throws rather than returning false, and that is the ordinary
+        // first-run case — so a failed read here means "not on device", not an error.
+        val onDevice = runCatching { portal.isWalletOnDeviceOrThrow(PortalNamespace.EIP155) }
+            .getOrDefault(false)
+        val onClient = portal.doesWalletExistOrThrow(PortalNamespace.EIP155)
+        SampleLog.d("Portal.wallet", "ensurePortalWallet onDevice=$onDevice onClient=$onClient")
+
+        if (onDevice) return false
+        if (onClient) {
+            error(
+                "This Portal client already has a wallet, but its signing share is not on this " +
+                    "device. Recover it from a backup, or use a client ID dedicated to this device."
+            )
+        }
 
         val created = portal.createWallet { status ->
             SampleLog.d("Portal.wallet", "keygen status=$status")
