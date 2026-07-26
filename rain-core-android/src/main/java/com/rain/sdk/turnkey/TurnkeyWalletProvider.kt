@@ -13,6 +13,7 @@ import com.rain.sdk.internal.network.chainreader.JsonRpcClient
 import com.rain.sdk.internal.network.chainreader.SolanaChainReader
 import com.rain.sdk.internal.solana.SolanaConverter
 import com.rain.sdk.internal.solana.SolanaRpcClient
+import com.rain.sdk.internal.solana.SolanaSupport
 import com.rain.sdk.internal.solana.SolanaTransactionDecoder
 import com.rain.sdk.internal.solana.SolanaTransferComposer
 import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
@@ -22,7 +23,7 @@ import com.rain.sdk.internal.utils.strippingHexPrefix
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
-import com.rain.sdk.models.RainTransactionResult
+import com.rain.sdk.models.RainTransactionCategory
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
 import com.rain.sdk.utils.EthereumConverter
@@ -47,10 +48,9 @@ import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import java.math.BigDecimal
 import java.math.BigInteger
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.Locale
-import java.util.TimeZone
 
 /**
  * Turnkey-based implementation of [WalletProvider]. Used when the SDK is initialized with
@@ -70,6 +70,7 @@ internal class TurnkeyWalletProvider(
     chainReader: ChainReader? = null,
     solanaChainReader: ChainReader? = null,
     solanaRpcClient: SolanaRpcClient? = null,
+    solanaSupport: SolanaSupport? = null,
     tokenStore: TokenMetadataStore? = null
 ) : WalletProvider {
 
@@ -83,12 +84,14 @@ internal class TurnkeyWalletProvider(
     private val chainReader: ChainReader = chainReader
         ?: EvmChainReader(rpcEndpoints = rpcEndpoints, jsonRpcClient = jsonRpcClient)
 
+    // Explicit test doubles win; then the shared Solana stack; a private stack is the last resort.
     private val solanaRpcClient: SolanaRpcClient =
-        solanaRpcClient ?: SolanaRpcClient(jsonRpcClient)
+        solanaRpcClient ?: solanaSupport?.rpc ?: SolanaRpcClient(jsonRpcClient)
     private val solanaChainReader: ChainReader = solanaChainReader
+        ?: solanaSupport?.chainReader
         ?: SolanaChainReader(rpcEndpoints = rpcEndpoints, solanaRpcClient = this.solanaRpcClient)
-    private val solanaTransferComposer =
-        SolanaTransferComposer(this.solanaRpcClient, rpcEndpoints::get)
+    private val solanaTransferComposer = solanaSupport?.composer
+        ?: SolanaTransferComposer(this.solanaRpcClient, rpcEndpoints::get)
 
     /** Picks the reader for [chainId]'s chain family. */
     private fun chainReaderFor(chainId: Int): ChainReader =
@@ -134,8 +137,7 @@ internal class TurnkeyWalletProvider(
 
     /** CAIP-2 for [chainId]: EIP-155 for EVM, genesis-hash form for Solana clusters. */
     private fun caip2For(chainId: Int): String =
-        if (SolanaChains.isSolanaChain(chainId)) SolanaChains.caip2(chainId)
-        else ChainIdFormat.EIP155.format(chainId)
+        ChainIdFormat.namespaceFor(chainId).format(chainId)
 
     // ---------- address ----------
 
@@ -222,9 +224,8 @@ internal class TurnkeyWalletProvider(
         decimals: Int
     ): String {
         if (SolanaChains.isSolanaChain(chainId)) {
-            // `decimals` is deliberately ignored: it reaches here resolved against the EVM token
-            // store, which cannot read an SPL mint. The mint's own scale is authoritative and is
-            // read from the chain in sendSolanaSplToken.
+            // `decimals` is deliberately unread — it is not authoritative here. sendSolanaSplToken
+            // reads the mint's own scale from the chain, which `TransferChecked` then enforces.
             return sendSolanaSplToken(chainId, contractAddress, toAddress, amount)
         }
         val from = getWalletAddress(chainId)
@@ -297,8 +298,9 @@ internal class TurnkeyWalletProvider(
             params = emptyList()
         )
 
-        val gasLimit = BigInteger(estimateHex.strippingHexPrefix().ifEmpty { "0" }, 16)
-        val gasPrice = BigInteger(gasPriceHex.strippingHexPrefix().ifEmpty { "0" }, 16)
+        // Strict: an empty/garbage RPC payload must fail, not silently estimate a zero fee.
+        val gasLimit = EthereumConverter.parseHexToBigIntegerStrict(estimateHex)
+        val gasPrice = EthereumConverter.parseHexToBigIntegerStrict(gasPriceHex)
         return EthereumConverter.convertWeiToEthDecimal(gasLimit.multiply(gasPrice))
     }
 
@@ -534,7 +536,7 @@ internal class TurnkeyWalletProvider(
         limit: Int?,
         offset: Int?,
         order: RainTransactionOrder?
-    ): RainTransactionResult {
+    ): List<RainTransaction> {
         if (SolanaChains.isSolanaChain(chainId)) {
             return getSolanaTransactions(chainId, limit, offset, order)
         }
@@ -583,20 +585,19 @@ internal class TurnkeyWalletProvider(
 
             RainTransaction(
                 hash = txHash ?: draft.id,
-                blockNumber = null,
-                blockTimestamp = iso8601(draft.timestampSeconds),
+                uniqueId = draft.id,
+                timestamp = iso8601(draft.timestampSeconds),
                 from = draft.from,
                 to = draft.to,
-                value = scaledDecimalString(draft.value, DEFAULT_NATIVE_DECIMALS),
-                gas = null,
-                gasPrice = null,
-                chainId = draft.chainId.toString(),
-                symbol = null,
+                value = scaledDecimal(draft.value, DEFAULT_NATIVE_DECIMALS),
                 tokenAddress = draft.to.takeIf { !draft.data.isNullOrEmpty() && draft.data != "0x" },
-                metadata = null
+                rawValue = draft.value,
+                decimals = DEFAULT_NATIVE_DECIMALS,
+                category = RainTransactionCategory.External,
+                chainId = draft.chainId
             )
         }
-        return RainTransactionResult(transactions = transactions)
+        return transactions
     }
 
     /**
@@ -611,7 +612,7 @@ internal class TurnkeyWalletProvider(
         limit: Int?,
         offset: Int?,
         order: RainTransactionOrder?
-    ): RainTransactionResult {
+    ): List<RainTransaction> {
         val (session, client) = resolveSessionAndClient()
         val caip2 = SolanaChains.caip2(chainId)
         val requestedLimit = minOf(maxOf(((limit ?: 10) + (offset ?: 0)), 1), 100)
@@ -653,7 +654,7 @@ internal class TurnkeyWalletProvider(
                 .map { draft -> async { solanaTransaction(chainId, draft) } }
                 .awaitAll()
         }
-        return RainTransactionResult(transactions = transactions)
+        return transactions
     }
 
     /**
@@ -672,8 +673,8 @@ internal class TurnkeyWalletProvider(
                     ?: transfer.mint?.let { resolveMintDecimals(chainId, it) }
                 RainTransaction(
                     hash = hash,
-                    blockNumber = null,
-                    blockTimestamp = timestamp,
+                    uniqueId = draft.id,
+                    timestamp = timestamp,
                     from = draft.from,
                     // The recipient wallet comes from the transaction's own account-creation
                     // instruction when it has one, and from the node otherwise. Falls back to the
@@ -685,59 +686,50 @@ internal class TurnkeyWalletProvider(
                     // Without decimals the base-unit amount cannot be scaled honestly; the raw
                     // amount stays available in the metadata.
                     value = decimals?.let {
-                        BigDecimal(transfer.amount)
-                            .movePointLeft(it)
-                            .stripTrailingZeros()
-                            .toPlainString()
+                        BigDecimal(transfer.amount).movePointLeft(it).stripTrailingZeros()
                     },
-                    gas = null,
-                    gasPrice = null,
-                    chainId = chainId.toString(),
                     // SPL symbols live in off-chain metadata the SDK does not read; the mint
                     // identifies the asset.
-                    symbol = null,
+                    asset = null,
                     tokenAddress = transfer.mint,
-                    metadata = mapOf(
-                        "destinationTokenAccount" to transfer.destination,
-                        "sourceTokenAccount" to transfer.source,
-                        "rawAmount" to transfer.amount.toString()
+                    rawValue = transfer.amount.toString(),
+                    decimals = decimals,
+                    category = RainTransactionCategory.Token,
+                    chainId = chainId,
+                    // The token accounts are not reconstructible from `to`, which holds the wallet
+                    // when the owner read succeeded and the token account when it didn't.
+                    metadata = RainTransaction.Metadata(
+                        sourceTokenAccount = transfer.source,
+                        destinationTokenAccount = transfer.destination
                     )
                 )
             }
 
             is SolanaTransactionDecoder.NativeTransfer -> RainTransaction(
                 hash = hash,
-                blockNumber = null,
-                blockTimestamp = timestamp,
+                uniqueId = draft.id,
+                timestamp = timestamp,
                 from = draft.from,
                 to = transfer.to,
-                value = if (transfer.lamports.signum() == 0) "0" else {
-                    SolanaConverter.lamportsToSol(transfer.lamports)
-                        .stripTrailingZeros()
-                        .toPlainString()
+                value = if (transfer.lamports.signum() == 0) BigDecimal.ZERO else {
+                    SolanaConverter.lamportsToSol(transfer.lamports).stripTrailingZeros()
                 },
-                gas = null,
-                gasPrice = null,
-                chainId = chainId.toString(),
-                symbol = SolanaChains.NATIVE_CURRENCY.symbol,
-                tokenAddress = null,
-                metadata = null
+                asset = SolanaChains.NATIVE_CURRENCY.symbol,
+                rawValue = transfer.lamports.toString(),
+                decimals = SolanaConverter.SOL_DECIMALS,
+                category = RainTransactionCategory.External,
+                chainId = chainId
             )
 
             // Undecodable payload: report the activity rather than dropping it from history.
             null -> RainTransaction(
                 hash = hash,
-                blockNumber = null,
-                blockTimestamp = timestamp,
+                uniqueId = draft.id,
+                timestamp = timestamp,
                 from = draft.from,
-                to = null,
-                value = null,
-                gas = null,
-                gasPrice = null,
-                chainId = chainId.toString(),
-                symbol = SolanaChains.NATIVE_CURRENCY.symbol,
-                tokenAddress = null,
-                metadata = null
+                asset = SolanaChains.NATIVE_CURRENCY.symbol,
+                category = RainTransactionCategory.External,
+                chainId = chainId
             )
         }
     }
@@ -1072,13 +1064,12 @@ internal class TurnkeyWalletProvider(
 
     /**
      * Scales a base-unit amount down without going through [Double] — a wei value above 2^53
-     * would otherwise render inexactly or in scientific notation.
+     * would otherwise be inexact. Null when the amount is not a number.
      */
-    private fun scaledDecimalString(balance: String?, decimals: Int): String {
-        if (balance.isNullOrEmpty()) return "0"
-        val scaled = runCatching { BigDecimal(balance).movePointLeft(decimals) }.getOrNull()
-            ?: return "0"
-        return scaled.stripTrailingZeros().toPlainString()
+    private fun scaledDecimal(balance: String?, decimals: Int): BigDecimal? {
+        if (balance.isNullOrEmpty()) return BigDecimal.ZERO
+        return runCatching { BigDecimal(balance).movePointLeft(decimals).stripTrailingZeros() }
+            .getOrNull()
     }
 
     private fun decimalStringFromHex(hex: String): String {
@@ -1110,10 +1101,9 @@ internal class TurnkeyWalletProvider(
         return if (parsed >= 27) parsed else parsed + 27
     }
 
-    private fun iso8601(seconds: Double): String {
-        val formatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.ROOT).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }
-        return formatter.format(Date((seconds * 1000).toLong()))
-    }
+    /** Second-precision UTC Zulu ISO-8601, e.g. `2026-07-26T12:34:56Z`. */
+    private fun iso8601(seconds: Double): String =
+        Instant.ofEpochMilli((seconds * 1000).toLong())
+            .truncatedTo(ChronoUnit.SECONDS)
+            .toString()
 }

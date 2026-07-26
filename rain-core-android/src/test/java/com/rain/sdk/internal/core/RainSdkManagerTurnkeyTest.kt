@@ -2,7 +2,7 @@ package com.rain.sdk.internal.core
 
 import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.config.RainConfig
+import com.rain.sdk.models.RainPreparedWithdrawal
 import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.internal.network.Web3jProvider
 import io.mockk.every
@@ -40,7 +40,6 @@ class RainSdkManagerTurnkeyTest {
     fun setUpAndGate() {
         assumeJdk24()
 
-        RainConfig.reset()
         Web3jProvider.shutDownAll()
 
         mockkStatic(URLUtil::class)
@@ -57,13 +56,12 @@ class RainSdkManagerTurnkeyTest {
         sdkManager = RainSdkManager(
             walletProvider = provider,
             rpcEndpoints = rpcEndpoints
-        ).also { RainConfig.getInstance().markInitialized() }
+        )
     }
 
     @After
     fun tearDown() {
         unmockkAll()
-        RainConfig.reset()
         Web3jProvider.shutDownAll()
     }
 
@@ -90,20 +88,21 @@ class RainSdkManagerTurnkeyTest {
             expiresAt = "2025-12-31T23:59:59Z"
         )
 
-        val result = manager.withdrawCollateral(
+        val prepared = manager.prepareWithdrawal(
             chainId = chainId,
             addresses = addresses,
             amount = BigDecimal("100.0"),
             decimals = 18,
             adminSignature = adminSignature,
-            nonce = BigInteger.valueOf(42), // explicit nonce, builder skips its RPC
-            autoSend = false                 // skip broadcast — no real RPC needed
+            nonce = BigInteger.valueOf(42) // explicit nonce, builder skips its RPC
         )
 
-        // Calldata returned; no broadcast happened.
-        assertThat(result.transactionHash).isNull()
-        assertThat(result.transactionData).isNotNull()
-        assertThat(result.transactionData!!).startsWith("0x")
+        // A complete, submittable transaction — not the bare calldata the old result carried.
+        val parameters = (prepared as RainPreparedWithdrawal.Evm).parameters
+        assertThat(parameters.data).startsWith("0x")
+        assertThat(parameters.from).isEqualTo(com.rain.sdk.turnkey.MockTurnkey.DEFAULT_WALLET_ADDRESS)
+        assertThat(parameters.to).isEqualTo(addresses.controllerAddress)
+        assertThat(parameters.value).isEqualTo("0x0")
 
         // EIP-712 message went through Turnkey signRawPayload with the right encoding/hash.
         assertThat(turnkey.signRawPayloadCalls).hasSize(1)

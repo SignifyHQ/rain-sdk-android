@@ -1,7 +1,6 @@
 package com.rain.sdk.internal.core
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
@@ -41,21 +40,12 @@ class RainSdkManagerGetAllBalancesTest {
 
     @Before
     fun setUp() {
-        RainConfig.reset()
     }
 
     @After
     fun tearDown() {
-        RainConfig.reset()
     }
 
-    @Test
-    fun `getAllBalances throws SdkNotInitialized before initialization`() {
-        val manager = TestManagers.uninitializedManager()
-        assertThrows(RainError.SdkNotInitialized::class.java) {
-            runBlocking { manager.getAllBalances() }
-        }
-    }
 
     @Test
     fun `getAllBalances returns empty list when no chains were configured`(): Unit = runBlocking {
@@ -91,27 +81,23 @@ class RainSdkManagerGetAllBalancesTest {
     }
 
     @Test
-    fun `reset clears wallet provider and configured chain IDs`(): Unit = runBlocking {
+    fun `reset leaves the client usable and the chain configuration intact`(): Unit = runBlocking {
+        val stub = object : StubWalletProvider() {
+            override suspend fun getBalances(chainId: Int): List<Balance> =
+                listOf(nativeBalance(chainId))
+        }
         val (manager, _) = TestManagers.stubProviderManager(
+            stub,
             rpcEndpoints = mapOf(1 to "https://rpc.test", 137 to "https://rpc.test")
         )
 
         manager.reset()
 
-        // After reset, getAddress / getAllBalances see no provider and no init state.
-        assertThrows(RainError.SdkNotInitialized::class.java) {
-            runBlocking { manager.getWalletAddress() }
-        }
-        assertThrows(RainError.SdkNotInitialized::class.java) {
-            runBlocking { manager.getAllBalances() }
-        }
+        // The chain configuration is owned by the RainSdk and shared with every other resolved
+        // client, so one client resetting must not deconfigure it.
+        assertThat(manager.isInitialized).isTrue()
+        assertThat(manager.getWalletAddress()).isEqualTo(stub.addressToReturn)
+        assertThat(manager.getAllBalances().map { it.chainId }.toSet()).containsExactly(1, 137)
     }
 
-    @Test
-    fun `reset is idempotent`() {
-        val manager = TestManagers.uninitializedManager()
-        manager.reset()
-        manager.reset()
-        // No exception thrown — done.
-    }
 }

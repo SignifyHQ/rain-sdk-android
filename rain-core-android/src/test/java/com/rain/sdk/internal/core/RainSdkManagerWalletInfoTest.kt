@@ -1,7 +1,6 @@
 package com.rain.sdk.internal.core
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
@@ -9,7 +8,7 @@ import com.rain.sdk.internal.helpers.TestManagers
 import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
-import com.rain.sdk.models.RainTransactionResult
+import java.math.BigDecimal
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertThrows
@@ -25,23 +24,14 @@ class RainSdkManagerWalletInfoTest {
 
     @Before
     fun setUp() {
-        RainConfig.reset()
     }
 
     @After
     fun tearDown() {
-        RainConfig.reset()
     }
 
     // ---- getAddress --------------------------------------------------------------
 
-    @Test
-    fun `getAddress throws SdkNotInitialized before initialization`() {
-        val manager = TestManagers.uninitializedManager()
-        assertThrows(RainError.SdkNotInitialized::class.java) {
-            runBlocking { manager.getWalletAddress() }
-        }
-    }
 
     @Test
     fun `getAddress returns address from active provider`(): Unit = runBlocking {
@@ -77,21 +67,14 @@ class RainSdkManagerWalletInfoTest {
 
     // ---- getTransactions ---------------------------------------------------------
 
-    @Test
-    fun `getTransactions throws SdkNotInitialized before initialization`() {
-        val manager = TestManagers.uninitializedManager()
-        assertThrows(RainError.SdkNotInitialized::class.java) {
-            runBlocking { manager.getTransactions(chainId = 1) }
-        }
-    }
 
     @Test
     fun `getTransactions returns empty result when provider has none`(): Unit = runBlocking {
         val (manager, stub) = TestManagers.stubProviderManager()
-        stub.transactionsToReturn = RainTransactionResult(transactions = emptyList())
+        stub.transactionsToReturn = emptyList()
 
         val result = manager.getTransactions(chainId = 1)
-        assertThat(result.transactions).isEmpty()
+        assertThat(result).isEmpty()
     }
 
     @Test
@@ -100,13 +83,13 @@ class RainSdkManagerWalletInfoTest {
         val tx = RainTransaction(
             hash = "0xabc",
             blockNumber = "100",
-            blockTimestamp = "2024-01-01T00:00:00Z",
+            timestamp = "2024-01-01T00:00:00Z",
             from = "0xfrom",
             to = "0xto",
-            value = "1.0",
-            chainId = "1"
+            value = BigDecimal("1.0"),
+            chainId = 1
         )
-        stub.transactionsToReturn = RainTransactionResult(transactions = listOf(tx))
+        stub.transactionsToReturn = listOf(tx)
 
         val result = manager.getTransactions(
             chainId = 1,
@@ -115,8 +98,8 @@ class RainSdkManagerWalletInfoTest {
             order = RainTransactionOrder.ASC
         )
 
-        assertThat(result.transactions).hasSize(1)
-        assertThat(result.transactions[0].hash).isEqualTo("0xabc")
+        assertThat(result).hasSize(1)
+        assertThat(result[0].hash).isEqualTo("0xabc")
         assertThat(stub.getTransactionsCalls).hasSize(1)
         val call = stub.getTransactionsCalls.single()
         assertThat(call.chainId).isEqualTo(1)
@@ -134,7 +117,7 @@ class RainSdkManagerWalletInfoTest {
                 limit: Int?,
                 offset: Int?,
                 order: RainTransactionOrder?
-            ): RainTransactionResult {
+            ): List<RainTransaction> {
                 throw RuntimeException("service unavailable")
             }
         }

@@ -11,6 +11,7 @@ import com.turnkey.types.V1AssetBalance
 import com.turnkey.types.V1HashFunction
 import com.turnkey.types.V1PayloadEncoding
 import com.turnkey.types.V1SignRawPayloadResult
+import java.math.BigDecimal
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertThrows
@@ -245,10 +246,10 @@ class TurnkeyWalletProviderTest {
             order = RainTransactionOrder.DESC
         )
 
-        assertThat(result.transactions).hasSize(2)
+        assertThat(result).hasSize(2)
         // DESC sort: newest first; act-5 has the largest seconds. With offset=1 we drop the newest,
         // so the visible window is act-4, act-3.
-        assertThat(result.transactions[0].chainId).isEqualTo("1")
+        assertThat(result[0].chainId).isEqualTo(1)
         assertThat(client.getActivitiesCalls).hasSize(1)
         assertThat(client.getActivitiesCalls.single().organizationId).isEqualTo(orgId)
     }
@@ -273,8 +274,8 @@ class TurnkeyWalletProviderTest {
 
         val result = provider.getTransactions(chainId = 1, limit = null, offset = null, order = null)
 
-        assertThat(result.transactions).hasSize(1)
-        assertThat(result.transactions[0].value).isEqualTo("12.34567890123456789")
+        assertThat(result).hasSize(1)
+        assertThat(result[0].value!!.compareTo(BigDecimal("12.34567890123456789"))).isEqualTo(0)
     }
 
     @Test

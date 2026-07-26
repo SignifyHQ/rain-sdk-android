@@ -2,19 +2,20 @@ package com.rain.sdk.internal.core
 
 import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers
 import com.rain.sdk.internal.network.Web3jProvider
-import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.RainChain
+import com.rain.sdk.models.RainPreparedWithdrawal
 import com.rain.sdk.models.RainWithdrawAddresses
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.math.BigDecimal
+import java.math.BigInteger
 import java.util.concurrent.CompletableFuture
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -27,7 +28,7 @@ import org.web3j.protocol.core.methods.response.EthCall
 
 /**
  * Manager-contract tests for `estimateWithdrawalFee`: the primary BigDecimal overload
- * (caller-supplied salt / signature / expiresAt) and the deprecated Double/adminSignature shim.
+ * (the caller-supplied withdrawal authorization) and the Solana guard.
  */
 class RainSdkManagerEstimateFeeTest {
 
@@ -37,6 +38,9 @@ class RainSdkManagerEstimateFeeTest {
         tokenAddress = TestFixtures.TOKEN_ADDRESS,
         recipientAddress = TestFixtures.RECIPIENT_ADDRESS
     )
+
+    /** Builder over a mocked Web3j; handed to every manager these tests build. */
+    private lateinit var builder: RainTransactionBuilderImpl
 
     @Before
     fun setUp() {
@@ -52,24 +56,20 @@ class RainSdkManagerEstimateFeeTest {
         }
         every { mockWeb3j.ethCall(any(), any()) } returns mockEthCall
         every { mockEthCall.sendAsync() } returns CompletableFuture.completedFuture(response)
-        RainTransactionBuilderImpl.web3jFactory = { _ -> mockWeb3j }
+        builder = RainTransactionBuilderImpl(mapOf(1 to "https://rpc.example/test")) { mockWeb3j }
 
-        RainConfig.reset()
         Web3jProvider.shutDownAll()
     }
 
     @After
     fun tearDown() {
         unmockkAll()
-        RainConfig.reset()
         Web3jProvider.shutDownAll()
-        RainTransactionBuilderImpl.resetFactory()
     }
 
     @Test
     fun `estimateWithdrawalFee signs once and returns the provider's BigDecimal fee`(): Unit = runBlocking {
-        val (manager, stub) = TestManagers.stubProviderManager()
-        RainConfig.getInstance().setRpcUrl(1, "https://rpc.example/test")
+        val (manager, stub) = TestManagers.stubProviderManager(transactionBuilder = builder)
         stub.signTypedDataToReturn = TestFixtures.validSignatureHex
         stub.estimateTransactionFeeToReturn = BigDecimal("0.00042")
         // Caller-supplied authorization, distinct from the wallet signature so the calldata
@@ -81,9 +81,7 @@ class RainSdkManagerEstimateFeeTest {
             addresses = addresses,
             amount = BigDecimal("100.0"),
             decimals = 6,
-            salt = TestFixtures.validSaltBase64,
-            signature = callerSignatureHex,
-            expiresAt = "2030-12-31T23:59:59Z"
+            adminSignature = TestFixtures.adminSignature(signature = callerSignatureHex)
         )
 
         assertThat(fee).isEqualTo(BigDecimal("0.00042"))
@@ -104,8 +102,7 @@ class RainSdkManagerEstimateFeeTest {
 
     @Test
     fun `estimateWithdrawalFee throws InvalidAmount for over-precision amounts`(): Unit = runBlocking {
-        val (manager, stub) = TestManagers.stubProviderManager()
-        RainConfig.getInstance().setRpcUrl(1, "https://rpc.example/test")
+        val (manager, stub) = TestManagers.stubProviderManager(transactionBuilder = builder)
         stub.signTypedDataToReturn = TestFixtures.validSignatureHex
 
         assertThrows(RainError.InvalidAmount::class.java) {
@@ -115,9 +112,7 @@ class RainSdkManagerEstimateFeeTest {
                     addresses = addresses,
                     amount = BigDecimal("1.2345678"), // 7 decimal places on a 6-decimal token
                     decimals = 6,
-                    salt = TestFixtures.validSaltBase64,
-                    signature = TestFixtures.validSignatureHex,
-                    expiresAt = "2030-12-31T23:59:59Z"
+                    adminSignature = TestFixtures.adminSignature()
                 )
             }
         }
@@ -136,8 +131,7 @@ class RainSdkManagerEstimateFeeTest {
                     value: String
                 ): BigDecimal = throw simulationFailure
             }
-            val (manager, _) = TestManagers.stubProviderManager(stub)
-            RainConfig.getInstance().setRpcUrl(1, "https://rpc.example/test")
+            val (manager, _) = TestManagers.stubProviderManager(stub, transactionBuilder = builder)
             stub.signTypedDataToReturn = TestFixtures.validSignatureHex
 
             val error = assertThrows(RainError.WithdrawalRevertedByNetwork::class.java) {
@@ -147,9 +141,7 @@ class RainSdkManagerEstimateFeeTest {
                         addresses = addresses,
                         amount = BigDecimal("100.0"),
                         decimals = 6,
-                        salt = TestFixtures.validSaltBase64,
-                        signature = TestFixtures.validSignatureHex,
-                        expiresAt = "2030-12-31T23:59:59Z"
+                        adminSignature = TestFixtures.adminSignature()
                     )
                 }
             }
@@ -169,8 +161,7 @@ class RainSdkManagerEstimateFeeTest {
                     value: String
                 ): String = throw simulationFailure
             }
-            val (manager, _) = TestManagers.stubProviderManager(stub)
-            RainConfig.getInstance().setRpcUrl(1, "https://rpc.example/test")
+            val (manager, _) = TestManagers.stubProviderManager(stub, transactionBuilder = builder)
             stub.signTypedDataToReturn = TestFixtures.validSignatureHex
 
             val error = assertThrows(RainError.WithdrawalRevertedByNetwork::class.java) {
@@ -180,67 +171,73 @@ class RainSdkManagerEstimateFeeTest {
                         addresses = addresses,
                         amount = BigDecimal("100.0"),
                         decimals = 6,
-                        adminSignature = RainAdminSignature(
-                            salt = TestFixtures.validSaltBase64,
-                            signature = TestFixtures.validSignatureHex,
-                            expiresAt = "2030-12-31T23:59:59Z"
-                        ),
-                        autoSend = true
+                        adminSignature = TestFixtures.adminSignature()
                     )
                 }
             }
             assertThat(error.cause).isSameInstanceAs(simulationFailure)
         }
 
-    @Suppress("DEPRECATION")
     @Test
-    fun `deprecated Double overload delegates and collapses the fee to Double`(): Unit = runBlocking {
-        val (manager, stub) = TestManagers.stubProviderManager()
-        RainConfig.getInstance().setRpcUrl(1, "https://rpc.example/test")
-        stub.signTypedDataToReturn = TestFixtures.validSignatureHex
-        stub.estimateTransactionFeeToReturn = BigDecimal("0.00042")
+    fun `prepareWithdrawal returns the exact transaction withdrawCollateral broadcasts`(): Unit =
+        runBlocking {
+            val (manager, stub) = TestManagers.stubProviderManager(transactionBuilder = builder)
+            stub.signTypedDataToReturn = TestFixtures.validSignatureHex
 
-        val fee = manager.estimateWithdrawalFee(
-            chainId = 1,
-            addresses = addresses,
-            amount = 100.0,
-            decimals = 6,
-            adminSignature = RainAdminSignature(
-                salt = TestFixtures.validSaltBase64,
-                signature = TestFixtures.validSignatureHex,
-                expiresAt = "2030-12-31T23:59:59Z"
+            // A pinned nonce is what makes the two runs comparable: the salt is random per call,
+            // but the caller-supplied signature bytes and the encoded arguments are not.
+            val prepared = manager.prepareWithdrawal(
+                chainId = 1,
+                addresses = addresses,
+                amount = BigDecimal("100.0"),
+                decimals = 6,
+                adminSignature = TestFixtures.adminSignature(),
+                nonce = BigInteger.valueOf(7)
             )
-        )
+            val parameters = (prepared as RainPreparedWithdrawal.Evm).parameters
 
-        assertThat(fee).isWithin(1e-12).of(0.00042)
-        assertThat(stub.estimateTransactionFeeCalls).hasSize(1)
-    }
+            // Preparing broadcasts nothing.
+            assertThat(stub.sendTransactionCalls).isEmpty()
 
-    @Suppress("DEPRECATION")
+            manager.withdrawCollateral(
+                chainId = 1,
+                addresses = addresses,
+                amount = BigDecimal("100.0"),
+                decimals = 6,
+                adminSignature = TestFixtures.adminSignature(),
+                nonce = BigInteger.valueOf(7)
+            )
+            val broadcast = stub.sendTransactionCalls.single()
+
+            // The prepared transaction is complete, not bare calldata — from/to/value are the
+            // three fields the old `transactionData: String?` could not carry.
+            assertThat(parameters.from).isEqualTo(broadcast.from)
+            assertThat(parameters.to).isEqualTo(broadcast.to)
+            assertThat(parameters.value).isEqualTo(broadcast.value)
+            assertThat(parameters.from).isNotEmpty()
+            // Same selector and same encoded length; only the random salt differs.
+            assertThat(parameters.data.take(10)).isEqualTo(broadcast.data.take(10))
+            assertThat(parameters.data).hasLength(broadcast.data.length)
+        }
+
     @Test
-    fun `deprecated Double overload rejects a non-finite amount with InvalidAmount`(): Unit = runBlocking {
-        val (manager, stub) = TestManagers.stubProviderManager()
-        RainConfig.getInstance().setRpcUrl(1, "https://rpc.example/test")
+    fun `estimateWithdrawalFee rejects a Solana chain id instead of taking the EVM path`(): Unit =
+        runBlocking {
+            val (manager, stub) = TestManagers.stubProviderManager(transactionBuilder = builder)
 
-        for (amount in listOf(Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY)) {
-            assertThrows(RainError.InvalidAmount::class.java) {
+            assertThrows(RainError.InternalError::class.java) {
                 runBlocking {
                     manager.estimateWithdrawalFee(
-                        chainId = 1,
+                        chainId = RainChain.SOLANA_DEVNET,
                         addresses = addresses,
-                        amount = amount,
+                        amount = BigDecimal("100.0"),
                         decimals = 6,
-                        adminSignature = RainAdminSignature(
-                            salt = TestFixtures.validSaltBase64,
-                            signature = TestFixtures.validSignatureHex,
-                            expiresAt = "2030-12-31T23:59:59Z"
-                        )
+                        adminSignature = TestFixtures.adminSignature()
                     )
                 }
             }
+            // The guard fires before any signing or estimation.
+            assertThat(stub.signTypedDataCalls).isEmpty()
+            assertThat(stub.estimateTransactionFeeCalls).isEmpty()
         }
-        // The guard fires before any signing or estimation.
-        assertThat(stub.signTypedDataCalls).isEmpty()
-        assertThat(stub.estimateTransactionFeeCalls).isEmpty()
-    }
 }

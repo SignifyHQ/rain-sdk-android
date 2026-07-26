@@ -1,6 +1,8 @@
 package com.rain.sdk.internal.abi
 
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.internal.error.RainError
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.math.BigDecimal
 import java.math.BigInteger
@@ -32,6 +34,35 @@ class Erc20AbiTest {
         val fromBaseUnits = Erc20Abi.encodeTransfer(recipient, BigInteger.valueOf(1_500_000))
 
         assertThat(fromDecimal).isEqualTo(fromBaseUnits)
+    }
+
+    @Test
+    fun `decimal overload rejects an amount finer than the token`() {
+        // 7 decimal places on a 6-decimal token. Truncating here would silently send
+        // 1.234567 USDC instead of failing, so the encoder must reject it.
+        val ex = assertThrows(RainError.InvalidAmount::class.java) {
+            Erc20Abi.encodeTransfer(recipient, BigDecimal("1.2345678"), 6)
+        }
+
+        assertThat(ex.amount).isEqualTo("1.2345678")
+        assertThat(ex.errorCode.code).isEqualTo("RAIN_406")
+    }
+
+    @Test
+    fun `decimal overload rejects a negative amount instead of encoding a huge uint256`() {
+        val ex = assertThrows(RainError.InvalidAmount::class.java) {
+            Erc20Abi.encodeTransfer(recipient, BigDecimal("-1"), 6)
+        }
+
+        assertThat(ex.errorCode.code).isEqualTo("RAIN_406")
+    }
+
+    @Test
+    fun `decimal overload accepts an amount at the token's full precision`() {
+        val atLimit = Erc20Abi.encodeTransfer(recipient, BigDecimal("1.234567"), 6)
+        val fromBaseUnits = Erc20Abi.encodeTransfer(recipient, BigInteger.valueOf(1_234_567))
+
+        assertThat(atLimit).isEqualTo(fromBaseUnits)
     }
 
     @Test

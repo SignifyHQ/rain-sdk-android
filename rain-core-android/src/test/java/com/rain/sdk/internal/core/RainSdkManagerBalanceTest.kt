@@ -1,7 +1,6 @@
 package com.rain.sdk.internal.core
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
@@ -47,31 +46,13 @@ class RainSdkManagerBalanceTest {
 
     @Before
     fun setUp() {
-        RainConfig.reset()
     }
 
     @After
     fun tearDown() {
-        RainConfig.reset()
     }
 
-    // ---- guards: not initialized --------------------------------------------------
 
-    @Test
-    fun `getBalance throws SdkNotInitialized before initialization`() {
-        val manager = TestManagers.uninitializedManager()
-        assertThrows(RainError.SdkNotInitialized::class.java) {
-            runBlocking { manager.getBalance(chainId = 1, token = Token.Native) }
-        }
-    }
-
-    @Test
-    fun `getBalances throws SdkNotInitialized before initialization`() {
-        val manager = TestManagers.uninitializedManager()
-        assertThrows(RainError.SdkNotInitialized::class.java) {
-            runBlocking { manager.getTokenBalances(chainId = 1) }
-        }
-    }
 
     // ---- happy paths via the stub provider ----------------------------------------
 

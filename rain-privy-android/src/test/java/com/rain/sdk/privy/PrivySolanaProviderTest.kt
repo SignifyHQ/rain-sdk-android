@@ -251,7 +251,7 @@ class PrivySolanaProviderTest {
 
             val result = provider(manager).getTransactions(DEVNET, limit = 10, offset = null, order = null)
 
-            assertThat(result.transactions).isEmpty()
+            assertThat(result).isEmpty()
             coVerify(exactly = 0) { manager.getSolanaTransactions(any()) }
         }
 
@@ -277,7 +277,7 @@ class PrivySolanaProviderTest {
             assertThat(params[1].tokens).containsExactly(MINT)
 
             // Asset routing: "sol" is a symbol, a base58 mint is a token address.
-            val bySymbol = result.transactions.associateBy { it.symbol }
+            val bySymbol = result.associateBy { it.asset }
             assertThat(bySymbol["sol"]?.tokenAddress).isNull()
             assertThat(bySymbol[null]?.tokenAddress).isEqualTo(MINT)
         }

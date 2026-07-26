@@ -40,17 +40,17 @@ class TransactionHistoryViewModel(
           limit = 20,
           order = RainTransactionOrder.DESC
         )
-        SampleLog.i("History.fetch", "success — count=${result.transactions.size}")
-        result.transactions.forEach { tx ->
+        SampleLog.i("History.fetch", "success — count=${result.size}")
+        result.forEach { tx ->
           SampleLog.d(
             "History.fetch",
-            "tx hash=${tx.hash} from=${tx.from} to=${tx.to} value=${tx.value} symbol=${tx.symbol} " +
-              "block=${tx.blockNumber} time=${tx.blockTimestamp} meta=${tx.metadata}"
+            "tx hash=${tx.hash} from=${tx.from} to=${tx.to} value=${tx.value} asset=${tx.asset} " +
+              "block=${tx.blockNumber} time=${tx.timestamp} meta=${tx.metadata}"
           )
         }
         _state.update {
           it.copy(
-            transactions = result.transactions,
+            transactions = result,
             walletAddress = address,
             isLoading = false
           )

@@ -19,6 +19,7 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.every
+import com.rain.sdk.models.RainTransactionCategory
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Test
@@ -180,7 +181,7 @@ class PrivyWalletProviderTest {
         val wallet = PrivyWalletProvider(manager, mapOf(BASE_SEPOLIA to RPC), mockk(), rpcClient = mockk())
         val result = wallet.getTransactions(chainId = BASE_SEPOLIA)
 
-        assertThat(result.transactions).isEmpty()
+        assertThat(result).isEmpty()
         coVerify(exactly = 0) { manager.getTransactions(any(), any()) }
     }
 
@@ -202,18 +203,33 @@ class PrivyWalletProviderTest {
 
         val result = historyProvider(manager).getTransactions(chainId = 1)
 
-        val tx = result.transactions.single()
+        val tx = result.single()
         assertThat(tx.hash).isEqualTo("0xABC")
         assertThat(tx.from).isEqualTo(WALLET)
         assertThat(tx.to).isEqualTo(TO)
-        assertThat(tx.value).isEqualTo("1.5")
-        assertThat(tx.symbol).isEqualTo("usdc")
+        assertThat(tx.value!!.compareTo(BigDecimal("1.5"))).isEqualTo(0)
+        assertThat(tx.asset).isEqualTo("usdc")
         assertThat(tx.tokenAddress).isNull()
-        assertThat(tx.chainId).isEqualTo("1")
-        assertThat(tx.blockTimestamp).isEqualTo("2023-11-14T22:13:20Z")
-        assertThat(tx.metadata).containsEntry("status", "confirmed")
-        assertThat(tx.metadata).containsEntry("caip2", "eip155:1")
-        assertThat(tx.metadata).containsEntry("type", "transferSent")
+        assertThat(tx.chainId).isEqualTo(1)
+        assertThat(tx.timestamp).isEqualTo("2023-11-14T22:13:20Z")
+        assertThat(tx.category).isEqualTo(RainTransactionCategory.External)
+        assertThat(tx.metadata?.status).isEqualTo("confirmed")
+        assertThat(tx.metadata?.caip2).isEqualTo("eip155:1")
+        assertThat(tx.metadata?.type).isEqualTo("transferSent")
+    }
+
+    @Test
+    fun `getTransactions truncates a millisecond timestamp to whole seconds`() = runBlocking {
+        val manager = mockk<PrivyManager>()
+        coEvery { manager.getAddress(null) } returns WALLET
+        coEvery { manager.getTransactions(WALLET, any()) } returns TransactionsPage(
+            transactions = listOf(privyTransaction(createdAt = 1_700_000_000_987)),
+            nextCursor = null,
+        )
+
+        val tx = historyProvider(manager).getTransactions(chainId = 1).single()
+
+        assertThat(tx.timestamp).isEqualTo("2023-11-14T22:13:20Z")
     }
 
     @Test
@@ -227,10 +243,11 @@ class PrivyWalletProviderTest {
             nextCursor = null,
         )
 
-        val tx = historyProvider(manager).getTransactions(chainId = 1).transactions.single()
+        val tx = historyProvider(manager).getTransactions(chainId = 1).single()
 
         assertThat(tx.tokenAddress).isEqualTo(CONTRACT)
-        assertThat(tx.symbol).isNull()
+        assertThat(tx.asset).isNull()
+        assertThat(tx.category).isEqualTo(RainTransactionCategory.Erc20)
     }
 
     @Test
@@ -244,10 +261,10 @@ class PrivyWalletProviderTest {
             nextCursor = null,
         )
 
-        val tx = historyProvider(manager).getTransactions(chainId = 1).transactions.single()
+        val tx = historyProvider(manager).getTransactions(chainId = 1).single()
 
         assertThat(tx.hash).isEqualTo("privy-tx-1")
-        assertThat(tx.metadata).containsEntry("status", "pending")
+        assertThat(tx.metadata?.status).isEqualTo("pending")
     }
 
     @Test
@@ -278,7 +295,7 @@ class PrivyWalletProviderTest {
         assertThat(params[1].limit).isEqualTo(2)
         assertThat(params[1].cursor).isEqualTo("cursor-1")
         // Newest-first by default; offset 2 drops the two newest, limit 3 keeps the rest.
-        assertThat(result.transactions.map { it.hash }).containsExactly("0xA2", "0xB0", "0xB1").inOrder()
+        assertThat(result.map { it.hash }).containsExactly("0xA2", "0xB0", "0xB1").inOrder()
     }
 
     @Test
@@ -296,7 +313,7 @@ class PrivyWalletProviderTest {
         val result = historyProvider(manager).getTransactions(chainId = 1, limit = 10, order = RainTransactionOrder.ASC)
 
         coVerify(exactly = 1) { manager.getTransactions(WALLET, any()) }
-        assertThat(result.transactions.map { it.hash }).containsExactly("0xOLD", "0xNEW").inOrder()
+        assertThat(result.map { it.hash }).containsExactly("0xOLD", "0xNEW").inOrder()
     }
 
     @Test
@@ -338,7 +355,7 @@ class PrivyWalletProviderTest {
         assertThat(params[0].tokens).isNull()
         assertThat(params[1].assets).isNull()
         assertThat(params[1].tokens).containsExactly(CONTRACT)
-        assertThat(result.transactions.map { it.hash }).containsExactly("0xNATIVE", "0xTOKEN").inOrder()
+        assertThat(result.map { it.hash }).containsExactly("0xNATIVE", "0xTOKEN").inOrder()
     }
 
     @Test

@@ -31,4 +31,8 @@ internal object SolanaChains {
     fun caip2(chainId: Int): String =
         CAIP2_BY_CHAIN_ID[chainId]
             ?: throw IllegalArgumentException("Not a known Solana chainId: $chainId")
+
+    /** Sentinel chain id for a Solana CAIP-2 identifier, or null when unknown. */
+    fun chainIdForCaip2(caip2: String): Int? =
+        CAIP2_BY_CHAIN_ID.entries.firstOrNull { it.value == caip2 }?.key
 }

@@ -162,7 +162,7 @@ fun CollateralWithdrawScreen(
                                         fontWeight = FontWeight.Medium
                                     )
                                     Text(
-                                        text = "Balance: ${"%.2f".format(token.balance)}",
+                                        text = "Balance: ${token.balanceDisplay}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -203,11 +203,11 @@ fun CollateralWithdrawScreen(
                         if (state.isAmountOverBalance) {
                             Text(
                                 "Amount exceeds available balance " +
-                                    "(${"%.6f".format(token.balance)} ${token.symbol})",
+                                    "(${token.balanceDisplay} ${token.symbol})",
                                 color = MaterialTheme.colorScheme.error
                             )
                         } else {
-                            Text("Available: ${"%.6f".format(token.balance)} ${token.symbol}")
+                            Text("Available: ${token.balanceDisplay} ${token.symbol}")
                         }
                     }
                 }
@@ -215,8 +215,34 @@ fun CollateralWithdrawScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Action Buttons. Gas estimation now happens in the background as part of the
-            // withdraw itself, so there's no separate "Estimate Gas" step to expose.
+            // Dry-run actions: both build the withdrawal exactly as "Withdraw" would — signing
+            // EIP-712 and reading the collateral's admin set — but broadcast nothing.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = { viewModel.estimateFee() },
+                    // EVM only: the SDK rejects a Solana chain id for fee estimation.
+                    enabled = state.isAmountValid && !state.isWithdrawing && !state.isSolanaContract,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Estimate Fee")
+                }
+
+                OutlinedButton(
+                    onClick = { viewModel.prepareWithdrawal() },
+                    enabled = state.isAmountValid && !state.isWithdrawing,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Prepare Only")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Action Buttons. Gas estimation also happens in the background as part of the
+            // withdraw itself, so "Estimate Fee" above is optional.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -225,7 +251,7 @@ fun CollateralWithdrawScreen(
                 OutlinedButton(
                     onClick = { viewModel.withdrawMaximum() },
                     enabled = !state.isWithdrawing &&
-                        (state.selectedToken?.balance ?: 0.0) > 0.0,
+                        (state.selectedToken?.balance?.signum() ?: 0) > 0,
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("Withdraw Maximum")
@@ -245,6 +271,21 @@ fun CollateralWithdrawScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+
+            // Dry-run results — neither of these broadcast anything.
+            state.estimatedFee?.let { fee ->
+                DryRunCard(title = "⛽ Estimated Fee", body = fee)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            state.preparedWithdrawal?.let { summary ->
+                DryRunCard(
+                    title = "📝 Prepared (not broadcast)",
+                    body = summary,
+                    footnote = "A Solana blockhash is valid ~60-90s — submit promptly or re-prepare."
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             // Withdrawal Result
             state.withdrawResult?.let { txHash ->
@@ -286,6 +327,41 @@ fun CollateralWithdrawScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Result card for the two dry-run actions (estimate / prepare). Neither broadcasts. */
+@Composable
+private fun DryRunCard(title: String, body: String, footnote: String? = null) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.secondary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            footnote?.let {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

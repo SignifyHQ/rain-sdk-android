@@ -4,6 +4,7 @@ import com.rain.sdk.internal.network.chainreader.ChainReader
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
+import java.math.BigDecimal
 import java.math.BigInteger
 
 /**
@@ -12,8 +13,8 @@ import java.math.BigInteger
  * request through here rather than through Turnkey's balance indexer.
  */
 internal class MockChainReader(
-    var nativeBalance: Double = 0.0,
-    var erc20Balance: Double = 0.0,
+    var nativeBalance: BigDecimal = BigDecimal.ZERO,
+    var erc20Balance: BigDecimal = BigDecimal.ZERO,
     var balances: List<Balance> = emptyList(),
     var balance: Balance? = null,
     var decimals: Int = 18,
@@ -53,7 +54,7 @@ internal class MockChainReader(
     val symbolCalls = mutableListOf<SymbolCall>()
     val nameCalls = mutableListOf<NameCall>()
 
-    override suspend fun getNativeBalance(chainId: Int, walletAddress: String): Double {
+    override suspend fun getNativeBalance(chainId: Int, walletAddress: String): BigDecimal {
         nativeCalls += NativeCall(chainId, walletAddress)
         return nativeBalance
     }
@@ -63,7 +64,7 @@ internal class MockChainReader(
         tokenAddress: String,
         walletAddress: String,
         decimals: Int?
-    ): Double {
+    ): BigDecimal {
         erc20Calls += Erc20Call(chainId, tokenAddress, walletAddress, decimals)
         return erc20Balance
     }

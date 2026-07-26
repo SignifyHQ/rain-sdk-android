@@ -10,7 +10,7 @@ import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
-import com.rain.sdk.models.RainTransactionResult
+import com.rain.sdk.models.RainTransactionCategory
 import com.rain.sdk.models.Token
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderId
@@ -32,6 +32,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import org.json.JSONObject
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import timber.log.Timber
 import org.web3j.abi.FunctionEncoder
 import org.web3j.abi.TypeReference
@@ -63,9 +64,9 @@ internal class PrivyWalletProvider(
 
     override val id: ProviderId get() = ProviderId.PRIVY
 
-    /** Privy holds an exportable embedded key with a recovery flow. */
+    /** Privy holds an exportable embedded key with a recovery flow, over EVM and Solana. */
     override val capabilities: Set<Capability>
-        get() = setOf(Capability.EXPORT, Capability.RECOVERY)
+        get() = PrivyProvider.CAPABILITIES
 
     @Volatile
     private var cachedAddress: String? = null
@@ -116,8 +117,8 @@ internal class PrivyWalletProvider(
     }
 
     /**
-     * On Solana [contractAddress] is the mint and [decimals] is ignored — the composer reads the
-     * mint's decimals from chain, so a caller-supplied default cannot mis-scale the amount.
+     * On Solana [contractAddress] is the mint and [decimals] is deliberately unread — the composer
+     * reads the mint's own scale from the chain, which `TransferChecked` then enforces.
      */
     override suspend fun sendToken(
         chainId: Int,
@@ -331,12 +332,12 @@ internal class PrivyWalletProvider(
         limit: Int?,
         offset: Int?,
         order: RainTransactionOrder?,
-    ): RainTransactionResult {
+    ): List<RainTransaction> {
         val needed = maxOf((limit ?: DEFAULT_TRANSACTION_LIMIT) + (offset ?: 0), 1)
         val collected = (
             if (solanaSupport.isSolanaChain(chainId)) collectSolanaHistory(chainId, needed)
             else collectEvmHistory(chainId, needed)
-            ) ?: return RainTransactionResult(transactions = emptyList())
+            ) ?: return emptyList()
 
         val deduped = collected.distinctBy { it.privyTransactionId ?: it.transactionHash ?: it }
         val sorted = when (order ?: RainTransactionOrder.DESC) {
@@ -347,7 +348,7 @@ internal class PrivyWalletProvider(
             .drop(offset ?: 0)
             .let { if (limit != null) it.take(limit) else it }
 
-        return RainTransactionResult(transactions = sliced.map { toRainTransaction(chainId, it) })
+        return sliced.map { toRainTransaction(chainId, it) }
     }
 
     /** EVM rows across the native asset and registered tokens, or null when Privy has no slug. */
@@ -446,27 +447,36 @@ internal class PrivyWalletProvider(
                 ?: transaction.userOperationHash
                 ?: transaction.privyTransactionId
                 ?: "",
-            blockNumber = null,
-            blockTimestamp = Instant.ofEpochMilli(transaction.createdAt).toString(),
+            uniqueId = transaction.privyTransactionId ?: transaction.transactionHash,
+            timestamp = Instant.ofEpochMilli(transaction.createdAt)
+                .truncatedTo(ChronoUnit.SECONDS)
+                .toString(),
             from = details?.sender ?: "",
             to = details?.recipient,
             value = details?.let {
-                BigDecimal(it.rawValue).movePointLeft(it.rawValueDecimals).stripTrailingZeros().toPlainString()
+                runCatching {
+                    BigDecimal(it.rawValue).movePointLeft(it.rawValueDecimals).stripTrailingZeros()
+                }.getOrNull()
             },
-            gas = null,
-            gasPrice = null,
-            chainId = chainId.toString(),
-            symbol = details?.asset?.takeUnless { assetIsAddress },
+            asset = details?.asset?.takeUnless { assetIsAddress },
             tokenAddress = details?.asset?.takeIf { assetIsAddress },
-            metadata = buildMap {
-                put("caip2", transaction.caip2)
-                put("status", transaction.status.toRainValue())
-                put("sponsored", transaction.sponsored)
-                transaction.privyTransactionId?.let { put("privyTransactionId", it) }
-                transaction.userOperationHash?.let { put("userOperationHash", it) }
-                details?.type?.let { put("type", it.toRainValue()) }
-                details?.displayValues?.takeIf { it.isNotEmpty() }?.let { put("displayValues", it) }
+            rawValue = details?.rawValue?.takeIf { assetIsAddress },
+            decimals = details?.rawValueDecimals?.takeIf { assetIsAddress },
+            category = when {
+                !assetIsAddress -> RainTransactionCategory.External
+                solanaSupport.isSolanaChain(chainId) -> RainTransactionCategory.Token
+                else -> RainTransactionCategory.Erc20
             },
+            chainId = chainId,
+            metadata = RainTransaction.Metadata(
+                caip2 = transaction.caip2,
+                status = transaction.status.toRainValue(),
+                sponsored = transaction.sponsored,
+                privyTransactionId = transaction.privyTransactionId,
+                userOperationHash = transaction.userOperationHash,
+                type = details?.type?.toRainValue(),
+                displayValues = details?.displayValues?.takeIf { it.isNotEmpty() },
+            ),
         )
     }
 

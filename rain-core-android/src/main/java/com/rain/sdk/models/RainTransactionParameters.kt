@@ -2,7 +2,7 @@ package com.rain.sdk.models
 
 /**
  * Wallet-agnostic transaction parameter bag returned by
- * [com.rain.sdk.interfaces.RainClient.composeTransactionParameters].
+ * [com.rain.sdk.RainSdk.buildTransactionParameters].
  *
  * This is a Rain-owned struct so the public API does not leak Portal / Turnkey / web3j types.
  * Hosts can hand the resulting parameters to either provider (or any future provider) for

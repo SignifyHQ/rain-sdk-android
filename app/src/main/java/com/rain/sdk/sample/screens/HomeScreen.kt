@@ -1,7 +1,6 @@
 package com.rain.sdk.sample.screens
 
 import android.app.Application
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -135,15 +134,6 @@ fun HomeScreen(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-
-        if (state.needsRecovery && state.mode == WalletMode.Portal) {
-            RecoverySection(
-                state = state,
-                onPinChanged = viewModel::onPinChanged,
-                onRecover = viewModel::recoverWithPin
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-        }
 
         if (state.isRecovered) {
             // Turnkey and Privy hold a Solana account; Portal is EVM-only. Force the selection
@@ -586,52 +576,6 @@ private fun PrivySection(
                 ) {
                     Text(if (state.isInitialized) "✅ Rain Initialized" else "Initialize Rain w/ Privy")
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RecoverySection(
-    state: HomeUiState,
-    onPinChanged: (String) -> Unit,
-    onRecover: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = "Wallet Recovery Required",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.error,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-
-            OutlinedTextField(
-                value = state.pin,
-                onValueChange = onPinChanged,
-                label = { Text("Enter PIN") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                singleLine = true
-            )
-
-            Button(
-                onClick = onRecover,
-                enabled = state.pin.isNotBlank() && !state.isLoading,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error
-                )
-            ) {
-                Text(if (state.isLoading) "Recovering..." else "Recover Wallet")
             }
         }
     }

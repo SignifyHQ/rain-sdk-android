@@ -1,8 +1,10 @@
 package com.rain.sdk.internal.helpers
 
-import com.rain.sdk.internal.config.RainConfig
+import com.rain.sdk.interfaces.RainTransactionBuilder
 import com.rain.sdk.internal.core.RainSdkManager
+import com.rain.sdk.internal.core.RainTransactionBuilderImpl
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
+import com.rain.sdk.models.RainAdminSignature
 import org.junit.Assume.assumeTrue
 import java.util.Base64
 
@@ -40,6 +42,13 @@ internal object TestFixtures {
 
     /** 65-byte signature encoded as hex with `0x` prefix. */
     val validSignatureHex: String = "0x" + "01".repeat(65)
+
+    /** Rain-issued withdrawal authorization. */
+    fun adminSignature(
+        salt: String = validSaltBase64,
+        signature: String = validSignatureHex,
+        expiresAt: String = "2030-12-31T23:59:59Z"
+    ): RainAdminSignature = RainAdminSignature(salt, signature, expiresAt)
 }
 
 /**
@@ -52,33 +61,24 @@ internal object TestFixtures {
 internal object TestManagers {
 
     /**
-     * Returns a manager bound to [stub] with the SDK marked initialized, optionally configured with
-     * a specific set of [rpcEndpoints] (whose keys become `configuredChainIds`, used by
-     * `getAllBalances`) and an optional [tokenStore] (used by `sendToken` decimal resolution).
+     * Returns a manager bound to [stub], optionally configured with a specific set of
+     * [rpcEndpoints] (whose keys become `configuredChainIds`, used by `getAllBalances`), an
+     * optional [tokenStore] (used by `sendToken` decimal resolution), and an optional
+     * [transactionBuilder] (pass one over a mocked Web3j to exercise the withdrawal paths).
      */
     fun stubProviderManager(
         stub: StubWalletProvider = StubWalletProvider(),
         rpcEndpoints: Map<Int, String> = mapOf(1 to "https://rpc.test"),
         tokenStore: TokenMetadataStore? = null,
+        transactionBuilder: RainTransactionBuilder = RainTransactionBuilderImpl(rpcEndpoints),
     ): Pair<RainSdkManager, StubWalletProvider> {
-        // RainSdkManager.isInitialized delegates to the RainConfig singleton.
-        RainConfig.getInstance().markInitialized()
         val manager = RainSdkManager(
             walletProvider = stub,
             rpcEndpoints = rpcEndpoints,
             tokenStore = tokenStore,
+            transactionBuilder = transactionBuilder,
         )
         return manager to stub
     }
 
-    /**
-     * Returns a manager that is *not* marked initialized (RainConfig cleared), so calls into it
-     * throw [com.rain.sdk.internal.error.RainError.SdkNotInitialized] — for the uninitialized-path tests.
-     */
-    fun uninitializedManager(
-        stub: StubWalletProvider = StubWalletProvider(),
-    ): RainSdkManager {
-        RainConfig.getInstance().clear()
-        return RainSdkManager(walletProvider = stub, rpcEndpoints = emptyMap())
-    }
 }

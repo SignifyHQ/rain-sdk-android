@@ -2,7 +2,6 @@ package com.rain.sdk.sample
 
 import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
-import com.rain.sdk.models.TokenInfo
 import com.rain.sdk.portal.PortalConfig
 import com.rain.sdk.portal.PortalProvider
 import com.rain.sdk.privy.PrivyConfig
@@ -49,7 +48,10 @@ class RainSession {
         rain?.configureRainApi(rainApiKey, rainUserId)
     }
 
-    private fun RainSdk.Builder.withRainApi(): RainSdk.Builder = apply {
+    // Shared builder config: Rain API credentials plus naming for every chain's testnet token,
+    // applied identically whichever provider is registered (see WalletChain.defaultTokenInfo).
+    private fun RainSdk.Builder.withSharedConfig(): RainSdk.Builder = apply {
+        registerTokens(WalletChain.entries.map { it.defaultTokenInfo })
         if (rainApiKey.isNotBlank() && rainUserId.isNotBlank()) {
             rainApiCredentials(rainApiKey, rainUserId)
         }
@@ -64,7 +66,7 @@ class RainSession {
         val sdk = RainSdk.builder()
             .rpcEndpoints(rpcEndpoints)
             .register(PortalProvider(PortalConfig(sessionToken = sessionToken, chainId = chainId)))
-            .withRainApi()
+            .withSharedConfig()
             .build()
         rain = sdk
         client = sdk.provider(ProviderId.PORTAL)
@@ -80,24 +82,10 @@ class RainSession {
         val sdk = RainSdk.builder()
             .rpcEndpoints(rpcEndpoints)
             .register(TurnkeyProvider(TurnkeyConfig(turnkey = turnkey, walletAddress = walletAddress)))
-            .withRainApi()
+            .withSharedConfig()
             .build()
         rain = sdk
         client = sdk.provider(ProviderId.TURNKEY)
-        // An SPL mint carries no on-chain symbol, and Turnkey's asset index does not cover
-        // devnet, so a discovered holding would otherwise show only its mint address. Naming the
-        // mints this sample expects makes the balance readable — the same mechanism host apps use.
-        client?.registerTokens(
-            listOf(
-                TokenInfo(
-                    WalletChain.SOLANA.chainId,
-                    WalletChain.SOLANA.defaultTokenAddress,
-                    "USDC",
-                    6,
-                    "USD Coin (devnet)"
-                )
-            )
-        )
     }
 
     /** Builds the SDK with the Privy provider and resolves the Privy-backed client. */
@@ -109,27 +97,10 @@ class RainSession {
         val sdk = RainSdk.builder()
             .rpcEndpoints(rpcEndpoints)
             .register(PrivyProvider(PrivyConfig(privy = privy, walletAddress = walletAddress)))
-            .withRainApi()
+            .withSharedConfig()
             .build()
         rain = sdk
         client = sdk.provider(ProviderId.PRIVY)
-        // Privy exposes no token-discovery endpoint, so its balance reads only see tokens the
-        // SDK already knows about. The built-in registry is mainnet-only, so seed Base Sepolia
-        // USDC here for testing — otherwise Privy reports "No ERC-20 tokens" despite a balance.
-        // The Solana devnet mint gets the same naming treatment as on Turnkey: SPL holdings are
-        // discovered from chain, but a mint carries no on-chain symbol.
-        client?.registerTokens(
-            listOf(
-                TokenInfo(84532, "0x036CbD53842c5426634e7929541eC2318f3dCF7e", "USDC", 6, "USDC"),
-                TokenInfo(
-                    WalletChain.SOLANA.chainId,
-                    WalletChain.SOLANA.defaultTokenAddress,
-                    "USDC",
-                    6,
-                    "USD Coin (devnet)"
-                )
-            )
-        )
     }
 
     fun reset() {

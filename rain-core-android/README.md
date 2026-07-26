@@ -53,13 +53,13 @@ own modules.
 ## Entry points
 
 - **`RainSdk`** — the registry plus the wallet-agnostic surface: `provider(id)` / `first { }`,
-  `transactionBuilder`, and the Rain issuing API (`configureRainApi`, `fetchCollateralContracts`,
+  the transaction-building methods, and the Rain issuing API (`configureRainApi`, `fetchCollateralContracts`,
   `fetchCollateralContract`, `fetchAdminSignature`).
 - **`RainClient`** — everything bound to one resolved wallet: addresses and QR, balances, transfers,
   `withdrawCollateral`, fee/gas estimation, history, `registerTokens`.
 - **`RainTransactionBuilder`** — for hosts signing with their own wallet: `getLatestNonce`,
   `isCollateralAdmin`, `buildEIP712Message`, `buildWithdrawTransactionData`. Reached via
-  `RainSdk.transactionBuilder`, so it needs no resolved provider.
+  `RainSdk` directly, so it needs no resolved provider.
 
 Full parameter tables live in [docs/METHODS.md](../docs/METHODS.md).
 

@@ -45,6 +45,13 @@ sealed class RainError(
   class InvalidConfig(details: String) :
     RainError(RainErrorCode.INVALID_CONFIG, "Invalid Config: $details")
 
+  /**
+   * No provider was registered for the requested id, or none matched the requested capability.
+   * Reuses [RainErrorCode.INVALID_CONFIG] — it is a configuration mistake, not a new failure mode.
+   */
+  class ProviderNotRegistered(val details: String) :
+    RainError(RainErrorCode.INVALID_CONFIG, "Provider not registered: $details")
+
   /** RPC URL could not be parsed as a valid URL (no chain-ID context). */
   class InvalidRpcUrl(rpcUrl: String) :
     RainError(RainErrorCode.INVALID_RPC_URL, "Invalid RPC URL: $rpcUrl")

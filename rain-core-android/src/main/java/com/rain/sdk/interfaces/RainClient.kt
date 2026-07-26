@@ -4,9 +4,9 @@ import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainTokenTransferResult
 import com.rain.sdk.models.RainTransactionParameters
 import com.rain.sdk.models.RainWithdrawAddresses
-import com.rain.sdk.models.RainWithdrawResult
+import com.rain.sdk.models.RainPreparedWithdrawal
 import com.rain.sdk.models.RainTransactionOrder
-import com.rain.sdk.models.RainTransactionResult
+import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
@@ -42,16 +42,16 @@ interface RainClient {
     val capabilities: Set<Capability>
 
     /**
-     * Withdraws collateral from the Rain system.
+     * Executes a collateral withdrawal on-chain.
      *
      * @param chainId The chain ID for the transaction
      * @param addresses All required addresses for the withdrawal
      * @param amount The amount to withdraw
-     * @param decimals Token decimals
-     * @param adminSignature Admin signature for authorization
-     * @param nonce Optional nonce for the transaction
-     * @param autoSend If true, automatically sends the transaction and returns hash. If false, returns prepared transaction data.
-     * @return RainWithdrawResult containing either transactionHash (if autoSend=true) or transactionData (if autoSend=false)
+     * @param decimals Token decimals. Scales [amount] on every chain including Solana, where it is
+     *                 not checked against the SPL mint — pass the mint's real decimals
+     * @param adminSignature The withdrawal authorization from `RainSdk.fetchAdminSignature`
+     * @param nonce Optional nonce; resolved from the contract when null
+     * @return The transaction hash (EVM) or transaction signature (Solana)
      */
     @Throws(RainError::class)
     suspend fun withdrawCollateral(
@@ -60,9 +60,23 @@ interface RainClient {
         amount: BigDecimal,
         decimals: Int,
         adminSignature: RainAdminSignature,
-        nonce: BigInteger? = null,
-        autoSend: Boolean = false
-    ): RainWithdrawResult
+        nonce: BigInteger? = null
+    ): String
+
+    /**
+     * Builds a collateral withdrawal without broadcasting it. Takes the same parameters as
+     * [withdrawCollateral]. See [RainPreparedWithdrawal] for what this does and does not do
+     * offline, and for the Solana blockhash lifetime.
+     */
+    @Throws(RainError::class)
+    suspend fun prepareWithdrawal(
+        chainId: Int,
+        addresses: RainWithdrawAddresses,
+        amount: BigDecimal,
+        decimals: Int,
+        adminSignature: RainAdminSignature,
+        nonce: BigInteger? = null
+    ): RainPreparedWithdrawal
 
     /**
      * Gets the current wallet address from the underlying provider.
@@ -119,26 +133,21 @@ interface RainClient {
 
     /**
      * Estimates the total fee (in the chain's native token, e.g. ETH/AVAX) required to
-     * execute a collateral withdrawal transaction. The withdrawal authorization
-     * (salt / signature / expiresAt, as returned by
-     * [com.rain.sdk.RainSdk.fetchAdminSignature]) is caller-supplied and embedded in the
-     * estimated calldata.
+     * execute a collateral withdrawal transaction.
      *
      * Builds the EIP-712 payload, signs it with the wallet, then runs `eth_estimateGas`
      * against the controller. Nothing is broadcast. Note: the calldata also embeds a wallet
      * signature the controller verifies, so the estimate signs once with the wallet (a
      * placeholder signature would revert the estimate).
      *
-     * @param chainId The chain ID for the transaction.
+     * @param chainId The chain ID for the transaction. EVM only.
      * @param addresses All required addresses for the withdrawal.
      * @param amount The amount to withdraw (human units).
      * @param decimals Token decimals.
-     * @param salt The withdrawal signature salt (base64), from the Rain API.
-     * @param signature The hex-encoded withdrawal signature, from the Rain API.
-     * @param expiresAt The withdrawal signature expiry (ISO-8601, e.g.
-     *                  "2030-12-31T23:59:59Z"), from the Rain API.
+     * @param adminSignature The withdrawal authorization from `RainSdk.fetchAdminSignature`
+     * @param nonce Optional nonce; pin the estimate to the nonce the withdrawal will sign.
      * @return Estimated withdrawal fee in the chain's native token, as an exact [BigDecimal].
-     * @throws RainError if estimation fails.
+     * @throws RainError if estimation fails, or if [chainId] is a Solana chain.
      */
     @Throws(RainError::class)
     suspend fun estimateWithdrawalFee(
@@ -146,66 +155,30 @@ interface RainClient {
         addresses: RainWithdrawAddresses,
         amount: BigDecimal,
         decimals: Int,
-        salt: String,
-        signature: String,
-        expiresAt: String
-    ): BigDecimal
-
-    /**
-     * Estimates the total fee (in the chain's native token, e.g. ETH/AVAX) required to
-     * execute a collateral withdrawal transaction.
-     *
-     * Builds + signs the EIP-712 payload, then `eth_estimateGas` against the controller (no broadcast).
-     *
-     * @param chainId The chain ID for the transaction.
-     * @param addresses All required addresses for the withdrawal.
-     * @param amount The amount to withdraw.
-     * @param decimals Token decimals.
-     * @param adminSignature Admin signature for authorization (matches the one passed to
-     *                      [withdrawCollateral]).
-     * @param nonce Optional nonce for the transaction. If `null`, the SDK resolves it.
-     * @return Estimated withdrawal fee in the chain's native token.
-     * @throws RainError if estimation fails.
-     */
-    @Deprecated(
-        message = "Use the BigDecimal overload, which takes the withdrawal authorization as " +
-            "salt / signature / expiresAt and returns an exact BigDecimal " +
-            "instead of a lossy Double.",
-        replaceWith = ReplaceWith(
-            "estimateWithdrawalFee(chainId, addresses, amount.toBigDecimal(), decimals, " +
-                "adminSignature.salt, adminSignature.signature, adminSignature.expiresAt)"
-        )
-    )
-    @Throws(RainError::class)
-    suspend fun estimateWithdrawalFee(
-        chainId: Int,
-        addresses: RainWithdrawAddresses,
-        amount: Double,
-        decimals: Int,
         adminSignature: RainAdminSignature,
         nonce: BigInteger? = null
-    ): Double
+    ): BigDecimal
 
     /**
      * Composes wallet-agnostic transaction parameters for a contract call.
      *
-     * Pure helper: takes the sender / target / calldata and returns a [RainTransactionParameters]
-     * struct with `value` pre-set to `"0x0"` (no native value). Leave gas, nonce, and fee
-     * calculation to the caller or the active wallet provider.
-     *
-     * Returns a Rain-owned struct so the public surface does not leak Portal- or
-     * Turnkey-specific types.
-     *
-     * @param walletAddress Address of the sender wallet.
-     * @param contractAddress Target smart contract address.
-     * @param transactionData Hex-encoded calldata.
-     * @return A fully formed [RainTransactionParameters] object.
+     * Pure composition — no wallet provider and no RPC — so it belongs on [com.rain.sdk.RainSdk],
+     * not on a resolved client.
      */
+    @Deprecated(
+        message = "Pure composition needs no resolved client. Call RainSdk.buildTransactionParameters(...).",
+        replaceWith = ReplaceWith("rain.buildTransactionParameters(walletAddress, contractAddress, transactionData)")
+    )
     fun composeTransactionParameters(
         walletAddress: String,
         contractAddress: String,
         transactionData: String
-    ): RainTransactionParameters
+    ): RainTransactionParameters = RainTransactionParameters(
+        from = walletAddress,
+        to = contractAddress,
+        value = "0x0",
+        data = transactionData
+    )
 
     /**
      * Sends the chain's native token (e.g. ETH, AVAX).
@@ -246,19 +219,21 @@ interface RainClient {
      *
      * @param chainId Network ID
      * @param contractAddress ERC-20 token contract address
-     * @param toAddress Recipient's wallet address
+     * @param to Recipient's wallet address
      * @param amount Amount to send (in human-readable unit, e.g. 1.5 USDC)
      * @param decimals Optional number of decimals the token uses (e.g. 6 for USDC, 18 for most
      *                 tokens). When `null` (the default), the SDK resolves the token's
      *                 `decimals()` itself — from its token registry or, for unknown tokens, an
      *                 on-chain `decimals()` read — so callers don't have to track it.
+     *                 On Solana it never scales the amount: the SPL mint's own decimals are read
+     *                 from the chain and enforced by `TransferChecked`.
      * @return RainTokenTransferResult containing the transaction hash
      */
     @Throws(RainError::class)
     suspend fun sendToken(
         chainId: Int,
         contractAddress: String,
-        toAddress: String,
+        to: String,
         amount: BigDecimal,
         decimals: Int? = null
     ): RainTokenTransferResult
@@ -450,20 +425,38 @@ interface RainClient {
     fun reset()
 
     /**
-     * Generates an Android Bitmap containing a QR code for a wallet address.
-     * 
-     * @param address Optional address to generate the QR code for. If null, the configured provider's wallet address will be retrieved and used.
-     * @param width The width of the generated QR code bitmap in pixels. Defaults to 500.
-     * @param height The height of the generated QR code bitmap in pixels. Defaults to 500.
-     * @return A Bitmap containing the QR code.
+     * Generates a square QR code [Bitmap] encoding [address], or the wallet's own address when
+     * [address] is null.
+     *
+     * Use this for any address the host needs to show — a chain-specific wallet address (the
+     * Solana account rather than the EVM one), or a Rain collateral deposit address.
+     *
+     * @param address Address to encode. Null encodes the provider's wallet address.
+     * @param dimension Output width and height in pixels (the QR is square). Defaults to 256.
+     * @return A [Bitmap] containing the QR code.
      * @throws RainError If [address] is null and the provider's address cannot be retrieved.
      */
     @Throws(RainError::class)
     suspend fun generateAddressQRCode(
         address: String? = null,
-        width: Int = 500,
-        height: Int = 500
+        dimension: Int = 256
     ): Bitmap
+
+    /**
+     * Generates a QR code with independent width and height.
+     *
+     * A QR code is square, so the two dimensions were always set to the same value in practice.
+     */
+    @Deprecated(
+        message = "A QR code is square. Call generateAddressQRCode(address, dimension).",
+        replaceWith = ReplaceWith("generateAddressQRCode(address, width)")
+    )
+    @Throws(RainError::class)
+    suspend fun generateAddressQRCode(
+        address: String?,
+        width: Int,
+        height: Int
+    ): Bitmap = generateAddressQRCode(address, width)
 
     /**
      * Retrieves the transaction history for the specified chain.
@@ -472,7 +465,7 @@ interface RainClient {
      * @param limit Optional maximum number of transactions to return
      * @param offset Optional number of transactions to skip for pagination
      * @param order Optional sort order (ASC or DESC)
-     * @return RainTransactionResult containing a list of transactions
+     * @return List<RainTransaction> containing a list of transactions
      * @throws RainError if the transaction history cannot be retrieved
      */
     @Throws(RainError::class)
@@ -481,7 +474,7 @@ interface RainClient {
         limit: Int? = null,
         offset: Int? = null,
         order: RainTransactionOrder? = null
-    ): RainTransactionResult
+    ): List<RainTransaction>
 
     companion object {
         /**

@@ -1,13 +1,14 @@
 package com.rain.sdk.internal.core
 
-import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.constants.SolanaChains
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.interfaces.RainTransactionBuilder
 import com.rain.sdk.internal.error.ErrorMapper
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.solana.SolanaCollateralWithdrawComposer
 import com.rain.sdk.internal.solana.SolanaRpcClient
+import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
 import com.rain.sdk.internal.transaction.TransactionCoordinator
 import com.rain.sdk.internal.transaction.TransactionExecutor
 import com.rain.sdk.internal.transaction.TransactionSigner
@@ -15,11 +16,10 @@ import com.rain.sdk.internal.transaction.TransactionValidator
 import com.rain.sdk.internal.transaction.WithdrawCollateralRequest
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainTokenTransferResult
-import com.rain.sdk.models.RainTransactionParameters
 import com.rain.sdk.models.RainWithdrawAddresses
-import com.rain.sdk.models.RainWithdrawResult
+import com.rain.sdk.models.RainPreparedWithdrawal
 import com.rain.sdk.models.RainTransactionOrder
-import com.rain.sdk.models.RainTransactionResult
+import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
@@ -54,12 +54,20 @@ import com.rain.sdk.utils.QRGenerator
  * @param rpcEndpoints The chains the SDK was configured with; used by [getAllBalances] to fan out.
  * @param tokenStore Shared metadata store used to resolve ERC-20 decimals when callers omit them.
  *                   May be null for providers that do their own metadata resolution.
+ * @param providerId Identity the registered [com.rain.sdk.provider.RainProvider] descriptor
+ *                   advertises. Sourced from the descriptor so `RainSdk.providers` and a resolved
+ *                   client can never disagree; defaults to the wallet provider's own value.
+ * @param capabilities Capabilities the descriptor advertises, for the same reason as [providerId].
+ * @param transactionBuilder Withdrawal-building primitives bound to the same chain configuration.
  */
 internal class RainSdkManager(
   private val walletProvider: WalletProvider,
   rpcEndpoints: Map<Int, String>,
   private val tokenStore: TokenMetadataStore? = null,
-  private val errorMapper: ErrorMapper = ErrorMapper()
+  private val errorMapper: ErrorMapper = ErrorMapper(),
+  transactionBuilder: RainTransactionBuilder = RainTransactionBuilderImpl(rpcEndpoints),
+  override val providerId: ProviderId = walletProvider.id,
+  override val capabilities: Set<Capability> = walletProvider.capabilities
 ) : RainClient {
 
   /** Chains the SDK was initialized with; [getAllBalances] fans out across them. */
@@ -84,24 +92,23 @@ internal class RainSdkManager(
   /** Fire-and-forget scope for applying late `registerTokens` calls to a live store. */
   private val tokenRegistrationScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+  private val validator = TransactionValidator()
   private val signer = TransactionSigner({ walletProvider }, errorMapper)
   private val executor = TransactionExecutor({ walletProvider }, errorMapper)
   private val transactionCoordinator: TransactionCoordinator =
     TransactionCoordinator(
       walletProvider = { walletProvider },
-      validator = TransactionValidator(),
+      transactionBuilder = transactionBuilder,
+      validator = validator,
       signer = signer,
       executor = executor
     )
 
-  override val isInitialized: Boolean
-    get() = RainConfig.getInstance().isInitialized
-
-  override val providerId: ProviderId
-    get() = walletProvider.id
-
-  override val capabilities: Set<Capability>
-    get() = walletProvider.capabilities
+  /**
+   * A `RainSdkManager` only exists once its provider resolved against a validated configuration,
+   * so this is constant `true`.
+   */
+  override val isInitialized: Boolean get() = true
 
   override suspend fun withdrawCollateral(
     chainId: Int,
@@ -109,65 +116,95 @@ internal class RainSdkManager(
     amount: BigDecimal,
     decimals: Int,
     adminSignature: RainAdminSignature,
-    nonce: BigInteger?,
-    autoSend: Boolean
-  ): RainWithdrawResult {
-    if (!isInitialized) {
-      throw RainError.SdkNotInitialized()
-    }
-
-    // Solana withdrawals go through Rain's on-chain collateral program rather than an EVM
-    // coordinator contract: core composes the two-instruction transaction (ed25519 proof of
-    // Rain's signature + the program's withdraw instruction) and the provider signs it.
+    nonce: BigInteger?
+  ): String {
     if (SolanaChains.isSolanaChain(chainId)) {
-      val owner = walletProvider.getWalletAddress(chainId)
-      val amountBaseUnits = try {
-        amount.movePointRight(decimals).toBigIntegerExact()
-      } catch (e: ArithmeticException) {
-        throw RainError.InvalidAmount(
-          amount.toPlainString(),
-          "this token supports at most $decimals decimal places"
-        )
+      // Same error contract as the EVM path: simulation revert -> WithdrawalRevertedByNetwork,
+      // and raw parsing/decoding exceptions never escape unmapped.
+      return transactionCoordinator.withWithdrawalErrors("Withdraw collateral") {
+        val unsigned = composeSolanaWithdrawal(chainId, addresses, amount, decimals, adminSignature)
+        walletProvider.sendSolanaTransaction(chainId, unsigned)
       }
-      val unsigned = solanaWithdrawComposer.composeWithdraw(
-        chainId = chainId,
-        ownerAddress = owner,
-        collateralAddress = addresses.proxyAddress,
-        mintAddress = addresses.tokenAddress,
-        recipientAddress = addresses.recipientAddress,
-        amountBaseUnits = amountBaseUnits,
-        adminSignature = adminSignature
-      )
-      if (!autoSend) {
-        // Same contract as the EVM path: hand back the prepared (unsigned) transaction for
-        // manual submission instead of broadcasting.
-        return RainWithdrawResult(transactionHash = null, transactionData = unsigned.transactionHex)
-      }
-      val signature = walletProvider.sendSolanaTransaction(chainId, unsigned)
-      return RainWithdrawResult(transactionHash = signature, transactionData = null)
     }
 
-    val walletAddress = walletProvider.getWalletAddress()
-
-    // Create request object
-    val request = WithdrawCollateralRequest(
-      chainId = chainId,
-      addresses = addresses,
-      amount = amount,
-      decimals = decimals,
-      adminSignature = adminSignature,
-      walletAddress = walletAddress,
-      nonce = nonce
-    )
-
-    // Delegate to coordinator with autoSend parameter
-    val (txHash, txData) = transactionCoordinator.executeWithdrawCollateral(request, autoSend)
-
-    return RainWithdrawResult(
-      transactionHash = txHash,
-      transactionData = txData
+    return transactionCoordinator.executeWithdrawCollateral(
+      withdrawRequest(chainId, addresses, amount, decimals, adminSignature, nonce)
     )
   }
+
+  override suspend fun prepareWithdrawal(
+    chainId: Int,
+    addresses: RainWithdrawAddresses,
+    amount: BigDecimal,
+    decimals: Int,
+    adminSignature: RainAdminSignature,
+    nonce: BigInteger?
+  ): RainPreparedWithdrawal {
+    if (SolanaChains.isSolanaChain(chainId)) {
+      return transactionCoordinator.withWithdrawalErrors("Prepare withdrawal") {
+        RainPreparedWithdrawal.Solana(
+          composeSolanaWithdrawal(chainId, addresses, amount, decimals, adminSignature)
+        )
+      }
+    }
+
+    return RainPreparedWithdrawal.Evm(
+      transactionCoordinator.prepareWithdrawCollateral(
+        withdrawRequest(chainId, addresses, amount, decimals, adminSignature, nonce)
+      )
+    )
+  }
+
+  /**
+   * Composes a Solana collateral withdrawal. The withdrawal is authorized by Rain's coordinator
+   * executor signing a keccak message off chain, so core composes and the provider only signs.
+   */
+  private suspend fun composeSolanaWithdrawal(
+    chainId: Int,
+    addresses: RainWithdrawAddresses,
+    amount: BigDecimal,
+    decimals: Int,
+    adminSignature: RainAdminSignature
+  ): UnsignedSolanaTransfer {
+    // The EVM path validates inside the coordinator; Solana composes here, so it validates here.
+    validator.validateWithdrawRequest(chainId, amount, decimals)
+
+    val owner = walletProvider.getWalletAddress(chainId)
+    val amountBaseUnits = try {
+      amount.movePointRight(decimals).toBigIntegerExact()
+    } catch (e: ArithmeticException) {
+      throw RainError.InvalidAmount(
+        amount.toPlainString(),
+        "this token supports at most $decimals decimal places"
+      )
+    }
+    return solanaWithdrawComposer.composeWithdraw(
+      chainId = chainId,
+      ownerAddress = owner,
+      collateralAddress = addresses.proxyAddress,
+      mintAddress = addresses.tokenAddress,
+      recipientAddress = addresses.recipientAddress,
+      amountBaseUnits = amountBaseUnits,
+      adminSignature = adminSignature
+    )
+  }
+
+  private suspend fun withdrawRequest(
+    chainId: Int,
+    addresses: RainWithdrawAddresses,
+    amount: BigDecimal,
+    decimals: Int,
+    adminSignature: RainAdminSignature,
+    nonce: BigInteger?
+  ) = WithdrawCollateralRequest(
+    chainId = chainId,
+    addresses = addresses,
+    amount = amount,
+    decimals = decimals,
+    adminSignature = adminSignature,
+    walletAddress = walletProvider.getWalletAddress(),
+    nonce = nonce
+  )
 
   override suspend fun estimateGas(
     chainId: Int,
@@ -175,10 +212,6 @@ internal class RainSdkManager(
     to: String,
     data: String
   ): BigDecimal {
-    if (!isInitialized) {
-      throw RainError.SdkNotInitialized()
-    }
-
     return transactionCoordinator.estimateGas(
       chainId = chainId,
       from = from,
@@ -192,93 +225,21 @@ internal class RainSdkManager(
     addresses: RainWithdrawAddresses,
     amount: BigDecimal,
     decimals: Int,
-    salt: String,
-    signature: String,
-    expiresAt: String
-  ): BigDecimal = estimateWithdrawalFee(
-    chainId = chainId,
-    addresses = addresses,
-    amount = amount,
-    decimals = decimals,
-    adminSignature = RainAdminSignature(salt = salt, signature = signature, expiresAt = expiresAt),
-    nonce = null
-  )
-
-  @Deprecated(
-    message = "Use the BigDecimal overload, which takes the withdrawal authorization as " +
-        "salt / signature / expiresAt and returns an exact BigDecimal " +
-        "instead of a lossy Double.",
-    replaceWith = ReplaceWith(
-      "estimateWithdrawalFee(chainId, addresses, amount.toBigDecimal(), decimals, " +
-          "adminSignature.salt, adminSignature.signature, adminSignature.expiresAt)"
-    )
-  )
-  override suspend fun estimateWithdrawalFee(
-    chainId: Int,
-    addresses: RainWithdrawAddresses,
-    amount: Double,
-    decimals: Int,
-    adminSignature: RainAdminSignature,
-    nonce: BigInteger?
-  ): Double {
-    if (!amount.isFinite()) {
-      throw RainError.InvalidAmount(amount.toString(), "amount must be a finite number")
-    }
-    return estimateWithdrawalFee(
-      chainId = chainId,
-      addresses = addresses,
-      amount = amount.toBigDecimal(),
-      decimals = decimals,
-      adminSignature = adminSignature,
-      nonce = nonce
-    ).toDouble()
-  }
-
-  /** Shared estimation path: validate, build EIP-712, sign, build calldata, `eth_estimateGas`. */
-  private suspend fun estimateWithdrawalFee(
-    chainId: Int,
-    addresses: RainWithdrawAddresses,
-    amount: BigDecimal,
-    decimals: Int,
     adminSignature: RainAdminSignature,
     nonce: BigInteger?
   ): BigDecimal {
-    if (!isInitialized) {
-      throw RainError.SdkNotInitialized()
+    // TODO(v2.1): a Solana estimate is the flat per-signature fee plus token-account rent when
+    // `UnsignedSolanaTransfer.createsRecipientAccount` is true.
+    if (SolanaChains.isSolanaChain(chainId)) {
+      throw RainError.InternalError("Withdrawal fee estimation is not supported on Solana")
     }
 
-    val walletAddress = walletProvider.getWalletAddress()
-
-    val request = WithdrawCollateralRequest(
-      chainId = chainId,
-      addresses = addresses,
-      amount = amount,
-      decimals = decimals,
-      adminSignature = adminSignature,
-      walletAddress = walletAddress,
-      nonce = nonce
-    )
-
-    return transactionCoordinator.estimateWithdrawalFee(request)
-  }
-
-  override fun composeTransactionParameters(
-    walletAddress: String,
-    contractAddress: String,
-    transactionData: String
-  ): RainTransactionParameters {
-    return RainTransactionParameters(
-      from = walletAddress,
-      to = contractAddress,
-      value = "0x0",
-      data = transactionData
+    return transactionCoordinator.estimateWithdrawalFee(
+      withdrawRequest(chainId, addresses, amount, decimals, adminSignature, nonce)
     )
   }
 
   override suspend fun getWalletAddress(): String {
-    if (!isInitialized) {
-      throw RainError.SdkNotInitialized()
-    }
     return try {
       walletProvider.getWalletAddress()
     } catch (e: Exception) {
@@ -290,9 +251,6 @@ internal class RainSdkManager(
   }
 
   override suspend fun getWalletAddress(chainId: Int): String {
-    if (!isInitialized) {
-      throw RainError.SdkNotInitialized()
-    }
     return try {
       walletProvider.getWalletAddress(chainId)
     } catch (e: Exception) {
@@ -308,10 +266,6 @@ internal class RainSdkManager(
     to: String,
     amount: BigDecimal
   ): RainTokenTransferResult {
-    if (!isInitialized) {
-      throw RainError.SdkNotInitialized()
-    }
-
     return try {
       val txHash = walletProvider.sendNativeToken(chainId, to, amount)
       RainTokenTransferResult(transactionHash = txHash)
@@ -326,26 +280,22 @@ internal class RainSdkManager(
   override suspend fun sendToken(
     chainId: Int,
     contractAddress: String,
-    toAddress: String,
+    to: String,
     amount: BigDecimal,
     decimals: Int?
   ): RainTokenTransferResult {
-    if (!isInitialized) {
-      throw RainError.SdkNotInitialized()
-    }
-
     return try {
       // Resolve decimals when the caller doesn't supply them: the token store checks its
       // registry first and falls back to an on-chain `decimals()` read for unknown tokens.
       //
-      // Skipped on Solana: the store enriches through the EVM reader, so an SPL mint would cost
-      // three failing `eth_call`s against a Solana endpoint and then cache an 18-decimal entry
-      // that is almost certainly wrong. The Solana send path reads the mint's own decimals.
+      // Skipped on Solana — the store enriches through the EVM reader, which cannot see an SPL
+      // mint — so an unspecified value resolves to 0 there. The Solana adapter reads the mint's
+      // own decimals and must not scale with this one.
       val resolvedDecimals = decimals
         ?: takeUnless { SolanaChains.isSolanaChain(chainId) }
           ?.let { tokenStore?.tokenInfo(chainId, contractAddress)?.decimals }
-        ?: RainClient.DEFAULT_ERC20_DECIMALS
-      val txHash = walletProvider.sendToken(chainId, contractAddress, toAddress, amount, resolvedDecimals)
+        ?: if (SolanaChains.isSolanaChain(chainId)) 0 else RainClient.DEFAULT_ERC20_DECIMALS
+      val txHash = walletProvider.sendToken(chainId, contractAddress, to, amount, resolvedDecimals)
       RainTokenTransferResult(transactionHash = txHash)
     } catch (e: Exception) {
       if (e is CancellationException) throw e
@@ -356,7 +306,6 @@ internal class RainSdkManager(
   }
 
   override suspend fun getBalance(chainId: Int, token: Token): Balance {
-    if (!isInitialized) throw RainError.SdkNotInitialized()
     return try {
       walletProvider.getBalance(chainId, token)
     } catch (e: Exception) {
@@ -368,7 +317,6 @@ internal class RainSdkManager(
   }
 
   override suspend fun getTokenBalances(chainId: Int): List<Balance> {
-    if (!isInitialized) throw RainError.SdkNotInitialized()
     return try {
       walletProvider.getBalances(chainId)
     } catch (e: Exception) {
@@ -380,7 +328,6 @@ internal class RainSdkManager(
   }
 
   override suspend fun getAllBalances(): List<Balance> {
-    if (!isInitialized) throw RainError.SdkNotInitialized()
     val chainIds = configuredChainIds
     if (chainIds.isEmpty()) return emptyList()
 
@@ -410,22 +357,20 @@ internal class RainSdkManager(
   }
 
   override fun reset() {
+    // Clears this client's own state only. The chain configuration is owned by the `RainSdk` that
+    // built this client and is shared with every other resolved client, so it deliberately
+    // survives — one client resetting must not deconfigure the others.
     registeredTokens.clear()
-    // Clear the existing RainConfig instance rather than nulling the singleton —
-    // `RainTransactionBuilderImpl` holds a captured reference and would otherwise see a stale
-    // config after a subsequent re-initialization.
-    RainConfig.getInstance().clear()
-    Timber.d("Rain SDK: Reset SDK state")
+    Timber.d("Rain SDK: Reset client state")
   }
 
-  override suspend fun generateAddressQRCode(address: String?, width: Int, height: Int): Bitmap {
-    if (!isInitialized) throw RainError.SdkNotInitialized()
+  override suspend fun generateAddressQRCode(address: String?, dimension: Int): Bitmap {
 
     val targetAddress = address ?: getWalletAddress()
 
     return withContext(Dispatchers.Default) {
         try {
-            QRGenerator.generateQRCode(targetAddress, width, height)
+            QRGenerator.generateQRCode(targetAddress, dimension, dimension)
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             Timber.e(e, "Rain SDK: Failed to generate QR code")
@@ -439,8 +384,7 @@ internal class RainSdkManager(
     limit: Int?,
     offset: Int?,
     order: RainTransactionOrder?
-  ): RainTransactionResult {
-    if (!isInitialized) throw RainError.SdkNotInitialized()
+  ): List<RainTransaction> {
     return try {
       walletProvider.getTransactions(chainId, limit, offset, order)
     } catch (e: Exception) {

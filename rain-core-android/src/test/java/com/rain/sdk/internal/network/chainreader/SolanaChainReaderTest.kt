@@ -57,7 +57,7 @@ class SolanaChainReaderTest {
     @Test
     fun `getNativeBalance returns human-readable SOL`(): Unit = runBlocking {
         rpc.stubObject("getBalance", balanceResult(1_000_000_000L))
-        assertThat(reader().getNativeBalance(devnet, wallet)).isWithin(1e-9).of(1.0)
+        assertThat(reader().getNativeBalance(devnet, wallet)).isEqualToIgnoringScale("1")
     }
 
     @Test

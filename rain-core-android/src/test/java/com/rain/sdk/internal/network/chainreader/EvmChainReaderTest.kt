@@ -41,7 +41,7 @@ class EvmChainReaderTest {
     private fun makeReader(chainId: Int): EvmChainReader =
         EvmChainReader(rpcEndpoints = mapOf(chainId to rpc.urlFor(chainId)))
 
-    // ---------- single-token Double paths ----------
+    // ---------- single-token paths ----------
 
     @Test
     fun `getNativeBalance parses eth_getBalance hex into ether units`(): Unit = runBlocking {
@@ -51,8 +51,19 @@ class EvmChainReaderTest {
 
         val balance = reader.getNativeBalance(1, wallet)
 
-        assertThat(balance).isWithin(1e-9).of(1.0)
+        assertThat(balance).isEqualToIgnoringScale("1")
         assertThat(rpc.recordedMethods).containsExactly("eth_getBalance")
+    }
+
+    @Test
+    fun `getNativeBalance keeps full 18-decimal precision above Double range`(): Unit = runBlocking {
+        // 12345678901234567890123 wei — above 2^53, so a Double round-trip would corrupt it.
+        rpc.stub("eth_getBalance", "0x29d42b64e76714244cb")
+        val reader = makeReader(chainId = 1)
+
+        val balance = reader.getNativeBalance(1, wallet)
+
+        assertThat(balance).isEqualToIgnoringScale("12345.678901234567890123")
     }
 
     @Test
@@ -63,7 +74,7 @@ class EvmChainReaderTest {
 
         val balance = reader.getERC20Balance(1, usdc, wallet, decimals = 6)
 
-        assertThat(balance).isWithin(1e-9).of(1.0)
+        assertThat(balance).isEqualToIgnoringScale("1")
     }
 
     // ---------- rich getBalances: parallel-fallback path ----------

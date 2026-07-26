@@ -103,6 +103,8 @@ dependencies {
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
+    // Already on the test runtime classpath via mockk; declared so reflection compiles cleanly.
+    testImplementation(kotlin("reflect"))
     testImplementation(libs.truth)
     testImplementation(libs.okhttp.mockwebserver)
     // Real org.json implementation for unit tests — production code uses Android's bundled

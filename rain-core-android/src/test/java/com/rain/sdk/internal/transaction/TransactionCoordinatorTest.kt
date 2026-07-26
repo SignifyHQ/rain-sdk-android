@@ -1,7 +1,9 @@
 package com.rain.sdk.internal.transaction
 
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
+import org.junit.Assert.assertThrows
 import io.mockk.coEvery
 import io.mockk.mockk
 import io.mockk.unmockkAll
@@ -27,6 +29,7 @@ class TransactionCoordinatorTest {
 
     coordinator = TransactionCoordinator(
       walletProvider = { walletProvider },
+      transactionBuilder = mockk(),
       validator = validator,
       signer = signer,
       executor = executor
@@ -53,5 +56,41 @@ class TransactionCoordinatorTest {
     val fee = coordinator.estimateGas(chainId, from, to, data)
 
     assertThat(fee).isEqualTo(expectedFee)
+  }
+
+  // The Solana withdrawal path in RainSdkManager shares this wrapper, so its contract is pinned.
+
+  @Test
+  fun `withWithdrawalErrors maps a simulation failure to WithdrawalRevertedByNetwork`() {
+    assertThrows(RainError.WithdrawalRevertedByNetwork::class.java) {
+      runBlocking {
+        coordinator.withWithdrawalErrors<Unit>("Withdraw collateral") {
+          throw RainError.TransactionSimulationFailed(RuntimeException("revert"))
+        }
+      }
+    }
+  }
+
+  @Test
+  fun `withWithdrawalErrors wraps raw exceptions as InternalError`() {
+    val ex = assertThrows(RainError.InternalError::class.java) {
+      runBlocking {
+        coordinator.withWithdrawalErrors<Unit>("Withdraw collateral") {
+          throw IllegalArgumentException("truncated account data")
+        }
+      }
+    }
+    assertThat(ex.message).contains("Withdraw collateral")
+  }
+
+  @Test
+  fun `withWithdrawalErrors passes RainError through unchanged`() {
+    assertThrows(RainError.InvalidAmount::class.java) {
+      runBlocking {
+        coordinator.withWithdrawalErrors<Unit>("Withdraw collateral") {
+          throw RainError.InvalidAmount("0", "amount must be positive")
+        }
+      }
+    }
   }
 }

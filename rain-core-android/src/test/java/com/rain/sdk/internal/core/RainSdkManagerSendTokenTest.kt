@@ -1,7 +1,6 @@
 package com.rain.sdk.internal.core
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.MockChainReader
 import com.rain.sdk.internal.helpers.StubWalletProvider
@@ -25,44 +24,15 @@ class RainSdkManagerSendTokenTest {
 
     @Before
     fun setUp() {
-        RainConfig.reset()
     }
 
     @After
     fun tearDown() {
-        RainConfig.reset()
     }
 
     // ---- guards: not initialized -------------------------------------------------
 
-    @Test
-    fun `sendNative throws SdkNotInitialized before initialization`() {
-        val manager = TestManagers.uninitializedManager()
-        assertThrows(RainError.SdkNotInitialized::class.java) {
-            runBlocking {
-                manager.sendNative(
-                    chainId = 1,
-                    to = TestFixtures.RECIPIENT_ADDRESS,
-                    amount = BigDecimal("1.0")
-                )
-            }
-        }
-    }
 
-    @Test
-    fun `sendToken throws SdkNotInitialized before initialization`() {
-        val manager = TestManagers.uninitializedManager()
-        assertThrows(RainError.SdkNotInitialized::class.java) {
-            runBlocking {
-                manager.sendToken(
-                    chainId = 1,
-                    contractAddress = TestFixtures.TOKEN_ADDRESS,
-                    toAddress = TestFixtures.RECIPIENT_ADDRESS,
-                    amount = BigDecimal("100.0")
-                )
-            }
-        }
-    }
 
     // ---- happy paths via the stub provider ---------------------------------------
 
@@ -117,7 +87,7 @@ class RainSdkManagerSendTokenTest {
         val result = manager.sendToken(
             chainId = 1,
             contractAddress = TestFixtures.TOKEN_ADDRESS,
-            toAddress = TestFixtures.RECIPIENT_ADDRESS,
+            to = TestFixtures.RECIPIENT_ADDRESS,
             amount = BigDecimal("100.0"),
             decimals = 6
         )
@@ -141,7 +111,7 @@ class RainSdkManagerSendTokenTest {
         manager.sendToken(
             chainId = 1,
             contractAddress = TestFixtures.TOKEN_ADDRESS,
-            toAddress = TestFixtures.RECIPIENT_ADDRESS,
+            to = TestFixtures.RECIPIENT_ADDRESS,
             amount = BigDecimal("1.0"),
             decimals = null
         )
@@ -160,17 +130,21 @@ class RainSdkManagerSendTokenTest {
         manager.sendToken(
             chainId = com.rain.sdk.RainChain.SOLANA_DEVNET,
             contractAddress = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
-            toAddress = TestFixtures.RECIPIENT_ADDRESS,
+            to = TestFixtures.RECIPIENT_ADDRESS,
             amount = BigDecimal("1.0"),
             decimals = null
         )
 
         assertThat(reader.decimalsCalls).isEmpty()
+        // An unspecified value resolves to 0 on Solana, not the EVM default. The
+        // adapter must not scale with it; the mint's own decimals are read on chain.
+        assertThat(stub.sendTokenCalls.single().decimals).isEqualTo(0)
+
         // EVM chains keep resolving through the store.
         manager.sendToken(
             chainId = 1,
             contractAddress = TestFixtures.TOKEN_ADDRESS,
-            toAddress = TestFixtures.RECIPIENT_ADDRESS,
+            to = TestFixtures.RECIPIENT_ADDRESS,
             amount = BigDecimal("1.0"),
             decimals = null
         )
@@ -186,13 +160,28 @@ class RainSdkManagerSendTokenTest {
         manager.sendToken(
             chainId = 1,
             contractAddress = TestFixtures.TOKEN_ADDRESS,
-            toAddress = TestFixtures.RECIPIENT_ADDRESS,
+            to = TestFixtures.RECIPIENT_ADDRESS,
             amount = BigDecimal("1.0"),
             decimals = null
         )
 
         assertThat(stub.sendTokenCalls.single().decimals)
             .isEqualTo(com.rain.sdk.interfaces.RainClient.DEFAULT_ERC20_DECIMALS)
+    }
+
+    @Test
+    fun `sendToken passes a caller-supplied decimals through on solana`(): Unit = runBlocking {
+        val (manager, stub) = TestManagers.stubProviderManager()
+
+        manager.sendToken(
+            chainId = com.rain.sdk.RainChain.SOLANA_DEVNET,
+            contractAddress = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+            to = TestFixtures.RECIPIENT_ADDRESS,
+            amount = BigDecimal("1.0"),
+            decimals = 6
+        )
+
+        assertThat(stub.sendTokenCalls.single().decimals).isEqualTo(6)
     }
 
     // ---- error wrapping ----------------------------------------------------------
@@ -242,7 +231,7 @@ class RainSdkManagerSendTokenTest {
                 manager.sendToken(
                     chainId = 1,
                     contractAddress = TestFixtures.TOKEN_ADDRESS,
-                    toAddress = TestFixtures.RECIPIENT_ADDRESS,
+                    to = TestFixtures.RECIPIENT_ADDRESS,
                     amount = BigDecimal("100.0")
                 )
             }

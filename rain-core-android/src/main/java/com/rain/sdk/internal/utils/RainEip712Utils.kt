@@ -3,6 +3,17 @@ package com.rain.sdk.internal.utils
 import java.math.BigInteger
 
 internal object RainEip712Utils {
+
+    /** JSON string-escapes [s] so an interpolated value can never break out of its literal. */
+    private fun esc(s: String): String = buildString(s.length) {
+        for (c in s) when {
+            c == '"' -> append("\\\"")
+            c == '\\' -> append("\\\\")
+            c < ' ' -> append("\\u%04x".format(c.code))
+            else -> append(c)
+        }
+    }
+
     fun createEIP712Json(
         chainId: Long,
         verifyingContract: String,
@@ -16,19 +27,19 @@ internal object RainEip712Utils {
         return """
         {
           "domain": {
-            "salt": "$saltHex",
+            "salt": "${esc(saltHex)}",
             "chainId": $chainId,
-            "verifyingContract": "$verifyingContract",
+            "verifyingContract": "${esc(verifyingContract)}",
             "name": "Collateral",
             "version": "2"
           },
           "primaryType": "Withdraw",
           "message": {
-            "recipient": "$recipientAddress",
+            "recipient": "${esc(recipientAddress)}",
             "nonce": "${nonce.toString(10)}",
             "amount": "${amount.toString(10)}",
-            "user": "$walletAddress",
-            "asset": "$tokenAddress"
+            "user": "${esc(walletAddress)}",
+            "asset": "${esc(tokenAddress)}"
           },
           "types": {
             "Withdraw": [

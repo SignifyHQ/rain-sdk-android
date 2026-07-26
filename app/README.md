@@ -57,16 +57,16 @@ Rain API credentials (program `Api-Key` + Rain `userId`) are separate from the w
 authenticate the contract and withdrawal-signature calls, and are entered in their own card on Home.
 Nothing is persisted — the fields are re-entered each launch.
 
-`RainSession` also calls `registerTokens` after resolving Turnkey and Privy. That is not a
-workaround the SDK needs in production — it is the same mechanism a host app uses when a token
-cannot be discovered on chain. An SPL mint carries no on-chain symbol, and the built-in token
-registry is mainnet-only, so naming the testnet mints keeps the balance screen readable.
+`RainSession` also registers each demo chain's testnet token (`WalletChain.defaultTokenInfo`) via
+`registerTokens` on the builder, identically for all three providers. That is not a workaround the
+SDK needs in production — it is the same mechanism a host app uses when a token cannot be
+discovered on chain. An SPL mint carries no on-chain symbol, and the built-in token registry is
+mainnet-only, so naming the testnet tokens keeps the balance screen readable.
 
 ## Notes
 
 - **Portal wallet recovery** is unavailable: the Rain API has no backup-share endpoint yet (it is
-  slated to move behind `POST /v1/issuing/users/{userId}/wallet`). The PIN field on Home surfaces
-  that state rather than calling a dead endpoint.
+  slated to move behind `POST /v1/issuing/users/{userId}/wallet`), so the app has no recovery UI.
 - **Solana history** rows carry the Turnkey activity id rather than a resolvable signature, so those
   rows are not linked to an explorer.
 
@@ -103,6 +103,7 @@ provider and the `ProviderId` resolved:
 val sdk = RainSdk.builder()
     .rpcEndpoints(rpcEndpoints)                                   // Map<Int, String>
     .register(TurnkeyProvider(TurnkeyConfig(turnkey = turnkey)))
+    .registerTokens(WalletChain.entries.map { it.defaultTokenInfo })
     .rainApiCredentials(apiKey, userId)                           // optional
     .build()
 val client = sdk.provider(ProviderId.TURNKEY)

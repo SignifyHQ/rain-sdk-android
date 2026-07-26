@@ -1,20 +1,23 @@
 package com.rain.sdk.interfaces
 
 import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.RainEIP712Message
 import com.rain.sdk.models.RainWithdrawAddresses
 import java.math.BigDecimal
 import java.math.BigInteger
 
 /**
- * Interface for Rain SDK Utility methods (Wallet-agnostic).
+ * Wallet-agnostic withdrawal-building primitives. These need no resolved provider — only the
+ * configured RPC endpoints — and are exposed directly on [com.rain.sdk.RainSdk].
  */
 interface RainTransactionBuilder {
 
     /**
-     * Get the latest nonce for a given proxy address.
+     * Reads the collateral's current admin nonce — the value [buildEIP712Message] binds when
+     * `nonce` is omitted.
      */
     suspend fun getLatestNonce(
-        rpcUrl: String,
+        chainId: Int,
         proxyAddress: String
     ): BigInteger
 
@@ -26,33 +29,39 @@ interface RainTransactionBuilder {
      *   proceed, never as "not authorized".
      */
     suspend fun isCollateralAdmin(
-        rpcUrl: String,
+        chainId: Int,
         proxyAddress: String,
         walletAddress: String
     ): Boolean?
 
     /**
-     * Build EIP-712 message for obtaining the admin signature.
+     * Builds the EIP-712 message the wallet signs to authorize a withdrawal, along with the salt
+     * bound into it. Pass a null [nonce] to read the collateral's current nonce on chain.
      */
     suspend fun buildEIP712Message(
         chainId: Int,
-        addresses: RainWithdrawAddresses,
         walletAddress: String,
+        addresses: RainWithdrawAddresses,
         amount: BigDecimal,
         decimals: Int,
         nonce: BigInteger? = null,
-    ): Pair<String, ByteArray>
+    ): RainEIP712Message
 
     /**
-     * Builds the encoded transaction call data required to execute a withdrawal.
+     * ABI-encodes the `withdrawAsset` call for the collateral controller.
+     *
+     * Pure encoding — no RPC, so it needs no chain id.
+     *
+     * @param executorSignature Rain's authorization, from `RainSdk.fetchAdminSignature`.
+     * @param walletSalt The salt from [RainEIP712Message.salt], unchanged.
+     * @param walletSignature The wallet's hex signature over [RainEIP712Message.message].
      */
     fun buildWithdrawTransactionData(
         addresses: RainWithdrawAddresses,
         amount: BigDecimal,
         decimals: Int,
-        saltBytes: ByteArray,
-        signatureData: String,
-        adminSignature: RainAdminSignature
+        executorSignature: RainAdminSignature,
+        walletSalt: ByteArray,
+        walletSignature: String
     ): String
-
 }

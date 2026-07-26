@@ -55,7 +55,7 @@ class TurnkeyProvider internal constructor(
             rpcEndpoints = context.rpcEndpoints,
             walletAddressOverride = config.walletAddress,
             chainReader = context.evmChainReader,
-            solanaChainReader = context.solanaChainReader,
+            solanaSupport = context.solanaSupport,
             tokenStore = context.tokenStore,
         )
 

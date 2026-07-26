@@ -158,7 +158,7 @@ class SendTokensViewModel(
                 val result = rainClient.sendToken(
                     chainId = chain.chainId,
                     contractAddress = current.contractAddress,
-                    toAddress = current.recipientAddress,
+                    to = current.recipientAddress,
                     amount = amount
                 )
                 SampleLog.i(logTag, "success txHash=${result.transactionHash}")

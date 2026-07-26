@@ -3,6 +3,7 @@ package com.rain.sdk.internal.network.chainreader
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
+import java.math.BigDecimal
 
 /**
  * Provider-agnostic, read-only on-chain query surface.
@@ -24,7 +25,7 @@ internal interface ChainReader {
      * Native balance (e.g. ETH on Ethereum, AVAX on Avalanche). Result is in
      * human-readable form (e.g. `1.5` for 1.5 ETH).
      */
-    suspend fun getNativeBalance(chainId: Int, walletAddress: String): Double
+    suspend fun getNativeBalance(chainId: Int, walletAddress: String): BigDecimal
 
     /**
      * Single ERC-20 balance via `balanceOf(address)`. [decimals] defaults to
@@ -35,7 +36,7 @@ internal interface ChainReader {
         tokenAddress: String,
         walletAddress: String,
         decimals: Int?
-    ): Double
+    ): BigDecimal
 
     /**
      * Batched balances for many tokens on one chain, in a single round-trip when possible.

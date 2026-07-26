@@ -1,9 +1,10 @@
 package com.rain.sdk.internal.helpers
 
 import com.rain.sdk.internal.provider.WalletProvider
+import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransactionOrder
-import com.rain.sdk.models.RainTransactionResult
+import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.Token
 import java.math.BigDecimal
 import java.math.BigInteger
@@ -68,12 +69,13 @@ internal open class StubWalletProvider : WalletProvider {
         name = "Ether"
     )
     var balancesToReturn: List<Balance> = emptyList()
-    var transactionsToReturn: RainTransactionResult = RainTransactionResult(transactions = emptyList())
+    var transactionsToReturn: List<RainTransaction> = emptyList()
     var sendNativeTokenHashToReturn: String = "0x" + "0".repeat(64)
     var sendTokenHashToReturn: String = "0x" + "0".repeat(64)
     var sendTransactionHashToReturn: String = "0x" + "0".repeat(64)
     var signTypedDataToReturn: String = "0x" + "0".repeat(130)
     var estimateTransactionFeeToReturn: BigDecimal = BigDecimal.ZERO
+    var sendSolanaTransactionSignatureToReturn: String = "5" + "1".repeat(87)
 
     val sendNativeTokenCalls = mutableListOf<SendTokenCall>()
     val sendTokenCalls = mutableListOf<SendTokenCall>()
@@ -83,6 +85,7 @@ internal open class StubWalletProvider : WalletProvider {
     val signTypedDataCalls = mutableListOf<SignTypedDataCall>()
     val sendTransactionCalls = mutableListOf<SendTransactionCall>()
     val estimateTransactionFeeCalls = mutableListOf<EstimateTransactionFeeCall>()
+    val sendSolanaTransactionCalls = mutableListOf<Int>()
 
     override suspend fun getWalletAddress(): String = addressToReturn
 
@@ -127,7 +130,7 @@ internal open class StubWalletProvider : WalletProvider {
         limit: Int?,
         offset: Int?,
         order: RainTransactionOrder?
-    ): RainTransactionResult {
+    ): List<RainTransaction> {
         getTransactionsCalls += GetTransactionsCall(chainId, limit, offset, order)
         return transactionsToReturn
     }
@@ -161,5 +164,13 @@ internal open class StubWalletProvider : WalletProvider {
     ): BigDecimal {
         estimateTransactionFeeCalls += EstimateTransactionFeeCall(chainId, from, to, data, value)
         return estimateTransactionFeeToReturn
+    }
+
+    override suspend fun sendSolanaTransaction(
+        chainId: Int,
+        unsigned: UnsignedSolanaTransfer
+    ): String {
+        sendSolanaTransactionCalls += chainId
+        return sendSolanaTransactionSignatureToReturn
     }
 }

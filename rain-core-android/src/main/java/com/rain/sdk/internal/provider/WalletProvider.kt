@@ -4,7 +4,7 @@ import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransactionOrder
-import com.rain.sdk.models.RainTransactionResult
+import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.Token
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderId
@@ -64,13 +64,17 @@ interface WalletProvider {
     ): String
 
     /**
-     * Sends an ERC-20 token.
+     * Sends an ERC-20 token, or an SPL token when [chainId] is a Solana chain (then
+     * [contractAddress] is the mint).
      *
      * @param chainId The network ID.
-     * @param contractAddress The ERC-20 token contract address.
+     * @param contractAddress The ERC-20 token contract address, or the SPL mint on Solana.
      * @param toAddress The recipient's wallet address.
      * @param amount The amount of token to send (in human-readable unit).
-     * @param decimals The number of decimals the token uses.
+     * @param decimals The number of decimals the token uses. On Solana this is not authoritative,
+     *   and 0 when the caller supplied none — never scale the amount with it. Read the mint's
+     *   decimals and pass those to `TransferChecked`; the token program rejects a mismatch
+     *   (`TokenError` 18). 0 is also a legal mint value, so never branch on it.
      * @return The transaction hash.
      */
     suspend fun sendToken(
@@ -106,7 +110,7 @@ interface WalletProvider {
         limit: Int? = null,
         offset: Int? = null,
         order: RainTransactionOrder? = null
-    ): RainTransactionResult
+    ): List<RainTransaction>
 
     /**
      * Signs EIP-712 typed data with the provider's wallet.

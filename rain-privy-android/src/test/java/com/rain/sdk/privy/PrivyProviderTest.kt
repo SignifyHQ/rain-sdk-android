@@ -22,7 +22,8 @@ class PrivyProviderTest {
     fun `descriptor advertises the privy id and capabilities`() {
         val provider = PrivyProvider(PrivyConfig(privy = mockk<Privy>()))
         assertThat(provider.id).isEqualTo(ProviderId.PRIVY)
-        assertThat(provider.capabilities).containsExactly(Capability.EXPORT, Capability.RECOVERY)
+        assertThat(provider.capabilities)
+            .containsExactly(Capability.EXPORT, Capability.RECOVERY, Capability.MULTI_CHAIN)
     }
 
     @Test
@@ -33,6 +34,20 @@ class PrivyProviderTest {
             tokenStore = mockk<TokenMetadataStore>(),
         )
         assertThat(wallet.id).isEqualTo(ProviderId.PRIVY)
+    }
+
+    @Test
+    fun `wallet provider advertises the same capabilities as its descriptor`() {
+        // A resolved RainClient must not deny a capability the descriptor advertised — Privy
+        // signs on Solana as well as EVM, so MULTI_CHAIN has to appear on both.
+        val descriptor = PrivyProvider(PrivyConfig(privy = mockk<Privy>()))
+        val wallet = PrivyWalletProvider(
+            manager = mockk(),
+            rpcEndpoints = emptyMap(),
+            tokenStore = mockk<TokenMetadataStore>(),
+        )
+        assertThat(wallet.capabilities).isEqualTo(descriptor.capabilities)
+        assertThat(wallet.capabilities).contains(Capability.MULTI_CHAIN)
     }
 
     @Test
@@ -89,7 +104,7 @@ class PrivyProviderTest {
             tokenStore = tokenStore,
         )
         val result = wallet.getTransactions(chainId = 1)
-        assertThat(result.transactions).isEmpty()
+        assertThat(result).isEmpty()
         // No registered tokens, so history is a single native-asset query.
         coVerify(exactly = 1) { manager.getTransactions("0xWALLET", any()) }
     }

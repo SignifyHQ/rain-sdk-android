@@ -215,7 +215,7 @@ chain ids (`RainChain.SOLANA_MAINNET` 900 / `SOLANA_DEVNET` 901 / `SOLANA_TESTNE
   collateral-authority PDA and token accounts locally. It simulates, then hands the bytes to the
   adapter, which signs them **as-is**: re-serializing would invalidate the embedded signature.
   `proxyAddress` is the collateral account, `tokenAddress` the SPL mint; single-signer collateral
-  only. `autoSend = false` returns the prepared unsigned transaction.
+  only. `prepareWithdrawal` returns the prepared unsigned transaction with its blockhash.
 
 ## Signing
 
