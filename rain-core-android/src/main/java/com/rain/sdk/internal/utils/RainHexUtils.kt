@@ -19,18 +19,28 @@ internal object RainHexUtils {
     }
 
     /**
-     * Converts a hex string to a byte array.
-     * Handles optional "0x" prefix.
+     * Converts a hex string (optional "0x" prefix) to bytes, rejecting odd lengths and non-hex
+     * characters. Pass [expectedByteCount] to also enforce an exact size (e.g. 65 for signatures).
      */
-    fun hexToBytes(s: String): ByteArray {
+    fun hexToBytes(s: String, expectedByteCount: Int? = null): ByteArray {
         val cleanS = Numeric.cleanHexPrefix(s)
         val len = cleanS.length
+        if (len % 2 != 0) {
+            throw RainError.InvalidConfig("Invalid hex string: odd length ($len)")
+        }
+        if (expectedByteCount != null && len / 2 != expectedByteCount) {
+            throw RainError.InvalidConfig(
+                "Invalid hex string: expected $expectedByteCount bytes, got ${len / 2}"
+            )
+        }
         val data = ByteArray(len / 2)
         for (i in cleanS.indices step 2) {
-            data[i / 2] = (
-                (Character.digit(cleanS[i], 16) shl 4) +
-                    Character.digit(cleanS[i + 1], 16)
-                ).toByte()
+            val hi = Character.digit(cleanS[i], 16)
+            val lo = Character.digit(cleanS[i + 1], 16)
+            if (hi < 0 || lo < 0) {
+                throw RainError.InvalidConfig("Invalid hex string: non-hex character at index $i")
+            }
+            data[i / 2] = ((hi shl 4) + lo).toByte()
         }
         return data
     }

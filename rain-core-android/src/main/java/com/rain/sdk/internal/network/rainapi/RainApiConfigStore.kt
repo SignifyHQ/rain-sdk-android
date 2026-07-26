@@ -11,31 +11,26 @@ internal data class RainApiCredentials(val apiKey: String, val userId: String)
  */
 internal class RainApiConfigStore(val baseUrl: String) {
 
+    // One volatile pair, so a concurrent setCredentials can never produce a torn read
+    // (new apiKey with the old userId).
     @Volatile
-    private var apiKey: String = ""
-
-    @Volatile
-    private var userId: String = ""
+    private var pair: RainApiCredentials? = null
 
     /** Sets or replaces the credential pair. Values are trimmed; blank clears. */
     fun setCredentials(apiKey: String, userId: String) {
-        this.apiKey = apiKey.trim()
-        this.userId = userId.trim()
+        val key = apiKey.trim()
+        val user = userId.trim()
+        pair = if (key.isBlank() || user.isBlank()) null else RainApiCredentials(key, user)
     }
 
     fun clear() {
-        apiKey = ""
-        userId = ""
+        pair = null
     }
 
     val isConfigured: Boolean
-        get() = apiKey.isNotBlank() && userId.isNotBlank()
+        get() = pair != null
 
     /** @throws RainError.ApiNotConfigured when either value is blank. */
-    fun credentials(): RainApiCredentials {
-        val key = apiKey
-        val user = userId
-        if (key.isBlank() || user.isBlank()) throw RainError.ApiNotConfigured()
-        return RainApiCredentials(apiKey = key, userId = user)
-    }
+    fun credentials(): RainApiCredentials =
+        pair ?: throw RainError.ApiNotConfigured()
 }

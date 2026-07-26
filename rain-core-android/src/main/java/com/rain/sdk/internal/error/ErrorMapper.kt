@@ -23,6 +23,7 @@ internal class ErrorMapper {
         return when {
             e is TurnkeyKotlinError -> mapTurnkeyError(e)
             isUserRejection(e) -> RainError.UserRejected()
+            isInsufficientFunds(e) -> RainError.InsufficientFunds()
             else -> mapTurnkeyHttpStatus(e) ?: RainError.ProviderError(e)
         }
     }

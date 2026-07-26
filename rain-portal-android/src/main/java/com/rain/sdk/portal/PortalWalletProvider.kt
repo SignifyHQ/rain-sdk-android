@@ -1,13 +1,15 @@
 package com.rain.sdk.portal
 
+import com.rain.sdk.RainChain
 import com.rain.sdk.internal.abi.Erc20Abi
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransactionOrder
-import com.rain.sdk.models.RainTransactionResult
+import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.Token
 import com.rain.sdk.utils.EthereumConverter
 import java.math.BigDecimal
@@ -28,6 +30,15 @@ internal class PortalWalletProvider(
   /** Portal is an EVM MPC signer: it exports/recovers via MPC backups, single EVM chain family. */
   override val capabilities: Set<Capability> get() = setOf(Capability.EXPORT, Capability.RECOVERY)
 
+  /** Portal signs eip155 chains only; a Solana chain ID must never reach its EVM pipeline. */
+  private fun requireEvmChain(chainId: Int) {
+    if (RainChain.isSolana(chainId)) {
+      throw RainError.InvalidConfig(
+        "Provider '${id.value}' does not support Solana (chainId $chainId is a Solana chain)"
+      )
+    }
+  }
+
   override suspend fun getWalletAddress(): String {
     return portalManager.getAddress()
   }
@@ -37,6 +48,7 @@ internal class PortalWalletProvider(
     toAddress: String,
     amountInEth: BigDecimal
   ): String {
+    requireEvmChain(chainId)
     val fromAddress = getWalletAddress()
     val valueWeiHex = EthereumConverter.convertEthToWeiHex(amountInEth)
 
@@ -57,6 +69,7 @@ internal class PortalWalletProvider(
     amount: BigDecimal,
     decimals: Int
   ): String {
+    requireEvmChain(chainId)
     val fromAddress = getWalletAddress()
     val data = Erc20Abi.encodeTransfer(toAddress, amount, decimals)
 
@@ -83,7 +96,7 @@ internal class PortalWalletProvider(
     limit: Int?,
     offset: Int?,
     order: RainTransactionOrder?
-  ): RainTransactionResult {
+  ): List<RainTransaction> {
     return portalManager.getTransactions(chainId, tokenStore, limit, offset, order)
   }
 
@@ -92,6 +105,7 @@ internal class PortalWalletProvider(
     walletAddress: String,
     typedDataJson: String
   ): String {
+    requireEvmChain(chainId)
     return portalManager.signTypedData(chainId, walletAddress, typedDataJson)
   }
 
@@ -102,6 +116,7 @@ internal class PortalWalletProvider(
     data: String,
     value: String
   ): String {
+    requireEvmChain(chainId)
     return portalManager.sendTransaction(chainId, from, to, data, value)
   }
 
@@ -112,6 +127,7 @@ internal class PortalWalletProvider(
     data: String,
     value: String
   ): BigDecimal {
+    requireEvmChain(chainId)
     return portalManager.estimateTransactionFee(chainId, from, to, data, value)
   }
 }

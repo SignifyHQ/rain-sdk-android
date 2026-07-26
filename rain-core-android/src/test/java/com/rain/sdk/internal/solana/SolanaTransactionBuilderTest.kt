@@ -255,6 +255,80 @@ class SolanaTransactionBuilderTest {
         }
     }
 
+    // ---------- cross-platform golden bytes ----------
+
+    // Real fixtures; the expected hex below is what the canonical Rust builder (`solders`)
+    // produces for the same instructions, so account ordering and indices are pinned exactly.
+    private val goldenOwner = Base58.decode("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM")
+    private val goldenRecipient = Base58.decode("4zvwRjXUKGfvwnParsHAS3HuSVzV5cA4McphgmoCtajS")
+    private val goldenMint = Base58.decode("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+    private val goldenSource = Base58.decode("FGETo8T8wMcN2wCjav8VK6eh3dLk63evNDPxzLSJra8B")
+    private val goldenDestination = Base58.decode("DJcjpsHnWXSucjUpourygEN3mkcQwSHG6d5b2AzLSfSn")
+    private val goldenBlockhash = "5Pk716N113awdSaUDZEPZVi9Zs6hJmG5KCJtp5qQK3LB"
+
+    private fun buildGolden(createDestination: Boolean): String {
+        val transfer = SolanaInstructions.transferChecked(
+            tokenProgramId = SolanaPrograms.TOKEN,
+            source = goldenSource,
+            mint = goldenMint,
+            destination = goldenDestination,
+            owner = goldenOwner,
+            amount = BigInteger.valueOf(1_500_000L),
+            decimals = 6
+        )
+        val instructions = if (createDestination) {
+            listOf(
+                SolanaInstructions.createAssociatedTokenAccountIdempotent(
+                    tokenProgramId = SolanaPrograms.TOKEN,
+                    payer = goldenOwner,
+                    associatedAccount = goldenDestination,
+                    owner = goldenRecipient,
+                    mint = goldenMint
+                ),
+                transfer
+            )
+        } else {
+            listOf(transfer)
+        }
+        return SolanaTransactionBuilder.buildUnsignedHex(goldenOwner, goldenBlockhash, instructions)
+    }
+
+    @Test
+    fun `golden token accounts are the derived associated token addresses`() {
+        assertThat(SolanaAddresses.associatedTokenAddress(goldenOwner, goldenMint, SolanaPrograms.TOKEN))
+            .isEqualTo(goldenSource)
+        assertThat(SolanaAddresses.associatedTokenAddress(goldenRecipient, goldenMint, SolanaPrograms.TOKEN))
+            .isEqualTo(goldenDestination)
+    }
+
+    @Test
+    fun `spl transfer into an existing token account matches the golden serialization`() {
+        assertThat(buildGolden(createDestination = false)).isEqualTo(
+            "0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000" +
+                "000000000000000000000000000000000000000000010002057e8c088760bfde1dddcf32c17f209b8242ee52" +
+                "aaf131facd88d0ea2c6d0b06f2d3ea8cf5acaca8cd05207512175c43cef54a5dd99ede20a16b55253738f397" +
+                "dcb6cf86c040eaa718bcca6c81c5e6de2d9268577c8dd1bf41607975c62e9684a7c6fa7af3bedbad3a3d65f3" +
+                "6aabc97431b1bbe4c2d2f6e0e47ca60203452f5d6106ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37" +
+                "913a8cf5857eff00a94142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f60010404" +
+                "010302000a0c60e316000000000006"
+        )
+    }
+
+    @Test
+    fun `spl transfer that creates the recipient account matches the golden serialization`() {
+        assertThat(buildGolden(createDestination = true)).isEqualTo(
+            "0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000" +
+                "000000000000000000000000000000000000000000010005087e8c088760bfde1dddcf32c17f209b8242ee52" +
+                "aaf131facd88d0ea2c6d0b06f2b6cf86c040eaa718bcca6c81c5e6de2d9268577c8dd1bf41607975c62e9684" +
+                "a7d3ea8cf5acaca8cd05207512175c43cef54a5dd99ede20a16b55253738f397dc3b6a27bcceb6a42d62a3a8" +
+                "d02a6f0d73653215771de243a63ac048a18b59da29c6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0" +
+                "e47ca60203452f5d6100000000000000000000000000000000000000000000000000000000000000008c9725" +
+                "8f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f85906ddf6e1d765a193d9cbe146ceeb79" +
+                "ac1cb485ed5f5b37913a8cf5857eff00a94142434445464748494a4b4c4d4e4f505152535455565758595a5b" +
+                "5c5d5e5f6002060600010304050701010704020401000a0c60e316000000000006"
+        )
+    }
+
     // ---------- helpers ----------
 
     private fun sourceAta() =

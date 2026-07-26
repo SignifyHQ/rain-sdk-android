@@ -2,21 +2,26 @@ package com.rain.sdk
 
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.interfaces.RainTransactionBuilder
-import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.core.ConfigManager
 import com.rain.sdk.internal.core.RainSdkManager
 import com.rain.sdk.internal.core.RainTransactionBuilderImpl
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
-import com.rain.sdk.internal.network.chainreader.SolanaChainReader
 import com.rain.sdk.internal.network.rainapi.RainApiConfigStore
 import com.rain.sdk.internal.network.rainapi.RainApiService
+import com.rain.sdk.internal.solana.SolanaSupport
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.RainEIP712Message
 import com.rain.sdk.models.RainApiEnvironment
+import com.rain.sdk.models.NetworkConfig
 import com.rain.sdk.models.RainCollateralContract
+import com.rain.sdk.models.RainTransactionParameters
 import com.rain.sdk.models.TokenInfo
+import com.rain.sdk.models.RainWithdrawAddresses
+import java.math.BigDecimal
 import java.math.BigInteger
+import java.util.concurrent.ConcurrentHashMap
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import com.rain.sdk.provider.ProviderContext
 import com.rain.sdk.provider.ProviderId
@@ -56,25 +61,41 @@ class RainSdk private constructor(
     initialRainApiCredentials: Pair<String, String>?,
 ) {
     private val mutex = Mutex()
-    private val clients = HashMap<ProviderId, RainClient>()
 
-    @Volatile
-    private var sharedContext: ProviderContext? = null
+    // Concurrent so [reset] can evict safely without holding the resolution mutex.
+    private val clients = ConcurrentHashMap<ProviderId, RainClient>()
 
     private val rainApiConfig = RainApiConfigStore(baseUrl = rainApiEnvironment.baseUrl)
 
     @Volatile
     private var rainApiService: RainApiService? = null
 
+    /**
+     * Withdrawal-building primitives bound to this instance's endpoints. Instance-scoped, so two
+     * SDKs configured differently never read each other's chain configuration.
+     */
+    private val builderImpl = RainTransactionBuilderImpl(rpcEndpoints)
+
     init {
-        // Validate endpoints up front (fail fast on a bad URL / chain id) and populate the
-        // RainConfig singleton consumed by RainTransactionBuilderImpl, so [transactionBuilder]
-        // works without resolving a wallet provider.
-        ConfigManager().validateAndSetupRpcEndpoints(rpcEndpoints)
-        RainConfig.getInstance().markInitialized()
+        // Fail fast on a bad URL / chain id, before anything is resolved.
+        ConfigManager().validateRpcEndpoints(rpcEndpoints)
         initialRainApiCredentials?.let { (apiKey, userId) ->
             rainApiConfig.setCredentials(apiKey, userId)
         }
+    }
+
+    /**
+     * Shared, vendor-free infrastructure handed to every provider. Built exactly once, after
+     * endpoint validation, so clients and the Rain API service always see one [TokenMetadataStore].
+     */
+    private val sharedContext: ProviderContext = run {
+        val evm = EvmChainReader(rpcEndpoints = rpcEndpoints)
+        ProviderContext(
+            rpcEndpoints = rpcEndpoints,
+            tokenStore = TokenMetadataStore(chainReader = evm, seedTokens = seedTokens),
+            evmChainReader = evm,
+            solanaSupport = SolanaSupport(rpcEndpoints),
+        )
     }
 
     /** Ids of every provider the host registered. */
@@ -84,28 +105,124 @@ class RainSdk private constructor(
     val providers: Collection<RainProvider> get() = registered.values
 
     /**
-     * Wallet-agnostic transaction-building helpers (EIP-712 typed-data + withdraw calldata). These
-     * need no wallet provider — only the configured RPC endpoints — so they're available straight
-     * off the SDK without resolving a [provider].
+     * Wallet-agnostic transaction-building helpers (EIP-712 typed-data + withdraw calldata).
      */
-    val transactionBuilder: RainTransactionBuilder get() = RainTransactionBuilderImpl
+    @Deprecated(
+        message = "The builder methods are now on RainSdk itself. Call rain.buildEIP712Message(...) " +
+            "/ rain.buildWithdrawTransactionData(...) directly.",
+        replaceWith = ReplaceWith("this")
+    )
+    val transactionBuilder: RainTransactionBuilder get() = builderImpl
+
+    // --- Wallet-agnostic transaction building ---------------------------------------------
+    // These need no wallet provider — only the configured RPC endpoints — so they're available
+    // straight off the SDK without resolving a [provider].
+
+    /**
+     * Reads the collateral's current admin nonce — the value [buildEIP712Message] binds when
+     * [buildEIP712Message]'s `nonce` is omitted.
+     */
+    @Throws(RainError::class)
+    suspend fun getLatestNonce(chainId: Int, proxyAddress: String): BigInteger =
+        builderImpl.getLatestNonce(chainId, proxyAddress)
+
+    /**
+     * Whether [walletAddress] is an admin of the collateral contract at [proxyAddress].
+     *
+     * @return the contract's answer, or `null` if the check could not be performed (RPC failure,
+     *   or a collateral that exposes no `isAdmin`). Treat `null` as unknown and proceed, never as
+     *   "not authorized".
+     */
+    suspend fun isCollateralAdmin(
+        chainId: Int,
+        proxyAddress: String,
+        walletAddress: String,
+    ): Boolean? = builderImpl.isCollateralAdmin(chainId, proxyAddress, walletAddress)
+
+    /**
+     * Builds the EIP-712 message the wallet signs to authorize a withdrawal, along with the salt
+     * bound into it. Pass a null [nonce] to read the collateral's current nonce on chain.
+     */
+    @Throws(RainError::class)
+    suspend fun buildEIP712Message(
+        chainId: Int,
+        walletAddress: String,
+        addresses: RainWithdrawAddresses,
+        amount: BigDecimal,
+        decimals: Int,
+        nonce: BigInteger? = null,
+    ): RainEIP712Message = builderImpl.buildEIP712Message(
+        chainId = chainId,
+        walletAddress = walletAddress,
+        addresses = addresses,
+        amount = amount,
+        decimals = decimals,
+        nonce = nonce,
+    )
+
+    /**
+     * ABI-encodes the `withdrawAsset` call for the collateral controller. Pure encoding — no RPC,
+     * so it needs no chain id.
+     *
+     * @param executorSignature Rain's authorization, from [fetchAdminSignature].
+     * @param walletSalt The salt from [RainEIP712Message.salt], unchanged.
+     * @param walletSignature The wallet's hex signature over [RainEIP712Message.message].
+     */
+    @Throws(RainError::class)
+    fun buildWithdrawTransactionData(
+        addresses: RainWithdrawAddresses,
+        amount: BigDecimal,
+        decimals: Int,
+        executorSignature: RainAdminSignature,
+        walletSalt: ByteArray,
+        walletSignature: String,
+    ): String = builderImpl.buildWithdrawTransactionData(
+        addresses = addresses,
+        amount = amount,
+        decimals = decimals,
+        executorSignature = executorSignature,
+        walletSalt = walletSalt,
+        walletSignature = walletSignature,
+    )
+
+    /**
+     * Composes Rain-owned transaction parameters. Rain-owned so the public surface does not leak
+     * Portal/Turnkey types. Pure composition — no wallet provider and no RPC involved.
+     *
+     * @param walletAddress Address of the sender wallet.
+     * @param contractAddress Target smart contract address.
+     * @param transactionData Hex-encoded calldata.
+     */
+    fun buildTransactionParameters(
+        walletAddress: String,
+        contractAddress: String,
+        transactionData: String,
+    ): RainTransactionParameters = RainTransactionParameters(
+        from = walletAddress,
+        to = contractAddress,
+        value = "0x0",
+        data = transactionData,
+    )
 
     /**
      * Resolves the [RainClient] backed by the provider registered under [id], materializing the
      * vendor wallet on first access and caching it thereafter.
      *
-     * @throws RainError.InvalidConfig if no provider was registered for [id].
+     * @throws RainError.ProviderNotRegistered if no provider was registered for [id].
      */
     suspend fun provider(id: ProviderId): RainClient = mutex.withLock {
         clients[id]?.let { return it }
         val descriptor = registered[id]
-            ?: throw RainError.InvalidConfig("No provider registered for id '${id.value}'")
-        val context = buildContext()
+            ?: throw RainError.ProviderNotRegistered("no provider registered for id '${id.value}'")
+        val context = sharedContext
         val walletProvider = descriptor.create(context)
         RainSdkManager(
             walletProvider = walletProvider,
             rpcEndpoints = rpcEndpoints,
             tokenStore = context.tokenStore,
+            transactionBuilder = builderImpl,
+            providerId = descriptor.id,
+            capabilities = descriptor.capabilities,
         ).also {
             clients[id] = it
             Timber.d("Rain SDK: Resolved provider '${id.value}'")
@@ -116,11 +233,13 @@ class RainSdk private constructor(
      * Resolves the first registered provider matching [predicate] (e.g. by capability) and returns
      * its [RainClient].
      *
-     * @throws RainError.InvalidConfig if no registered provider matches.
+     * @throws RainError.ProviderNotRegistered if no registered provider matches.
      */
     suspend fun first(predicate: (RainProvider) -> Boolean): RainClient {
         val match = registered.values.firstOrNull(predicate)
-            ?: throw RainError.InvalidConfig("No registered provider matches the requested capability")
+            ?: throw RainError.ProviderNotRegistered(
+                "no registered provider matches the requested capability"
+            )
         return provider(match.id)
     }
 
@@ -189,43 +308,26 @@ class RainSdk private constructor(
 
     private fun rainApi(): RainApiService = synchronized(this) {
         rainApiService?.let { return@synchronized it }
-        val context = buildContext()
         RainApiService(
             configStore = rainApiConfig,
-            tokenStore = context.tokenStore,
-            chainReader = context.evmChainReader,
+            tokenStore = sharedContext.tokenStore,
+            chainReader = sharedContext.evmChainReader,
         ).also { rainApiService = it }
     }
 
     /**
-     * Builds (once) the shared, vendor-free infrastructure handed to every provider. Endpoints are
-     * already validated and stored in `init`.
-     */
-    private fun buildContext(): ProviderContext {
-        sharedContext?.let { return it }
-        val evm = EvmChainReader(rpcEndpoints = rpcEndpoints)
-        val solana = SolanaChainReader(rpcEndpoints = rpcEndpoints)
-        val tokenStore = TokenMetadataStore(chainReader = evm, seedTokens = seedTokens)
-        return ProviderContext(
-            rpcEndpoints = rpcEndpoints,
-            tokenStore = tokenStore,
-            evmChainReader = evm,
-            solanaChainReader = solana,
-        ).also { sharedContext = it }
-    }
-
-    /**
-     * Clears resolved clients and Rain's stored chain configuration. Idempotent. After this the
-     * SDK must be rebuilt via [builder] before further use.
+     * Tears down all resolved clients and clears the Rain API credentials. Idempotent.
+     *
+     * The chain configuration is immutable state fixed at [Builder.build], so this instance stays
+     * usable: the next [provider] / [first] call re-resolves from scratch. Build a new [RainSdk]
+     * via [builder] to change configuration.
      */
     fun reset() {
         clients.values.forEach { runCatching { it.reset() } }
         clients.clear()
-        sharedContext = null
         rainApiConfig.clear()
         rainApiService = null
-        RainConfig.getInstance().clear()
-        Timber.d("Rain SDK: Reset")
+        Timber.d("Rain SDK: Reset (resolved clients evicted; Rain API credentials cleared)")
     }
 
     companion object {
@@ -247,6 +349,15 @@ class RainSdk private constructor(
         /** Sets the `chainId → RPC URL` map every provider shares. Required. */
         fun rpcEndpoints(endpoints: Map<Int, String>): Builder = apply {
             rpcEndpoints = endpoints
+        }
+
+        /**
+         * Sets the chains every provider shares, as [NetworkConfig] values. Replaces any
+         * previously set endpoints rather than appending. A later duplicate [NetworkConfig.chainId]
+         * wins.
+         */
+        fun rpcEndpoints(configs: List<NetworkConfig>): Builder = apply {
+            rpcEndpoints = configs.associate { it.chainId to it.rpcUrl }
         }
 
         /** Registers a provider adapter. Re-registering the same id replaces the prior one. */
@@ -275,7 +386,7 @@ class RainSdk private constructor(
         /**
          * Zero registered providers is allowed: the SDK is then wallet-agnostic,
          * exposing [RainSdk.transactionBuilder] and the Rain API methods; resolving a
-         * [RainSdk.provider] still throws [RainError.InvalidConfig] until one is registered.
+         * [RainSdk.provider] still throws [RainError.ProviderNotRegistered] until one is registered.
          *
          * @throws RainError.InvalidConfig if no RPC endpoints were configured, or the Rain API
          *   base URL doesn't parse.

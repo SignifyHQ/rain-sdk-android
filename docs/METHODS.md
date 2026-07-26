@@ -17,7 +17,7 @@ val rain = RainSdk.builder()
     .build()
 
 val client = rain.provider(ProviderId.PORTAL)   // suspend — RainClient for wallet operations
-val txBuilder = rain.transactionBuilder          // RainTransactionBuilder — no provider required
+rain.buildEIP712Message(...)                     // wallet-agnostic — no provider required
 ```
 
 There is no singleton and no `initialize*` methods: a `RainClient` is bound to one provider for
@@ -37,7 +37,7 @@ module isn't on the classpath simply can't be registered.
 |----------|------|-------------|
 | `providerIds` | `Set<ProviderId>` | Ids of every provider the host registered. |
 | `providers` | `Collection<RainProvider>` | The registered provider descriptors, for capability resolution. |
-| `transactionBuilder` | `RainTransactionBuilder` | Wallet-agnostic transaction-building utilities. Needs no resolved provider — available straight off the SDK once `build()` succeeds. |
+| `transactionBuilder` | `RainTransactionBuilder` | **Deprecated** — the builder methods are now on `RainSdk` itself. |
 | `isRainApiConfigured` | `Boolean` | True once an Api-Key and userId have been supplied. |
 
 ### Methods
@@ -52,7 +52,7 @@ Resolves the `RainClient` backed by the provider registered under `id`, material
 wallet on first access and caching it thereafter.
 
 - **Returns:** `RainClient` bound to that provider.
-- **Throws:** `RainError.InvalidConfig` if no provider was registered for `id`.
+- **Throws:** `RainError.ProviderNotRegistered` if no provider was registered for `id`.
 - **Suspend:** Yes (materializes the vendor wallet; e.g. Turnkey probes its wallet list).
 
 | Parameter | Type | Description |
@@ -69,7 +69,7 @@ val exporter = rain.first { Capability.EXPORT in it.capabilities }
 ```
 
 - **Returns:** `RainClient` for the first matching provider.
-- **Throws:** `RainError.InvalidConfig` if no registered provider matches.
+- **Throws:** `RainError.ProviderNotRegistered` if no registered provider matches.
 - **Suspend:** Yes.
 
 | Parameter | Type | Description |
@@ -78,8 +78,11 @@ val exporter = rain.first { Capability.EXPORT in it.capabilities }
 
 #### reset()
 
-Clears resolved clients and Rain's stored chain configuration. Idempotent. After this the SDK must
-be rebuilt via `builder()` before further use.
+Tears down all resolved clients and clears the Rain API credentials. Idempotent.
+
+The chain configuration is immutable state fixed at `build()`, so this instance stays usable: the
+next `provider(id)` / `first { }` call re-resolves the provider from scratch. Build a new `RainSdk`
+via `builder()` to change configuration.
 
 - **Suspend:** No
 
@@ -150,6 +153,7 @@ never names a vendor SDK itself.
 | Method | Description |
 |--------|-------------|
 | `rpcEndpoints(endpoints: Map<Int, String>)` | Sets the `chainId → RPC URL` map every provider shares. **Required.** |
+| `rpcEndpoints(configs: List<NetworkConfig>)` | Same, as `NetworkConfig` values (chain id + RPC URL + optional display name). Replaces rather than appends; a later duplicate `chainId` wins. |
 | `register(provider: RainProvider)` | Registers a provider adapter (e.g. `PortalProvider`, `TurnkeyProvider`). Re-registering the same id replaces the prior one. |
 | `registerTokens(tokens: List<TokenInfo>)` | Seeds the shared token store with extra token metadata. |
 | `rainApiEnvironment(environment: RainApiEnvironment)` | Selects the Rain issuing API environment. Defaults to `Dev`. |
@@ -157,8 +161,8 @@ never names a vendor SDK itself.
 | `build(): RainSdk` | Validates endpoints (fail-fast on a bad URL / chain id) and returns the SDK. Throws `RainError.InvalidConfig` if no RPC endpoints were configured, or the Rain API base URL does not parse. |
 
 Registering **zero** providers is allowed: the SDK is then wallet-agnostic, exposing
-`transactionBuilder` and the Rain API methods. Resolving `provider(id)` throws
-`RainError.InvalidConfig` until a provider is registered.
+the transaction-building methods and the Rain API methods. Resolving `provider(id)` throws
+`RainError.ProviderNotRegistered` until a provider is registered.
 
 ### Provider adapters
 
@@ -168,7 +172,7 @@ Each adapter is a `RainProvider` descriptor that owns its vendor SDK as a privat
 |---------|--------|--------|-------|
 | `PortalProvider(PortalConfig(sessionToken, chainId?))` | `rain-portal-android` | `sessionToken: String`, `chainId: Int?` | Portal MPC signer (EVM). Advertises `EXPORT`, `RECOVERY`. |
 | `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?))` | `rain-core-android` | `turnkey: TurnkeyContext`, `walletAddress: String?` | Turnkey P256 signer (EVM + Solana). Advertises `MULTI_CHAIN`, `BIOMETRIC_GATE`. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
-| `PrivyProvider(PrivyConfig(privy, walletAddress?))` | `rain-privy-android` | `privy: Privy`, `walletAddress: String?` | Privy embedded-wallet signer (EVM + Solana). Advertises `EXPORT`, `RECOVERY`. |
+| `PrivyProvider(PrivyConfig(privy, walletAddress?))` | `rain-privy-android` | `privy: Privy`, `walletAddress: String?` | Privy embedded-wallet signer (EVM + Solana). Advertises `EXPORT`, `RECOVERY`, `MULTI_CHAIN`. |
 
 #### Portal construction
 
@@ -178,11 +182,14 @@ vendor-shaped details are worth knowing:
 
 - **Storage backends.** portal-android registers backup storage at backup-call time, so the
   adapter passes none at construction.
-- **`chainId`.** `PortalConfig.chainId` feeds portal-android's legacy `legacyEthChainId`
-  constructor parameter.
+- **`chainId`.** `PortalConfig.chainId` feeds portal-android's **required** `legacyEthChainId`
+  constructor parameter, so the adapter must supply one; the field lets the host pick it instead of
+  guessing. Omit it and the adapter falls back to Avalanche mainnet when configured, else the first
+  configured chain. PortalSwift 7.x takes no such parameter, so iOS's `PortalConfig` has no
+  `chainId` — an intentional, vendor-imposed divergence, not a parity gap.
 
 **Bring your own provider:** implement the `WalletProvider` port and a `RainProvider` descriptor
-(with your own `ProviderId`), then `register(...)` it. Core needs no change — the `transactionBuilder`
+(with your own `ProviderId`), then `register(...)` it. Core needs no change — the transaction-building methods
 utilities are available regardless of which provider you register.
 
 ---
@@ -205,11 +212,11 @@ Money APIs are `BigDecimal`-first.
 
 ---
 
-### withdrawCollateral(chainId, addresses, amount, decimals, adminSignature, nonce, autoSend)
+### withdrawCollateral(chainId, addresses, amount, decimals, adminSignature, nonce)
 
-Full withdrawal flow. When `autoSend = true`, builds the transaction, signs via the backing
-provider, submits, and returns the transaction hash. When `autoSend = false`, returns prepared
-transaction data for manual submission.
+Full withdrawal flow: builds the transaction, signs via the backing provider, submits, and
+returns the transaction hash. Use [prepareWithdrawal](#preparewithdrawalchainid-addresses-amount-decimals-adminsignature-nonce)
+to build without broadcasting.
 
 On EVM chains this calls `withdrawAsset` on the Rain coordinator contract (EIP-712 admin
 signature + the Rain API signature). On Solana chains it drives Rain's on-chain collateral
@@ -219,7 +226,7 @@ verification of Rain's coordinator signature followed by the program's
 `withdraw_single_signer_collateral_asset` instruction. Only single-signer Solana collateral
 accounts are supported; the wallet must be the account's owner.
 
-- **Returns:** `RainWithdrawResult` — containing either `transactionHash` (if `autoSend=true`) or `transactionData` (if `autoSend=false`).
+- **Returns:** `String` — the transaction hash (EVM) or transaction signature (Solana).
 - **Throws:** `RainError` if construction, signing, or submission fails.
 - **Suspend:** Yes
 
@@ -228,10 +235,30 @@ accounts are supported; the wallet must be the account's owner.
 | `chainId` | `Int` | Target network chain ID (e.g. `43114`, or `901` for Solana devnet). |
 | `addresses` | `RainWithdrawAddresses` | All required addresses: proxy, controller, token, recipient. On Solana, `proxyAddress` is the collateral account, `tokenAddress` is the SPL mint, and `controllerAddress` is unused (the coordinator is read from the collateral account). |
 | `amount` | `BigDecimal` | Amount in human-readable token units (e.g. `BigDecimal("100.0")`). |
-| `decimals` | `Int` | Token decimals (e.g. 6 for USDC, 18 for most tokens). |
+| `decimals` | `Int` | Token decimals (e.g. 6 for USDC, 18 for most tokens). Load-bearing on every chain including Solana: it scales the amount and is **not** checked against the SPL mint, so pass the mint's real decimals. |
 | `adminSignature` | `RainAdminSignature` | Admin signature for authorization (salt, signature, expiresAt). |
 | `nonce` | `BigInteger?` | Optional nonce; if `null`, SDK resolves from contract. Ignored on Solana — the nonce always comes from the on-chain collateral account. |
-| `autoSend` | `Boolean` | If `true`, sign and send via the backing provider. If `false`, return raw transaction data. Defaults to `false`. |
+
+---
+
+### prepareWithdrawal(chainId, addresses, amount, decimals, adminSignature, nonce)
+
+Builds a collateral withdrawal without broadcasting it. Takes the same parameters as
+`withdrawCollateral`.
+
+This is **not** an offline build: it still prompts the wallet to sign EIP-712 (EVM) and reads the
+collateral's admin set on chain. On Solana it additionally fetches a recent blockhash and simulates
+the transaction.
+
+- **Returns:** `RainPreparedWithdrawal` — `Evm(RainTransactionParameters)` carrying a complete,
+  submittable transaction (`from` / `to` / `value` / `data`), or `Solana(UnsignedSolanaTransfer)`
+  carrying the serialized unsigned transaction plus its `recentBlockhash`.
+- **Throws:** `RainError` if construction or signing fails.
+- **Suspend:** Yes
+
+> A Solana blockhash is valid for roughly 150 slots (60–90 seconds). Submit promptly or re-prepare.
+
+Use `evmParameters` / `solanaTransfer` to read the payload without writing a `when`.
 
 ---
 
@@ -299,30 +326,10 @@ against the withdrawal controller. Nothing is broadcast.
 | `addresses` | `RainWithdrawAddresses` | All addresses required for the withdrawal (controller, proxy, token, recipient). |
 | `amount` | `BigDecimal` | Human-readable amount to withdraw. |
 | `decimals` | `Int` | Token decimals (e.g. 6 for USDC, 18 for most tokens). |
-| `salt` | `String` | Withdrawal signature salt (base64), from the Rain API. |
-| `signature` | `String` | Hex-encoded withdrawal signature, from the Rain API. |
-| `expiresAt` | `String` | Withdrawal signature expiry (ISO-8601), from the Rain API. |
+| `adminSignature` | `RainAdminSignature` | The withdrawal authorization from `RainSdk.fetchAdminSignature`. |
+| `nonce` | `BigInteger?` | Optional; pin the estimate to the nonce the withdrawal will sign. |
 
-A deprecated overload `estimateWithdrawalFee(chainId, addresses, amount: Double, decimals,
-adminSignature, nonce?)` returning `Double` delegates to this method and is slated for removal
-in the next major version.
-
----
-
-### composeTransactionParameters(walletAddress, contractAddress, transactionData)
-
-Composes a wallet-agnostic transaction parameter bag for a contract call. Pure helper —
-returns a Rain-owned `RainTransactionParameters` struct with `value` pre-set to `"0x0"`.
-Hosts can hand the result to any provider for signing / broadcast.
-
-- **Returns:** `RainTransactionParameters` — `from`, `to`, `value` (`"0x0"`), `data`.
-- **Suspend:** No
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `walletAddress` | `String` | Sender wallet address. |
-| `contractAddress` | `String` | Target contract address. |
-| `transactionData` | `String` | Hex-encoded calldata. |
+EVM only — throws on a Solana chain id.
 
 ---
 
@@ -344,7 +351,7 @@ Sends native tokens (e.g. AVAX) from the current wallet.
 
 ---
 
-### sendToken(chainId, contractAddress, toAddress, amount, decimals?)
+### sendToken(chainId, contractAddress, to, amount, decimals?)
 
 Sends ERC-20 tokens (EVM chains) or SPL tokens (Solana chains) from the current wallet.
 Routed by `chainId`.
@@ -353,15 +360,16 @@ Routed by `chainId`.
 - **Throws:** `RainError` if send fails.
 - **On Solana chains** (Rain IDs 900 mainnet / 901 devnet, SDK-internal 902 testnet):
   `contractAddress` is the SPL mint. The mint's own on-chain `decimals` are authoritative — the
-  `decimals` parameter is ignored — and a missing recipient token account is created in the
-  same transaction at the sender's expense.
+  `decimals` parameter is not used to scale the amount — and a missing recipient token account is
+  created in the same transaction at the sender's expense. This applies to `sendToken` only; see
+  `withdrawCollateral`, where `decimals` **is** load-bearing.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `chainId` | `Int` | Target network chain ID. |
 | `contractAddress` | `String` | ERC-20 token contract address, or the SPL mint on Solana. |
-| `toAddress` | `String` | Recipient wallet address. |
+| `to` | `String` | Recipient wallet address. |
 | `amount` | `BigDecimal` | Amount in human-readable form (e.g. `BigDecimal("100.0")` for 100 USDC). |
 | `decimals` | `Int?` | Optional token decimals. When `null` (the default), the SDK resolves the token's `decimals()` from its registry or an on-chain read, so callers don't have to track it. |
 
@@ -442,9 +450,11 @@ on-chain enrichment call. Retained across re-initialization; cleared by `reset()
 
 ---
 
-### generateAddressQRCode(address, width, height)
+### generateAddressQRCode(address, dimension)
 
-Generates an Android `Bitmap` containing a QR code for a wallet address.
+Generates a square QR code `Bitmap` encoding `address`, or the wallet's own address when `address`
+is `null`. Use it for any address the host needs to show — a chain-specific wallet address (the
+Solana account rather than the EVM one), or a Rain collateral deposit address.
 
 - **Returns:** `Bitmap` — QR code image.
 - **Throws:** `RainError` if wallet is unavailable or QR generation fails.
@@ -452,9 +462,8 @@ Generates an Android `Bitmap` containing a QR code for a wallet address.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `address` | `String?` | Address to encode. If `null`, uses current wallet address. |
-| `width` | `Int` | Output width in pixels. Defaults to `500`. |
-| `height` | `Int` | Output height in pixels. Defaults to `500`. |
+| `address` | `String?` | Address to encode. If `null`, uses the current wallet address. |
+| `dimension` | `Int` | Output width and height in pixels (the QR is square). Defaults to `256`. |
 
 ---
 
@@ -462,7 +471,7 @@ Generates an Android `Bitmap` containing a QR code for a wallet address.
 
 Fetches transaction history for the current wallet on the given network.
 
-- **Returns:** `RainTransactionResult` — containing a list of `RainTransaction`.
+- **Returns:** `List<RainTransaction>` — the transaction records. `value` is a `BigDecimal?` in human-readable units; null when decimals could not be resolved, with `rawValue` still populated.
 - **Throws:** `RainError` if transaction history cannot be retrieved.
 - **Suspend:** Yes
 
@@ -477,8 +486,10 @@ Fetches transaction history for the current wallet on the given network.
 
 ### reset()
 
-Clears this client's state (registered tokens + stored chain configuration). Idempotent. Prefer
-`RainSdk.reset()` to tear down the whole SDK.
+Clears this client's own state (its registered tokens). Idempotent. The chain configuration is
+owned by the `RainSdk` and shared with every other resolved client, so it deliberately survives —
+one client resetting must not deconfigure the others. Prefer `RainSdk.reset()` to tear down the
+whole SDK.
 
 - **Suspend:** No
 
@@ -498,6 +509,8 @@ old shape. Slated for removal in the next major version.
 | `getERC20Balances(chainId): Map<String, Double>` | `getTokenBalances(chainId)` | Drops the native entry; non-zero ERC-20s only, as `Double`. |
 | `getNativeBalance(chainId): Double` | `getBalance(chainId, Token.Native)` | Read `.decimalAmount` for exact precision. |
 | `getERC20Balance(chainId, tokenAddress, decimals?): Double` | `getBalance(chainId, Token.contract(tokenAddress))` | `decimals` argument ignored; SDK resolves decimals itself. |
+| `generateAddressQRCode(address, width, height)` | `generateAddressQRCode(address, dimension)` | A QR code is square; the two dimensions were always equal in practice. |
+| `composeTransactionParameters(walletAddress, contractAddress, transactionData)` | `RainSdk.buildTransactionParameters(...)` | Pure composition needs no resolved client; moved to `RainSdk`. |
 
 ---
 
@@ -515,51 +528,72 @@ a capability every provider has.
 | `BIOMETRIC_GATE` | Signing is gated behind a device biometric / passkey prompt. |
 
 Bundled providers: **Portal** → `EXPORT`, `RECOVERY`. **Turnkey** → `MULTI_CHAIN`, `BIOMETRIC_GATE`.
+**Privy** → `EXPORT`, `RECOVERY`, `MULTI_CHAIN`.
 
 ---
 
-## RainTransactionBuilder Methods
+## Wallet-agnostic transaction building
 
-Wallet-agnostic utility methods. Access via `rain.transactionBuilder`. These methods do **not**
-require a resolved provider — they can be used with any wallet or backend, backed only by the
-configured RPC endpoints.
+Available directly on `RainSdk`. These methods do **not** require a resolved provider — they can be
+used with any wallet or backend, backed only by the configured RPC endpoints.
 
-### getLatestNonce(rpcUrl, proxyAddress)
+### getLatestNonce(chainId, proxyAddress)
 
-Gets the latest nonce for a given proxy address from the contract.
+Reads the collateral's current admin nonce — the value `buildEIP712Message` binds when `nonce` is
+omitted.
 
 - **Returns:** `BigInteger` — the current nonce.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `rpcUrl` | `String` | RPC endpoint URL for the target network. |
+| `chainId` | `Int` | Target network chain ID; the RPC endpoint is resolved from it. |
 | `proxyAddress` | `String` | The collateral proxy contract address. |
 
 ---
 
-### buildEIP712Message(chainId, addresses, walletAddress, amount, decimals, nonce)
+### isCollateralAdmin(chainId, proxyAddress, walletAddress)
 
-Builds EIP-712 typed data for obtaining the admin signature required for withdrawals.
+Whether `walletAddress` is an admin of the collateral.
 
-- **Returns:** `Pair<String, ByteArray>` — serialized EIP-712 message and salt bytes.
+- **Returns:** `Boolean?` — the contract's answer, or `null` when the check could not run (RPC
+  failure, or a collateral exposing no `isAdmin`). Treat `null` as unknown and proceed, never as
+  "not authorized".
+- **Suspend:** Yes
+
+---
+
+### buildEIP712Message(chainId, walletAddress, addresses, amount, decimals, nonce)
+
+Builds the EIP-712 message the wallet signs to authorize a withdrawal, along with the salt bound
+into it.
+
+- **Returns:** `RainEIP712Message` — `message` (typed-data JSON), `salt` (32 raw bytes), and
+  `saltHex`. Feed `salt` straight back into `buildWithdrawTransactionData`; a re-generated salt
+  would not match the signature.
 - **Throws:** `RainError` if message construction fails or inputs are invalid.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `chainId` | `Int` | Target network chain ID. |
-| `addresses` | `RainWithdrawAddresses` | Proxy, controller, token, recipient addresses. |
 | `walletAddress` | `String` | User wallet address (used as `user` in EIP-712). |
+| `addresses` | `RainWithdrawAddresses` | Proxy, controller, token, recipient addresses. |
 | `amount` | `BigDecimal` | Amount in human-readable token units. |
 | `decimals` | `Int` | Token decimals. |
-| `nonce` | `BigInteger?` | Optional; if `null`, SDK fetches from contract. |
+| `nonce` | `BigInteger?` | Optional; if `null`, the SDK reads it from the contract. |
 
 ---
 
-### buildWithdrawTransactionData(addresses, amount, decimals, saltBytes, signatureData, adminSignature)
+### buildWithdrawTransactionData(addresses, amount, decimals, executorSignature, walletSalt, walletSignature)
 
-Builds ABI-encoded withdraw calldata for the collateral proxy contract.
+ABI-encodes the `withdrawAsset` call for the collateral controller. Pure encoding — no RPC, so it
+needs no chain ID.
+
+Two distinct salt/signature pairs go in, and the contract names them differently from Rain's API:
+`executorSignature` (what `fetchAdminSignature` returns) encodes into `_executorPublisherSalt` /
+`_executorPublisherSignature`, while the wallet's own pair encodes into `_adminSalts` /
+`_adminSignatures` — the wallet is an admin of the collateral.
 
 - **Returns:** `String` — hex-encoded calldata (e.g. `"0x..."`).
 - **Throws:** `RainError` if ABI encoding or validation fails.
@@ -569,9 +603,26 @@ Builds ABI-encoded withdraw calldata for the collateral proxy contract.
 | `addresses` | `RainWithdrawAddresses` | Proxy, controller, token, recipient addresses. |
 | `amount` | `BigDecimal` | Amount in human-readable token units. |
 | `decimals` | `Int` | Token decimals. |
-| `saltBytes` | `ByteArray` | Salt data (32 bytes) for the withdrawal authorization. |
-| `signatureData` | `String` | User/wallet signature from Rain API (hex string). |
-| `adminSignature` | `RainAdminSignature` | Admin signature (salt, signature, expiresAt). |
+| `executorSignature` | `RainAdminSignature` | Rain's authorization (salt, signature, expiresAt). |
+| `walletSalt` | `ByteArray` | `RainEIP712Message.salt`, unchanged (32 bytes). |
+| `walletSignature` | `String` | The wallet's hex signature over the EIP-712 message (65 bytes). |
+
+---
+
+### buildTransactionParameters(walletAddress, contractAddress, transactionData)
+
+Composes a wallet-agnostic transaction parameter bag for a contract call. Pure composition — no
+wallet provider and no RPC — returning a Rain-owned `RainTransactionParameters` struct with `value`
+pre-set to `"0x0"`. Hosts can hand the result to any provider for signing / broadcast.
+
+- **Returns:** `RainTransactionParameters` — `from`, `to`, `value` (`"0x0"`), `data`.
+- **Suspend:** No
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `walletAddress` | `String` | Sender wallet address. |
+| `contractAddress` | `String` | Target contract address. |
+| `transactionData` | `String` | Hex-encoded calldata. |
 
 ---
 
@@ -581,15 +632,17 @@ Builds ABI-encoded withdraw calldata for the collateral proxy contract.
 |------|-------------|
 | **`ProviderId`** | Value class wrapping a provider id string. Well-known constants: `PORTAL`, `TURNKEY`, `PRIVY`. Host apps can ship a custom id. |
 | **`Capability`** | Enum: `EXPORT`, `RECOVERY`, `MULTI_CHAIN`, `BIOMETRIC_GATE`. |
+| **`RainEIP712Message`** | `message`, `salt`, `saltHex`. Returned by `buildEIP712Message`. |
 | **`RainProvider`** | Registrable provider descriptor: `id`, `capabilities`, and a suspend `create(context)` that materializes the `WalletProvider`. Implemented by `PortalProvider`, `TurnkeyProvider`, and host-supplied providers. |
 | **`WalletProvider`** | The port each adapter implements. Public so hosts can ship their own wallet stack. |
 | **`RainWithdrawAddresses`** | `proxyAddress`, `controllerAddress`, `tokenAddress`, `recipientAddress`. Has `validated()` method for address checksumming. |
 | **`RainAdminSignature`** | `salt` (String), `signature` (hex String), `expiresAt` (String, ISO-8601). |
-| **`RainWithdrawResult`** | `transactionHash` (String?, present if auto-sent), `transactionData` (String?, present if not auto-sent). Has `isAutoSent` and `isTransactionData` helper properties. |
+| **`RainPreparedWithdrawal`** | Sealed: `Evm(parameters: RainTransactionParameters)` or `Solana(transfer: UnsignedSolanaTransfer)`. Has `evmParameters` / `solanaTransfer` accessors. |
 | **`RainTokenTransferResult`** | `transactionHash` (String). Returned by `sendNative` and `sendToken`. |
-| **`RainTransactionParameters`** | `from`, `to`, `value` (hex wei), `data` (hex calldata). Wallet-agnostic transaction parameter bag returned by `composeTransactionParameters`. |
-| **`RainTransaction`** | Transaction record: `hash`, `from`, `to`, `value`, `blockNumber`, `blockTimestamp`, `gas`, `gasPrice`, `chainId`, `symbol`, `tokenAddress`, `metadata`. |
-| **`RainTransactionResult`** | `transactions: List<RainTransaction>`. Returned by `getTransactions`. |
+| **`NetworkConfig`** | `chainId`, `rpcUrl`, `networkName?`; `eip155ChainId` renders `eip155:<chainId>`, and `NetworkConfig.fromEip155(...)` parses that form. Accepted by `Builder.rpcEndpoints(List<NetworkConfig>)`. |
+| **`RainTransactionParameters`** | `from`, `to`, `value` (hex wei), `data` (hex calldata). Wallet-agnostic transaction parameter bag returned by `RainSdk.buildTransactionParameters`. |
+| **`RainTransaction`** | Transaction record: `hash`, `uniqueId`, `blockNumber`, `timestamp`, `from`, `to`, `value`, `asset`, `tokenAddress`, `rawValue`, `decimals`, `category`, `chainId`, `metadata`. Identical in shape to the iOS type. |
+| **`RainTransactionCategory`** | Extensible constant: `External`, `Token`, `Erc20`, `Erc721`, `Erc1155`, `ContractInternal`. |
 | **`RainTransactionOrder`** | Enum: `.ASC`, `.DESC`. Used in `getTransactions(..., order:)`. |
 | **`RainChain`** | Constants: `AVALANCHE_MAINNET` (43114), `AVALANCHE_TESTNET` (43113). |
 
@@ -604,7 +657,7 @@ Format: `"RainSDK Error [CODE]: message"`
 | Code | Class | Meaning |
 |------|-------|---------|
 | `RAIN_101` | `RainError.SdkNotInitialized` | Operation called before the SDK's chain configuration was set up (i.e. before `build()`). |
-| `RAIN_102` | `RainError.InvalidConfig` | Invalid RPC URL, chain ID, or address format; no provider registered for the requested id; or no provider matched a capability. |
+| `RAIN_102` | `RainError.InvalidConfig` / `RainError.ProviderNotRegistered` | Invalid RPC URL, chain ID, or address format; no provider registered for the requested id; or no provider matched a capability. |
 | `RAIN_103` | `RainError.InvalidRpcUrl` | RPC URL could not be parsed as a valid URL. |
 | `RAIN_201` | `RainError.TokenExpired` | Provider session token expired or invalid. |
 | `RAIN_202` | `RainError.Unauthorized` | Invalid or missing token / permissions. |

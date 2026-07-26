@@ -14,6 +14,7 @@ import com.rain.sdk.internal.constants.SolanaPrograms
 import com.rain.sdk.internal.solana.SolanaTransactionBuilder
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransactionOrder
+import com.rain.sdk.models.RainTransactionCategory
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
@@ -474,14 +475,15 @@ class TurnkeySolanaProviderTest {
 
         val result = provider.getTransactions(devnet, limit = 10, order = RainTransactionOrder.DESC)
 
-        assertThat(result.transactions).hasSize(1)
-        val tx = result.transactions.single()
+        assertThat(result).hasSize(1)
+        val tx = result.single()
         assertThat(tx.hash).isEqualTo("sol-status-1") // Turnkey status id, not an on-chain signature
         assertThat(tx.from).isEqualTo(MockTurnkey.DEFAULT_SOLANA_ADDRESS)
         assertThat(tx.to).isEqualTo(MockTurnkey.DEFAULT_SOLANA_RECIPIENT)
-        assertThat(tx.value).isEqualTo("1")
-        assertThat(tx.symbol).isEqualTo("SOL")
-        assertThat(tx.chainId).isEqualTo(devnet.toString())
+        assertThat(tx.value!!.compareTo(BigDecimal("1"))).isEqualTo(0)
+        assertThat(tx.asset).isEqualTo("SOL")
+        assertThat(tx.chainId).isEqualTo(devnet)
+        assertThat(tx.category).isEqualTo(RainTransactionCategory.External)
         // History is sourced from the SOL_SEND activity filter, not chain RPC.
         assertThat(client.getActivitiesCalls.single().filterByType)
             .containsExactly(com.turnkey.types.V1ActivityType.ACTIVITY_TYPE_SOL_SEND_TRANSACTION)
@@ -506,7 +508,7 @@ class TurnkeySolanaProviderTest {
         )
         val provider = makeProvider(client = client)
 
-        assertThat(provider.getTransactions(devnet, limit = 10).transactions).isEmpty()
+        assertThat(provider.getTransactions(devnet, limit = 10)).isEmpty()
     }
 
     @Test
@@ -570,15 +572,17 @@ class TurnkeySolanaProviderTest {
             )
         )
 
-        val tx = makeProvider(client = client).getTransactions(devnet, limit = 10).transactions.single()
+        val tx = makeProvider(client = client).getTransactions(devnet, limit = 10).single()
 
         assertThat(tx.from).isEqualTo(MockTurnkey.DEFAULT_SOLANA_ADDRESS)
         // The recipient is reported as their wallet, not the token account the transfer targets.
         assertThat(tx.to).isEqualTo(recipientWallet)
-        assertThat(tx.value).isEqualTo("1.5")
+        assertThat(tx.value!!.compareTo(BigDecimal("1.5"))).isEqualTo(0)
         assertThat(tx.tokenAddress).isEqualTo(mint)
-        assertThat(tx.symbol).isNull()
-        assertThat(tx.metadata?.get("destinationTokenAccount")).isEqualTo(destinationAta)
+        assertThat(tx.asset).isNull()
+        assertThat(tx.category).isEqualTo(RainTransactionCategory.Token)
+        assertThat(tx.metadata?.destinationTokenAccount).isEqualTo(destinationAta)
+        assertThat(tx.metadata?.sourceTokenAccount).isNotNull()
     }
 
     @Test
@@ -617,11 +621,11 @@ class TurnkeySolanaProviderTest {
             )
         )
 
-        val tx = makeProvider(client = client).getTransactions(devnet, limit = 10).transactions.single()
+        val tx = makeProvider(client = client).getTransactions(devnet, limit = 10).single()
 
         // A real, lookup-able address beats reporting nothing.
         assertThat(tx.to).isEqualTo(destinationAta)
-        assertThat(tx.value).isEqualTo("2.5")
+        assertThat(tx.value!!.compareTo(BigDecimal("2.5"))).isEqualTo(0)
     }
 
     @Test
@@ -672,10 +676,10 @@ class TurnkeySolanaProviderTest {
             )
         )
 
-        val tx = makeProvider(client = client).getTransactions(devnet, limit = 10).transactions.single()
+        val tx = makeProvider(client = client).getTransactions(devnet, limit = 10).single()
 
         assertThat(tx.to).isEqualTo(recipientWallet)
-        assertThat(tx.value).isEqualTo("1.5")
+        assertThat(tx.value!!.compareTo(BigDecimal("1.5"))).isEqualTo(0)
         assertThat(tx.tokenAddress).isEqualTo(mint)
     }
 
@@ -722,7 +726,7 @@ class TurnkeySolanaProviderTest {
             )
         )
 
-        val tx = makeProvider(client = client).getTransactions(devnet, limit = 10).transactions.single()
+        val tx = makeProvider(client = client).getTransactions(devnet, limit = 10).single()
 
         // The row lists rather than showing as undecodable; the destination token account is the
         // best recoverable recipient and the unscaled amount stays in the metadata.
@@ -730,7 +734,7 @@ class TurnkeySolanaProviderTest {
         assertThat(tx.to).isEqualTo(Base58.encode(destination))
         assertThat(tx.value).isNull() // no decimals on the wire and no mint to read them from
         assertThat(tx.tokenAddress).isNull()
-        assertThat(tx.metadata?.get("rawAmount")).isEqualTo("250")
+        assertThat(tx.rawValue).isEqualTo("250")
     }
 
     // ---------- SPL transfers ----------

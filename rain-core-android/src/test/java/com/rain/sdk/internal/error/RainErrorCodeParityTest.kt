@@ -35,4 +35,46 @@ class RainErrorCodeParityTest {
         expected.forEach { (code, value) -> assertThat(code.code).isEqualTo(value) }
         assertThat(RainErrorCode.entries).hasSize(expected.size)
     }
+
+    @Test
+    fun `every error case maps to its published code`() {
+        val underlying = RuntimeException("boom")
+        // One instance per case; remapping any case to a different code fails here.
+        val cases: List<Pair<RainError, String>> = listOf(
+            RainError.SdkNotInitialized() to "RAIN_101",
+            RainError.InvalidConfig("x") to "RAIN_102",
+            RainError.ProviderNotRegistered("x") to "RAIN_102",
+            RainError.InvalidRpcUrl("x") to "RAIN_103",
+            RainError.ApiNotConfigured() to "RAIN_104",
+            RainError.TokenExpired() to "RAIN_201",
+            RainError.Unauthorized("x") to "RAIN_202",
+            RainError.NetworkError(cause = underlying) to "RAIN_301",
+            RainError.ApiError(500, "x") to "RAIN_302",
+            RainError.SignatureNotReady("pending", 30) to "RAIN_303",
+            RainError.NoCollateralContracts() to "RAIN_304",
+            RainError.UserRejected() to "RAIN_401",
+            RainError.InsufficientFunds() to "RAIN_402",
+            RainError.TransactionSimulationFailed(underlying) to "RAIN_403",
+            RainError.WalletUnavailable() to "RAIN_404",
+            RainError.WithdrawalRevertedByNetwork() to "RAIN_405",
+            RainError.InvalidAmount("1.005", "too many decimals") to "RAIN_406",
+            RainError.WalletNotAuthorized("0x1", "0x2") to "RAIN_407",
+            // Token-transfer failures reuse existing codes on purpose — see RainError.
+            RainError.InsufficientTokenBalance("2", "1", "mint") to "RAIN_402",
+            RainError.TokenAccountNotFound("wallet", "mint") to "RAIN_402",
+            RainError.TokenNotFound("mint", 103) to "RAIN_102",
+            RainError.InvalidRecipient("addr", "because") to "RAIN_102",
+            RainError.ProviderError(underlying) to "RAIN_501",
+            RainError.InternalError("x") to "RAIN_502",
+        )
+
+        cases.forEach { (error, code) ->
+            assertThat(error.errorCode.code).isEqualTo(code)
+        }
+
+        // A case added to the sealed hierarchy but not listed above fails here.
+        assertThat(cases.map { it.first::class }.toSet())
+            .isEqualTo(RainError::class.sealedSubclasses.toSet())
+        assertThat(cases).hasSize(24)
+    }
 }

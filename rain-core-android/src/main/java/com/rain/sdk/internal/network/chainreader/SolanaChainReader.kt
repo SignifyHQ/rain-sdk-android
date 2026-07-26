@@ -15,6 +15,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
+import java.math.BigDecimal
 import java.math.BigInteger
 
 /**
@@ -36,11 +37,11 @@ internal class SolanaChainReader(
         solanaRpcClient: SolanaRpcClient = SolanaRpcClient()
     ) : this(solanaRpcClient, { rpcEndpoints[it] })
 
-    override suspend fun getNativeBalance(chainId: Int, walletAddress: String): Double {
+    override suspend fun getNativeBalance(chainId: Int, walletAddress: String): BigDecimal {
         val rpcUrl = resolveRpcUrl(chainId)
         validateAddress(walletAddress)
         val lamports = solanaRpcClient.getBalanceLamports(rpcUrl, walletAddress)
-        return com.rain.sdk.internal.solana.SolanaConverter.lamportsToSol(lamports).toDouble()
+        return com.rain.sdk.internal.solana.SolanaConverter.lamportsToSol(lamports)
     }
 
     override suspend fun getBalance(
@@ -180,9 +181,8 @@ internal class SolanaChainReader(
         tokenAddress: String,
         walletAddress: String,
         decimals: Int?
-    ): Double = getBalance(chainId, walletAddress, Token.contract(tokenAddress), null)
+    ): BigDecimal = getBalance(chainId, walletAddress, Token.contract(tokenAddress), null)
         .decimalAmount
-        .toDouble()
 
     /** A mint's scale, read from the mint account. */
     override suspend fun getDecimals(chainId: Int, tokenAddress: String): Int {

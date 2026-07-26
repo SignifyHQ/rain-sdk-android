@@ -13,4 +13,8 @@ object RainChain {
     const val SOLANA_MAINNET = 900
     const val SOLANA_TESTNET = 902
     const val SOLANA_DEVNET = 901
+
+    /** True when [chainId] is one of Rain's Solana sentinel chain IDs. */
+    fun isSolana(chainId: Int): Boolean =
+        chainId == SOLANA_MAINNET || chainId == SOLANA_TESTNET || chainId == SOLANA_DEVNET
 }

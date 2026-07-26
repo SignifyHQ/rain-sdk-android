@@ -7,6 +7,7 @@ import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.RainPreparedWithdrawal
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain
@@ -41,9 +42,12 @@ class CollateralWithdrawViewModel(
                     .firstOrNull { chain.ownsCollateralContract(it.chainId) }
                 if (contract == null) {
                     SampleLog.w("Withdraw.contract", "no collateral contract for ${chain.displayName}")
+                    // Clear the previous chain's tokens so a failed switch shows nothing stale.
                     _state.update {
                         it.copy(
                             isLoadingContract = false,
+                            availableTokens = emptyList(),
+                            selectedTokenIndex = -1,
                             errorText = "No collateral contract on ${chain.displayName}"
                         )
                     }
@@ -64,7 +68,7 @@ class CollateralWithdrawViewModel(
                         symbol = token.symbol ?: "",
                         address = token.address,
                         decimals = token.decimals ?: 6,
-                        balance = token.balanceAmount?.toDouble() ?: 0.0
+                        balance = token.balanceAmount ?: BigDecimal.ZERO
                     )
                 }
 
@@ -87,6 +91,8 @@ class CollateralWithdrawViewModel(
                 _state.update {
                     it.copy(
                         isLoadingContract = false,
+                        availableTokens = emptyList(),
+                        selectedTokenIndex = -1,
                         errorText = e.message ?: "Unknown error"
                     )
                 }
@@ -122,38 +128,129 @@ class CollateralWithdrawViewModel(
     }
 
     /**
+     * Builds the withdrawal without broadcasting it, and shows what came back. The EVM case is a
+     * complete transaction (from/to/value/data); the Solana case is the serialized unsigned
+     * transaction plus the blockhash it was simulated against.
+     */
+    fun prepareWithdrawal(amountOverride: BigDecimal? = null) {
+        runWithdrawFlow(amountOverride, "Withdraw.prepare") { addresses, amountBd, token, adminSig ->
+            val prepared = rainClient.prepareWithdrawal(
+                chainId = _state.value.chainId,
+                addresses = addresses,
+                amount = amountBd,
+                decimals = token.decimals,
+                adminSignature = adminSig
+            )
+
+            val summary = when (prepared) {
+                is RainPreparedWithdrawal.Evm -> prepared.parameters.let {
+                    "EVM transaction\nto: ${it.to}\nvalue: ${it.value}\ndata: ${truncate(it.data)}"
+                }
+                is RainPreparedWithdrawal.Solana -> prepared.transfer.let {
+                    "Solana transaction\nblockhash: ${it.recentBlockhash}\n" +
+                        "creates recipient account: ${it.createsRecipientAccount}\n" +
+                        "tx: ${truncate(it.transactionHex)}"
+                }
+            }
+            // Nothing was broadcast, so the signature is still good — keep it cached.
+            _state.update { it.copy(isWithdrawing = false, preparedWithdrawal = summary) }
+        }
+    }
+
+    /**
+     * Estimates the withdrawal fee without broadcasting. EVM only — the SDK throws on a Solana
+     * chain id, which the UI surfaces as-is.
+     */
+    fun estimateFee(amountOverride: BigDecimal? = null) {
+        runWithdrawFlow(amountOverride, "Withdraw.estimate") { addresses, amountBd, token, adminSig ->
+            val fee = rainClient.estimateWithdrawalFee(
+                chainId = _state.value.chainId,
+                addresses = addresses,
+                amount = amountBd,
+                decimals = token.decimals,
+                adminSignature = adminSig
+            )
+            _state.update {
+                it.copy(
+                    isWithdrawing = false,
+                    estimatedFee = "${fee.stripTrailingZeros().toPlainString()} ${nativeSymbol()}"
+                )
+            }
+        }
+    }
+
+    private fun truncate(value: String): String =
+        if (value.length > 40) "${value.take(24)}…${value.takeLast(12)}" else value
+
+    private fun nativeSymbol(): String =
+        WalletChain.entries.firstOrNull { it.chainId == _state.value.chainId }?.nativeSymbol ?: ""
+
+    /**
      * Executes a collateral withdrawal. Gas estimation is handled internally by the SDK as
-     * part of sending (autoSend=true), so it isn't surfaced to the caller.
+     * part of sending, so it isn't surfaced to the caller.
      *
      * @param amountOverride when set (e.g. "Withdraw Maximum"), withdraws this amount instead
      *   of the value typed into the amount field.
      */
-    fun executeWithdraw(amountOverride: Double? = null) {
+    fun executeWithdraw(amountOverride: BigDecimal? = null) {
+        runWithdrawFlow(amountOverride, "Withdraw.execute") { addresses, amountBd, token, adminSig ->
+            val txHash = rainClient.withdrawCollateral(
+                chainId = _state.value.chainId,
+                addresses = addresses,
+                amount = amountBd,
+                decimals = token.decimals,
+                adminSignature = adminSig
+            )
+
+            SampleLog.i("Withdraw.execute", "success — txHash=$txHash")
+            // The signature is consumed by a broadcast; clear it so the next withdraw refetches.
+            _state.update {
+                it.copy(
+                    isWithdrawing = false,
+                    withdrawResult = txHash,
+                    adminSignature = null,
+                    signatureKey = null
+                )
+            }
+        }
+    }
+
+    /**
+     * Shared prep for every withdrawal-shaped call: validate the amount, resolve (and cache) the
+     * admin signature for these exact inputs, then hand the pieces to [action]. Each of the three
+     * SDK entry points differs only in what it does with them.
+     */
+    private fun runWithdrawFlow(
+        amountOverride: BigDecimal?,
+        tag: String,
+        action: suspend (
+            addresses: RainWithdrawAddresses,
+            amountBd: BigDecimal,
+            token: WithdrawTokenOption,
+            adminSig: RainAdminSignature
+        ) -> Unit
+    ) {
         val current = _state.value
         val token = current.selectedToken ?: return
-        val rawAmount = amountOverride ?: current.amount.toDoubleOrNull()
-        if (rawAmount == null || rawAmount <= 0) {
+        val rawAmount = amountOverride ?: current.amount.toBigDecimalOrNull()
+        if (rawAmount == null || rawAmount.signum() <= 0) {
             _state.update { it.copy(errorText = "Enter a valid amount") }
             return
         }
-        // Normalize to the token's precision (round DOWN) so:
-        //  1. the SDK's scale guard (RainAmountUtils.toBaseUnits throws if scale > decimals)
-        //     never trips on a long Double fraction, and
-        //  2. the amount we sign for, the base units we send, and the on-chain tx all agree.
-        // Rounding down also keeps "Withdraw Maximum" at or below the available balance.
-        val amountBd = BigDecimal.valueOf(rawAmount).setScale(token.decimals, RoundingMode.DOWN)
-        val amount = amountBd.toDouble()
-        if (amount <= 0) {
+        // Normalize to the token's precision (round DOWN) so the SDK's scale guard never trips
+        // and the signed amount, base units, and on-chain tx all agree.
+        val amountBd = rawAmount.setScale(token.decimals, RoundingMode.DOWN)
+        if (amountBd.signum() <= 0) {
             _state.update { it.copy(errorText = "Amount is below the token's minimum unit") }
             return
         }
-        // UI-side guard: never request more than the token's available balance. A tiny epsilon
-        // absorbs floating-point display rounding so an exact "max" amount isn't rejected.
-        if (amount > token.balance + 1e-9) {
+        // UI-side guard: never request more than the token's available balance. BigDecimal
+        // end-to-end, so "max" compares exactly — no epsilon needed.
+        if (amountBd > token.balance) {
             _state.update {
                 it.copy(
                     errorText = "Amount exceeds available balance " +
-                        "(${"%.6f".format(token.balance)} ${token.symbol})"
+                        "(${token.balanceDisplay} ${token.symbol})"
                 )
             }
             return
@@ -163,11 +260,16 @@ class CollateralWithdrawViewModel(
             return
         }
 
-        SampleLog.i(
-            "Withdraw.execute",
-            "token=${token.symbol} amount=$amount to=${current.recipientAddress}"
-        )
-        _state.update { it.copy(isWithdrawing = true, errorText = null, withdrawResult = null) }
+        SampleLog.i(tag, "token=${token.symbol} amount=${amountBd.toPlainString()} to=${current.recipientAddress}")
+        _state.update {
+            it.copy(
+                isWithdrawing = true,
+                errorText = null,
+                withdrawResult = null,
+                preparedWithdrawal = null,
+                estimatedFee = null
+            )
+        }
 
         viewModelScope.launch {
             try {
@@ -205,7 +307,7 @@ class CollateralWithdrawViewModel(
                             recipientAddress = current.recipientAddress
                         )
                     } catch (e: RainError) {
-                        SampleLog.e("Withdraw.execute", "fetchAdminSignature failed: ${e.message}", e)
+                        SampleLog.e(tag, "fetchAdminSignature failed: ${e.message}", e)
                         throw Exception(friendlySignatureError(e))
                     }
                 }
@@ -221,30 +323,13 @@ class CollateralWithdrawViewModel(
                     recipientAddress = current.recipientAddress
                 )
 
-                val result = rainClient.withdrawCollateral(
-                    chainId = current.chainId,
-                    addresses = addresses,
-                    amount = amountBd,
-                    decimals = token.decimals,
-                    adminSignature = adminSig,
-                    autoSend = true
-                )
-
-                SampleLog.i("Withdraw.execute", "success — txHash=${result.transactionHash}")
-                _state.update {
-                    it.copy(
-                        isWithdrawing = false,
-                        withdrawResult = result.transactionHash ?: "No tx hash returned",
-                        adminSignature = null,
-                        signatureKey = null
-                    )
-                }
+                action(addresses, amountBd, token, adminSig)
             } catch (e: Exception) {
-                SampleLog.e("Withdraw.execute", "failed: ${e.message}", e)
+                SampleLog.e(tag, "failed: ${e.message}", e)
                 _state.update {
                     it.copy(
                         isWithdrawing = false,
-                        errorText = "Withdrawal failed: ${e.message}"
+                        errorText = "${e.message}"
                     )
                 }
             }
@@ -276,9 +361,12 @@ data class WithdrawTokenOption(
     val symbol: String,
     val address: String,
     val decimals: Int,
-    val balance: Double
+    val balance: BigDecimal
 ) {
     val displayName: String get() = if (symbol.isNotBlank()) "$name ($symbol)" else name
+
+    /** Full-precision balance for display — plain notation, no trailing zeros. */
+    val balanceDisplay: String get() = balance.stripTrailingZeros().toPlainString()
 }
 
 /**
@@ -308,21 +396,25 @@ data class CollateralWithdrawUiState(
     val isLoadingContract: Boolean = false,
     val isWithdrawing: Boolean = false,
     val withdrawResult: String? = null,
+    /** Summary of the last `prepareWithdrawal` result — nothing was broadcast. */
+    val preparedWithdrawal: String? = null,
+    /** Fee from the last `estimateWithdrawalFee` call, in the chain's native token. */
+    val estimatedFee: String? = null,
     val errorText: String? = null
 ) {
     val selectedToken: WithdrawTokenOption?
         get() = availableTokens.getOrNull(selectedTokenIndex)
 
     /** Parsed amount, or null if the field is blank/non-numeric. */
-    private val parsedAmount: Double?
-        get() = amount.toDoubleOrNull()
+    private val parsedAmount: BigDecimal?
+        get() = amount.toBigDecimalOrNull()
 
     /** True when the typed amount is positive and within the selected token's balance. */
     val isAmountValid: Boolean
         get() {
             val token = selectedToken ?: return false
             val value = parsedAmount ?: return false
-            return value > 0 && value <= token.balance + 1e-9
+            return value.signum() > 0 && value <= token.balance
         }
 
     /** True when the typed amount exceeds the selected token's available balance. */
@@ -330,7 +422,7 @@ data class CollateralWithdrawUiState(
         get() {
             val token = selectedToken ?: return false
             val value = parsedAmount ?: return false
-            return value > token.balance + 1e-9
+            return value > token.balance
         }
 }
 

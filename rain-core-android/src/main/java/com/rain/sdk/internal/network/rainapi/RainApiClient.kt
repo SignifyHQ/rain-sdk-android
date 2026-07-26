@@ -64,10 +64,17 @@ internal class RainApiClient(
         if (token.isNullOrBlank()) {
             throw RainError.NetworkError("Create session returned no token")
         }
-        val expiresAt = json.stringOrNull("expiresAt")
-            ?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        val expiresAt = json.stringOrNull("expiresAt")?.let(::parseInstantLenient)
         return RainSession(token = token, expiresAt = expiresAt)
     }
+
+    /**
+     * Parses an ISO-8601 timestamp accepting both `Z` and offset forms (`+00:00`); a strict
+     * [Instant.parse] alone would silently degrade offset forms to the fallback session TTL.
+     */
+    private fun parseInstantLenient(value: String): Instant? =
+        runCatching { Instant.parse(value) }.getOrNull()
+            ?: runCatching { java.time.OffsetDateTime.parse(value).toInstant() }.getOrNull()
 
     /** `GET /v1/issuing/users/{userId}/contracts` (CST auth). Tokens are not yet enriched. */
     suspend fun getContracts(baseUrl: String, cst: String, userId: String): List<RainCollateralContract> {

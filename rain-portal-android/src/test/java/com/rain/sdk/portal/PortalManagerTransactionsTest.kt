@@ -79,7 +79,7 @@ class PortalManagerTransactionsTest {
     )
 
     @Test
-    fun `native transfer symbol resolves from the chain's native currency`() = runBlocking {
+    fun `native transfer asset resolves from the chain's native currency`() = runBlocking {
         val portal = mockk<Portal>(relaxed = true)
         coEvery {
             portal.api.getTransactions(any(), any(), any(), any())
@@ -90,8 +90,8 @@ class PortalManagerTransactionsTest {
 
         val result = managerWith(portal).getTransactions(chainId = 43114, tokenStore = tokenStore)
 
-        assertThat(result.transactions).hasSize(1)
-        assertThat(result.transactions.single().symbol).isEqualTo("AVAX")
+        assertThat(result).hasSize(1)
+        assertThat(result.single().asset).isEqualTo("AVAX")
     }
 
     @Test
@@ -111,9 +111,9 @@ class PortalManagerTransactionsTest {
 
         val result = managerWith(portal).getTransactions(chainId = 43114, tokenStore = tokenStore)
 
-        assertThat(result.transactions).hasSize(1)
-        val transaction = result.transactions.single()
-        assertThat(transaction.symbol).isNull()
+        assertThat(result).hasSize(1)
+        val transaction = result.single()
+        assertThat(transaction.asset).isNull()
         assertThat(transaction.tokenAddress).isEqualTo(contractAddress)
     }
 
@@ -134,13 +134,13 @@ class PortalManagerTransactionsTest {
 
         val result = managerWith(portal).getTransactions(chainId = 43114, tokenStore = tokenStore)
 
-        assertThat(result.transactions).hasSize(5)
+        assertThat(result).hasSize(5)
         // Rows carry rawContract.decimal, so only symbol() is needed — once for the one address.
         coVerify(exactly = 1) { portal.request(any(), any(), any(), null as RequestOptions?) }
     }
 
     @Test
-    fun `native transfer symbol is null for a chain the registry does not know`() = runBlocking {
+    fun `native transfer asset is null for a chain the registry does not know`() = runBlocking {
         val unknownChainId = 999999
         val portal = mockk<Portal>(relaxed = true)
         coEvery {
@@ -151,7 +151,7 @@ class PortalManagerTransactionsTest {
 
         val result = managerWith(portal).getTransactions(chainId = unknownChainId, tokenStore = tokenStore)
 
-        assertThat(result.transactions).hasSize(1)
-        assertThat(result.transactions.single().symbol).isNull()
+        assertThat(result).hasSize(1)
+        assertThat(result.single().asset).isNull()
     }
 }

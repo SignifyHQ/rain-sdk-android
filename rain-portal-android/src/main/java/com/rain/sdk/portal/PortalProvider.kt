@@ -7,6 +7,7 @@ import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
 import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.provider.RainProvider
+import io.portalhq.android.Portal
 import io.portalhq.android.mpc.data.FeatureFlags
 
 /**
@@ -26,10 +27,20 @@ class PortalConfig(
  *
  * Lives in the `rain-portal-android` module and owns the `portal-android` dependency as a private
  * detail. Core never imports Portal; linking this module is what pulls Portal onto the classpath.
+ *
+ * @param onPortalCreated Optional hook invoked with the underlying [Portal] instance once it is
+ *   constructed during resolution, for Portal-specific APIs like `backupWallet`/`recoverWallet`.
  */
-class PortalProvider(
+class PortalProvider internal constructor(
     private val config: PortalConfig,
+    private val onPortalCreated: ((Portal) -> Unit)?,
+    private val portalManagerFactory: () -> PortalManager,
 ) : RainProvider {
+
+    constructor(
+        config: PortalConfig,
+        onPortalCreated: ((Portal) -> Unit)? = null,
+    ) : this(config, onPortalCreated, ::PortalManager)
 
     override val id: ProviderId get() = ProviderId.PORTAL
 
@@ -58,7 +69,7 @@ class PortalProvider(
                 rpcEndpoints.keys.first()
             }
 
-        val portalManager = PortalManager()
+        val portalManager = portalManagerFactory()
         portalManager.initialize(
             apiKey = config.sessionToken,
             legacyEthChainId = legacyChainId,
@@ -66,6 +77,7 @@ class PortalProvider(
             featureFlags = FeatureFlags(isMultiBackupEnabled = true),
             autoApprove = true,
         )
+        onPortalCreated?.invoke(portalManager.getPortalInstance())
 
         return PortalWalletProvider(portalManager, context.tokenStore)
     }

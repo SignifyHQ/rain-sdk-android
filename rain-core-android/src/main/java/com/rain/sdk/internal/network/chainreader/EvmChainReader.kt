@@ -14,6 +14,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
+import java.math.BigDecimal
 
 /**
  * EVM implementation of [ChainReader].
@@ -46,7 +47,7 @@ internal class EvmChainReader(
         jsonRpcClient: JsonRpcClient = JsonRpcClient()
     ) : this(jsonRpcClient, { rpcEndpoints[it] })
 
-    override suspend fun getNativeBalance(chainId: Int, walletAddress: String): Double {
+    override suspend fun getNativeBalance(chainId: Int, walletAddress: String): BigDecimal {
         val rpcUrl = resolveRpcUrl(chainId)
         validateAddress(walletAddress, "wallet address")
         val hex = jsonRpcClient.callForHexResult(
@@ -54,7 +55,7 @@ internal class EvmChainReader(
             method = "eth_getBalance",
             params = listOf(walletAddress, "latest")
         )
-        return EthereumConverter.convertHexToDecimal(hex, DEFAULT_NATIVE_DECIMALS).toDouble()
+        return EthereumConverter.convertHexToDecimal(hex, DEFAULT_NATIVE_DECIMALS)
     }
 
     override suspend fun getERC20Balance(
@@ -62,7 +63,7 @@ internal class EvmChainReader(
         tokenAddress: String,
         walletAddress: String,
         decimals: Int?
-    ): Double {
+    ): BigDecimal {
         val rpcUrl = resolveRpcUrl(chainId)
         validateAddress(walletAddress, "wallet address")
         validateAddress(tokenAddress, "token address")
@@ -76,7 +77,7 @@ internal class EvmChainReader(
         return EthereumConverter.convertHexToDecimal(
             hex,
             decimals ?: RainClient.DEFAULT_ERC20_DECIMALS
-        ).toDouble()
+        )
     }
 
     override suspend fun getBalances(

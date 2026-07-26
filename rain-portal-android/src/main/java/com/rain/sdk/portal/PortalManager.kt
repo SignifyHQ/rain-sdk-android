@@ -11,7 +11,7 @@ import com.rain.sdk.utils.EthereumConverter
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
-import com.rain.sdk.models.RainTransactionResult
+import com.rain.sdk.models.RainTransactionCategory
 import com.rain.sdk.models.Token
 import java.math.BigInteger
 import io.portalhq.android.api.data.GetTransactionsOrder
@@ -267,7 +267,7 @@ internal class PortalManager {
    * @param limit Optional maximum number of transactions to return
    * @param offset Optional number of transactions to skip for pagination
    * @param order Optional sort order (ASC or DESC)
-   * @return RainTransactionResult containing the list of transactions
+   * @return the mapped transactions
    */
   suspend fun getTransactions(
     chainId: Int,
@@ -275,7 +275,7 @@ internal class PortalManager {
     limit: Int? = null,
     offset: Int? = null,
     order: RainTransactionOrder? = null
-  ): RainTransactionResult {
+  ): List<RainTransaction> {
     val portal = getPortalInstance()
     val eip155ChainId = "${PortalNamespace.EIP155.value}:$chainId"
 
@@ -298,26 +298,25 @@ internal class PortalManager {
       val metadata = fetchErc20Metadata(portalTransactions, portal, eip155ChainId)
       val nativeSymbol = tokenStore.nativeCurrencyOrNull(chainId)?.symbol
 
-      val rainTransactions = portalTransactions.map { tx ->
+      portalTransactions.map { tx ->
         val contractAddress = tx.rawContract?.address
         val entry = contractAddress?.let { metadata[it.lowercase()] }
         RainTransaction(
           hash = tx.hash,
+          uniqueId = tx.uniqueId,
           blockNumber = tx.blockNum,
-          blockTimestamp = tx.metadata?.blockTimestamp,
+          timestamp = tx.metadata?.blockTimestamp,
           from = tx.from,
           to = tx.to,
           value = resolveTransactionValue(tx, entry?.decimals),
-          gas = null,
-          gasPrice = null,
-          chainId = tx.chainId.toString(),
-          symbol = if (contractAddress == null) nativeSymbol else entry?.symbol,
+          asset = if (contractAddress == null) nativeSymbol else entry?.symbol,
           tokenAddress = contractAddress,
-          metadata = null
+          rawValue = tx.rawContract?.value,
+          decimals = tx.rawContract?.decimal?.toIntOrNull() ?: entry?.decimals,
+          category = tx.category?.let { RainTransactionCategory(it) },
+          chainId = tx.chainId
         )
       }
-
-      RainTransactionResult(transactions = rainTransactions)
     } catch (e: Exception) {
       if (e is CancellationException) throw e
       Timber.e(e, "Rain SDK: Failed to get transactions for chainId=$chainId")
@@ -552,9 +551,10 @@ internal class PortalManager {
    * Prefers tx.value, falls back to rawContract hex value / decimal, then to the pre-resolved
    * on-chain `decimals` for the contract.
    */
-  private fun resolveTransactionValue(tx: Transaction, resolvedDecimals: Int?): String? {
-    // If Portal already provides a parsed value, use it
-    tx.value?.let { return it.toString() }
+  private fun resolveTransactionValue(tx: Transaction, resolvedDecimals: Int?): BigDecimal? {
+    // If Portal already provides a parsed value, use it. Portal types it as a Double, so
+    // round-trip through its printed form rather than the binary float.
+    tx.value?.let { return runCatching { BigDecimal(it.toString()) }.getOrNull() }
 
     // Fallback: parse rawContract hex value with its decimal
     val rawContract = tx.rawContract ?: return null
@@ -563,7 +563,7 @@ internal class PortalManager {
     val decimal = rawContract.decimal?.toIntOrNull() ?: resolvedDecimals ?: return null
 
     return try {
-      EthereumConverter.convertHexToDecimal(hexValue, decimal).toPlainString()
+      EthereumConverter.convertHexToDecimal(hexValue, decimal)
     } catch (e: Exception) {
       Timber.w(e, "Rain SDK: Failed to parse rawContract value=$hexValue decimal=$decimal")
       null

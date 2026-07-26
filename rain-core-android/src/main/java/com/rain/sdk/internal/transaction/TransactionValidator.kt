@@ -18,22 +18,30 @@ internal class TransactionValidator {
      * @throws RainError.InvalidConfig for a non-positive chainId
      * @throws RainError.InvalidAmount for a non-positive amount or negative decimals
      */
-    fun validateWithdrawRequest(request: WithdrawCollateralRequest) {
-        if (request.chainId <= 0) {
-            throw RainError.InvalidConfig("Invalid chainId: ${request.chainId}. Must be a positive integer.")
+    fun validateWithdrawRequest(request: WithdrawCollateralRequest) =
+        validateWithdrawRequest(request.chainId, request.amount, request.decimals)
+
+    /**
+     * Chain-family-agnostic form, callable before a wallet address has been resolved. Both the EVM
+     * and Solana withdrawal paths run this, so neither can compose a transaction from parameters
+     * that cannot produce a valid one.
+     */
+    fun validateWithdrawRequest(chainId: Int, amount: BigDecimal, decimals: Int) {
+        if (chainId <= 0) {
+            throw RainError.InvalidConfig("Invalid chainId: $chainId. Must be a positive integer.")
         }
 
-        if (request.amount <= BigDecimal.ZERO) {
+        if (amount <= BigDecimal.ZERO) {
             throw RainError.InvalidAmount(
-                request.amount.toPlainString(),
+                amount.toPlainString(),
                 "amount must be greater than zero"
             )
         }
 
-        if (request.decimals < 0) {
+        if (decimals < 0) {
             throw RainError.InvalidAmount(
-                request.amount.toPlainString(),
-                "decimals must be non-negative, got ${request.decimals}"
+                amount.toPlainString(),
+                "decimals must be non-negative, got $decimals"
             )
         }
     }

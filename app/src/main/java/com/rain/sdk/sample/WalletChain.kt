@@ -1,6 +1,7 @@
 package com.rain.sdk.sample
 
 import com.rain.sdk.RainChain
+import com.rain.sdk.models.TokenInfo
 
 /**
  * The wallet/chain the sample app is currently operating on, selected via the Home-screen
@@ -74,6 +75,17 @@ enum class WalletChain(
 
     /** What the token-address field holds on this chain: a contract on EVM, a mint on Solana. */
     val tokenAddressLabel: String get() = if (isSolana) "Token Mint Address" else "Token Contract Address"
+
+    // Naming for [defaultTokenAddress], registered with the SDK at build time. An SPL mint has
+    // no on-chain symbol and the built-in EVM registry is mainnet-only.
+    val defaultTokenInfo: TokenInfo
+        get() = TokenInfo(
+            chainId,
+            defaultTokenAddress,
+            "USDC",
+            6,
+            if (isSolana) "USD Coin (devnet)" else "USDC"
+        )
 
     /**
      * True when a Rain collateral contract on [contractChainId] belongs to this wallet. Solana

@@ -4,11 +4,11 @@ import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.interfaces.RainTransactionBuilder
 import com.rain.sdk.internal.utils.RainAmountUtils
 import com.rain.sdk.internal.utils.RainEip712Utils
-import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.constants.RainConstants
 import com.rain.sdk.internal.network.Web3jProvider
 import com.rain.sdk.internal.utils.RainHexUtils
 import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.RainEIP712Message
 import com.rain.sdk.models.RainWithdrawAddresses
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -35,21 +35,28 @@ import java.time.Instant
 import java.util.Base64
 import kotlin.time.ExperimentalTime
 
-internal object RainTransactionBuilderImpl : RainTransactionBuilder {
+/**
+ * Withdrawal-building primitives bound to one [RainSdk][com.rain.sdk.RainSdk]'s chain
+ * configuration.
+ *
+ * Instance-scoped, not a singleton: two SDKs configured with different endpoints must not read
+ * each other's. [web3jFactory] is injectable for tests.
+ */
+internal class RainTransactionBuilderImpl(
+  private val rpcEndpoints: Map<Int, String>,
+  private val web3jFactory: (String) -> Web3j = { url -> Web3jProvider.getOrCreate(url) }
+) : RainTransactionBuilder {
 
-  // Delegate for Web3j creation, allowing injection during tests
-  internal var web3jFactory: (String) -> Web3j = { url -> Web3jProvider.getOrCreate(url) }
-
-  internal fun resetFactory() {
-    // Use real network for this test
-    web3jFactory = { url -> Web3jProvider.getOrCreate(url) }
-  }
+  /** Resolves the configured RPC endpoint for [chainId], or fails with a precise config error. */
+  private fun requireRpcUrl(chainId: Int): String =
+    rpcEndpoints[chainId]
+      ?: throw RainError.InvalidConfig("No RPC endpoint configured for chainId $chainId")
 
   override suspend fun getLatestNonce(
-    rpcUrl: String,
+    chainId: Int,
     proxyAddress: String
   ): BigInteger {
-    val web3j = web3jFactory(rpcUrl)
+    val web3j = web3jFactory(requireRpcUrl(chainId))
     try {
       val validProxyAddress = RainHexUtils.validateAndChecksum(proxyAddress, "proxyAddress")
 
@@ -72,8 +79,12 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
         throw RainError.InternalError("RPC Error: ${response.error.message}")
       }
 
+      // Never default to zero: a zero nonce would produce a validly signed but wrong withdrawal.
       return FunctionReturnDecoder.decode(response.value, function.outputParameters)
-        .firstOrNull()?.value as? BigInteger ?: BigInteger.ZERO
+        .firstOrNull()?.value as? BigInteger
+        ?: throw RainError.InternalError(
+          "adminNonce call to $validProxyAddress returned no decodable value"
+        )
 
     } catch (e: Exception) {
       if (e is CancellationException) throw e
@@ -83,7 +94,7 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
   }
 
   override suspend fun isCollateralAdmin(
-    rpcUrl: String,
+    chainId: Int,
     proxyAddress: String,
     walletAddress: String
   ): Boolean? {
@@ -98,7 +109,7 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
       )
 
       val response = withContext(Dispatchers.IO) {
-        web3jFactory(rpcUrl).ethCall(
+        web3jFactory(requireRpcUrl(chainId)).ethCall(
           Transaction.createEthCallTransaction(null, validProxyAddress, FunctionEncoder.encode(function)),
           DefaultBlockParameterName.LATEST
         ).sendAsync().get()
@@ -122,21 +133,17 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
 
   override suspend fun buildEIP712Message(
     chainId: Int,
-    addresses: RainWithdrawAddresses,
     walletAddress: String,
+    addresses: RainWithdrawAddresses,
     amount: BigDecimal,
     decimals: Int,
     nonce: BigInteger?
-  ): Pair<String, ByteArray> {
+  ): RainEIP712Message {
     val validatedAddresses = addresses.validated()
     val validWallet = RainHexUtils.validateAndChecksum(walletAddress, "walletAddress")
 
-    val rpcUrl = RainConfig.getInstance().getRpcUrl(chainId)
-
     // 1. Resolve Nonce
-    val finalNonce = nonce ?: rpcUrl?.let {
-      getLatestNonce(it, validatedAddresses.proxyAddress)
-    } ?: throw RainError.InvalidConfig("Either nonce must be provided or RPC URL configured for chainId $chainId")
+    val finalNonce = nonce ?: getLatestNonce(chainId, validatedAddresses.proxyAddress)
 
     // 2. Generate Salt
     val saltBytes = ByteArray(32).apply {
@@ -158,23 +165,32 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
       amount = amountBaseUnits,
       nonce = finalNonce
     )
-    return Pair(jsonString, saltBytes)
+    return RainEIP712Message(message = jsonString, salt = saltBytes)
   }
 
   override fun buildWithdrawTransactionData(
     addresses: RainWithdrawAddresses,
     amount: BigDecimal,
     decimals: Int,
-    saltBytes: ByteArray,
-    signatureData: String,
-    adminSignature: RainAdminSignature
+    executorSignature: RainAdminSignature,
+    walletSalt: ByteArray,
+    walletSignature: String
   ): String {
     try {
       val validatedAddresses = addresses.validated()
 
       val amountBaseUnits = RainAmountUtils.toBaseUnits(amount, decimals)
 
-      val expiryTimestamp = parseExpiresAt(adminSignature.expiresAt)
+      val expiryTimestamp = parseExpiresAt(executorSignature.expiresAt)
+
+      // Reject malformed inputs here, with precise messages, instead of an opaque on-chain revert.
+      val executorSalt = Base64.getDecoder().decode(executorSignature.salt)
+      if (executorSalt.size != 32) {
+        throw RainError.InvalidConfig("Executor salt must be 32 bytes, got ${executorSalt.size}")
+      }
+      if (walletSalt.size != 32) {
+        throw RainError.InvalidConfig("Wallet salt must be 32 bytes, got ${walletSalt.size}")
+      }
 
       val function = Web3jFunction(
         RainConstants.FUNC_WITHDRAW_ASSET,
@@ -184,10 +200,14 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
           Uint256(amountBaseUnits),
           Address(validatedAddresses.recipientAddress),
           Uint256(expiryTimestamp),
-          Bytes32(Base64.getDecoder().decode(adminSignature.salt)),
-          DynamicBytes(RainHexUtils.hexToBytes(adminSignature.signature)),
-          DynamicArray(Bytes32(saltBytes)),
-          DynamicArray(DynamicBytes(RainHexUtils.hexToBytes(signatureData))),
+          Bytes32(executorSalt),
+          DynamicBytes(
+            RainHexUtils.hexToBytes(executorSignature.signature, expectedByteCount = 65)
+          ),
+          DynamicArray(Bytes32(walletSalt)),
+          DynamicArray(
+            DynamicBytes(RainHexUtils.hexToBytes(walletSignature, expectedByteCount = 65))
+          ),
           Bool(true)
         ),
         emptyList()
@@ -208,6 +228,7 @@ internal object RainTransactionBuilderImpl : RainTransactionBuilder {
     val trimmed = expiresAt.trim()
     trimmed.toLongOrNull()?.let { return it }
     return runCatching { Instant.parse(trimmed).epochSecond }.getOrNull()
+      ?: runCatching { java.time.OffsetDateTime.parse(trimmed).toEpochSecond() }.getOrNull()
       ?: throw RainError.InvalidConfig(
         "Invalid expiresAt format: $expiresAt. Expected a unix-seconds or ISO-8601 string."
       )

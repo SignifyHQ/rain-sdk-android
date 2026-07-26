@@ -45,9 +45,7 @@ class PrivyProvider(
 
     override val id: ProviderId get() = ProviderId.PRIVY
 
-    /** Privy holds an exportable embedded key with a recovery flow. */
-    override val capabilities: Set<Capability> =
-        setOf(Capability.EXPORT, Capability.RECOVERY)
+    override val capabilities: Set<Capability> = CAPABILITIES
 
     override suspend fun create(context: ProviderContext): WalletProvider {
         val provider = PrivyWalletProvider(
@@ -55,6 +53,7 @@ class PrivyProvider(
             rpcEndpoints = context.rpcEndpoints,
             tokenStore = context.tokenStore,
             walletAddressOverride = config.walletAddress,
+            solanaSupport = context.solanaSupport,
         )
 
         // Probe — ensures Privy has an embedded Ethereum wallet available before handing it out.
@@ -63,5 +62,11 @@ class PrivyProvider(
         }
 
         return provider
+    }
+
+    internal companion object {
+        /** Privy holds an exportable embedded key with a recovery flow, over EVM and Solana. */
+        val CAPABILITIES: Set<Capability> =
+            setOf(Capability.EXPORT, Capability.RECOVERY, Capability.MULTI_CHAIN)
     }
 }

@@ -5,7 +5,6 @@ import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
-import com.rain.sdk.models.RainTransactionResult
 import com.rain.sdk.models.Token
 import com.rain.sdk.utils.EthereumConverter
 import io.mockk.coEvery
@@ -124,6 +123,41 @@ class PortalWalletProviderTest {
         }
     }
 
+    // ---- Solana guard -----------------------------------------------------------
+
+    @Test
+    fun `send paths reject Solana chain ids instead of building an EVM transaction`() {
+        for (chainId in intArrayOf(900, 901, 902)) {
+            assertThrows(RainError.InvalidConfig::class.java) {
+                runBlocking {
+                    portalWalletProvider.sendNativeToken(chainId, "recipient", BigDecimal.ONE)
+                }
+            }
+            assertThrows(RainError.InvalidConfig::class.java) {
+                runBlocking {
+                    portalWalletProvider.sendToken(chainId, "mint", "recipient", BigDecimal.ONE, 6)
+                }
+            }
+            assertThrows(RainError.InvalidConfig::class.java) {
+                runBlocking {
+                    portalWalletProvider.sendTransaction(chainId, "from", "to", "0x", "0x0")
+                }
+            }
+            assertThrows(RainError.InvalidConfig::class.java) {
+                runBlocking {
+                    portalWalletProvider.estimateTransactionFee(chainId, "from", "to", "0x", "0x0")
+                }
+            }
+            assertThrows(RainError.InvalidConfig::class.java) {
+                runBlocking {
+                    portalWalletProvider.signTypedData(chainId, "wallet", "{}")
+                }
+            }
+        }
+        // The manager must never have been reached.
+        coVerify(exactly = 0) { portalManager.sendTransaction(any(), any(), any(), any(), any()) }
+    }
+
     // ---- Balance delegations ----------------------------------------------------
 
     @Test
@@ -194,16 +228,14 @@ class PortalWalletProviderTest {
 
     @Test
     fun `getTransactions forwards pagination + order to PortalManager`() = runBlocking {
-        val expected = RainTransactionResult(
-            transactions = listOf(
+        val expected = listOf(
                 RainTransaction(
                     hash = "0xabc",
                     blockNumber = "100",
                     from = "0xfrom",
                     to = "0xto",
-                    value = "1.0",
-                    chainId = "43114"
-                )
+                    value = BigDecimal("1.0"),
+                    chainId = 43114
             )
         )
         coEvery {

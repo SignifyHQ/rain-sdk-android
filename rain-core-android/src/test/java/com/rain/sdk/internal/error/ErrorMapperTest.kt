@@ -53,6 +53,20 @@ class ErrorMapperTest {
     }
 
     @Test
+    fun `mapSigningError returns InsufficientFunds when message contains insufficient`() {
+        val mapped = mapper.mapSigningError(RuntimeException("insufficient funds for transfer"))
+        assertThat(mapped).isInstanceOf(RainError.InsufficientFunds::class.java)
+    }
+
+    @Test
+    fun `mapSigningError prefers user-rejection over insufficient-funds heuristic`() {
+        val mapped = mapper.mapSigningError(
+            RuntimeException("User rejected: insufficient funds warning shown")
+        )
+        assertThat(mapped).isInstanceOf(RainError.UserRejected::class.java)
+    }
+
+    @Test
     fun `mapSigningError wraps generic exception as ProviderError`() {
         val cause = IllegalStateException("boom")
         val mapped = mapper.mapSigningError(cause)

@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.models.RainTransaction
+import java.math.BigDecimal
 import com.rain.sdk.sample.WalletChain
 
 @Composable
@@ -274,7 +275,7 @@ private fun TransactionCard(tx: RainTransaction, walletAddress: String?, selecte
                     // A token transfer whose symbol is unknown (SPL names live in off-chain
                     // metadata) shows the bare amount, identified by the mint shown beside it —
                     // labelling it "SOL" would name the wrong asset entirely.
-                    val unit = tx.symbol ?: selectedChain.nativeSymbol.takeIf { tx.tokenAddress == null }
+                    val unit = tx.asset ?: selectedChain.nativeSymbol.takeIf { tx.tokenAddress == null }
                     Text(
                         text = listOfNotNull("Value: $formattedValue", unit).joinToString(" "),
                         style = MaterialTheme.typography.bodySmall,
@@ -326,13 +327,11 @@ private fun TransactionCard(tx: RainTransaction, walletAddress: String?, selecte
 }
 
 /**
- * Formats a transaction's native value the same way the Balances screen formats balances:
- * a clean decimal with trailing zeros stripped and no scientific notation. Falls back to the
- * raw string if it isn't parseable.
+ * Formats a transaction's value the same way the Balances screen formats balances: a clean
+ * decimal with trailing zeros stripped and no scientific notation.
  */
-private fun formatAmount(value: String): String {
-    val parsed = value.toBigDecimalOrNull() ?: return value
-    return if (parsed.signum() == 0) "0" else parsed.stripTrailingZeros().toPlainString()
+private fun formatAmount(value: BigDecimal): String {
+    return if (value.signum() == 0) "0" else value.stripTrailingZeros().toPlainString()
 }
 
 private fun truncateHash(hash: String): String {

@@ -17,12 +17,16 @@ import java.math.BigDecimal
  * [SolanaTransferComposer]) and balance reads. Signing and broadcasting stay with the adapter,
  * which is the only vendor-specific step.
  */
-class SolanaSupport(rpcEndpoints: Map<Int, String>) {
+class SolanaSupport internal constructor(
+    rpcEndpoints: Map<Int, String>,
+    internal val rpc: SolanaRpcClient,
+) {
 
-    private val rpcClient = SolanaRpcClient()
-    private val chainReader =
-        SolanaChainReader(rpcEndpoints = rpcEndpoints, solanaRpcClient = rpcClient)
-    private val composer = SolanaTransferComposer(rpcClient, rpcEndpoints::get)
+    constructor(rpcEndpoints: Map<Int, String>) : this(rpcEndpoints, SolanaRpcClient())
+
+    internal val chainReader =
+        SolanaChainReader(rpcEndpoints = rpcEndpoints, solanaRpcClient = rpc)
+    internal val composer = SolanaTransferComposer(rpc, rpcEndpoints::get)
 
     fun isSolanaChain(chainId: Int): Boolean = SolanaChains.isSolanaChain(chainId)
 

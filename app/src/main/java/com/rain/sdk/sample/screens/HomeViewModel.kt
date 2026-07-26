@@ -52,10 +52,6 @@ class HomeViewModel(
         session.configureRainApi(_state.value.rainApiKey, value)
     }
 
-    fun onPinChanged(value: String) {
-        _state.update { it.copy(pin = value) }
-    }
-
     fun onTurnkeyOrgIdChanged(value: String) {
         _state.update { it.copy(turnkeyOrgId = value) }
     }
@@ -116,7 +112,6 @@ class HomeViewModel(
                     it.copy(
                         isInitialized = session.isInitialized,
                         statusText = "SDK Initialized Successfully!",
-                        needsRecovery = false,
                         isRecovered = true
                     )
                 }
@@ -129,22 +124,6 @@ class HomeViewModel(
                     )
                 }
             }
-        }
-    }
-
-    fun recoverWithPin() {
-        // Portal wallet recovery previously pulled the encrypted backup share from the
-        // Liquidity Financial proxy (`/v1/portal/backup`). The Rain dev API has no equivalent
-        // yet — backup/recovery is slated to move behind the wallet-provider endpoint
-        // (`POST /v1/issuing/users/{userId}/wallet`), which is not live. Surface that clearly
-        // instead of calling a dead LF endpoint.
-        SampleLog.w("Portal.recover", "recovery unavailable — Rain wallet endpoint not yet live")
-        _state.update {
-            it.copy(
-                statusText = "Wallet recovery is not yet available via the Rain API " +
-                    "(pending the wallet-provider endpoint).",
-                isLoading = false
-            )
         }
     }
 
@@ -440,11 +419,14 @@ class HomeViewModel(
     }
 
     fun clearSession() {
-        SampleLog.i("Home", "clearing session (provider logout + UI reset)")
+        SampleLog.i("Home", "clearing session (provider logout + SDK reset + UI reset)")
         viewModelScope.launch {
             // Real logout so the next run requires fresh auth (and resume detects no session).
             TurnkeyAuthSample.logout()
             PrivyAuthSample.logout()
+            // Tear down the built RainSdk + resolved client so no stale provider survives
+            // into the next login.
+            session.reset()
             _state.update {
                 HomeUiState(statusText = "Session Cleared", mode = it.mode)
             }
@@ -458,7 +440,6 @@ data class HomeUiState(
     // Dev-only defaults; clear before release.
     val rainApiKey: String = "",
     val userId: String = "",
-    val pin: String = "",
     val turnkeyOrgId: String = "",
     val turnkeyAuthProxyConfigId: String = "",
     val turnkeyEmail: String = "",
@@ -473,7 +454,6 @@ data class HomeUiState(
     val privyOtpCode: String = "",
     val privySessionActive: Boolean = false,
     val isInitialized: Boolean = false,
-    val needsRecovery: Boolean = false,
     val isRecovered: Boolean = false,
     val isLoading: Boolean = false,
     val statusText: String = "Ready"

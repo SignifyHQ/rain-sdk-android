@@ -1,7 +1,6 @@
 package com.rain.sdk.internal.core
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers
@@ -53,11 +52,7 @@ class RainSdkManagerDeprecatedApiTest {
         name = "Dai"
     )
 
-    @Before
-    fun setUp() = RainConfig.reset()
 
-    @After
-    fun tearDown() = RainConfig.reset()
 
     @Test
     fun `deprecated getBalances keys native under empty string and contracts by provider address verbatim`(): Unit =

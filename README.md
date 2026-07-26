@@ -9,11 +9,11 @@ balances and history, and estimate fees. Works on EVM chains and Solana.
 - **Turnkey wallet integration** — Register a `TurnkeyProvider` with an authenticated `TurnkeyContext` (passkeys / auth proxy / OAuth / OTP handled outside Rain by the Turnkey Kotlin SDK). See [docs/TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md).
 - **Privy wallet integration** — Register a `PrivyProvider` with an authenticated `Privy` instance; embedded EVM and Solana wallets are used for custody.
 - **Solana support** — Native SOL and SPL transfers, balances, history, and collateral withdrawal, on the same `RainClient` methods as EVM. See [Solana](#9-solana).
-- **Wallet-agnostic utilities** — The `transactionBuilder` (EIP-712 message, withdraw calldata) is available straight off `RainSdk` from the configured RPC endpoints, with no wallet provider resolved — use it with your own wallet or backend.
+- **Wallet-agnostic utilities** — The transaction-building methods (EIP-712 message, withdraw calldata) are available straight off `RainSdk` from the configured RPC endpoints, with no wallet provider resolved — use them with your own wallet or backend.
 - **Pluggable providers** — Bring your own `WalletProvider` behind a `RainProvider` descriptor and register it; resolve providers by id or by `Capability`.
 - **EIP-712 message building** — Build typed data for admin signature required by the collateral contract.
 - **Withdrawal transaction building** — Build ABI-encoded withdraw calldata for submission.
-- **Full withdrawal flow** — Builds the transaction, signs via the backing provider, and submits; returns the transaction hash, or the prepared calldata when `autoSend = false`.
+- **Full withdrawal flow** — Builds the transaction, signs via the backing provider, and submits; returns the transaction hash. `prepareWithdrawal` builds the same transaction without broadcasting.
 - **Fee estimation** — Returns the estimated gas cost in the chain's native token (e.g. AVAX).
 - **Wallet information** — Get current wallet address and generate a QR code `Bitmap` for it.
 - **Balances** — Get native, ERC-20, and SPL token balances for the current wallet.
@@ -183,7 +183,7 @@ println("Tx Hash: ${result.transactionHash}")
 val result = client.sendToken(
     chainId = 43114,
     contractAddress = "0x...",
-    toAddress = "0x...",
+    to = "0x...",
     amount = BigDecimal("100.0")
 )
 ```
@@ -249,27 +249,25 @@ val adminSignature = RainAdminSignature(
     expiresAt = "2024-12-31T23:59:59Z"
 )
 
-// Auto-send: sign and submit via the backing provider, returns tx hash
-val result = client.withdrawCollateral(
+// Sign and submit via the backing provider, returns the tx hash
+val txHash = client.withdrawCollateral(
     chainId = 43114,
     addresses = addresses,
     amount = BigDecimal("100.0"),
     decimals = 6,
-    adminSignature = adminSignature,
-    autoSend = true
+    adminSignature = adminSignature
 )
-println("Tx Hash: ${result.transactionHash}")
+println("Tx Hash: $txHash")
 
-// Manual: get raw transaction data for custom submission
-val result = client.withdrawCollateral(
+// Or build it without broadcasting, for custom submission
+val prepared = client.prepareWithdrawal(
     chainId = 43114,
     addresses = addresses,
     amount = BigDecimal("100.0"),
     decimals = 6,
-    adminSignature = adminSignature,
-    autoSend = false
+    adminSignature = adminSignature
 )
-println("Tx Data: ${result.transactionData}")
+println("Tx: ${prepared.evmParameters}")   // solanaTransfer on a Solana chain
 ```
 
 ### 9. Solana
@@ -293,11 +291,13 @@ client.sendToken(chainId, mintAddress, recipientBase58, BigDecimal("1.5"))
 `withdrawCollateral` works unchanged, with `proxyAddress` as the collateral account and
 `tokenAddress` as the SPL mint. Under the hood the withdrawal is authorized by Rain's coordinator
 signing a message off chain rather than by EVM calldata, so the SDK composes and simulates a
-collateral-program transaction and the provider signs it; `autoSend = false` returns those prepared
-bytes. See [TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md#solana-notes) for the details.
+collateral-program transaction and the provider signs it; `prepareWithdrawal` returns those prepared
+bytes along with their `recentBlockhash`. See [TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md#solana-notes) for the details.
 
-An SPL mint's decimals are read from the chain, so a `decimals` argument is a hint only. Mints carry
-no on-chain symbol — `registerTokens(...)` names the ones you want displayed.
+On `sendToken`, an SPL mint's decimals are read from the chain, so the `decimals` argument does not
+scale the amount. `withdrawCollateral` and `prepareWithdrawal` are the opposite: there `decimals`
+**does** scale the amount and is not checked against the mint, so pass the mint's real decimals.
+Mints carry no on-chain symbol — `registerTokens(...)` names the ones you want displayed.
 
 ### 10. Estimate Gas
 
@@ -331,10 +331,7 @@ result.transactions.forEach { tx ->
 ### 12. QR Code Generation
 
 ```kotlin
-val bitmap = client.generateAddressQRCode(
-    width = 500,
-    height = 500
-)
+val bitmap = client.generateAddressQRCode(dimension = 256)
 // Use the bitmap in an ImageView
 imageView.setImageBitmap(bitmap)
 ```

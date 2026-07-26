@@ -3,7 +3,6 @@ package com.rain.sdk.internal.core
 import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.RainSdk
-import com.rain.sdk.internal.config.RainConfig
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.provider.WalletProvider
@@ -41,7 +40,6 @@ class RainSdkBuilderTest {
 
     @Before
     fun setUp() {
-        RainConfig.reset()
         // RainSdk.provider(...) validates RPC URLs via the Android URLUtil static; stub it.
         mockkStatic(URLUtil::class)
         every { URLUtil.isValidUrl(any()) } returns true
@@ -50,7 +48,6 @@ class RainSdkBuilderTest {
     @After
     fun tearDown() {
         unmockkAll()
-        RainConfig.reset()
     }
 
     @Test
@@ -72,15 +69,15 @@ class RainSdkBuilderTest {
     }
 
     @Test
-    fun `resolving a provider on a provider-less SDK throws InvalidConfig`() {
+    fun `resolving a provider on a provider-less SDK throws ProviderNotRegistered`() {
         val sdk = RainSdk.builder()
             .rpcEndpoints(mapOf(1 to "https://rpc.test"))
             .build()
 
-        assertThrows(RainError.InvalidConfig::class.java) {
+        assertThrows(RainError.ProviderNotRegistered::class.java) {
             runBlocking { sdk.provider(ProviderId.PORTAL) }
         }
-        assertThrows(RainError.InvalidConfig::class.java) {
+        assertThrows(RainError.ProviderNotRegistered::class.java) {
             runBlocking { sdk.first { true } }
         }
     }
@@ -105,14 +102,37 @@ class RainSdkBuilderTest {
     }
 
     @Test
-    fun `provider throws InvalidConfig for an unregistered id`() {
+    fun `provider throws ProviderNotRegistered for an unregistered id`() {
         val sdk = RainSdk.builder()
             .rpcEndpoints(mapOf(1 to "https://rpc.test"))
             .register(FakeProvider(StubWalletProvider()))
             .build()
 
-        assertThrows(RainError.InvalidConfig::class.java) {
+        assertThrows(RainError.ProviderNotRegistered::class.java) {
             runBlocking { sdk.provider(ProviderId("missing")) }
         }
+    }
+
+    @Test
+    fun `reset leaves the SDK usable and re-resolves providers`(): Unit = runBlocking {
+        val stub = object : StubWalletProvider() {
+            override val id: ProviderId = ProviderId("fake")
+        }
+        stub.addressToReturn = "0xb0b0000000000000000000000000000000000000"
+
+        val sdk = RainSdk.builder()
+            .rpcEndpoints(mapOf(1 to "https://rpc.test"))
+            .register(FakeProvider(stub))
+            .build()
+
+        val first = sdk.provider(ProviderId("fake"))
+        sdk.reset()
+
+        // The chain configuration survives, so the instance stays usable and the next resolve
+        // re-runs create(). A rebuild via builder() is only needed to change configuration.
+        val second = sdk.provider(ProviderId("fake"))
+        assertThat(second).isNotSameInstanceAs(first)
+        assertThat(second.getWalletAddress())
+            .isEqualTo("0xb0b0000000000000000000000000000000000000")
     }
 }
