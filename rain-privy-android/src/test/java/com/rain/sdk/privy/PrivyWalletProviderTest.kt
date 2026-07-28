@@ -178,11 +178,28 @@ class PrivyWalletProviderTest {
     fun `getTransactions returns empty for a chain Privy does not index without calling Privy`() = runBlocking {
         val manager = mockk<PrivyManager>()
 
-        val wallet = PrivyWalletProvider(manager, mapOf(BASE_SEPOLIA to RPC), mockk(), rpcClient = mockk())
-        val result = wallet.getTransactions(chainId = BASE_SEPOLIA)
+        val wallet = PrivyWalletProvider(manager, mapOf(UNINDEXED_CHAIN to RPC), mockk(), rpcClient = mockk())
+        val result = wallet.getTransactions(chainId = UNINDEXED_CHAIN)
 
         assertThat(result).isEmpty()
         coVerify(exactly = 0) { manager.getTransactions(any(), any()) }
+    }
+
+    @Test
+    fun `getTransactions queries Privy for Base Sepolia`() = runBlocking {
+        val manager = mockk<PrivyManager>()
+        coEvery { manager.getAddress(null) } returns WALLET
+        coEvery { manager.getTransactions(WALLET, any()) } returns TransactionsPage(
+            transactions = emptyList(),
+            nextCursor = null,
+        )
+        val tokenStore = mockk<TokenMetadataStore>()
+        coEvery { tokenStore.registeredTokens(BASE_SEPOLIA) } returns emptyList()
+
+        val wallet = PrivyWalletProvider(manager, mapOf(BASE_SEPOLIA to RPC), tokenStore, rpcClient = mockk())
+        wallet.getTransactions(chainId = BASE_SEPOLIA)
+
+        coVerify { manager.getTransactions(WALLET, any()) }
     }
 
     @Test
@@ -468,7 +485,8 @@ class PrivyWalletProviderTest {
         const val WALLET = "0x000000000000000000000000000000000000dEaD"
         const val TO = "0x1111111111111111111111111111111111111111"
         const val CONTRACT = "0x2222222222222222222222222222222222222222"
-        /** A chain Privy's transaction indexer does not support. */
+        /** Avalanche Fuji — a chain Privy's transaction indexer does not support. */
+        const val UNINDEXED_CHAIN = 43113
         const val BASE_SEPOLIA = 84532
     }
 }
