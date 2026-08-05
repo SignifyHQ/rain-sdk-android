@@ -67,6 +67,12 @@ class RainSdk private constructor(
 
     private val rainApiConfig = RainApiConfigStore(baseUrl = rainApiEnvironment.baseUrl)
 
+    /**
+     * Auth Pull chains for the configured environment, handed to every resolved client so an
+     * approval cannot target the other environment's chains.
+     */
+    private val authPullChainIds: Set<Int> = RainAuthPullChains.supported(rainApiEnvironment)
+
     @Volatile
     private var rainApiService: RainApiService? = null
 
@@ -223,6 +229,8 @@ class RainSdk private constructor(
             transactionBuilder = builderImpl,
             providerId = descriptor.id,
             capabilities = descriptor.capabilities,
+            chainReader = sharedContext.evmChainReader,
+            authPullChainIds = authPullChainIds,
         ).also {
             clients[id] = it
             Timber.d("Rain SDK: Resolved provider '${id.value}'")

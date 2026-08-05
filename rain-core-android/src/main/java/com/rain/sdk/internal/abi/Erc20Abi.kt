@@ -39,4 +39,30 @@ object Erc20Abi {
     @Throws(RainError::class)
     fun encodeTransfer(toAddress: String, amount: BigDecimal, decimals: Int): String =
         encodeTransfer(toAddress, RainAmountUtils.toBaseUnits(amount, decimals))
+
+    /**
+     * Encodes `approve(address,uint256)` calldata — the wallet-side prerequisite for Rain's
+     * Auth Pull, where [spender] is the Rain operator.
+     *
+     * [allowanceBaseUnits] is in the token's base units; `uint256` max encodes an unlimited
+     * allowance and `0` revokes.
+     */
+    fun encodeApprove(spender: String, allowanceBaseUnits: BigInteger): String {
+        val function = Web3jFunction(
+            "approve",
+            listOf(Address(spender), Uint256(allowanceBaseUnits)),
+            emptyList<TypeReference<*>>()
+        )
+        return FunctionEncoder.encode(function)
+    }
+
+    /**
+     * Encodes `approve(address,uint256)` calldata for a decimal [amount] of a token with
+     * [decimals]. An amount finer than the token can represent is rejected rather than truncated.
+     *
+     * @throws RainError.InvalidAmount if [amount] carries more decimal places than [decimals].
+     */
+    @Throws(RainError::class)
+    fun encodeApprove(spender: String, amount: BigDecimal, decimals: Int): String =
+        encodeApprove(spender, RainAmountUtils.toBaseUnits(amount, decimals))
 }

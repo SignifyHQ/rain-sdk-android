@@ -102,6 +102,35 @@ class TokenMetadataStore internal constructor(
         }
     }
 
+    /**
+     * A contract token's decimals, or `null` when they could not be established — the token is
+     * not in the registry and its on-chain `decimals()` read failed.
+     *
+     * Unlike [tokenInfo], this never substitutes the 18-decimal default. Callers that scale a
+     * *money amount* must use it: on an approval a guessed 18 against a 6-decimal token would
+     * silently approve 10^12 times the intended allowance, and `approve` has no balance to fail
+     * against, so nothing downstream would catch it.
+     */
+    suspend fun decimalsOrNull(chainId: Int, address: String): Int? {
+        val key = address.lowercase()
+
+        mutex.withLock {
+            knownTokens[chainId]?.firstOrNull { it.address.lowercase() == key }
+                ?.let { return it.decimals }
+            enrichmentCache[chainId]?.get(key)?.let { return it.decimals }
+        }
+
+        // Enrich outside the lock so a slow RPC doesn't block lookups for other tokens.
+        val enriched = enrich(chainId, address)
+        if (!enriched.decimalsResolved) return null
+
+        return mutex.withLock {
+            enrichmentCache[chainId]?.get(key)?.let { return@withLock it.decimals }
+            enrichmentCache.getOrPut(chainId) { mutableMapOf() }[key] = enriched.info
+            enriched.info.decimals
+        }
+    }
+
     // ---------- Enrichment ----------
 
     /** An enrichment result plus whether `decimals` came from the chain or the fallback. */

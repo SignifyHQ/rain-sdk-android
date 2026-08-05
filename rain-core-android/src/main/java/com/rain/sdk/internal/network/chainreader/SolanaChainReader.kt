@@ -201,6 +201,19 @@ internal class SolanaChainReader(
     /** Null, for the same reason as [getSymbol]. */
     override suspend fun getName(chainId: Int, tokenAddress: String): String? = null
 
+    /**
+     * SPL has no ERC-20 allowance: a delegate is approved on a token account, not by an
+     * (owner, spender) pair on the mint. Throws rather than reporting a misleading zero.
+     */
+    override suspend fun getErc20Allowance(
+        chainId: Int,
+        tokenAddress: String,
+        owner: String,
+        spender: String
+    ): BigInteger = throw RainError.InternalError(
+        "ERC-20 allowances are not supported on Solana (chainId=$chainId)"
+    )
+
     private fun resolveRpcUrl(chainId: Int): String {
         val rpcUrl = rpcUrlResolver(chainId)
             ?: throw RainError.InvalidConfig("No RPC endpoint configured for chainId=$chainId")

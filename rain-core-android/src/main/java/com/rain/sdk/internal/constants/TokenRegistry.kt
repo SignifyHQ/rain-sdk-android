@@ -104,6 +104,14 @@ internal object TokenRegistry {
             TokenInfo(43114, "0x5E817F2AbCCB9095585D26c2a3ce234a440574Fc", "FRNT", 18, "FRNT"),
             TokenInfo(43114, "0xFd56187DCe1A7c5Ad5aaE9cA3A8827267e69E58a", "TenantToken", 18, "TenantToken (Raindrop)")
         ),
+        // Base Sepolia — Auth Pull sandbox
+        84532 to listOf(
+            TokenInfo(84532, "0x036CbD53842c5426634e7929541eC2318f3dCF7e", "USDC", 6, "USDC")
+        ),
+        // Arbitrum Sepolia — Auth Pull sandbox
+        421614 to listOf(
+            TokenInfo(421614, "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d", "USDC", 6, "USDC")
+        ),
         // Ink
         57073 to listOf(
             TokenInfo(57073, "0x2D270e6886d130D724215A266106e6832161EAEd", "USDC", 6, "USDC"),
@@ -132,7 +140,9 @@ internal object TokenRegistry {
         42161 to NativeCurrency(symbol = "ETH", name = "Ether"),
         42220 to NativeCurrency(symbol = "CELO", name = "Celo"),
         43114 to NativeCurrency(symbol = "AVAX", name = "Avalanche"),
-        57073 to NativeCurrency(symbol = "ETH", name = "Ether")
+        57073 to NativeCurrency(symbol = "ETH", name = "Ether"),
+        84532 to NativeCurrency(symbol = "ETH", name = "Ether"),
+        421614 to NativeCurrency(symbol = "ETH", name = "Ether")
     )
 
     /**

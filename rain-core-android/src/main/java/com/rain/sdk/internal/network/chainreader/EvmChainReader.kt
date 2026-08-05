@@ -15,6 +15,7 @@ import kotlinx.coroutines.coroutineScope
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
 import java.math.BigDecimal
+import java.math.BigInteger
 
 /**
  * EVM implementation of [ChainReader].
@@ -146,6 +147,20 @@ internal class EvmChainReader(
         validateAddress(tokenAddress, "token address")
         val hex = ethCall(rpcUrl, tokenAddress, "0x" + ERC20Selectors.NAME)
         return EthereumConverter.parseHexToString(hex)
+    }
+
+    override suspend fun getErc20Allowance(
+        chainId: Int,
+        tokenAddress: String,
+        owner: String,
+        spender: String
+    ): BigInteger {
+        val rpcUrl = resolveRpcUrl(chainId)
+        validateAddress(tokenAddress, "token address")
+        validateAddress(owner, "owner address")
+        validateAddress(spender, "spender address")
+        val hex = ethCall(rpcUrl, tokenAddress, Erc20Calldata.allowance(owner, spender))
+        return EthereumConverter.parseHexToBigIntegerStrict(hex)
     }
 
     /**

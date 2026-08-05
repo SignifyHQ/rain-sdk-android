@@ -4,6 +4,7 @@ import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
 import java.math.BigDecimal
+import java.math.BigInteger
 
 /**
  * Provider-agnostic, read-only on-chain query surface.
@@ -79,4 +80,16 @@ internal interface ChainReader {
      * undecodable payload. Used to enrich tokens not in the registry.
      */
     suspend fun getName(chainId: Int, tokenAddress: String): String?
+
+    /**
+     * Reads `allowance(owner, spender)` — the base units of [owner]'s token balance that
+     * [spender] may still move. Returned raw so the caller decides the scale; an unlimited
+     * approval is `uint256` max.
+     */
+    suspend fun getErc20Allowance(
+        chainId: Int,
+        tokenAddress: String,
+        owner: String,
+        spender: String
+    ): BigInteger
 }

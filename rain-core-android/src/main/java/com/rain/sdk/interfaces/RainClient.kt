@@ -1,6 +1,8 @@
 package com.rain.sdk.interfaces
 
 import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.RainTokenAllowance
+import com.rain.sdk.models.RainTokenApprovalResult
 import com.rain.sdk.models.RainTokenTransferResult
 import com.rain.sdk.models.RainTransactionParameters
 import com.rain.sdk.models.RainWithdrawAddresses
@@ -408,6 +410,77 @@ interface RainClient {
             val key = (balance.token as? Token.Contract)?.address ?: ""
             key to balance.decimalAmount.toDouble()
         }
+
+    // ---------------------------------------------------------------------------------------
+    // Token approvals (Auth Pull)
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * Approves [spender] to move up to [amount] of an ERC-20 token from this wallet, and returns
+     * the resulting transaction hash.
+     *
+     * This is the wallet-side prerequisite for Rain's Auth Pull: the Rain operator must be
+     * approved on the user's wallet before an authorization can pull USDC into their collateral
+     * contract. Rain executes the pull itself; the SDK only sets the allowance.
+     *
+     * @param chainId EVM chain the token lives on. Solana chain IDs throw — SPL has no
+     *                ERC-20-style allowance.
+     * @param contractAddress The ERC-20 token contract (USDC for Auth Pull today).
+     * @param spender The address being approved. Source Rain's operator address from Rain rather
+     *                than hardcoding it — it differs between sandbox and production.
+     * @param amount Human-readable allowance (e.g. `250` for 250 USDC). `null` (the default)
+     *               approves an unlimited (`uint256` max) allowance, so the user never has to
+     *               re-approve; `BigDecimal.ZERO` revokes an existing approval.
+     * @param decimals The token's decimals. `null` lets the SDK resolve them from its registry or
+     *                 an on-chain read; ignored for an unlimited approval, which needs no scaling.
+     *                 Unlike the balance paths this never falls back to 18 — a guessed scale would
+     *                 over-approve a 6-decimal token by 10^12 — so an unresolvable token throws
+     *                 [RainError.TokenNotFound].
+     * @return [RainTokenApprovalResult] carrying the transaction hash.
+     */
+    @Throws(RainError::class)
+    suspend fun approveTokenAllowance(
+        chainId: Int,
+        contractAddress: String,
+        spender: String,
+        amount: BigDecimal? = null,
+        decimals: Int? = null
+    ): RainTokenApprovalResult
+
+    /**
+     * Reads the ERC-20 allowance [spender] currently holds over [owner]'s balance.
+     *
+     * Call it before approving (to skip a redundant transaction) and after (to confirm the
+     * approval was mined).
+     *
+     * @param owner The wallet whose balance is approved. `null` (the default) reads this client's
+     *              own wallet.
+     * @param decimals The token's decimals; `null` resolves them from the registry or on chain,
+     *                 and throws rather than guessing — an allowance whose scale is a guess cannot
+     *                 be compared against anything.
+     */
+    @Throws(RainError::class)
+    suspend fun getTokenAllowance(
+        chainId: Int,
+        contractAddress: String,
+        spender: String,
+        owner: String? = null,
+        decimals: Int? = null
+    ): RainTokenAllowance
+
+    /**
+     * Estimates the total fee (estimated gas x gas price) to submit the approval, in the chain's
+     * native token. Same parameters as [approveTokenAllowance]; nothing is broadcast and no
+     * signature is requested.
+     */
+    @Throws(RainError::class)
+    suspend fun estimateApprovalFee(
+        chainId: Int,
+        contractAddress: String,
+        spender: String,
+        amount: BigDecimal? = null,
+        decimals: Int? = null
+    ): BigDecimal
 
     /**
      * Registers additional tokens with the SDK so their metadata (decimals / symbol) resolves

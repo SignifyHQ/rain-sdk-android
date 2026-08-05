@@ -19,6 +19,8 @@ internal val CANONICALLY_DEPLOYED_CHAIN_IDS: Set<Int> = setOf(
     42220,   // Celo
     43114,   // Avalanche
     57073,   // Ink
+    84532,   // Base Sepolia
+    421614,  // Arbitrum Sepolia
 )
 
 /** True when Multicall3 is known-deployed at [Multicall3.CANONICAL_ADDRESS] on [chainId]. */
