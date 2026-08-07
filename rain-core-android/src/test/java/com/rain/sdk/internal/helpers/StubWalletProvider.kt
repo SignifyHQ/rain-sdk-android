@@ -73,6 +73,8 @@ internal open class StubWalletProvider : WalletProvider {
     var sendNativeTokenHashToReturn: String = "0x" + "0".repeat(64)
     var sendTokenHashToReturn: String = "0x" + "0".repeat(64)
     var sendTransactionHashToReturn: String = "0x" + "0".repeat(64)
+    /** When set, [sendTransaction] throws it — drives user-rejection and revert paths. */
+    var sendTransactionError: Throwable? = null
     var signTypedDataToReturn: String = "0x" + "0".repeat(130)
     var estimateTransactionFeeToReturn: BigDecimal = BigDecimal.ZERO
     var sendSolanaTransactionSignatureToReturn: String = "5" + "1".repeat(87)
@@ -152,6 +154,7 @@ internal open class StubWalletProvider : WalletProvider {
         value: String
     ): String {
         sendTransactionCalls += SendTransactionCall(chainId, from, to, data, value)
+        sendTransactionError?.let { throw it }
         return sendTransactionHashToReturn
     }
 

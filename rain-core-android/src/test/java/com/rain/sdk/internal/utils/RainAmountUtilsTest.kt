@@ -81,6 +81,21 @@ class RainAmountUtilsTest {
     }
 
     @Test
+    fun `out-of-range decimals throw instead of blowing up the scaling math`() {
+        // `decimals` can come from a contract's own `decimals()` read, so an absurd value must
+        // surface as a typed error rather than a raw ArithmeticException or a monstrous alloc.
+        assertThrows(RainError.InvalidAmount::class.java) {
+            RainAmountUtils.toBaseUnits(BigDecimal.ONE, 40_000)
+        }
+        assertThrows(RainError.InvalidAmount::class.java) {
+            RainAmountUtils.toBaseUnits(BigDecimal.ONE, -1)
+        }
+        // The bounds themselves stay usable.
+        assertThat(RainAmountUtils.toBaseUnits(BigDecimal.ONE, 0)).isEqualTo(BigInteger.ONE)
+        assertThat(RainAmountUtils.toBaseUnits(BigDecimal.ZERO, 77)).isEqualTo(BigInteger.ZERO)
+    }
+
+    @Test
     fun `toBaseUnits with a zero-decimal token passes whole amounts and rejects fractions`() {
         assertThat(RainAmountUtils.toBaseUnits(BigDecimal("5"), 0)).isEqualTo(BigInteger("5"))
         val ex = assertThrows(RainError.InvalidAmount::class.java) {

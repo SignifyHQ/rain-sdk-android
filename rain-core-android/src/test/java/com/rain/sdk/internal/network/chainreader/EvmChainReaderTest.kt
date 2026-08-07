@@ -3,6 +3,7 @@ package com.rain.sdk.internal.network.chainreader
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.MockRpcServer
+import com.rain.sdk.models.RainTokenAllowance
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
 import kotlinx.coroutines.runBlocking
@@ -27,6 +28,8 @@ class EvmChainReaderTest {
     private val wallet = "0x1111111111111111111111111111111111111111"
     private val usdc = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
     private val dai = "0x6b175474e89094c44da98b954eedeac495271d0f"
+    /** Rain's sandbox Auth Pull operator — the allowance spender. */
+    private val spender = "0x5a6E6b0d5Ea051CfFF9b3dcC2Aa8Dac226458f29"
 
     @Before
     fun setUp() {
@@ -193,6 +196,52 @@ class EvmChainReaderTest {
 
         assertThat(reader.getDecimals(1, usdc)).isEqualTo(6)
     }
+
+    // ---------- allowances ----------
+
+    @Test
+    fun `getErc20Allowance reads eth_call and returns exact base units`() = runBlocking {
+        // 250 USDC at 6 decimals = 250_000_000 = 0xee6b280.
+        rpc.stub("eth_call", "0x" + "ee6b280".padStart(64, '0'))
+        val reader = makeReader(chainId = 1)
+
+        val allowance = reader.getErc20Allowance(1, usdc, wallet, spender)
+
+        assertThat(allowance).isEqualTo(BigInteger.valueOf(250_000_000))
+    }
+
+    @Test
+    fun `an unlimited allowance comes back exact rather than saturating`() = runBlocking {
+        rpc.stub("eth_call", "0x" + "f".repeat(64))
+        val reader = makeReader(chainId = 1)
+
+        val allowance = reader.getErc20Allowance(1, usdc, wallet, spender)
+
+        assertThat(allowance).isEqualTo(RainTokenAllowance.UNLIMITED_RAW_AMOUNT)
+    }
+
+    @Test
+    fun `getErc20Allowance surfaces a malformed payload instead of reporting no allowance`() =
+        runBlocking {
+            rpc.stub("eth_call", "0x")
+            val reader = makeReader(chainId = 1)
+
+            assertThrows(RainError::class.java) {
+                runBlocking { reader.getErc20Allowance(1, usdc, wallet, spender) }
+            }
+            Unit
+        }
+
+    @Test
+    fun `getErc20Allowance rejects a malformed spender before hitting the network`() =
+        runBlocking {
+            val reader = makeReader(chainId = 1)
+
+            assertThrows(RainError::class.java) {
+                runBlocking { reader.getErc20Allowance(1, usdc, wallet, "0xnope") }
+            }
+            Unit
+        }
 
     @Test
     fun `getSymbol decodes an ABI-encoded string`() = runBlocking {

@@ -1,8 +1,12 @@
 package com.rain.sdk.internal.helpers
 
+import com.rain.sdk.RainAuthPullChains
+import com.rain.sdk.RainChain
 import com.rain.sdk.interfaces.RainTransactionBuilder
 import com.rain.sdk.internal.core.RainSdkManager
 import com.rain.sdk.internal.core.RainTransactionBuilderImpl
+import com.rain.sdk.internal.network.chainreader.ChainReader
+import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.RainAdminSignature
 import org.junit.Assume.assumeTrue
@@ -71,14 +75,39 @@ internal object TestManagers {
         rpcEndpoints: Map<Int, String> = mapOf(1 to "https://rpc.test"),
         tokenStore: TokenMetadataStore? = null,
         transactionBuilder: RainTransactionBuilder = RainTransactionBuilderImpl(rpcEndpoints),
+        chainReader: ChainReader = EvmChainReader(rpcEndpoints = rpcEndpoints),
     ): Pair<RainSdkManager, StubWalletProvider> {
         val manager = RainSdkManager(
             walletProvider = stub,
             rpcEndpoints = rpcEndpoints,
             tokenStore = tokenStore,
             transactionBuilder = transactionBuilder,
+            chainReader = chainReader,
         )
         return manager to stub
+    }
+
+    /**
+     * Manager wired to a [MockChainReader] and a [TokenMetadataStore] backed by the same reader —
+     * the seam the approval flow needs, since it both encodes calldata and reads allowances off
+     * chain.
+     */
+    fun approvalManager(
+        stub: StubWalletProvider = StubWalletProvider(),
+        reader: MockChainReader = MockChainReader(),
+        rpcEndpoints: Map<Int, String> = mapOf(RainChain.BASE_SEPOLIA to "https://rpc.test"),
+        seedTokens: List<com.rain.sdk.models.TokenInfo> = emptyList(),
+        authPullChainIds: Set<Int> = RainAuthPullChains.SANDBOX,
+    ): Triple<RainSdkManager, StubWalletProvider, MockChainReader> {
+        val manager = RainSdkManager(
+            walletProvider = stub,
+            rpcEndpoints = rpcEndpoints,
+            tokenStore = TokenMetadataStore(chainReader = reader, seedTokens = seedTokens),
+            transactionBuilder = RainTransactionBuilderImpl(rpcEndpoints),
+            chainReader = reader,
+            authPullChainIds = authPullChainIds,
+        )
+        return Triple(manager, stub, reader)
     }
 
 }

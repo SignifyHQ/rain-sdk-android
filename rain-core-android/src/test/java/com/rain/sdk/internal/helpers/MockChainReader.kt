@@ -21,7 +21,10 @@ internal class MockChainReader(
     var symbol: String? = null,
     var name: String? = null,
     /** When set, every metadata read (decimals/symbol/name) throws it — drives failed-read paths. */
-    var metadataError: Throwable? = null
+    var metadataError: Throwable? = null,
+    var allowance: BigInteger = BigInteger.ZERO,
+    /** When set, the allowance read throws it. */
+    var allowanceError: Throwable? = null
 ) : ChainReader {
 
     data class NativeCall(val chainId: Int, val walletAddress: String)
@@ -45,6 +48,12 @@ internal class MockChainReader(
     data class DecimalsCall(val chainId: Int, val tokenAddress: String)
     data class SymbolCall(val chainId: Int, val tokenAddress: String)
     data class NameCall(val chainId: Int, val tokenAddress: String)
+    data class AllowanceCall(
+        val chainId: Int,
+        val tokenAddress: String,
+        val owner: String,
+        val spender: String
+    )
 
     val nativeCalls = mutableListOf<NativeCall>()
     val erc20Calls = mutableListOf<Erc20Call>()
@@ -53,6 +62,7 @@ internal class MockChainReader(
     val decimalsCalls = mutableListOf<DecimalsCall>()
     val symbolCalls = mutableListOf<SymbolCall>()
     val nameCalls = mutableListOf<NameCall>()
+    val allowanceCalls = mutableListOf<AllowanceCall>()
 
     override suspend fun getNativeBalance(chainId: Int, walletAddress: String): BigDecimal {
         nativeCalls += NativeCall(chainId, walletAddress)
@@ -111,5 +121,16 @@ internal class MockChainReader(
         nameCalls += NameCall(chainId, tokenAddress)
         metadataError?.let { throw it }
         return name
+    }
+
+    override suspend fun getErc20Allowance(
+        chainId: Int,
+        tokenAddress: String,
+        owner: String,
+        spender: String
+    ): BigInteger {
+        allowanceCalls += AllowanceCall(chainId, tokenAddress, owner, spender)
+        allowanceError?.let { throw it }
+        return allowance
     }
 }

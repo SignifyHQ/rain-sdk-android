@@ -82,6 +82,35 @@ class TurnkeyAdapterTest {
         assertThat(client.sendTransactionStatusCalls).hasSize(2)
     }
 
+    @Test
+    fun `Turnkey broadcasts arbitrary ERC-20 approve calldata unchanged`(): Unit = runBlocking {
+        // The Auth Pull capability question: Turnkey must accept approve calldata through its
+        // generic signed-transaction path, with no adapter-side gating.
+        stubSendTransactionRPCs()
+        val approveCalldata = "0x095ea7b3" +
+            "0000000000000000000000005a6e6b0d5ea051cfff9b3dcc2aa8dac226458f29" +
+            "f".repeat(64)
+        val expectedHash = "0x" + "c".repeat(64)
+
+        val turnkey = MockTurnkey()
+        val client = (turnkey.turnkeyClient as MockTurnkeyClient).apply {
+            sendTransactionStatusQueue =
+                mutableListOf(MockTurnkeyClient.StatusFixture.broadcasted(expectedHash))
+        }
+        val provider = makeProvider(turnkey)
+
+        val txHash = provider.sendTransaction(
+            chainId = 1,
+            from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
+            to = TestFixtures.TOKEN_ADDRESS,
+            data = approveCalldata,
+            value = "0x0"
+        )
+
+        assertThat(txHash).isEqualTo(expectedHash)
+        assertThat(client.sendTransactionStatusCalls).hasSize(1)
+    }
+
     // ---- Polling: failure status path -------------------------------------------
 
     @Test

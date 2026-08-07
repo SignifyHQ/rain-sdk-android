@@ -30,6 +30,60 @@ class TokenMetadataStoreTest {
         assertThat(reader.symbolCalls).isEmpty()
     }
 
+    // ---- decimalsOrNull: the strict accessor money paths use -------------------------
+
+    @Test
+    fun `decimalsOrNull returns registry decimals without an on-chain read`() = runBlocking {
+        val reader = MockChainReader(decimals = 99)
+        val store = TokenMetadataStore(reader)
+
+        assertThat(store.decimalsOrNull(chainId = 1, address = usdcEthereum)).isEqualTo(6)
+        assertThat(reader.decimalsCalls).isEmpty()
+    }
+
+    @Test
+    fun `decimalsOrNull returns null rather than the 18-decimal default when the read fails`() =
+        runBlocking {
+            // The whole point of this accessor: an approval must never scale by a guessed 18.
+            val reader = MockChainReader(metadataError = RuntimeException("rpc down"))
+            val store = TokenMetadataStore(reader)
+
+            assertThat(store.decimalsOrNull(chainId = 1, address = unknown)).isNull()
+        }
+
+    @Test
+    fun `decimalsOrNull does not cache a failed read, so a later call can succeed`() = runBlocking {
+        val reader = MockChainReader(decimals = 8, metadataError = RuntimeException("rpc down"))
+        val store = TokenMetadataStore(reader)
+
+        assertThat(store.decimalsOrNull(chainId = 1, address = unknown)).isNull()
+
+        // The RPC recovers; the store must retry rather than serve a cached guess.
+        reader.metadataError = null
+        assertThat(store.decimalsOrNull(chainId = 1, address = unknown)).isEqualTo(8)
+    }
+
+    @Test
+    fun `decimalsOrNull caches a successful read`() = runBlocking {
+        val reader = MockChainReader(decimals = 8)
+        val store = TokenMetadataStore(reader)
+
+        assertThat(store.decimalsOrNull(chainId = 1, address = unknown)).isEqualTo(8)
+        assertThat(store.decimalsOrNull(chainId = 1, address = unknown.lowercase())).isEqualTo(8)
+
+        assertThat(reader.decimalsCalls).hasSize(1)
+    }
+
+    @Test
+    fun `decimalsOrNull sees host-registered tokens`() = runBlocking {
+        val reader = MockChainReader(decimals = 99)
+        val store = TokenMetadataStore(reader)
+        store.register(listOf(TokenInfo(1, unknown, "FOO", 4, "Foo")))
+
+        assertThat(store.decimalsOrNull(chainId = 1, address = unknown)).isEqualTo(4)
+        assertThat(reader.decimalsCalls).isEmpty()
+    }
+
     @Test
     fun `tokenInfo enriches an unknown token once and caches the result`() = runBlocking {
         val reader = MockChainReader(decimals = 8, symbol = "WBTC", name = "Wrapped BTC")
