@@ -95,7 +95,7 @@ class HomeViewModel(
                 // Initialize with every EVM chain's RPC (Fuji + Base Sepolia) so the chain
                 // dropdown and Rain collateral (which lives on Base Sepolia) both work; the
                 // screens pick the active chain via `selectedChain`.
-                val rpcConfig = WalletChain.entries
+                val rpcConfig = WalletChain.selectable
                     .filter { !it.isSolana }
                     .associate { it.chainId to it.rpcUrl }
 

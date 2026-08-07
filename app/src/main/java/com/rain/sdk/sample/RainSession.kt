@@ -53,7 +53,9 @@ class RainSession {
     // Shared builder config: Rain API credentials plus naming for every chain's testnet token,
     // applied identically whichever provider is registered (see WalletChain.defaultTokenInfo).
     private fun RainSdk.Builder.withSharedConfig(): RainSdk.Builder = apply {
-        registerTokens(WalletChain.entries.map { it.defaultTokenInfo })
+        registerTokens(WalletChain.selectable.map { it.defaultTokenInfo })
+        // Selects the Rain API host and, with it, the chains Auth Pull approvals are allowed on.
+        rainApiEnvironment(SampleEnvironment.rainApi)
         if (rainApiKey.isNotBlank() && rainUserId.isNotBlank()) {
             rainApiCredentials(rainApiKey, rainUserId)
         }

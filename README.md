@@ -19,6 +19,7 @@ balances and history, and estimate fees. Works on EVM chains and Solana.
 - **Balances** — Get native, ERC-20, and SPL token balances for the current wallet.
 - **Transaction history** — Get transactions for the current wallet with optional pagination and sort order.
 - **Send tokens** — Send native, ERC-20, or SPL tokens from the current wallet.
+- **Auth Pull approvals** — Approve Rain's operator to spend the user's USDC, read the allowance back, and estimate the approval fee. See [docs/AUTH_PULL.md](docs/AUTH_PULL.md).
 - **Exact money handling** — Public money APIs are `BigDecimal`; base-unit conversion is exact and rejects an amount finer than the token's scale rather than truncating it.
 
 ## Installation
@@ -328,7 +329,43 @@ result.transactions.forEach { tx ->
 }
 ```
 
-### 12. QR Code Generation
+### 12. Auth Pull: approve the Rain operator
+
+Auth Pull draws a card authorization's amount straight from the user's wallet into their Rain
+collateral contract. The wallet-side prerequisite is an ERC-20 allowance for Rain's operator — that
+part is the SDK's; the pull itself is Rain's.
+
+```kotlin
+// 1. What can the operator move today?
+val allowance = client.getTokenAllowance(
+    chainId = RainChain.BASE_SEPOLIA,
+    contractAddress = usdcAddress,
+    spender = rainOperatorAddress   // per environment; read it from Rain
+)
+if (allowance.isUnlimited) return
+
+// 2. What will the approval cost?
+val fee = client.estimateApprovalFee(RainChain.BASE_SEPOLIA, usdcAddress, rainOperatorAddress)
+
+// 3. Approve. Omitting `amount` approves an unlimited allowance, so the user never re-approves;
+//    pass a BigDecimal to cap it, or BigDecimal.ZERO to revoke.
+val result = client.approveTokenAllowance(
+    chainId = RainChain.BASE_SEPOLIA,
+    contractAddress = usdcAddress,
+    spender = rainOperatorAddress
+)
+println(result.transactionHash)
+```
+
+Sandbox runs on Base Sepolia and Arbitrum Sepolia, production on Base and Arbitrum; USDC on all four
+is in the built-in token registry. The two sets are exposed as `RainAuthPullChains.supported(...)`,
+and an approval on a chain outside the set for the configured `rainApiEnvironment` throws
+`RainError.InvalidConfig` before any wallet prompt, so a sandbox build cannot mine a real mainnet
+allowance for the sandbox operator. `RainTokenAllowance.rawAmount` is the exact base-unit value and
+the one to compare against — gate on `isUnlimited` before rendering a number. Full guide:
+[docs/AUTH_PULL.md](docs/AUTH_PULL.md).
+
+### 13. QR Code Generation
 
 ```kotlin
 val bitmap = client.generateAddressQRCode(dimension = 256)
@@ -338,7 +375,7 @@ imageView.setImageBitmap(bitmap)
 
 ## Documentation
 
-For a complete reference of all public methods, parameters, types, and error codes, see the [Method Reference](docs/METHODS.md).
+For a complete reference of all public methods, parameters, types, and error codes, see the [Method Reference](docs/METHODS.md). For the Auth Pull approval flow end to end, see [docs/AUTH_PULL.md](docs/AUTH_PULL.md).
 
 ## License
 

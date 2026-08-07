@@ -375,6 +375,98 @@ Routed by `chainId`.
 
 ---
 
+### approveTokenAllowance(chainId, contractAddress, spender, amount?, decimals?)
+
+Approves `spender` to move up to `amount` of an ERC-20 token from the current wallet — the
+wallet-side prerequisite for Rain's [Auth Pull](AUTH_PULL.md). Rain executes the pull itself; the
+SDK only sets the allowance.
+
+- **Returns:** `RainTokenApprovalResult` — the transaction hash of the `approve` call.
+- **Throws:** `RainError`. EVM only — a Solana `chainId` throws `RainError.InternalError`, since
+  SPL delegation is not an ERC-20 allowance. A `chainId` outside `RainAuthPullChains.supported(...)`
+  for the configured `rainApiEnvironment` throws `RainError.InvalidConfig`.
+- **Suspend:** Yes
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `chainId` | `Int` | Target EVM network chain ID. Must be an Auth Pull chain for the configured environment. |
+| `contractAddress` | `String` | ERC-20 token contract (USDC for Auth Pull today). |
+| `spender` | `String` | Address being approved — Rain's operator. Source it from Rain; it differs between sandbox and production. |
+| `amount` | `BigDecimal?` | Human-readable allowance (e.g. `BigDecimal("250")`). `null` (the default) approves an unlimited (`uint256` max) allowance; `BigDecimal.ZERO` revokes. |
+| `decimals` | `Int?` | Optional token decimals; `null` resolves them from the registry or an on-chain read. Ignored for an unlimited approval. Unlike the balance paths this **never falls back to 18** — a guessed scale would over-approve a 6-decimal token by 10^12 — so an unresolvable token throws `RainError.TokenNotFound`. |
+
+```kotlin
+// Unlimited — what Rain recommends, so the user never has to re-approve.
+val result = client.approveTokenAllowance(
+    chainId = RainChain.BASE_SEPOLIA,
+    contractAddress = usdc,
+    spender = rainOperator
+)
+
+// Capped, then revoked.
+client.approveTokenAllowance(RainChain.BASE_SEPOLIA, usdc, rainOperator, BigDecimal("250"))
+client.approveTokenAllowance(RainChain.BASE_SEPOLIA, usdc, rainOperator, BigDecimal.ZERO)
+```
+
+The new value is written straight over the old one. USDC accepts that; some ERC-20s (USDT and its
+clones) revert unless an existing non-zero allowance is set to zero first — see
+[Auth Pull](AUTH_PULL.md#3-approve).
+
+---
+
+### getTokenAllowance(chainId, contractAddress, spender, owner?, decimals?)
+
+Reads the ERC-20 allowance `spender` currently holds over `owner`'s balance. Call it before
+approving (to skip a redundant transaction) and after (to confirm the approval was mined).
+
+- **Returns:** `RainTokenAllowance` — see [RainTokenAllowance value type](#raintokenallowance-value-type).
+- **Throws:** `RainError`. EVM only, and gated to the configured environment's Auth Pull chains like
+  the approval itself.
+- **Suspend:** Yes
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `chainId` | `Int` | Target EVM network chain ID. |
+| `contractAddress` | `String` | ERC-20 token contract. |
+| `spender` | `String` | Address whose allowance is being read — Rain's operator. |
+| `owner` | `String?` | Wallet whose balance is approved. `null` (the default) reads this client's own wallet. |
+| `decimals` | `Int?` | Optional token decimals; resolved from the registry or on chain, and throws rather than guessing. |
+
+> `spender` precedes `owner` so the optional parameters land last and Kotlin's default arguments
+> work.
+
+---
+
+### estimateApprovalFee(chainId, contractAddress, spender, amount?, decimals?)
+
+Estimates the total fee (estimated gas x gas price) to submit the approval, in the chain's native
+token. Nothing is broadcast and no signature is requested; the fee is priced against the exact
+calldata `approveTokenAllowance` would send.
+
+- **Returns:** `BigDecimal` — fee in the chain's native currency (e.g. ETH).
+- **Throws:** `RainError`.
+- **Suspend:** Yes
+
+Parameters are identical to `approveTokenAllowance`.
+
+---
+
+### RainTokenAllowance value type
+
+| Member | Type | Description |
+|--------|------|-------------|
+| `rawAmount` | `BigInteger` | Exact allowance in the token's smallest unit. Never lossy — compare against this. |
+| `decimals` | `Int` | The token's decimals (e.g. 6 for USDC). |
+| `chainId` / `tokenAddress` / `owner` / `spender` | | What was read, so a merged list stays self-describing. |
+| `isUnlimited` | `Boolean` | `rawAmount == uint256` max. Exact: some tokens decrement even a max allowance, so `false` does not mean "must re-approve" — compare `rawAmount` against what you need. |
+| `isZero` | `Boolean` | Nothing approved — the state after a revoke. |
+| `decimalAmount` | `BigDecimal` | Derived: `rawAmount / 10^decimals`. For an unlimited approval this is ~1.16e71; gate on `isUnlimited` before rendering. |
+| `formatted` | `String` | Derived display string with trailing zeros trimmed. |
+| `covers(amount)` | `(BigDecimal) -> Boolean` | Whether a human-readable amount is still covered, compared in exact base units. An amount that cannot be represented at all (negative, or finer than the token's scale) is `false` too. |
+| `UNLIMITED_RAW_AMOUNT` | `BigInteger` | Companion constant: `uint256` max. |
+
+---
+
 ### Balance value type
 
 All balance methods return rich `Balance` values rather than lossy `Double`s.
@@ -639,12 +731,14 @@ pre-set to `"0x0"`. Hosts can hand the result to any provider for signing / broa
 | **`RainAdminSignature`** | `salt` (String), `signature` (hex String), `expiresAt` (String, ISO-8601). |
 | **`RainPreparedWithdrawal`** | Sealed: `Evm(parameters: RainTransactionParameters)` or `Solana(transfer: UnsignedSolanaTransfer)`. Has `evmParameters` / `solanaTransfer` accessors. |
 | **`RainTokenTransferResult`** | `transactionHash` (String). Returned by `sendNative` and `sendToken`. |
+| **`RainTokenApprovalResult`** | `transactionHash` (String): hash of the ERC-20 `approve` call. Returned by `approveTokenAllowance`. |
+| **`RainTokenAllowance`** | Exact allowance value type; see [RainTokenAllowance value type](#raintokenallowance-value-type). |
 | **`NetworkConfig`** | `chainId`, `rpcUrl`, `networkName?`; `eip155ChainId` renders `eip155:<chainId>`, and `NetworkConfig.fromEip155(...)` parses that form. Accepted by `Builder.rpcEndpoints(List<NetworkConfig>)`. |
 | **`RainTransactionParameters`** | `from`, `to`, `value` (hex wei), `data` (hex calldata). Wallet-agnostic transaction parameter bag returned by `RainSdk.buildTransactionParameters`. |
 | **`RainTransaction`** | Transaction record: `hash`, `uniqueId`, `blockNumber`, `timestamp`, `from`, `to`, `value`, `asset`, `tokenAddress`, `rawValue`, `decimals`, `category`, `chainId`, `metadata`. Identical in shape to the iOS type. |
 | **`RainTransactionCategory`** | Extensible constant: `External`, `Token`, `Erc20`, `Erc721`, `Erc1155`, `ContractInternal`. |
 | **`RainTransactionOrder`** | Enum: `.ASC`, `.DESC`. Used in `getTransactions(..., order:)`. |
-| **`RainChain`** | Constants: `AVALANCHE_MAINNET` (43114), `AVALANCHE_TESTNET` (43113). |
+| **`RainChain`** | Constants: `AVALANCHE_MAINNET` (43114), `AVALANCHE_TESTNET` (43113), `BASE_MAINNET` (8453), `BASE_SEPOLIA` (84532), `ARBITRUM_MAINNET` (42161), `ARBITRUM_SEPOLIA` (421614), plus the Solana sentinels. |
 
 ---
 

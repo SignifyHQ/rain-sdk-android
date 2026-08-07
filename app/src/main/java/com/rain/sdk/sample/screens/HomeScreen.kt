@@ -56,6 +56,7 @@ private val featureActions = listOf(
     FeatureAction("💰", "Balances", Screen.Balances),
     FeatureAction("📤", "Send Tokens", Screen.SendTokens),
     FeatureAction("🏦", "Withdraw", Screen.CollateralWithdraw),
+    FeatureAction("🔐", "Auth Pull", Screen.AuthPull),
     FeatureAction("📜", "History", Screen.TransactionHistory),
 )
 
@@ -204,7 +205,7 @@ private fun ChainSelector(
 ) {
     var expanded by remember { mutableStateOf(false) }
     // Solana for Turnkey and Privy; Portal is EVM-only.
-    val chains = WalletChain.entries.filter { mode != WalletMode.Portal || !it.isSolana }
+    val chains = WalletChain.selectable.filter { mode != WalletMode.Portal || !it.isSolana }
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = "Active wallet",
