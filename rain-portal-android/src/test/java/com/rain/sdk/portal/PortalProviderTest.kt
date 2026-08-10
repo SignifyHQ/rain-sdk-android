@@ -58,4 +58,30 @@ class PortalProviderTest {
         }
         verify(exactly = 0) { manager.getPortalInstance() }
     }
+
+    /**
+     * Signing is approved by default: Portal shows no approval UI, so a host that never answers
+     * `PortalSigningRequested` would see every signature hang. Opting out is explicit.
+     */
+    @Test
+    fun `a host can opt out of adapter-side signing approval`(): Unit = runBlocking {
+        val manager = mockk<PortalManager>(relaxed = true)
+        val provider = PortalProvider(
+            config = PortalConfig(sessionToken = "token", autoApprove = false),
+            onPortalCreated = null,
+            portalManagerFactory = { manager },
+        )
+
+        provider.create(context())
+
+        verify(exactly = 1) {
+            manager.initialize(
+                apiKey = "token",
+                legacyEthChainId = 43114,
+                rpcConfig = mapOf("eip155:43114" to "https://rpc.test"),
+                featureFlags = any(),
+                autoApprove = false,
+            )
+        }
+    }
 }

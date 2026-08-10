@@ -16,10 +16,17 @@ import io.portalhq.android.mpc.data.FeatureFlags
  * @param sessionToken A valid Portal session token (Portal API key).
  * @param chainId Optional default chain id for Portal's legacy single-chain operations. When null,
  *                Avalanche Mainnet is used if configured, otherwise the first configured chain.
+ * @param autoApprove Whether the adapter approves Portal's signing requests for the host. Defaults
+ *                    to `true`: every Rain call that signs is already an explicit, user-initiated
+ *                    SDK call, and Portal raises no UI of its own. Pass `false` only if the host
+ *                    gates signing itself — it must then handle
+ *                    `PortalEvents.PortalSigningRequested` and emit `PortalSigningApproved` on the
+ *                    Portal instance from `onPortalCreated`, or every signature hangs unanswered.
  */
 class PortalConfig(
     val sessionToken: String,
     val chainId: Int? = null,
+    val autoApprove: Boolean = true,
 )
 
 /**
@@ -75,7 +82,7 @@ class PortalProvider internal constructor(
             legacyEthChainId = legacyChainId,
             rpcConfig = eip155RpcConfig,
             featureFlags = FeatureFlags(isMultiBackupEnabled = true),
-            autoApprove = true,
+            autoApprove = config.autoApprove,
         )
         onPortalCreated?.invoke(portalManager.getPortalInstance())
 
