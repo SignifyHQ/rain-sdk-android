@@ -1,6 +1,7 @@
 package com.rain.sdk.internal.helpers
 
 import com.rain.sdk.internal.network.chainreader.ChainReader
+import com.rain.sdk.internal.network.chainreader.MinedReceipt
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
@@ -25,12 +26,26 @@ internal class MockChainReader(
     var allowance: BigInteger = BigInteger.ZERO,
     /** When set, the allowance read throws it. */
     var allowanceError: Throwable? = null,
+    /**
+     * Allowance per block tag, for tests that need the chain to hold different state at different
+     * blocks. A read whose `atBlock` is absent here falls back to [allowance] — so a test can seed
+     * the post-transaction value under the receipt's block and leave [allowance] at the
+     * pre-transaction value, which is exactly the production lag this models.
+     */
+    var allowanceByBlock: Map<String, BigInteger> = emptyMap(),
+    /**
+     * Consumed one entry per allowance read; a non-null entry is thrown. Models a node that does
+     * not yet have the requested block and so errors instead of answering.
+     */
+    val allowanceFailures: MutableList<Throwable?> = mutableListOf(),
     var receiptStatus: Boolean? = true,
     /**
      * Consumed one entry per receipt read before falling back to [receiptStatus], so a test can
      * drive a pending-then-mined poll.
      */
-    val receiptStatuses: MutableList<Boolean?> = mutableListOf()
+    val receiptStatuses: MutableList<Boolean?> = mutableListOf(),
+    /** Block the mined receipt reports — the tag a confirmation read is expected to pin to. */
+    var receiptBlockNumber: String = "0x10"
 ) : ChainReader {
 
     data class NativeCall(val chainId: Int, val walletAddress: String)
@@ -58,7 +73,8 @@ internal class MockChainReader(
         val chainId: Int,
         val tokenAddress: String,
         val owner: String,
-        val spender: String
+        val spender: String,
+        val atBlock: String
     )
     data class ReceiptCall(val chainId: Int, val transactionHash: String)
 
@@ -135,18 +151,22 @@ internal class MockChainReader(
         chainId: Int,
         tokenAddress: String,
         owner: String,
-        spender: String
+        spender: String,
+        atBlock: String
     ): BigInteger {
-        allowanceCalls += AllowanceCall(chainId, tokenAddress, owner, spender)
+        allowanceCalls += AllowanceCall(chainId, tokenAddress, owner, spender, atBlock)
+        if (allowanceFailures.isNotEmpty()) allowanceFailures.removeAt(0)?.let { throw it }
         allowanceError?.let { throw it }
-        return allowance
+        return allowanceByBlock[atBlock] ?: allowance
     }
 
-    override suspend fun getTransactionReceiptStatus(
+    override suspend fun getTransactionReceipt(
         chainId: Int,
         transactionHash: String
-    ): Boolean? {
+    ): MinedReceipt? {
         receiptCalls += ReceiptCall(chainId, transactionHash)
-        return if (receiptStatuses.isNotEmpty()) receiptStatuses.removeAt(0) else receiptStatus
+        val status =
+            if (receiptStatuses.isNotEmpty()) receiptStatuses.removeAt(0) else receiptStatus
+        return status?.let { MinedReceipt(succeeded = it, blockNumber = receiptBlockNumber) }
     }
 }

@@ -6,6 +6,7 @@ import com.rain.sdk.internal.abi.Erc20Abi
 import com.rain.sdk.models.RainApiEnvironment
 import com.rain.sdk.internal.network.chainreader.ChainReader
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
+import com.rain.sdk.internal.network.chainreader.MinedReceipt
 import com.rain.sdk.internal.utils.RainAmountUtils
 import com.rain.sdk.internal.utils.isValidEthereumAddress
 import com.rain.sdk.models.RainTokenAllowance
@@ -482,30 +483,76 @@ internal class RainSdkManager(
     owner: String?
   ): RainTokenAllowance {
     validateApprovalRequest(chainId, contractAddress, spender)
+    // Resolved up front: these fail on configuration, not timing, so retrying them changes nothing.
     val expectedRaw = approvalBaseUnits(chainId, contractAddress, amount)
+    val resolvedDecimals = requireDecimals(chainId, contractAddress)
+    val resolvedOwner = owner ?: walletProvider.getWalletAddress()
+    if (!resolvedOwner.isValidEthereumAddress) {
+      throw RainError.InvalidConfig("Invalid owner address: $resolvedOwner")
+    }
+
+    var receipt: MinedReceipt? = null
+    var lastReadFailure: Exception? = null
 
     repeat(APPROVAL_CONFIRMATION_ATTEMPTS) { attempt ->
-      when (chainReader.getTransactionReceiptStatus(chainId, transactionHash)) {
-        true -> {
-          val allowance = getTokenAllowance(
+      if (receipt == null) {
+        val mined = chainReader.getTransactionReceipt(chainId, transactionHash)
+        if (mined != null && !mined.succeeded) {
+          throw RainError.TransactionSimulationFailed(
+            IllegalStateException("Approval transaction reverted on-chain: $transactionHash")
+          )
+        }
+        receipt = mined
+      }
+
+      receipt?.let { mined ->
+        val rawAmount = try {
+          chainReader.getErc20Allowance(
             chainId = chainId,
-            contractAddress = contractAddress,
+            tokenAddress = contractAddress,
+            owner = resolvedOwner,
             spender = spender,
-            owner = owner
+            atBlock = mined.blockNumber
+          )
+        } catch (e: CancellationException) {
+          throw e
+        } catch (e: Exception) {
+          Timber.w(
+            e,
+            "Rain SDK: Allowance read at block %s failed; the node may not have it yet",
+            mined.blockNumber
+          )
+          lastReadFailure = e
+          null
+        }
+
+        if (rawAmount != null) {
+          val allowance = RainTokenAllowance(
+            chainId = chainId,
+            tokenAddress = contractAddress,
+            owner = resolvedOwner,
+            spender = spender,
+            rawAmount = rawAmount,
+            decimals = resolvedDecimals
           )
           verifyConfirmedAllowance(allowance, expectedRaw)
           return allowance
         }
-        false -> throw RainError.TransactionSimulationFailed(
-          IllegalStateException("Approval transaction reverted on-chain: $transactionHash")
-        )
-        null -> if (attempt < APPROVAL_CONFIRMATION_ATTEMPTS - 1) {
-          delay(APPROVAL_CONFIRMATION_INTERVAL_MS)
-        }
+      }
+
+      if (attempt < APPROVAL_CONFIRMATION_ATTEMPTS - 1) {
+        delay(APPROVAL_CONFIRMATION_INTERVAL_MS)
       }
     }
+
+    val mined = receipt
+      ?: throw RainError.NetworkError(
+        "Timed out waiting for approval transaction $transactionHash to be mined"
+      )
     throw RainError.NetworkError(
-      "Timed out waiting for approval transaction $transactionHash to be mined"
+      message = "Approval transaction $transactionHash mined in block ${mined.blockNumber}, but " +
+        "the allowance could not be read at that block before timing out",
+      cause = lastReadFailure
     )
   }
 

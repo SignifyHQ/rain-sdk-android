@@ -209,15 +209,16 @@ internal class SolanaChainReader(
         chainId: Int,
         tokenAddress: String,
         owner: String,
-        spender: String
+        spender: String,
+        atBlock: String
     ): BigInteger = throw RainError.InternalError(
         "ERC-20 allowances are not supported on Solana (chainId=$chainId)"
     )
 
-    override suspend fun getTransactionReceiptStatus(
+    override suspend fun getTransactionReceipt(
         chainId: Int,
         transactionHash: String
-    ): Boolean? = throw RainError.InternalError(
+    ): MinedReceipt? = throw RainError.InternalError(
         "EVM transaction receipts are not supported on Solana (chainId=$chainId)"
     )
 

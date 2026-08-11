@@ -41,6 +41,7 @@ internal class MockRpcServer {
     /** Stubs keyed by method and a substring of the request body, for deeper params. */
     private val bodyStubs = ConcurrentHashMap<Pair<String, String>, Stub>()
     private val recorded = mutableListOf<String>()
+    private val recordedBodyList = mutableListOf<String>()
 
     fun start() {
         server.start()
@@ -49,7 +50,10 @@ internal class MockRpcServer {
                 val body = request.body.readUtf8()
                 val requestJson = runCatching { JSONObject(body) }.getOrNull()
                 val method = requestJson?.optString("method", "").orEmpty()
-                synchronized(recorded) { recorded += method }
+                synchronized(recorded) {
+                    recorded += method
+                    recordedBodyList += body
+                }
 
                 // A parameter-specific stub wins over the method-wide one, so a test can give
                 // different answers for e.g. getAccountInfo on a mint vs on a token account.
@@ -140,7 +144,17 @@ internal class MockRpcServer {
     val recordedMethods: List<String>
         get() = synchronized(recorded) { recorded.toList() }
 
+    /**
+     * Raw request bodies in dispatch order, parallel to [recordedMethods] — for asserting on
+     * parameters the method name alone doesn't capture, such as an `eth_call` block tag.
+     */
+    val recordedBodies: List<String>
+        get() = synchronized(recorded) { recordedBodyList.toList() }
+
     fun resetRecordings() {
-        synchronized(recorded) { recorded.clear() }
+        synchronized(recorded) {
+            recorded.clear()
+            recordedBodyList.clear()
+        }
     }
 }

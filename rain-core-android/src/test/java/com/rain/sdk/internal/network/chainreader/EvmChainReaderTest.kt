@@ -232,6 +232,33 @@ class EvmChainReaderTest {
         assertThat(allowance).isEqualTo(RainTokenAllowance.UNLIMITED_RAW_AMOUNT)
     }
 
+    /**
+     * The block tag is the whole defence against a load-balanced endpoint answering a
+     * post-transaction read from a replica that is still behind. Defaulting it is fine for a
+     * standalone read; silently ignoring a caller's block would put the staleness bug straight back.
+     */
+    @Test
+    fun `getErc20Allowance reads at the requested block rather than at latest`() = runBlocking {
+        rpc.stub("eth_call", "0x" + "ee6b280".padStart(64, '0'))
+        val reader = makeReader(chainId = 1)
+
+        reader.getErc20Allowance(1, usdc, wallet, spender, atBlock = "0x1a2b3c")
+
+        val call = rpc.recordedBodies.single { it.contains("eth_call") }
+        assertThat(call).contains("\"0x1a2b3c\"")
+        assertThat(call).doesNotContain("latest")
+    }
+
+    @Test
+    fun `getErc20Allowance defaults to latest when no block is given`() = runBlocking {
+        rpc.stub("eth_call", "0x" + "ee6b280".padStart(64, '0'))
+        val reader = makeReader(chainId = 1)
+
+        reader.getErc20Allowance(1, usdc, wallet, spender)
+
+        assertThat(rpc.recordedBodies.single { it.contains("eth_call") }).contains("\"latest\"")
+    }
+
     @Test
     fun `getErc20Allowance surfaces a malformed payload instead of reporting no allowance`() =
         runBlocking {
@@ -282,7 +309,7 @@ class EvmChainReaderTest {
                 rpc.stubObject("eth_getTransactionReceipt", receipt(status = encoded))
                 val reader = makeReader(chainId = 1)
 
-                assertThat(reader.getTransactionReceiptStatus(1, txHash)).isTrue()
+                assertThat(reader.getTransactionReceipt(1, txHash)?.succeeded).isTrue()
             }
         }
 
@@ -293,9 +320,51 @@ class EvmChainReaderTest {
                 rpc.stubObject("eth_getTransactionReceipt", receipt(status = encoded))
                 val reader = makeReader(chainId = 1)
 
-                assertThat(reader.getTransactionReceiptStatus(1, txHash)).isFalse()
+                assertThat(reader.getTransactionReceipt(1, txHash)?.succeeded).isFalse()
             }
         }
+
+    /**
+     * The block the transaction landed in is what a confirmation pins its read to, so losing it
+     * here is what forced verification back onto `latest` — and onto whatever head answered.
+     */
+    @Test
+    fun `a mined receipt carries the block it landed in`(): Unit = runBlocking {
+        rpc.stubObject("eth_getTransactionReceipt", receipt(status = "0x1"))
+        val reader = makeReader(chainId = 1)
+
+        assertThat(reader.getTransactionReceipt(1, txHash)?.blockNumber).isEqualTo("0x10")
+    }
+
+    @Test
+    fun `a receipt with no blockNumber is malformed rather than confirmable`() {
+        rpc.stubObject(
+            "eth_getTransactionReceipt",
+            JSONObject().put("transactionHash", txHash).put("status", "0x1")
+        )
+        val reader = makeReader(chainId = 1)
+
+        assertThrows(RainError.InternalError::class.java) {
+            runBlocking { reader.getTransactionReceipt(1, txHash) }
+        }
+    }
+
+    /** The value is sent back to a node as a block tag, so a non-quantity cannot be passed through. */
+    @Test
+    fun `a non-quantity blockNumber is rejected rather than used as a block tag`() {
+        rpc.stubObject(
+            "eth_getTransactionReceipt",
+            JSONObject()
+                .put("transactionHash", txHash)
+                .put("blockNumber", "latest")
+                .put("status", "0x1")
+        )
+        val reader = makeReader(chainId = 1)
+
+        assertThrows(RainError.InternalError::class.java) {
+            runBlocking { reader.getTransactionReceipt(1, txHash) }
+        }
+    }
 
     /** A pending transaction: the node has the hash but no receipt yet. `null` means keep polling. */
     @Test
@@ -303,7 +372,7 @@ class EvmChainReaderTest {
         rpc.stubObject("eth_getTransactionReceipt", JSONObject.NULL)
         val reader = makeReader(chainId = 1)
 
-        assertThat(reader.getTransactionReceiptStatus(1, txHash)).isNull()
+        assertThat(reader.getTransactionReceipt(1, txHash)).isNull()
     }
 
     @Test
@@ -312,7 +381,7 @@ class EvmChainReaderTest {
         val reader = makeReader(chainId = 1)
 
         assertThrows(RainError.InternalError::class.java) {
-            runBlocking { reader.getTransactionReceiptStatus(1, txHash) }
+            runBlocking { reader.getTransactionReceipt(1, txHash) }
         }
     }
 
@@ -322,7 +391,7 @@ class EvmChainReaderTest {
         val reader = makeReader(chainId = 1)
 
         assertThrows(RainError.InternalError::class.java) {
-            runBlocking { reader.getTransactionReceiptStatus(1, txHash) }
+            runBlocking { reader.getTransactionReceipt(1, txHash) }
         }
     }
 
@@ -333,7 +402,7 @@ class EvmChainReaderTest {
         val reader = makeReader(chainId = 1)
 
         assertThrows(RainError.InternalError::class.java) {
-            runBlocking { reader.getTransactionReceiptStatus(1, txHash) }
+            runBlocking { reader.getTransactionReceipt(1, txHash) }
         }
     }
 
@@ -343,7 +412,7 @@ class EvmChainReaderTest {
 
         for (bad in listOf("0xnope", "0x" + "a".repeat(63), "0x" + "a".repeat(65), "a".repeat(64))) {
             assertThrows(RainError.InvalidConfig::class.java) {
-                runBlocking { reader.getTransactionReceiptStatus(1, bad) }
+                runBlocking { reader.getTransactionReceipt(1, bad) }
             }
         }
         assertThat(rpc.recordedMethods).isEmpty()

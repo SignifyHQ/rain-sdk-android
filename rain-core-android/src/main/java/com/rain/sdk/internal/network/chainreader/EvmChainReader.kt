@@ -43,6 +43,9 @@ internal class EvmChainReader(
 
         /** An EVM transaction hash: 32 bytes of hex behind a `0x`. */
         val TRANSACTION_HASH = Regex("^0x[0-9a-fA-F]{64}$")
+
+        /** A JSON-RPC quantity — validated before a node-supplied value is sent back as a block tag. */
+        val HEX_QUANTITY = Regex("^0[xX][0-9a-fA-F]+$")
     }
 
     /** Convenience constructor backed by a static `chainId → rpcUrl` map. */
@@ -156,20 +159,21 @@ internal class EvmChainReader(
         chainId: Int,
         tokenAddress: String,
         owner: String,
-        spender: String
+        spender: String,
+        atBlock: String
     ): BigInteger {
         val rpcUrl = resolveRpcUrl(chainId)
         validateAddress(tokenAddress, "token address")
         validateAddress(owner, "owner address")
         validateAddress(spender, "spender address")
-        val hex = ethCall(rpcUrl, tokenAddress, Erc20Calldata.allowance(owner, spender))
+        val hex = ethCall(rpcUrl, tokenAddress, Erc20Calldata.allowance(owner, spender), atBlock)
         return EthereumConverter.parseHexToBigIntegerStrict(hex)
     }
 
-    override suspend fun getTransactionReceiptStatus(
+    override suspend fun getTransactionReceipt(
         chainId: Int,
         transactionHash: String
-    ): Boolean? {
+    ): MinedReceipt? {
         if (!TRANSACTION_HASH.matches(transactionHash)) {
             throw RainError.InvalidConfig("Invalid transaction hash: $transactionHash")
         }
@@ -186,28 +190,47 @@ internal class EvmChainReader(
             ?: throw RainError.InternalError(
                 "Transaction receipt for $transactionHash carries no status field"
             )
+        // Kept, not discarded: without it a caller can only read at whatever head answers next.
+        val blockNumber = receipt.opt("blockNumber") as? String
+            ?: throw RainError.InternalError(
+                "Transaction receipt for $transactionHash carries no blockNumber field"
+            )
+        if (!HEX_QUANTITY.matches(blockNumber)) {
+            throw RainError.InternalError(
+                "Malformed receipt blockNumber for $transactionHash: $blockNumber"
+            )
+        }
         // Decoded as a quantity rather than matched against literals: nodes are inconsistent about
         // minimal hex encoding, and a node answering "0x01" would otherwise make a perfectly good
         // approval receipt read as malformed.
-        return when (EthereumConverter.parseHexToBigIntegerStrict(status)) {
+        val succeeded = when (EthereumConverter.parseHexToBigIntegerStrict(status)) {
             BigInteger.ONE -> true
             BigInteger.ZERO -> false
             else -> throw RainError.InternalError(
                 "Malformed transaction receipt status for $transactionHash: $status"
             )
         }
+        return MinedReceipt(succeeded = succeeded, blockNumber = blockNumber)
     }
 
     /**
-     * Issues a raw `eth_call` and returns the hex result. For read functions with
+     * Issues a raw `eth_call` at [block] and returns the hex result. For read functions with
      * pre-encoded [data] (no-arg selectors like `decimals()` / `symbol()`, or `balanceOf`).
+     *
+     * A node that has not reached [block] errors instead of answering from older state — a retryable
+     * failure, where a stale success would be undetectable.
      */
-    private suspend fun ethCall(rpcUrl: String, to: String, data: String): String {
+    private suspend fun ethCall(
+        rpcUrl: String,
+        to: String,
+        data: String,
+        block: String = LATEST_BLOCK
+    ): String {
         val callParams = mapOf("to" to to, "data" to data)
         return jsonRpcClient.callForHexResult(
             rpcUrl = rpcUrl,
             method = "eth_call",
-            params = listOf(callParams, "latest")
+            params = listOf(callParams, block)
         )
     }
 

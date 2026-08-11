@@ -416,8 +416,12 @@ class RainSdkManagerApprovalTest {
 
         val allowance = manager.getTokenAllowance(chainId, usdc, spender)
 
+        // A standalone read has no transaction to pin to, so `latest` is the right block here —
+        // unlike a confirmation, which reads at the block its transaction mined in.
         assertThat(reader.allowanceCalls.single()).isEqualTo(
-            MockChainReader.AllowanceCall(chainId, usdc, TestFixtures.WALLET_ADDRESS, spender)
+            MockChainReader.AllowanceCall(
+                chainId, usdc, TestFixtures.WALLET_ADDRESS, spender, atBlock = "latest"
+            )
         )
         assertThat(allowance.rawAmount).isEqualTo(BigInteger.valueOf(250_000_000))
         assertThat(allowance.decimals).isEqualTo(6)
@@ -678,6 +682,119 @@ class RainSdkManagerApprovalTest {
         )
 
         assertThat(reader.receiptCalls).hasSize(2)
+        assertThat(reader.allowanceCalls).hasSize(1)
+    }
+
+    // ---- confirmation reads the transaction's own block ------------------------------
+    // `allowanceByBlock` is the state at the receipt's block, `allowance` what a lagging node
+    // answers — so reading at `latest` fails these with the exact production error, both ways.
+
+    @Test
+    fun `an approval is confirmed against the block it mined in, not against a lagging head`():
+        Unit = runBlocking {
+            val reader = MockChainReader(
+                receiptStatus = true,
+                receiptBlockNumber = "0x2a",
+                allowance = BigInteger.ZERO, // what a node that is still behind would answer
+                allowanceByBlock = mapOf("0x2a" to BigInteger.valueOf(10_000_000))
+            )
+            val (manager, _, _) = TestManagers.approvalManager(
+                reader = reader,
+                seedTokens = listOf(usdcInfo())
+            )
+
+            val allowance = manager.confirmTokenAllowance(
+                transactionHash = "0x" + "2".repeat(64),
+                chainId = chainId,
+                contractAddress = usdc,
+                spender = spender,
+                amount = BigDecimal("10")
+            )
+
+            assertThat(allowance.rawAmount).isEqualTo(BigInteger.valueOf(10_000_000))
+            assertThat(reader.allowanceCalls.single().atBlock).isEqualTo("0x2a")
+        }
+
+    /** The dangerous direction: a stale zero looks like a successful revoke that never landed. */
+    @Test
+    fun `a revoke is confirmed against its own block rather than a stale zero`(): Unit =
+        runBlocking {
+            val reader = MockChainReader(
+                receiptStatus = true,
+                receiptBlockNumber = "0x2a",
+                // A node one block behind still shows the pre-revoke allowance.
+                allowance = BigInteger.valueOf(10_000_000),
+                allowanceByBlock = mapOf("0x2a" to BigInteger.ZERO)
+            )
+            val (manager, _, _) = TestManagers.approvalManager(
+                reader = reader,
+                seedTokens = listOf(usdcInfo())
+            )
+
+            val allowance = manager.confirmTokenAllowance(
+                transactionHash = "0x" + "3".repeat(64),
+                chainId = chainId,
+                contractAddress = usdc,
+                spender = spender,
+                amount = BigDecimal.ZERO
+            )
+
+            assertThat(allowance.isZero).isTrue()
+            assertThat(reader.allowanceCalls.single().atBlock).isEqualTo("0x2a")
+        }
+
+    /** A node without the receipt's block errors; that is a retry, not a verdict. */
+    @Test
+    fun `a node that has not reached the receipt block yet is retried`(): Unit = runBlocking {
+        val reader = MockChainReader(
+            receiptStatus = true,
+            receiptBlockNumber = "0x2a",
+            allowanceByBlock = mapOf("0x2a" to BigInteger.valueOf(10_000_000)),
+            allowanceFailures = mutableListOf(RainError.InternalError("RPC error [-32000]: header not found"))
+        )
+        val (manager, _, _) = TestManagers.approvalManager(
+            reader = reader,
+            seedTokens = listOf(usdcInfo())
+        )
+
+        val allowance = manager.confirmTokenAllowance(
+            transactionHash = "0x" + "4".repeat(64),
+            chainId = chainId,
+            contractAddress = usdc,
+            spender = spender,
+            amount = BigDecimal("10")
+        )
+
+        assertThat(allowance.rawAmount).isEqualTo(BigInteger.valueOf(10_000_000))
+        assertThat(reader.allowanceCalls).hasSize(2)
+        // The receipt is not re-fetched once it is in hand — only the read is retried.
+        assertThat(reader.receiptCalls).hasSize(1)
+    }
+
+    /** A mismatch at the transaction's own block is final; retrying only delays the same answer. */
+    @Test
+    fun `a verdict from the pinned block is not retried`(): Unit = runBlocking {
+        val reader = MockChainReader(
+            receiptStatus = true,
+            receiptBlockNumber = "0x2a",
+            allowanceByBlock = mapOf("0x2a" to BigInteger.ZERO)
+        )
+        val (manager, _, _) = TestManagers.approvalManager(
+            reader = reader,
+            seedTokens = listOf(usdcInfo())
+        )
+
+        assertThrows(RainError.InternalError::class.java) {
+            runBlocking {
+                manager.confirmTokenAllowance(
+                    transactionHash = "0x" + "5".repeat(64),
+                    chainId = chainId,
+                    contractAddress = usdc,
+                    spender = spender,
+                    amount = BigDecimal("10")
+                )
+            }
+        }
         assertThat(reader.allowanceCalls).hasSize(1)
     }
 

@@ -85,14 +85,30 @@ internal interface ChainReader {
      * Reads `allowance(owner, spender)` — the base units of [owner]'s token balance that
      * [spender] may still move. Returned raw so the caller decides the scale; an unlimited
      * approval is `uint256` max.
+     *
+     * @param atBlock Block tag to read at; pass a [MinedReceipt.blockNumber] to read state that
+     *   provably includes that transaction.
      */
     suspend fun getErc20Allowance(
         chainId: Int,
         tokenAddress: String,
         owner: String,
-        spender: String
+        spender: String,
+        atBlock: String = LATEST_BLOCK
     ): BigInteger
 
-    /** `null` while pending, `true` when mined successfully, and `false` when mined reverted. */
-    suspend fun getTransactionReceiptStatus(chainId: Int, transactionHash: String): Boolean?
+    /** `null` while the transaction is still pending; otherwise its outcome and block. */
+    suspend fun getTransactionReceipt(chainId: Int, transactionHash: String): MinedReceipt?
 }
+
+/** Whatever head the answering node is at — fine standalone, stale for verifying a transaction. */
+internal const val LATEST_BLOCK = "latest"
+
+/** A mined transaction's outcome and the block it landed in, so a read can be pinned to that block. */
+internal data class MinedReceipt(
+    /** `true` when the transaction mined successfully, `false` when it mined but reverted. */
+    val succeeded: Boolean,
+
+    /** Hex quantity (e.g. `"0x10"`), carried verbatim so it can be reused as a block tag. */
+    val blockNumber: String
+)
