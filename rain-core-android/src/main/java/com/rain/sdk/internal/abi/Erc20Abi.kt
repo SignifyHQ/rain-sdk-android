@@ -48,6 +48,12 @@ object Erc20Abi {
      * allowance and `0` revokes.
      */
     fun encodeApprove(spender: String, allowanceBaseUnits: BigInteger): String {
+        if (allowanceBaseUnits.signum() < 0 || allowanceBaseUnits > MAX_UINT256) {
+            throw RainError.InvalidAmount(
+                amount = allowanceBaseUnits.toString(),
+                reason = "approval amount must fit in uint256"
+            )
+        }
         val function = Web3jFunction(
             "approve",
             listOf(Address(spender), Uint256(allowanceBaseUnits)),
@@ -65,4 +71,7 @@ object Erc20Abi {
     @Throws(RainError::class)
     fun encodeApprove(spender: String, amount: BigDecimal, decimals: Int): String =
         encodeApprove(spender, RainAmountUtils.toBaseUnits(amount, decimals))
+
+    private val MAX_UINT256: BigInteger =
+        BigInteger.valueOf(2).pow(256).subtract(BigInteger.ONE)
 }

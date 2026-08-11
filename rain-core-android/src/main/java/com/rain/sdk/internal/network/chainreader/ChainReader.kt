@@ -92,4 +92,7 @@ internal interface ChainReader {
         owner: String,
         spender: String
     ): BigInteger
+
+    /** `null` while pending, `true` when mined successfully, and `false` when mined reverted. */
+    suspend fun getTransactionReceiptStatus(chainId: Int, transactionHash: String): Boolean?
 }

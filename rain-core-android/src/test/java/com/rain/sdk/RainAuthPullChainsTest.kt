@@ -36,13 +36,12 @@ class RainAuthPullChainsTest {
     }
 
     @Test
-    fun `a custom base url permits both environments`() {
+    fun `a custom base url fails closed`() {
         val supported = RainAuthPullChains.supported(
             RainApiEnvironment.Custom("https://gateway.example.com")
         )
 
-        assertThat(supported).containsAtLeastElementsIn(RainAuthPullChains.SANDBOX)
-        assertThat(supported).containsAtLeastElementsIn(RainAuthPullChains.PRODUCTION)
+        assertThat(supported).isEmpty()
     }
 
     @Test

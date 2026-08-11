@@ -214,6 +214,13 @@ internal class SolanaChainReader(
         "ERC-20 allowances are not supported on Solana (chainId=$chainId)"
     )
 
+    override suspend fun getTransactionReceiptStatus(
+        chainId: Int,
+        transactionHash: String
+    ): Boolean? = throw RainError.InternalError(
+        "EVM transaction receipts are not supported on Solana (chainId=$chainId)"
+    )
+
     private fun resolveRpcUrl(chainId: Int): String {
         val rpcUrl = rpcUrlResolver(chainId)
             ?: throw RainError.InvalidConfig("No RPC endpoint configured for chainId=$chainId")

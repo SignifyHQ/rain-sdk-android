@@ -7,6 +7,7 @@ import com.rain.sdk.models.RainTokenAllowance
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertThrows
 import org.junit.Before
@@ -30,6 +31,7 @@ class EvmChainReaderTest {
     private val dai = "0x6b175474e89094c44da98b954eedeac495271d0f"
     /** Rain's sandbox Auth Pull operator — the allowance spender. */
     private val spender = "0x5a6E6b0d5Ea051CfFF9b3dcC2Aa8Dac226458f29"
+    private val txHash = "0x" + "ab".repeat(32)
 
     @Before
     fun setUp() {
@@ -197,6 +199,16 @@ class EvmChainReaderTest {
         assertThat(reader.getDecimals(1, usdc)).isEqualTo(6)
     }
 
+    @Test
+    fun `getDecimals rejects malformed responses instead of treating them as zero`() {
+        rpc.stub("eth_call", "0x")
+        val reader = makeReader(chainId = 1)
+
+        assertThrows(RainError.InternalError::class.java) {
+            runBlocking { reader.getDecimals(1, usdc) }
+        }
+    }
+
     // ---------- allowances ----------
 
     @Test
@@ -255,6 +267,92 @@ class EvmChainReaderTest {
 
         assertThat(reader.getSymbol(1, usdc)).isEqualTo("USDC")
     }
+
+    // ---------- transaction receipts ----------
+
+    /**
+     * The status field is a JSON-RPC *quantity*, and nodes disagree about minimal encoding. Every
+     * spelling of 1 has to read as success: an approval that mined is the input this drives, and
+     * rejecting a valid receipt would fail a confirmation that in fact succeeded.
+     */
+    @Test
+    fun `a successful receipt is recognised however the node encodes the status`(): Unit =
+        runBlocking {
+            for (encoded in listOf("0x1", "0X1", "0x01", "0x0000000000000001")) {
+                rpc.stubObject("eth_getTransactionReceipt", receipt(status = encoded))
+                val reader = makeReader(chainId = 1)
+
+                assertThat(reader.getTransactionReceiptStatus(1, txHash)).isTrue()
+            }
+        }
+
+    @Test
+    fun `a reverted receipt is recognised however the node encodes the status`(): Unit =
+        runBlocking {
+            for (encoded in listOf("0x0", "0X0", "0x00", "0x0000000000000000")) {
+                rpc.stubObject("eth_getTransactionReceipt", receipt(status = encoded))
+                val reader = makeReader(chainId = 1)
+
+                assertThat(reader.getTransactionReceiptStatus(1, txHash)).isFalse()
+            }
+        }
+
+    /** A pending transaction: the node has the hash but no receipt yet. `null` means keep polling. */
+    @Test
+    fun `a null result reads as pending rather than reverted`(): Unit = runBlocking {
+        rpc.stubObject("eth_getTransactionReceipt", JSONObject.NULL)
+        val reader = makeReader(chainId = 1)
+
+        assertThat(reader.getTransactionReceiptStatus(1, txHash)).isNull()
+    }
+
+    @Test
+    fun `a status outside 0 and 1 is malformed rather than guessed at`() {
+        rpc.stubObject("eth_getTransactionReceipt", receipt(status = "0x2"))
+        val reader = makeReader(chainId = 1)
+
+        assertThrows(RainError.InternalError::class.java) {
+            runBlocking { reader.getTransactionReceiptStatus(1, txHash) }
+        }
+    }
+
+    @Test
+    fun `a non-hex status is malformed rather than guessed at`() {
+        rpc.stubObject("eth_getTransactionReceipt", receipt(status = "success"))
+        val reader = makeReader(chainId = 1)
+
+        assertThrows(RainError.InternalError::class.java) {
+            runBlocking { reader.getTransactionReceiptStatus(1, txHash) }
+        }
+    }
+
+    /** Pre-Byzantium receipts carry no status. Unknown is not success. */
+    @Test
+    fun `a receipt with no status field throws instead of reading as mined`() {
+        rpc.stubObject("eth_getTransactionReceipt", JSONObject().put("blockNumber", "0x1"))
+        val reader = makeReader(chainId = 1)
+
+        assertThrows(RainError.InternalError::class.java) {
+            runBlocking { reader.getTransactionReceiptStatus(1, txHash) }
+        }
+    }
+
+    @Test
+    fun `a malformed transaction hash is rejected before hitting the network`() {
+        val reader = makeReader(chainId = 1)
+
+        for (bad in listOf("0xnope", "0x" + "a".repeat(63), "0x" + "a".repeat(65), "a".repeat(64))) {
+            assertThrows(RainError.InvalidConfig::class.java) {
+                runBlocking { reader.getTransactionReceiptStatus(1, bad) }
+            }
+        }
+        assertThat(rpc.recordedMethods).isEmpty()
+    }
+
+    private fun receipt(status: String): JSONObject = JSONObject()
+        .put("transactionHash", txHash)
+        .put("blockNumber", "0x10")
+        .put("status", status)
 
     // ---------- guards ----------
 

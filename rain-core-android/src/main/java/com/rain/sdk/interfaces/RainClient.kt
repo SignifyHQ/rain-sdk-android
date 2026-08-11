@@ -416,12 +416,26 @@ interface RainClient {
     // ---------------------------------------------------------------------------------------
 
     /**
+     * The chains this client will accept an Auth Pull approval on, and the only answer that
+     * matches what the approval methods below enforce.
+     *
+     * Empty until `RainSdk.Builder.authPullConfig(...)` supplies the trusted targets, and narrower
+     * than `RainAuthPullChains.supported(environment)` whenever the configuration is narrower than
+     * its environment or a chain has no RPC endpoint. Gate host UI on this rather than on the
+     * environment's chain set, so a chain is never offered that an approval would reject.
+     */
+    val authPullChainIds: Set<Int> get() = emptySet()
+
+    /**
      * Approves [spender] to move up to [amount] of an ERC-20 token from this wallet, and returns
      * the resulting transaction hash.
      *
      * This is the wallet-side prerequisite for Rain's Auth Pull: the Rain operator must be
      * approved on the user's wallet before an authorization can pull USDC into their collateral
      * contract. Rain executes the pull itself; the SDK only sets the allowance.
+     *
+     * Auth Pull is disabled until `RainSdk.Builder.authPullConfig(...)` supplies the trusted
+     * operator and token targets. This method rejects any different chain, token, or spender.
      *
      * @param chainId EVM chain the token lives on. Solana chain IDs throw — SPL has no
      *                ERC-20-style allowance.
@@ -431,11 +445,6 @@ interface RainClient {
      * @param amount Human-readable allowance (e.g. `250` for 250 USDC). `null` (the default)
      *               approves an unlimited (`uint256` max) allowance, so the user never has to
      *               re-approve; `BigDecimal.ZERO` revokes an existing approval.
-     * @param decimals The token's decimals. `null` lets the SDK resolve them from its registry or
-     *                 an on-chain read; ignored for an unlimited approval, which needs no scaling.
-     *                 Unlike the balance paths this never falls back to 18 — a guessed scale would
-     *                 over-approve a 6-decimal token by 10^12 — so an unresolvable token throws
-     *                 [RainError.TokenNotFound].
      * @return [RainTokenApprovalResult] carrying the transaction hash.
      */
     @Throws(RainError::class)
@@ -443,8 +452,7 @@ interface RainClient {
         chainId: Int,
         contractAddress: String,
         spender: String,
-        amount: BigDecimal? = null,
-        decimals: Int? = null
+        amount: BigDecimal? = null
     ): RainTokenApprovalResult
 
     /**
@@ -455,17 +463,13 @@ interface RainClient {
      *
      * @param owner The wallet whose balance is approved. `null` (the default) reads this client's
      *              own wallet.
-     * @param decimals The token's decimals; `null` resolves them from the registry or on chain,
-     *                 and throws rather than guessing — an allowance whose scale is a guess cannot
-     *                 be compared against anything.
      */
     @Throws(RainError::class)
     suspend fun getTokenAllowance(
         chainId: Int,
         contractAddress: String,
         spender: String,
-        owner: String? = null,
-        decimals: Int? = null
+        owner: String? = null
     ): RainTokenAllowance
 
     /**
@@ -478,9 +482,35 @@ interface RainClient {
         chainId: Int,
         contractAddress: String,
         spender: String,
-        amount: BigDecimal? = null,
-        decimals: Int? = null
+        amount: BigDecimal? = null
     ): BigDecimal
+
+    /**
+     * Waits for an approval transaction to mine successfully, then reads back the resulting
+     * allowance. A submitted transaction hash alone does not make Auth Pull ready.
+     *
+     * The returned allowance can legitimately be **lower** than [amount]: USDC decrements the
+     * allowance on every `transferFrom`, so an authorization that pulls between the receipt and
+     * this read leaves less than was approved. Compare
+     * [RainTokenAllowance.rawAmount] (or [RainTokenAllowance.covers]) against what you need rather
+     * than against what you asked for. A revoke that left a spendable allowance, and an approval
+     * that mined against a still-zero allowance, both throw.
+     *
+     * @param amount The allowance that was requested, so the result can be checked against it.
+     *               `null` (the default) means the unlimited approval.
+     * @throws RainError.TransactionSimulationFailed when the mined transaction reverted.
+     * @throws RainError.NetworkError when confirmation times out.
+     * @throws RainError.InternalError when the mined allowance contradicts the request.
+     */
+    @Throws(RainError::class)
+    suspend fun confirmTokenAllowance(
+        transactionHash: String,
+        chainId: Int,
+        contractAddress: String,
+        spender: String,
+        amount: BigDecimal? = null,
+        owner: String? = null
+    ): RainTokenAllowance
 
     /**
      * Registers additional tokens with the SDK so their metadata (decimals / symbol) resolves

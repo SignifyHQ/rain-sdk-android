@@ -8,15 +8,16 @@ Pull, Rain pulls the full amount in USDC from that wallet before approving the a
 **What the SDK does not do:** the pull itself. That is Rain's `transferFrom`, executed server-side
 with no app involvement.
 
-Three methods cover the whole surface:
+Four methods cover the whole surface:
 
 | Method | Purpose |
 |---|---|
-| `approveTokenAllowance(chainId, contractAddress, spender, amount?, decimals?)` | Approve Rain's operator to spend the user's USDC |
-| `getTokenAllowance(chainId, contractAddress, spender, owner?, decimals?)` | Read the current allowance |
-| `estimateApprovalFee(chainId, contractAddress, spender, amount?, decimals?)` | Price the approval before submitting it |
+| `approveTokenAllowance(chainId, contractAddress, spender, amount?)` | Approve Rain's operator to spend the user's USDC |
+| `getTokenAllowance(chainId, contractAddress, spender, owner?)` | Read the current allowance |
+| `estimateApprovalFee(chainId, contractAddress, spender, amount?)` | Price the approval before submitting it |
+| `confirmTokenAllowance(transactionHash, chainId, contractAddress, spender, amount?, owner?)` | Wait for a successful receipt and read back the resulting allowance |
 
-See [Method reference](METHODS.md#approvetokenallowancechainid-contractaddress-spender-amount-decimals)
+See [Method reference](METHODS.md#approvetokenallowancechainid-contractaddress-spender-amount)
 for full parameter tables.
 
 ---
@@ -53,13 +54,27 @@ All four are in the SDK's built-in token registry, so balance and allowance read
 decimals with no `registerTokens` call and no on-chain lookup. The public API is
 token-address-based rather than USDC-only, so it keeps working when Rain adds assets.
 
-`RainAuthPullChains` holds these two sets, so a host can gate its own UI on the same list the SDK
-enforces:
+`RainAuthPullChains` holds these two sets, keyed by environment:
 
 ```kotlin
 val chains = RainAuthPullChains.supported(RainApiEnvironment.Dev)   // {84532, 421614}
 RainAuthPullChains.isSupported(RainChain.BASE_MAINNET, RainApiEnvironment.Dev)  // false
 ```
+
+**To gate UI, use `authPullChainIds` instead.** The environment's set is the wider answer; what a
+built SDK will accept is that set narrowed by the host's `RainAuthPullConfig` and by which chains
+have an RPC endpoint. Both `RainSdk` and `RainClient` expose the resolved one, so a screen holding
+either can offer exactly the chains an approval will succeed on:
+
+```kotlin
+val enabled = rain.authPullChainIds          // or: client.authPullChainIds
+if (chainId !in enabled) { /* don't offer Auth Pull here */ }
+```
+
+The two differ whenever a configuration is narrower than its environment, an RPC endpoint is
+missing, or the environment is `Custom` — which `supported(...)` reports as empty however the
+gateway is configured, making the resolved set the only way to enumerate a custom gateway's chains.
+Reach for `supported(...)` only where no SDK exists yet, such as a chain picker built at startup.
 
 ## Environments must match
 
@@ -68,33 +83,38 @@ between them. Approving on the wrong environment's chain still mines a perfectly
 one that no authorization will ever draw on, and on mainnet at real cost to the user. `approve`
 succeeds against any address, so nothing downstream would catch it.
 
-The SDK therefore rejects the pairing up front. An approval, allowance read, or fee estimate on a
-chain outside `RainAuthPullChains.supported(...)` for the configured environment throws
-`RainError.InvalidConfig` (`RAIN_102`) before any network call or wallet prompt:
+The SDK therefore rejects mismatched chain, token, and operator targets locally with
+`RainError.InvalidConfig` (`RAIN_102`), before wallet access.
+
+The environment defaults to `RainApiEnvironment.Dev`, but Auth Pull itself is disabled until the
+builder receives a trusted configuration:
 
 ```kotlin
 val rain = RainSdk.builder()
-    .rainApiEnvironment(RainApiEnvironment.Production)   // → production chains only
-    .rpcEndpoints(mapOf(RainChain.BASE_MAINNET to baseRpcUrl))
+    .rpcEndpoints(rpcEndpoints)
+    .rainApiEnvironment(RainApiEnvironment.Dev)
+    .authPullConfig(RainAuthPullConfig.sandbox(rainOperatorAddress))
+    .register(provider)
     .build()
 ```
 
-The environment defaults to `RainApiEnvironment.Dev`, so a host that never sets it gets the sandbox
-set. `RainApiEnvironment.Custom` permits both sets, since a self-hosted gateway can front either.
+The SDK then requires the exact configured operator and canonical USDC contract on every approval,
+allowance read, confirmation, and fee estimate. `RainApiEnvironment.Custom` fails closed; a custom
+gateway must explicitly use `RainAuthPullConfig.custom(operator, tokenAddresses)`.
 
 ## The operator address
 
 The spender is Rain's operator: **one address per environment**, the same on every chain within
 that environment, and different between sandbox and production.
 
-It is a runtime parameter, deliberately not an SDK constant — read it from Rain rather than
-hardcoding it, and key it off the same environment the SDK is configured with. Rain publishes the
+It is trusted builder configuration, deliberately not an SDK constant — read it from Rain rather
+than hardcoding it, and key it off the same environment the SDK is configured with. Rain publishes
+the
 current values in its
 [Auth Pull docs](https://docs.rain.xyz/docs/authorization-pull-from-user-wallet).
 
-Passing the other environment's operator on a chain that *is* in the configured set is the one
-mismatch the SDK cannot catch — the spender is just an address, and the chain gate passes. Read the
-allowance back after approving and confirm the spender it reports is the one you meant.
+Passing a spender or token other than the configured target throws `RainError.InvalidConfig` before
+wallet access.
 
 ## Funding the wallet in sandbox
 
@@ -196,16 +216,30 @@ applies to Rain's operator on USDC today; both become live questions if Auth Pul
 
 ### 4. Confirm
 
-`transactionHash` means submitted, not mined. The allowance changes only once the transaction is
-included, so re-read it before treating the user as ready:
+`transactionHash` means submitted, not mined. Use `confirmTokenAllowance` before treating the user
+as ready; it polls for a successful receipt (up to 60s) and reads back the resulting allowance:
 
 ```kotlin
-val updated = client.getTokenAllowance(
+val updated = client.confirmTokenAllowance(
+    transactionHash = result.transactionHash,
     chainId = RainChain.BASE_SEPOLIA,
     contractAddress = usdcAddress,
-    spender = rainOperatorAddress
+    spender = rainOperatorAddress,
+    amount = BigDecimal("250")   // omit for the unlimited approval
 )
 ```
+
+**The result can legitimately be lower than what you approved.** Auth Pull spends this very
+allowance, and USDC decrements it on every `transferFrom` — including a `uint256` max one, which
+Circle's token does not special-case. An authorization that pulls between the receipt and the read
+therefore leaves less than was approved, and that is a success, not a failure. Compare `rawAmount`
+(or `covers`) against what you still need rather than against what you asked for.
+
+Two outcomes are genuine failures and throw: a mined revoke that left a spendable allowance, and a
+mined approval whose allowance is still zero — the shape a wrong owner, token, or spender produces.
+A reverted receipt throws `TransactionSimulationFailed`; exhausting the poll window throws
+`NetworkError`, which means "not confirmed yet", not "failed" — re-read the allowance rather than
+re-approving.
 
 Once the allowance is in place, no further app action is required. Rain pulls the full
 authorization amount into the user's collateral contract at authorization time.
@@ -218,16 +252,17 @@ Amounts are human-readable `BigDecimal`s, matching `sendToken`. The SDK scales b
 decimals and **rejects** an amount finer than the token supports (`InvalidAmount`, `RAIN_406`)
 rather than truncating it — `1.2345678` on 6-decimal USDC is an error, not `1.234567`.
 
-Pass `decimals` only to override; `null` resolves them from the registry, then a one-time on-chain
-`decimals()` read. An unlimited approval skips decimals resolution entirely — `uint256` max needs
-no scaling.
+**There is no `decimals` parameter.** Auth Pull resolves the scale itself — trusted registry
+metadata first, then a one-time strict on-chain `decimals()` read — and takes no override, because
+a caller-supplied scale is exactly the input that turns a 250 USDC approval into 250 million. An
+unlimited approval skips resolution entirely; `uint256` max needs no scaling.
 
 **The approval path never guesses a scale.** Elsewhere in the SDK a failed `decimals()` read falls
 back to 18, which misreports a balance. Here the same guess against a 6-decimal token would approve
 10^12 times the intended amount — and `approve` succeeds regardless of the wallet's balance, so
 nothing downstream would catch it. An unresolvable token therefore throws `RainError.TokenNotFound`
-(`RAIN_102`). USDC on all four Auth Pull chains ships in the registry, so this only fires for an
-unknown token whose `decimals()` read fails; pass `decimals` explicitly to skip the read.
+(`RAIN_102`). USDC on all four Auth Pull chains ships in the registry, so this only fires for a
+token whose `decimals()` read fails — register it up front with `registerTokens` if you hit it.
 
 ## Provider support
 
@@ -238,21 +273,24 @@ unknown token whose `decimals()` read fails; pass `decimals` explicitly to skip 
 | **Turnkey** | Supported | Approvals ride the same signed-transaction pipeline as any other ERC-20 send; no Turnkey-specific gating is needed. |
 
 No provider needed a bespoke approval path, so no capability gate exists for this feature. The
-allowance *read* never touches the wallet provider — it is an `eth_call` through the SDK's own
-configured RPC, so it works on any provider and on any configured chain.
+allowance value itself is read over the SDK's own configured RPC (`eth_call`), never through the
+wallet provider, so it works on any provider and on any configured, trusted Auth Pull chain. The
+provider is asked for one thing: the wallet address to read the allowance *for*, and only when
+`owner` is omitted — pass `owner` explicitly and the read touches no wallet at all.
 
 ## Failure modes
 
 | Code | Case | When |
 |---|---|---|
-| `RAIN_102` | `RainError.InvalidConfig` | Malformed token or spender address, a non-positive chain ID, a chain outside the configured environment's Auth Pull set, or a token reporting `decimals` outside 0..77. Raised before any network call or wallet prompt. |
+| `RAIN_102` | `RainError.InvalidConfig` | Auth Pull is not configured, target differs from the trusted token/operator, malformed input, wrong chain/environment, or the token reports decimals outside `0..77`. Local configuration failures occur before wallet access. |
 | `RAIN_102` | `RainError.TokenNotFound` | The token's decimals could not be established (not in the registry and its `decimals()` read failed), so a capped amount cannot be scaled safely. Never raised for an unlimited approval. |
+| `RAIN_301` | `RainError.NetworkError` | `confirmTokenAllowance` exhausted its 60s poll window. Not confirmed yet — re-read the allowance, don't re-approve. |
 | `RAIN_401` | `RainError.UserRejected` | The user declined the signature in the wallet UI. |
 | `RAIN_402` | `RainError.InsufficientFunds` | Not enough native gas to submit the approval. |
-| `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight simulation reverted (providers that simulate). |
+| `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight simulation reverted (providers that simulate), or `confirmTokenAllowance` found a mined receipt that reverted. |
 | `RAIN_406` | `RainError.InvalidAmount` | Negative amount, or more decimal places than the token supports. |
 | `RAIN_501` | `RainError.ProviderError` | The wallet provider failed for its own reasons. |
-| `RAIN_502` | `RainError.InternalError` | ABI encoding failed, or a Solana chain ID was passed (approvals are EVM-only). |
+| `RAIN_502` | `RainError.InternalError` | ABI encoding failed, a Solana chain ID was passed (approvals are EVM-only), or a mined allowance contradicted the request (revoke left a spendable allowance, or an approval left zero). |
 
 Errors are always `RainError`; vendor errors are wrapped, never surfaced raw.
 

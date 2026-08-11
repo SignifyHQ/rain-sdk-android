@@ -380,16 +380,34 @@ Routed by `chainId`.
 
 ---
 
-### approveTokenAllowance(chainId, contractAddress, spender, amount?, decimals?)
+### authPullChainIds
+
+The chains this client will accept an Auth Pull approval on — the host's `RainAuthPullConfig`
+narrowed to the chains that have an RPC endpoint, and the same set the approval guard enforces.
+Empty until `RainSdk.Builder.authPullConfig(...)` supplies the trusted targets. Also available on
+`RainSdk` itself, for gating before a client is resolved.
+
+Gate host UI on this rather than on `RainAuthPullChains.supported(environment)`, which answers for
+an environment and is the wider set. See [Auth Pull](AUTH_PULL.md#supported-chains-and-assets).
+
+- **Type:** `Set<Int>`
+- **Suspend:** No
+
+---
+
+### approveTokenAllowance(chainId, contractAddress, spender, amount?)
 
 Approves `spender` to move up to `amount` of an ERC-20 token from the current wallet — the
 wallet-side prerequisite for Rain's [Auth Pull](AUTH_PULL.md). Rain executes the pull itself; the
 SDK only sets the allowance.
 
+Auth Pull is disabled until `RainSdk.Builder.authPullConfig(...)` supplies the trusted operator and
+per-chain token targets. The SDK rejects any different chain, token, or spender before wallet access.
+
 - **Returns:** `RainTokenApprovalResult` — the transaction hash of the `approve` call.
 - **Throws:** `RainError`. EVM only — a Solana `chainId` throws `RainError.InternalError`, since
-  SPL delegation is not an ERC-20 allowance. A `chainId` outside `RainAuthPullChains.supported(...)`
-  for the configured `rainApiEnvironment` throws `RainError.InvalidConfig`.
+  SPL delegation is not an ERC-20 allowance. A `chainId` outside `authPullChainIds` throws
+  `RainError.InvalidConfig`.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
@@ -398,7 +416,10 @@ SDK only sets the allowance.
 | `contractAddress` | `String` | ERC-20 token contract (USDC for Auth Pull today). |
 | `spender` | `String` | Address being approved — Rain's operator. Source it from Rain; it differs between sandbox and production. |
 | `amount` | `BigDecimal?` | Human-readable allowance (e.g. `BigDecimal("250")`). `null` (the default) approves an unlimited (`uint256` max) allowance; `BigDecimal.ZERO` revokes. |
-| `decimals` | `Int?` | Optional token decimals; `null` resolves them from the registry or an on-chain read. Ignored for an unlimited approval. Unlike the balance paths this **never falls back to 18** — a guessed scale would over-approve a 6-decimal token by 10^12 — so an unresolvable token throws `RainError.TokenNotFound`. |
+
+There is deliberately **no `decimals` parameter** on any Auth Pull method: the scale comes from
+trusted registry metadata or a strict on-chain `decimals()` read, never from the caller. A token
+whose decimals cannot be established throws `RainError.TokenNotFound` rather than being guessed at.
 
 ```kotlin
 // Unlimited — what Rain recommends, so the user never has to re-approve.
@@ -419,7 +440,7 @@ clones) revert unless an existing non-zero allowance is set to zero first — se
 
 ---
 
-### getTokenAllowance(chainId, contractAddress, spender, owner?, decimals?)
+### getTokenAllowance(chainId, contractAddress, spender, owner?)
 
 Reads the ERC-20 allowance `spender` currently holds over `owner`'s balance. Call it before
 approving (to skip a redundant transaction) and after (to confirm the approval was mined).
@@ -434,15 +455,14 @@ approving (to skip a redundant transaction) and after (to confirm the approval w
 | `chainId` | `Int` | Target EVM network chain ID. |
 | `contractAddress` | `String` | ERC-20 token contract. |
 | `spender` | `String` | Address whose allowance is being read — Rain's operator. |
-| `owner` | `String?` | Wallet whose balance is approved. `null` (the default) reads this client's own wallet. |
-| `decimals` | `Int?` | Optional token decimals; resolved from the registry or on chain, and throws rather than guessing. |
+| `owner` | `String?` | Wallet whose balance is approved. `null` (the default) reads this client's own wallet, which is the only case that touches the wallet provider at all. |
 
 > `spender` precedes `owner` so the optional parameters land last and Kotlin's default arguments
 > work.
 
 ---
 
-### estimateApprovalFee(chainId, contractAddress, spender, amount?, decimals?)
+### estimateApprovalFee(chainId, contractAddress, spender, amount?)
 
 Estimates the total fee (estimated gas x gas price) to submit the approval, in the chain's native
 token. Nothing is broadcast and no signature is requested; the fee is priced against the exact
@@ -453,6 +473,49 @@ calldata `approveTokenAllowance` would send.
 - **Suspend:** Yes
 
 Parameters are identical to `approveTokenAllowance`.
+
+---
+
+### confirmTokenAllowance(transactionHash, chainId, contractAddress, spender, amount?, owner?)
+
+Waits for an approval transaction to mine successfully, then reads back the resulting allowance. A
+transaction hash alone means submitted, not ready: use this before treating the user as approved for
+Auth Pull.
+
+Polls `eth_getTransactionReceipt` once a second for up to 60 seconds, then reads the allowance
+through the same path as `getTokenAllowance`.
+
+- **Returns:** `RainTokenAllowance` — the allowance actually in place after the transaction mined.
+- **Throws:** `RainError`. A reverted receipt throws `RainError.TransactionSimulationFailed`; an
+  exhausted poll window throws `RainError.NetworkError` (not confirmed *yet* — re-read the
+  allowance rather than re-approving). `RainError.InternalError` is thrown only when the mined
+  allowance contradicts the request: a revoke that left a spendable allowance, or an approval whose
+  allowance is still zero.
+- **Suspend:** Yes
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `transactionHash` | `String` | Hash returned by `approveTokenAllowance`. |
+| `chainId` | `Int` | Target EVM network chain ID. Must match the approval's chain. |
+| `contractAddress` | `String` | ERC-20 token contract the approval was against. |
+| `spender` | `String` | Address that was approved — Rain's operator. |
+| `amount` | `BigDecimal?` | The allowance that was requested, so the result can be checked against it. `null` (the default) means the unlimited approval; `BigDecimal.ZERO` means a revoke. |
+| `owner` | `String?` | Wallet whose allowance to read. `null` (the default) reads this client's own wallet. |
+
+**The returned allowance can be lower than `amount`.** Auth Pull spends this allowance, and USDC
+decrements it on every `transferFrom` — including a `uint256` max one. An authorization that pulls
+between the receipt and the read leaves less than was approved, and that is a success. Compare
+`rawAmount` (or `covers`) against what you still need, not against what you asked for.
+
+```kotlin
+val result = client.approveTokenAllowance(RainChain.BASE_SEPOLIA, usdc, rainOperator)
+val allowance = client.confirmTokenAllowance(
+    transactionHash = result.transactionHash,
+    chainId = RainChain.BASE_SEPOLIA,
+    contractAddress = usdc,
+    spender = rainOperator
+)
+```
 
 ---
 

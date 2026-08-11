@@ -1,6 +1,7 @@
 package com.rain.sdk.sample
 
 import com.rain.sdk.RainSdk
+import com.rain.sdk.RainAuthPullConfig
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.portal.PortalConfig
 import com.rain.sdk.portal.PortalProvider
@@ -56,6 +57,7 @@ class RainSession {
         registerTokens(WalletChain.selectable.map { it.defaultTokenInfo })
         // Selects the Rain API host and, with it, the chains Auth Pull approvals are allowed on.
         rainApiEnvironment(SampleEnvironment.rainApi)
+        authPullConfig(SampleEnvironment.authPullConfig)
         if (rainApiKey.isNotBlank() && rainUserId.isNotBlank()) {
             rainApiCredentials(rainApiKey, rainUserId)
         }

@@ -1,6 +1,7 @@
 package com.rain.sdk.sample
 
 import com.rain.sdk.models.RainApiEnvironment
+import com.rain.sdk.RainAuthPullConfig
 
 /**
  * Which Rain environment this build of the sample talks to.
@@ -31,6 +32,15 @@ object SampleEnvironment {
             else -> "0x5a6E6b0d5Ea051CfFF9b3dcC2Aa8Dac226458f29"
         }
 
+    val authPullConfig: RainAuthPullConfig
+        get() = when (rainApi) {
+            is RainApiEnvironment.Production -> RainAuthPullConfig.production(authPullOperator)
+            is RainApiEnvironment.Dev -> RainAuthPullConfig.sandbox(authPullOperator)
+            is RainApiEnvironment.Custom -> error(
+                "Custom Rain environments require an explicit Auth Pull chain/token configuration"
+            )
+        }
+
     /** A human label for the mode banner, so it is obvious which environment a build points at. */
     val displayName: String
         get() = when (rainApi) {
@@ -38,4 +48,7 @@ object SampleEnvironment {
             is RainApiEnvironment.Production -> "Production"
             is RainApiEnvironment.Custom -> "Custom"
         }
+
+    val isProduction: Boolean
+        get() = rainApi is RainApiEnvironment.Production
 }

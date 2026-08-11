@@ -25,7 +25,7 @@ class RainSdkManagerApprovalTest {
     // A sandbox Auth Pull chain: the manager defaults to the sandbox chain set, and approvals off
     // that set are rejected before anything is encoded.
     private val chainId = RainChain.BASE_SEPOLIA
-    private val usdc = TestFixtures.USDC_ADDRESS
+    private val usdc = TestFixtures.AUTH_PULL_USDC_ADDRESS
     private val spender = "0x5a6E6b0d5Ea051CfFF9b3dcC2Aa8Dac226458f29"
     private val unknownToken = "0x000000000000000000000000000000000000dEaD"
 
@@ -74,18 +74,22 @@ class RainSdkManagerApprovalTest {
         assertThat(stub.sendTransactionCalls.single().data).endsWith("0eee53a0")
     }
 
+    /**
+     * There is no `decimals` parameter to get this wrong with: the scale comes from trusted
+     * metadata, so a token the registry knows is never re-read and never re-scaled.
+     */
     @Test
-    fun `caller-supplied decimals win over the registry`(): Unit = runBlocking {
-        val (manager, stub, reader) = TestManagers.approvalManager(seedTokens = listOf(usdcInfo()))
+    fun `the scale always comes from trusted metadata`(): Unit = runBlocking {
+        val reader = MockChainReader(decimals = 18)
+        val (manager, stub, _) = TestManagers.approvalManager(
+            reader = reader,
+            seedTokens = listOf(usdcInfo())
+        )
 
-        manager.approveTokenAllowance(chainId, usdc, spender, BigDecimal.ONE, decimals = 18)
+        manager.approveTokenAllowance(chainId, usdc, spender, BigDecimal.ONE)
 
-        assertThat(stub.sendTransactionCalls.single().data)
-            .isEqualTo(
-                "0x095ea7b3" +
-                    "0000000000000000000000005a6e6b0d5ea051cfff9b3dcc2aa8dac226458f29" +
-                    "0000000000000000000000000000000000000000000000000de0b6b3a7640000"
-            )
+        // 1 USDC at the registry's 6 decimals = 1_000_000 = 0xF4240, not 10^18.
+        assertThat(stub.sendTransactionCalls.single().data).endsWith("00f4240")
         assertThat(reader.decimalsCalls).isEmpty()
     }
 
@@ -139,6 +143,32 @@ class RainSdkManagerApprovalTest {
 
         assertThrows(RainError.InvalidConfig::class.java) {
             runBlocking { manager.approveTokenAllowance(chainId, "0x1234", spender) }
+        }
+        assertThat(stub.sendTransactionCalls).isEmpty()
+    }
+
+    @Test
+    fun `a valid but untrusted spender is rejected before any provider call`(): Unit = runBlocking {
+        val (manager, stub, _) = TestManagers.approvalManager()
+
+        assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking {
+                manager.approveTokenAllowance(
+                    chainId,
+                    usdc,
+                    "0x1111111111111111111111111111111111111111"
+                )
+            }
+        }
+        assertThat(stub.sendTransactionCalls).isEmpty()
+    }
+
+    @Test
+    fun `a valid but untrusted token is rejected before any provider call`(): Unit = runBlocking {
+        val (manager, stub, _) = TestManagers.approvalManager()
+
+        assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking { manager.approveTokenAllowance(chainId, unknownToken, spender) }
         }
         assertThat(stub.sendTransactionCalls).isEmpty()
     }
@@ -213,16 +243,58 @@ class RainSdkManagerApprovalTest {
     fun `every production Auth Pull chain is accepted on a production client`(): Unit =
         runBlocking {
             for (chain in RainAuthPullChains.PRODUCTION) {
+                val token = when (chain) {
+                    RainChain.BASE_MAINNET -> "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+                    else -> "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+                }
                 val (manager, stub, _) = TestManagers.approvalManager(
                     authPullChainIds = RainAuthPullChains.PRODUCTION
                 )
                 stub.sendTransactionHashToReturn = "0xok"
 
-                val result = manager.approveTokenAllowance(chain, usdc, spender)
+                val result = manager.approveTokenAllowance(chain, token, spender)
 
                 assertThat(result.transactionHash).isEqualTo("0xok")
             }
         }
+
+    // ---- the advertised chain set -------------------------------------------------
+
+    /**
+     * The set a host gates its UI on has to be the same set the guard enforces. Asserted as one
+     * fact rather than two: every advertised chain approves, and no unadvertised one does.
+     */
+    @Test
+    fun `the advertised chain set is exactly what the guard accepts`(): Unit = runBlocking {
+        val (manager, stub, _) = TestManagers.approvalManager(
+            authPullChainIds = setOf(RainChain.BASE_SEPOLIA)
+        )
+        stub.sendTransactionHashToReturn = "0xok"
+
+        assertThat(manager.authPullChainIds).containsExactly(RainChain.BASE_SEPOLIA)
+
+        manager.approveTokenAllowance(RainChain.BASE_SEPOLIA, usdc, spender)
+        assertThat(stub.sendTransactionCalls).hasSize(1)
+
+        // Arbitrum Sepolia is an Auth Pull chain for this environment, but not for this client.
+        assertThat(RainAuthPullChains.SANDBOX).contains(RainChain.ARBITRUM_SEPOLIA)
+        assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking {
+                manager.approveTokenAllowance(RainChain.ARBITRUM_SEPOLIA, usdc, spender)
+            }
+        }
+        assertThat(stub.sendTransactionCalls).hasSize(1)
+    }
+
+    @Test
+    fun `a client with Auth Pull disabled advertises no chains`(): Unit = runBlocking {
+        val manager = TestManagers.authPullDisabledManager()
+
+        assertThat(manager.authPullChainIds).isEmpty()
+        assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking { manager.approveTokenAllowance(chainId, usdc, spender) }
+        }
+    }
 
     // ---- decimals must never be guessed -------------------------------------------
 
@@ -233,7 +305,10 @@ class RainSdkManagerApprovalTest {
             // would approve 10^12 times the requested amount, and `approve` has no balance to fail
             // against.
             val reader = MockChainReader(metadataError = rpcFailure())
-            val (manager, stub, _) = TestManagers.approvalManager(reader = reader)
+            val (manager, stub, _) = TestManagers.approvalManager(
+                reader = reader,
+                authPullTokenAddresses = mapOf(chainId to unknownToken)
+            )
 
             assertThrows(RainError.TokenNotFound::class.java) {
                 runBlocking {
@@ -247,7 +322,10 @@ class RainSdkManagerApprovalTest {
     fun `an unlimited approval still needs no decimals, even for an unknown token`(): Unit =
         runBlocking {
             val reader = MockChainReader(metadataError = rpcFailure())
-            val (manager, stub, _) = TestManagers.approvalManager(reader = reader)
+            val (manager, stub, _) = TestManagers.approvalManager(
+                reader = reader,
+                authPullTokenAddresses = mapOf(chainId to unknownToken)
+            )
 
             manager.approveTokenAllowance(chainId, unknownToken, spender)
 
@@ -260,7 +338,10 @@ class RainSdkManagerApprovalTest {
             metadataError = rpcFailure(),
             allowance = BigInteger.valueOf(250_000_000)
         )
-        val (manager, _, _) = TestManagers.approvalManager(reader = reader)
+        val (manager, _, _) = TestManagers.approvalManager(
+            reader = reader,
+            authPullTokenAddresses = mapOf(chainId to unknownToken)
+        )
 
         assertThrows(RainError.TokenNotFound::class.java) {
             runBlocking { manager.getTokenAllowance(chainId, unknownToken, spender) }
@@ -270,13 +351,15 @@ class RainSdkManagerApprovalTest {
     @Test
     fun `absurd decimals are rejected instead of blowing up the scaling math`(): Unit =
         runBlocking {
-            val (manager, stub, _) = TestManagers.approvalManager()
+            val reader = MockChainReader(decimals = 40_000)
+            val (manager, stub, _) = TestManagers.approvalManager(
+                reader = reader,
+                authPullTokenAddresses = mapOf(chainId to unknownToken)
+            )
 
             assertThrows(RainError.InvalidConfig::class.java) {
                 runBlocking {
-                    manager.approveTokenAllowance(
-                        chainId, usdc, spender, BigDecimal.ONE, decimals = 40_000
-                    )
+                    manager.approveTokenAllowance(chainId, unknownToken, spender, BigDecimal.ONE)
                 }
             }
             assertThat(stub.sendTransactionCalls).isEmpty()
@@ -286,7 +369,10 @@ class RainSdkManagerApprovalTest {
     fun `a token reporting absurd decimals cannot break the allowance read either`(): Unit =
         runBlocking {
             val reader = MockChainReader(decimals = 40_000, allowance = BigInteger.ONE)
-            val (manager, _, _) = TestManagers.approvalManager(reader = reader)
+            val (manager, _, _) = TestManagers.approvalManager(
+                reader = reader,
+                authPullTokenAddresses = mapOf(chainId to unknownToken)
+            )
 
             assertThrows(RainError.InvalidConfig::class.java) {
                 runBlocking { manager.getTokenAllowance(chainId, unknownToken, spender) }
@@ -346,7 +432,7 @@ class RainSdkManagerApprovalTest {
         val other = "0x3cA8ac240F6ebeA8684b3E629A8e8C1f0E3bC0Ff"
         val (manager, _, reader) = TestManagers.approvalManager(seedTokens = listOf(usdcInfo()))
 
-        manager.getTokenAllowance(chainId, usdc, spender, owner = other, decimals = 6)
+        manager.getTokenAllowance(chainId, usdc, spender, owner = other)
 
         assertThat(reader.allowanceCalls.single().owner).isEqualTo(other)
     }
@@ -454,5 +540,162 @@ class RainSdkManagerApprovalTest {
             runBlocking { manager.estimateApprovalFee(chainId, usdc, "0xnope") }
         }
         assertThat(stub.estimateTransactionFeeCalls).isEmpty()
+    }
+
+    // ---- confirmTokenAllowance -------------------------------------------------------
+
+    @Test
+    fun `confirmation requires a successful receipt and returns the resulting allowance`(): Unit =
+        runBlocking {
+            val reader = MockChainReader(
+                receiptStatus = true,
+                allowance = BigInteger.valueOf(250_000_000)
+            )
+            val (manager, _, _) = TestManagers.approvalManager(
+                reader = reader,
+                seedTokens = listOf(usdcInfo())
+            )
+
+            val allowance = manager.confirmTokenAllowance(
+                transactionHash = "0x" + "a".repeat(64),
+                chainId = chainId,
+                contractAddress = usdc,
+                spender = spender,
+                amount = BigDecimal("250")
+            )
+
+            assertThat(allowance.rawAmount).isEqualTo(BigInteger.valueOf(250_000_000))
+        }
+
+    /**
+     * Auth Pull spends the very allowance being confirmed, so a value below the approved one is an
+     * ordinary outcome — the authorization got there first. Confirming must not call that a
+     * failure.
+     */
+    @Test
+    fun `an allowance already partly pulled still confirms`(): Unit = runBlocking {
+        val reader = MockChainReader(
+            receiptStatus = true,
+            allowance = BigInteger.valueOf(100_000_000)
+        )
+        val (manager, _, _) = TestManagers.approvalManager(
+            reader = reader,
+            seedTokens = listOf(usdcInfo())
+        )
+
+        val allowance = manager.confirmTokenAllowance(
+            transactionHash = "0x" + "c".repeat(64),
+            chainId = chainId,
+            contractAddress = usdc,
+            spender = spender,
+            amount = BigDecimal("250")
+        )
+
+        assertThat(allowance.rawAmount).isEqualTo(BigInteger.valueOf(100_000_000))
+    }
+
+    /** USDC decrements even a `uint256` max allowance on every `transferFrom`. */
+    @Test
+    fun `an unlimited approval confirms after a pull decremented it`(): Unit = runBlocking {
+        val decremented = RainTokenAllowance.UNLIMITED_RAW_AMOUNT
+            .subtract(BigInteger.valueOf(1_000_000))
+        val reader = MockChainReader(receiptStatus = true, allowance = decremented)
+        val (manager, _, _) = TestManagers.approvalManager(
+            reader = reader,
+            seedTokens = listOf(usdcInfo())
+        )
+
+        val allowance = manager.confirmTokenAllowance(
+            transactionHash = "0x" + "d".repeat(64),
+            chainId = chainId,
+            contractAddress = usdc,
+            spender = spender
+        )
+
+        assertThat(allowance.rawAmount).isEqualTo(decremented)
+        assertThat(allowance.isUnlimited).isFalse()
+    }
+
+    @Test
+    fun `a revoke that left a spendable allowance fails`(): Unit = runBlocking {
+        val reader = MockChainReader(receiptStatus = true, allowance = BigInteger.valueOf(500))
+        val (manager, _, _) = TestManagers.approvalManager(
+            reader = reader,
+            seedTokens = listOf(usdcInfo())
+        )
+
+        assertThrows(RainError.InternalError::class.java) {
+            runBlocking {
+                manager.confirmTokenAllowance(
+                    transactionHash = "0x" + "e".repeat(64),
+                    chainId = chainId,
+                    contractAddress = usdc,
+                    spender = spender,
+                    amount = BigDecimal.ZERO
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `an approval that mined against a still-zero allowance fails`(): Unit = runBlocking {
+        val reader = MockChainReader(receiptStatus = true, allowance = BigInteger.ZERO)
+        val (manager, _, _) = TestManagers.approvalManager(
+            reader = reader,
+            seedTokens = listOf(usdcInfo())
+        )
+
+        assertThrows(RainError.InternalError::class.java) {
+            runBlocking {
+                manager.confirmTokenAllowance(
+                    transactionHash = "0x" + "f".repeat(64),
+                    chainId = chainId,
+                    contractAddress = usdc,
+                    spender = spender,
+                    amount = BigDecimal("250")
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `confirmation polls until the receipt appears`(): Unit = runBlocking {
+        val reader = MockChainReader(
+            allowance = BigInteger.valueOf(250_000_000),
+            receiptStatuses = mutableListOf(null, true)
+        )
+        val (manager, _, _) = TestManagers.approvalManager(
+            reader = reader,
+            seedTokens = listOf(usdcInfo())
+        )
+
+        manager.confirmTokenAllowance(
+            transactionHash = "0x" + "1".repeat(64),
+            chainId = chainId,
+            contractAddress = usdc,
+            spender = spender,
+            amount = BigDecimal("250")
+        )
+
+        assertThat(reader.receiptCalls).hasSize(2)
+        assertThat(reader.allowanceCalls).hasSize(1)
+    }
+
+    @Test
+    fun `confirmation rejects a reverted receipt`(): Unit = runBlocking {
+        val reader = MockChainReader(receiptStatus = false)
+        val (manager, _, _) = TestManagers.approvalManager(reader = reader)
+
+        assertThrows(RainError.TransactionSimulationFailed::class.java) {
+            runBlocking {
+                manager.confirmTokenAllowance(
+                    transactionHash = "0x" + "b".repeat(64),
+                    chainId = chainId,
+                    contractAddress = usdc,
+                    spender = spender
+                )
+            }
+        }
+        assertThat(reader.allowanceCalls).isEmpty()
     }
 }

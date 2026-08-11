@@ -44,6 +44,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.math.BigDecimal
 import java.math.BigInteger
@@ -83,11 +84,16 @@ internal class RainSdkManager(
    */
   private val chainReader: ChainReader = EvmChainReader(rpcEndpoints = rpcEndpoints),
   /**
-   * Chains an Auth Pull approval may target, derived from the configured [RainApiEnvironment].
-   * Held as a resolved set rather than the environment itself so the approval guard has one thing
-   * to check and no opinion about API hosts.
+   * Chains an Auth Pull approval may target: the host's [com.rain.sdk.RainAuthPullConfig] narrowed
+   * to the chains that have an RPC endpoint. Held as a resolved set rather than the environment
+   * itself so the approval guard has one thing to check and no opinion about API hosts, and
+   * exposed on [RainClient] so host UI can gate on exactly what the guard enforces.
    */
-  private val authPullChainIds: Set<Int> = RainAuthPullChains.SANDBOX
+  override val authPullChainIds: Set<Int> = emptySet(),
+  /** Rain's operator for the configured environment — the only spender an approval may name. */
+  private val authPullOperator: String? = null,
+  /** The trusted token contract per Auth Pull chain — the only token an approval may target. */
+  private val authPullTokenAddresses: Map<Int, String> = emptyMap()
 ) : RainClient {
 
   /** Chains the SDK was initialized with; [getAllBalances] fans out across them. */
@@ -383,11 +389,10 @@ internal class RainSdkManager(
     chainId: Int,
     contractAddress: String,
     spender: String,
-    amount: BigDecimal?,
-    decimals: Int?
+    amount: BigDecimal?
   ): RainTokenApprovalResult {
     return try {
-      val (from, data) = buildApproval(chainId, contractAddress, spender, amount, decimals)
+      val (from, data) = buildApproval(chainId, contractAddress, spender, amount)
       val txHash = executor.sendTransaction(
         chainId = chainId,
         from = from,
@@ -409,8 +414,7 @@ internal class RainSdkManager(
     chainId: Int,
     contractAddress: String,
     spender: String,
-    owner: String?,
-    decimals: Int?
+    owner: String?
   ): RainTokenAllowance {
     return try {
       validateApprovalRequest(chainId, contractAddress, spender)
@@ -428,7 +432,7 @@ internal class RainSdkManager(
       )
       // Same strictness as the approval: an allowance whose scale is a guess cannot be compared
       // against anything — `covers` would answer from the wrong exponent.
-      val resolvedDecimals = requireDecimals(chainId, contractAddress, decimals)
+      val resolvedDecimals = requireDecimals(chainId, contractAddress)
 
       RainTokenAllowance(
         chainId = chainId,
@@ -450,11 +454,10 @@ internal class RainSdkManager(
     chainId: Int,
     contractAddress: String,
     spender: String,
-    amount: BigDecimal?,
-    decimals: Int?
+    amount: BigDecimal?
   ): BigDecimal {
     return try {
-      val (from, data) = buildApproval(chainId, contractAddress, spender, amount, decimals)
+      val (from, data) = buildApproval(chainId, contractAddress, spender, amount)
       walletProvider.estimateTransactionFee(
         chainId = chainId,
         from = from,
@@ -470,6 +473,80 @@ internal class RainSdkManager(
     }
   }
 
+  override suspend fun confirmTokenAllowance(
+    transactionHash: String,
+    chainId: Int,
+    contractAddress: String,
+    spender: String,
+    amount: BigDecimal?,
+    owner: String?
+  ): RainTokenAllowance {
+    validateApprovalRequest(chainId, contractAddress, spender)
+    val expectedRaw = approvalBaseUnits(chainId, contractAddress, amount)
+
+    repeat(APPROVAL_CONFIRMATION_ATTEMPTS) { attempt ->
+      when (chainReader.getTransactionReceiptStatus(chainId, transactionHash)) {
+        true -> {
+          val allowance = getTokenAllowance(
+            chainId = chainId,
+            contractAddress = contractAddress,
+            spender = spender,
+            owner = owner
+          )
+          verifyConfirmedAllowance(allowance, expectedRaw)
+          return allowance
+        }
+        false -> throw RainError.TransactionSimulationFailed(
+          IllegalStateException("Approval transaction reverted on-chain: $transactionHash")
+        )
+        null -> if (attempt < APPROVAL_CONFIRMATION_ATTEMPTS - 1) {
+          delay(APPROVAL_CONFIRMATION_INTERVAL_MS)
+        }
+      }
+    }
+    throw RainError.NetworkError(
+      "Timed out waiting for approval transaction $transactionHash to be mined"
+    )
+  }
+
+  /**
+   * Checks the allowance a mined approval actually left behind.
+   *
+   * Deliberately not an equality check. Auth Pull is the feature that *spends* this allowance: an
+   * authorization can pull between the receipt landing and this read, and USDC decrements the
+   * allowance on every `transferFrom` — including a `uint256` max one, which Circle's token does
+   * not special-case. A value below the requested one is therefore an ordinary outcome of a
+   * successful approval, not a failure.
+   *
+   * What is still a genuine failure: a revoke that left a spendable allowance, and an approval
+   * that mined against nothing (a zero allowance where a non-zero one was requested — the shape a
+   * wrong owner, token, or spender produces).
+   */
+  private fun verifyConfirmedAllowance(allowance: RainTokenAllowance, expectedRaw: BigInteger) {
+    if (expectedRaw.signum() == 0) {
+      if (!allowance.isZero) {
+        throw RainError.InternalError(
+          "Revoke mined but ${allowance.spender} still holds an allowance of ${allowance.rawAmount}"
+        )
+      }
+      return
+    }
+    if (allowance.isZero) {
+      throw RainError.InternalError(
+        "Approval mined but the allowance for ${allowance.spender} on ${allowance.tokenAddress} " +
+          "is still zero; expected $expectedRaw"
+      )
+    }
+    if (allowance.rawAmount < expectedRaw) {
+      Timber.w(
+        "Rain SDK: Allowance is %s, below the approved %s — an authorization has likely already " +
+          "pulled against it",
+        allowance.rawAmount,
+        expectedRaw
+      )
+    }
+  }
+
   /**
    * Builds the `approve` transaction shared by the broadcast and estimate paths, so the fee is
    * priced against the exact calldata that would be sent.
@@ -478,13 +555,12 @@ internal class RainSdkManager(
     chainId: Int,
     contractAddress: String,
     spender: String,
-    amount: BigDecimal?,
-    decimals: Int?
+    amount: BigDecimal?
   ): Pair<String, String> {
     validateApprovalRequest(chainId, contractAddress, spender)
 
     val from = walletProvider.getWalletAddress()
-    val allowanceBaseUnits = approvalBaseUnits(chainId, contractAddress, amount, decimals)
+    val allowanceBaseUnits = approvalBaseUnits(chainId, contractAddress, amount)
     return from to Erc20Abi.encodeApprove(spender, allowanceBaseUnits)
   }
 
@@ -495,8 +571,7 @@ internal class RainSdkManager(
   private suspend fun approvalBaseUnits(
     chainId: Int,
     contractAddress: String,
-    amount: BigDecimal?,
-    decimals: Int?
+    amount: BigDecimal?
   ): BigInteger {
     if (amount == null) return RainTokenAllowance.UNLIMITED_RAW_AMOUNT
     if (amount.signum() < 0) {
@@ -505,25 +580,24 @@ internal class RainSdkManager(
         reason = "approval amount must not be negative"
       )
     }
-    val resolvedDecimals = requireDecimals(chainId, contractAddress, decimals)
+    val resolvedDecimals = requireDecimals(chainId, contractAddress)
     return RainAmountUtils.toBaseUnits(amount, resolvedDecimals)
   }
 
   /**
-   * The token's decimals, refusing to guess.
+   * The token's decimals, refusing to guess and refusing to take the caller's word for it.
    *
    * The rest of the SDK falls back to 18 when a `decimals()` read fails, which misreports a
    * balance. On an approval the same guess would *over-approve* a 6-decimal token by 10^12 — and
    * `approve` succeeds regardless of balance, so no later step would catch it. Failing loudly is
-   * the only safe answer.
+   * the only safe answer, and it is why the Auth Pull methods take no `decimals` parameter: the
+   * scale comes from the registry or a strict on-chain read, both of which the SDK trusts.
    */
   private suspend fun requireDecimals(
     chainId: Int,
-    contractAddress: String,
-    decimals: Int?
+    contractAddress: String
   ): Int {
-    val resolved = decimals
-      ?: tokenStore?.decimalsOrNull(chainId, contractAddress)
+    val resolved = tokenStore?.decimalsOrNull(chainId, contractAddress)
       ?: throw RainError.TokenNotFound(contractAddress, chainId)
 
     // `decimals()` is whatever the contract says, and scaling raises 10 to that power. Bound it
@@ -557,6 +631,11 @@ internal class RainSdkManager(
     // disjoint. Approving on the other environment's chain mines a real allowance that no
     // authorization will ever draw on — on mainnet, at real cost. Nothing downstream would catch
     // it, since `approve` succeeds against any address, so refuse the pairing here.
+    if (authPullOperator == null || authPullTokenAddresses.isEmpty()) {
+      throw RainError.InvalidConfig(
+        "Auth Pull is disabled. Configure RainSdk.Builder.authPullConfig(...) first."
+      )
+    }
     if (chainId !in authPullChainIds) {
       throw RainError.InvalidConfig(
         "chainId=$chainId is not an Auth Pull chain for the configured Rain API environment " +
@@ -570,6 +649,21 @@ internal class RainSdkManager(
     if (!spender.isValidEthereumAddress) {
       throw RainError.InvalidConfig("Invalid spender address: $spender")
     }
+    if (!spender.equals(authPullOperator, ignoreCase = true)) {
+      throw RainError.InvalidConfig("Spender does not match the configured Auth Pull operator")
+    }
+    val trustedToken = authPullTokenAddresses[chainId]
+      ?: throw RainError.InvalidConfig("No Auth Pull token configured for chainId=$chainId")
+    if (!contractAddress.equals(trustedToken, ignoreCase = true)) {
+      throw RainError.InvalidConfig(
+        "Token contract does not match the configured Auth Pull token for chainId=$chainId"
+      )
+    }
+  }
+
+  private companion object {
+    const val APPROVAL_CONFIRMATION_ATTEMPTS = 60
+    const val APPROVAL_CONFIRMATION_INTERVAL_MS = 1_000L
   }
 
   override fun registerTokens(tokens: List<TokenInfo>) {

@@ -40,6 +40,9 @@ internal class EvmChainReader(
     private companion object {
         /** Decimals used for native balances. Every chain the SDK targets today uses 18. */
         const val DEFAULT_NATIVE_DECIMALS = 18
+
+        /** An EVM transaction hash: 32 bytes of hex behind a `0x`. */
+        val TRANSACTION_HASH = Regex("^0x[0-9a-fA-F]{64}$")
     }
 
     /** Convenience constructor backed by a static `chainId → rpcUrl` map. */
@@ -132,7 +135,7 @@ internal class EvmChainReader(
         val rpcUrl = resolveRpcUrl(chainId)
         validateAddress(tokenAddress, "token address")
         val hex = ethCall(rpcUrl, tokenAddress, "0x" + ERC20Selectors.DECIMALS)
-        return EthereumConverter.parseHexToInt(hex)
+        return EthereumConverter.parseHexToIntStrict(hex)
     }
 
     override suspend fun getSymbol(chainId: Int, tokenAddress: String): String? {
@@ -161,6 +164,38 @@ internal class EvmChainReader(
         validateAddress(spender, "spender address")
         val hex = ethCall(rpcUrl, tokenAddress, Erc20Calldata.allowance(owner, spender))
         return EthereumConverter.parseHexToBigIntegerStrict(hex)
+    }
+
+    override suspend fun getTransactionReceiptStatus(
+        chainId: Int,
+        transactionHash: String
+    ): Boolean? {
+        if (!TRANSACTION_HASH.matches(transactionHash)) {
+            throw RainError.InvalidConfig("Invalid transaction hash: $transactionHash")
+        }
+        val rpcUrl = resolveRpcUrl(chainId)
+        val response = jsonRpcClient.call(
+            rpcUrl = rpcUrl,
+            method = "eth_getTransactionReceipt",
+            params = listOf(transactionHash)
+        )
+        if (response.isNull("result")) return null
+        val receipt = response.optJSONObject("result")
+            ?: throw RainError.InternalError("Malformed transaction receipt for $transactionHash")
+        val status = receipt.opt("status") as? String
+            ?: throw RainError.InternalError(
+                "Transaction receipt for $transactionHash carries no status field"
+            )
+        // Decoded as a quantity rather than matched against literals: nodes are inconsistent about
+        // minimal hex encoding, and a node answering "0x01" would otherwise make a perfectly good
+        // approval receipt read as malformed.
+        return when (EthereumConverter.parseHexToBigIntegerStrict(status)) {
+            BigInteger.ONE -> true
+            BigInteger.ZERO -> false
+            else -> throw RainError.InternalError(
+                "Malformed transaction receipt status for $transactionHash: $status"
+            )
+        }
     }
 
     /**

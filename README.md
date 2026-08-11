@@ -336,13 +336,21 @@ collateral contract. The wallet-side prerequisite is an ERC-20 allowance for Rai
 part is the SDK's; the pull itself is Rain's.
 
 ```kotlin
+val authPull = RainAuthPullConfig.sandbox(rainOperatorAddress)
+val rain = RainSdk.builder()
+    .rpcEndpoints(rpcEndpoints)
+    .rainApiEnvironment(RainApiEnvironment.Dev)
+    .authPullConfig(authPull)
+    .register(provider)
+    .build()
+
 // 1. What can the operator move today?
 val allowance = client.getTokenAllowance(
     chainId = RainChain.BASE_SEPOLIA,
     contractAddress = usdcAddress,
     spender = rainOperatorAddress   // per environment; read it from Rain
 )
-if (allowance.isUnlimited) return
+if (allowance.covers(expectedSpend)) return
 
 // 2. What will the approval cost?
 val fee = client.estimateApprovalFee(RainChain.BASE_SEPOLIA, usdcAddress, rainOperatorAddress)
@@ -355,15 +363,28 @@ val result = client.approveTokenAllowance(
     spender = rainOperatorAddress
 )
 println(result.transactionHash)
+
+// A hash means submitted, not ready. Wait for a successful receipt, then read the allowance that
+// actually landed — it can be lower than approved if an authorization already pulled against it.
+val confirmed = client.confirmTokenAllowance(
+    transactionHash = result.transactionHash,
+    chainId = RainChain.BASE_SEPOLIA,
+    contractAddress = usdcAddress,
+    spender = rainOperatorAddress
+)
 ```
 
 Sandbox runs on Base Sepolia and Arbitrum Sepolia, production on Base and Arbitrum; USDC on all four
-is in the built-in token registry. The two sets are exposed as `RainAuthPullChains.supported(...)`,
-and an approval on a chain outside the set for the configured `rainApiEnvironment` throws
-`RainError.InvalidConfig` before any wallet prompt, so a sandbox build cannot mine a real mainnet
-allowance for the sandbox operator. `RainTokenAllowance.rawAmount` is the exact base-unit value and
-the one to compare against — gate on `isUnlimited` before rendering a number. Full guide:
-[docs/AUTH_PULL.md](docs/AUTH_PULL.md).
+is in the built-in token registry. Auth Pull remains disabled until `authPullConfig(...)` supplies
+Rain's trusted operator and canonical token targets, and the SDK rejects any different chain, token,
+or spender before a wallet prompt. `RainApiEnvironment.Custom` fails closed unless it receives an
+explicit custom Auth Pull configuration.
+
+Gate your UI on `rain.authPullChainIds` (also on `RainClient`), which is what the approval guard
+enforces: the configuration narrowed to chains with an RPC endpoint. `RainAuthPullChains.supported(...)`
+answers for an environment and is the wider set — use it only before an SDK exists.
+`RainTokenAllowance.rawAmount` is the exact base-unit value and the one to compare against — gate on
+`isUnlimited` before rendering a number. Full guide: [docs/AUTH_PULL.md](docs/AUTH_PULL.md).
 
 ### 13. QR Code Generation
 

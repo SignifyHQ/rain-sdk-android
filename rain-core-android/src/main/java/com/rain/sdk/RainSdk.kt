@@ -11,6 +11,7 @@ import com.rain.sdk.internal.network.rainapi.RainApiConfigStore
 import com.rain.sdk.internal.network.rainapi.RainApiService
 import com.rain.sdk.internal.solana.SolanaSupport
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
+import com.rain.sdk.internal.utils.isValidEthereumAddress
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainEIP712Message
 import com.rain.sdk.models.RainApiEnvironment
@@ -58,6 +59,7 @@ class RainSdk private constructor(
     private val registered: Map<ProviderId, RainProvider>,
     private val seedTokens: List<TokenInfo>,
     rainApiEnvironment: RainApiEnvironment,
+    private val authPullConfig: RainAuthPullConfig?,
     initialRainApiCredentials: Pair<String, String>?,
 ) {
     private val mutex = Mutex()
@@ -68,10 +70,27 @@ class RainSdk private constructor(
     private val rainApiConfig = RainApiConfigStore(baseUrl = rainApiEnvironment.baseUrl)
 
     /**
-     * Auth Pull chains for the configured environment, handed to every resolved client so an
-     * approval cannot target the other environment's chains.
+     * Auth Pull targets for this instance, handed to every resolved client so an approval cannot
+     * target another environment's chains, another token, or another spender.
+     *
+     * Narrowed to chains that actually have an RPC endpoint: the allowance read and the approval
+     * both go out over [rpcEndpoints], so a configured chain with no endpoint could never work.
      */
-    private val authPullChainIds: Set<Int> = RainAuthPullChains.supported(rainApiEnvironment)
+    private val authPullTokenAddresses: Map<Int, String> =
+        authPullConfig?.tokenAddresses?.filterKeys { it in rpcEndpoints }.orEmpty()
+
+    /**
+     * The chains Auth Pull is actually enabled on for *this* instance — the configured
+     * [RainAuthPullConfig]'s chains intersected with the chains that have an RPC endpoint. Empty
+     * when no [Builder.authPullConfig] was supplied.
+     *
+     * This, not [RainAuthPullChains.supported], is what the approval guard enforces. Gate host UI
+     * on it: `supported(...)` answers for an environment, this answers for the SDK the host built,
+     * and the two differ whenever a config is narrower than its environment, an RPC endpoint is
+     * missing, or the environment is [RainApiEnvironment.Custom] — which `supported(...)` reports
+     * as empty however the gateway is configured.
+     */
+    val authPullChainIds: Set<Int> = authPullTokenAddresses.keys.toSet()
 
     @Volatile
     private var rainApiService: RainApiService? = null
@@ -231,6 +250,8 @@ class RainSdk private constructor(
             capabilities = descriptor.capabilities,
             chainReader = sharedContext.evmChainReader,
             authPullChainIds = authPullChainIds,
+            authPullOperator = authPullConfig?.operatorAddress,
+            authPullTokenAddresses = authPullTokenAddresses,
         ).also {
             clients[id] = it
             Timber.d("Rain SDK: Resolved provider '${id.value}'")
@@ -352,6 +373,7 @@ class RainSdk private constructor(
         private var rpcEndpoints: Map<Int, String> = emptyMap()
         private val seedTokens = mutableListOf<TokenInfo>()
         private var rainApiEnvironment: RainApiEnvironment = RainApiEnvironment.Dev
+        private var authPullConfig: RainAuthPullConfig? = null
         private var rainApiCredentials: Pair<String, String>? = null
 
         /** Sets the `chainId → RPC URL` map every provider shares. Required. */
@@ -384,6 +406,14 @@ class RainSdk private constructor(
         }
 
         /**
+         * Enables Auth Pull for the exact operator and token contracts in [config]. Without this
+         * call, approval, allowance, confirmation, and approval-fee methods fail closed.
+         */
+        fun authPullConfig(config: RainAuthPullConfig): Builder = apply {
+            authPullConfig = config
+        }
+
+        /**
          * Optionally supplies the Rain program Api-Key and userId at build time — same effect
          * as calling [RainSdk.configureRainApi] on the built instance.
          */
@@ -408,13 +438,67 @@ class RainSdk private constructor(
                     "Invalid Rain API base URL: ${rainApiEnvironment.baseUrl}"
                 )
             }
+            validateAuthPullConfig()
             return RainSdk(
                 rpcEndpoints = rpcEndpoints.toMap(),
                 registered = providers.toMap(),
                 seedTokens = seedTokens.toList(),
                 rainApiEnvironment = rainApiEnvironment,
+                authPullConfig = authPullConfig,
                 initialRainApiCredentials = rainApiCredentials,
             )
+        }
+
+        private fun validateAuthPullConfig() {
+            val config = authPullConfig ?: return
+            if (!config.operatorAddress.isValidEthereumAddress) {
+                throw RainError.InvalidConfig("Invalid Auth Pull operator: ${config.operatorAddress}")
+            }
+            if (config.operatorAddress.equals(ZERO_ADDRESS, ignoreCase = true)) {
+                throw RainError.InvalidConfig("Auth Pull operator must not be the zero address")
+            }
+            if (config.tokenAddresses.isEmpty()) {
+                throw RainError.InvalidConfig("Auth Pull must configure at least one token contract")
+            }
+
+            val expectedKind = when (rainApiEnvironment) {
+                is RainApiEnvironment.Dev -> RainAuthPullConfig.Kind.SANDBOX
+                is RainApiEnvironment.Production -> RainAuthPullConfig.Kind.PRODUCTION
+                is RainApiEnvironment.Custom -> RainAuthPullConfig.Kind.CUSTOM
+            }
+            if (config.kind != expectedKind) {
+                throw RainError.InvalidConfig(
+                    "Auth Pull configuration does not match the configured Rain API environment"
+                )
+            }
+            val environmentChains = RainAuthPullChains.supported(rainApiEnvironment)
+            val allowedChains = if (rainApiEnvironment is RainApiEnvironment.Custom) {
+                RainAuthPullChains.SANDBOX + RainAuthPullChains.PRODUCTION
+            } else {
+                environmentChains
+            }
+            val unexpected = config.tokenAddresses.keys - allowedChains
+            if (unexpected.isNotEmpty()) {
+                throw RainError.InvalidConfig(
+                    "Auth Pull chains ${unexpected.sorted()} do not match the configured Rain API environment"
+                )
+            }
+            config.tokenAddresses.forEach { (chainId, address) ->
+                if (!address.isValidEthereumAddress || address.equals(ZERO_ADDRESS, ignoreCase = true)) {
+                    throw RainError.InvalidConfig(
+                        "Invalid Auth Pull token contract for chainId=$chainId: $address"
+                    )
+                }
+            }
+            if (config.tokenAddresses.keys.none { it in rpcEndpoints }) {
+                throw RainError.InvalidConfig(
+                    "No RPC endpoint configured for any trusted Auth Pull chain"
+                )
+            }
+        }
+
+        private companion object {
+            const val ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
         }
     }
 }

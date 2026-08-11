@@ -33,7 +33,7 @@ class RainAmountUtilsTest {
             RainAmountUtils.toBaseUnits(BigDecimal("1.2345678"), 6)
         }
         assertThat(ex.amount).isEqualTo("1.2345678")
-        assertThat(ex.message).contains("decimals")
+        assertThat(ex.message).contains("fractional base units")
     }
 
     @Test
@@ -102,5 +102,21 @@ class RainAmountUtilsTest {
             RainAmountUtils.toBaseUnits(BigDecimal("5.5"), 0)
         }
         assertThat(ex.amount).isEqualTo("5.5")
+    }
+
+    @Test
+    fun `representable trailing zeros are accepted`() {
+        assertThat(RainAmountUtils.toBaseUnits(BigDecimal("250.0000000"), 6))
+            .isEqualTo(BigInteger("250000000"))
+        assertThat(RainAmountUtils.toBaseUnits(BigDecimal("0.0000000"), 6))
+            .isEqualTo(BigInteger.ZERO)
+    }
+
+    @Test
+    fun `amount above uint256 max is rejected`() {
+        val tooLarge = BigInteger.valueOf(2).pow(256).toBigDecimal()
+        assertThrows(RainError.InvalidAmount::class.java) {
+            RainAmountUtils.toBaseUnits(tooLarge, 0)
+        }
     }
 }

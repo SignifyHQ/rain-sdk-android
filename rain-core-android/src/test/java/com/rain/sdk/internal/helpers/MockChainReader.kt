@@ -24,7 +24,13 @@ internal class MockChainReader(
     var metadataError: Throwable? = null,
     var allowance: BigInteger = BigInteger.ZERO,
     /** When set, the allowance read throws it. */
-    var allowanceError: Throwable? = null
+    var allowanceError: Throwable? = null,
+    var receiptStatus: Boolean? = true,
+    /**
+     * Consumed one entry per receipt read before falling back to [receiptStatus], so a test can
+     * drive a pending-then-mined poll.
+     */
+    val receiptStatuses: MutableList<Boolean?> = mutableListOf()
 ) : ChainReader {
 
     data class NativeCall(val chainId: Int, val walletAddress: String)
@@ -54,6 +60,7 @@ internal class MockChainReader(
         val owner: String,
         val spender: String
     )
+    data class ReceiptCall(val chainId: Int, val transactionHash: String)
 
     val nativeCalls = mutableListOf<NativeCall>()
     val erc20Calls = mutableListOf<Erc20Call>()
@@ -63,6 +70,7 @@ internal class MockChainReader(
     val symbolCalls = mutableListOf<SymbolCall>()
     val nameCalls = mutableListOf<NameCall>()
     val allowanceCalls = mutableListOf<AllowanceCall>()
+    val receiptCalls = mutableListOf<ReceiptCall>()
 
     override suspend fun getNativeBalance(chainId: Int, walletAddress: String): BigDecimal {
         nativeCalls += NativeCall(chainId, walletAddress)
@@ -132,5 +140,13 @@ internal class MockChainReader(
         allowanceCalls += AllowanceCall(chainId, tokenAddress, owner, spender)
         allowanceError?.let { throw it }
         return allowance
+    }
+
+    override suspend fun getTransactionReceiptStatus(
+        chainId: Int,
+        transactionHash: String
+    ): Boolean? {
+        receiptCalls += ReceiptCall(chainId, transactionHash)
+        return if (receiptStatuses.isNotEmpty()) receiptStatuses.removeAt(0) else receiptStatus
     }
 }

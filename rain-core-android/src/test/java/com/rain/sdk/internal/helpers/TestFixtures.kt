@@ -40,6 +40,8 @@ internal object TestFixtures {
     const val RECIPIENT_ADDRESS = "0xfedcbafedcbafedcbafedcbafedcbafedcbafedc"
     const val TOKEN_ADDRESS = "0x9876543210987654321098765432109876543210"
     const val USDC_ADDRESS = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+    const val AUTH_PULL_USDC_ADDRESS = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+    const val AUTH_PULL_OPERATOR = "0x5a6E6b0d5Ea051CfFF9b3dcC2Aa8Dac226458f29"
 
     /** 32-byte salt encoded as base64. Used by withdrawCollateral / estimateWithdrawalFee. */
     val validSaltBase64: String = Base64.getEncoder().encodeToString(ByteArray(32) { 0xAA.toByte() })
@@ -98,6 +100,7 @@ internal object TestManagers {
         rpcEndpoints: Map<Int, String> = mapOf(RainChain.BASE_SEPOLIA to "https://rpc.test"),
         seedTokens: List<com.rain.sdk.models.TokenInfo> = emptyList(),
         authPullChainIds: Set<Int> = RainAuthPullChains.SANDBOX,
+        authPullTokenAddresses: Map<Int, String>? = null,
     ): Triple<RainSdkManager, StubWalletProvider, MockChainReader> {
         val manager = RainSdkManager(
             walletProvider = stub,
@@ -106,8 +109,32 @@ internal object TestManagers {
             transactionBuilder = RainTransactionBuilderImpl(rpcEndpoints),
             chainReader = reader,
             authPullChainIds = authPullChainIds,
+            authPullOperator = TestFixtures.AUTH_PULL_OPERATOR,
+            authPullTokenAddresses = authPullTokenAddresses ?: authPullChainIds.associateWith {
+                when (it) {
+                    RainChain.BASE_SEPOLIA -> TestFixtures.AUTH_PULL_USDC_ADDRESS
+                    RainChain.ARBITRUM_SEPOLIA ->
+                        "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"
+                    RainChain.BASE_MAINNET ->
+                        "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+                    RainChain.ARBITRUM_MAINNET ->
+                        "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+                    else -> TestFixtures.AUTH_PULL_USDC_ADDRESS
+                }
+            },
         )
         return Triple(manager, stub, reader)
     }
 
+    /** A manager built the way [RainSdk] builds one when no `authPullConfig(...)` was supplied. */
+    fun authPullDisabledManager(
+        reader: MockChainReader = MockChainReader(),
+        rpcEndpoints: Map<Int, String> = mapOf(RainChain.BASE_SEPOLIA to "https://rpc.test"),
+    ): RainSdkManager = RainSdkManager(
+        walletProvider = StubWalletProvider(),
+        rpcEndpoints = rpcEndpoints,
+        tokenStore = TokenMetadataStore(chainReader = reader, seedTokens = emptyList()),
+        transactionBuilder = RainTransactionBuilderImpl(rpcEndpoints),
+        chainReader = reader,
+    )
 }

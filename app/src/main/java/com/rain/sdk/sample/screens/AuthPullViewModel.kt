@@ -31,12 +31,32 @@ class AuthPullViewModel(
     val state: StateFlow<AuthPullUiState> = _state.asStateFlow()
 
     private var seededChain: WalletChain? = null
-    private var job: Job? = null
+    private var readJob: Job? = null
+    private var estimateJob: Job? = null
+    private var approvalJob: Job? = null
+    private var generation: Long = 0
 
-    fun onOperatorChanged(value: String) = _state.update { it.copy(operatorAddress = value) }
-    fun onTokenAddressChanged(value: String) = _state.update { it.copy(tokenAddress = value) }
-    fun onAmountChanged(value: String) = _state.update { it.copy(amount = value) }
-    fun onUnlimitedChanged(value: Boolean) = _state.update { it.copy(isUnlimited = value) }
+    /**
+     * Whether the built SDK will accept an approval on [chain].
+     *
+     * Read off the client rather than from [WalletChain.supportsAuthPull], which answers for the
+     * environment: the picker has to answer before an SDK exists, but every screen holding a live
+     * client should gate on what that client actually enforces.
+     */
+    fun supportsAuthPull(chain: WalletChain): Boolean =
+        chain.chainId in rainClient.authPullChainIds
+
+    fun onAmountChanged(value: String) {
+        generation += 1
+        estimateJob?.cancel()
+        _state.update { it.copy(amount = value, estimatedFee = null, errorText = null) }
+    }
+
+    fun onUnlimitedChanged(value: Boolean) {
+        generation += 1
+        estimateJob?.cancel()
+        _state.update { it.copy(isUnlimited = value, estimatedFee = null, errorText = null) }
+    }
 
     /**
      * Seeds the form for [chain] and reads the current allowance. Token and operator are
@@ -45,7 +65,10 @@ class AuthPullViewModel(
     fun onChainChanged(chain: WalletChain) {
         if (chain == seededChain) return
         seededChain = chain
-        job?.cancel()
+        generation += 1
+        readJob?.cancel()
+        estimateJob?.cancel()
+        approvalJob?.cancel()
         _state.update {
             it.copy(
                 operatorAddress = chain.defaultAuthPullOperator,
@@ -55,6 +78,7 @@ class AuthPullViewModel(
                 isRevokedAllowance = false,
                 estimatedFee = null,
                 txHash = null,
+                approvalStatus = null,
                 errorText = null,
                 isApproving = false,
                 // The cancelled read rethrows before clearing this, so reset it here or the
@@ -62,7 +86,7 @@ class AuthPullViewModel(
                 isLoadingAllowance = false
             )
         }
-        if (chain.supportsAuthPull) refreshAllowance(chain)
+        if (supportsAuthPull(chain)) refreshAllowance(chain)
     }
 
     /**
@@ -75,7 +99,9 @@ class AuthPullViewModel(
 
         _state.update { it.copy(isLoadingAllowance = true, errorText = null) }
 
-        job = viewModelScope.launch {
+        readJob?.cancel()
+        val requestGeneration = generation
+        readJob = viewModelScope.launch {
             try {
                 val allowance = rainClient.getTokenAllowance(
                     chainId = chain.chainId,
@@ -87,6 +113,7 @@ class AuthPullViewModel(
                     "raw=${allowance.rawAmount} decimals=${allowance.decimals} " +
                         "unlimited=${allowance.isUnlimited}"
                 )
+                if (requestGeneration != generation) return@launch
                 _state.update {
                     it.copy(
                         isLoadingAllowance = false,
@@ -102,6 +129,7 @@ class AuthPullViewModel(
                 throw e
             } catch (e: Exception) {
                 SampleLog.e("AuthPull.allowance", "failed: ${e.message}", e)
+                if (requestGeneration != generation) return@launch
                 _state.update {
                     it.copy(
                         isLoadingAllowance = false,
@@ -127,7 +155,9 @@ class AuthPullViewModel(
 
         _state.update { it.copy(errorText = null, estimatedFee = null) }
 
-        job = viewModelScope.launch {
+        estimateJob?.cancel()
+        val requestGeneration = generation
+        estimateJob = viewModelScope.launch {
             try {
                 val fee = rainClient.estimateApprovalFee(
                     chainId = chain.chainId,
@@ -139,12 +169,16 @@ class AuthPullViewModel(
                 // as 2.15172E-7.
                 val display = "${fee.stripTrailingZeros().toPlainString()} ${chain.nativeSymbol}"
                 SampleLog.i("AuthPull.fee", "estimate=$display")
-                _state.update { it.copy(estimatedFee = display) }
+                if (requestGeneration == generation) {
+                    _state.update { it.copy(estimatedFee = display) }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 SampleLog.e("AuthPull.fee", "failed: ${e.message}", e)
-                _state.update { it.copy(errorText = "Fee estimate failed: ${e.message}") }
+                if (requestGeneration == generation) {
+                    _state.update { it.copy(errorText = "Fee estimate failed: ${e.message}") }
+                }
             }
         }
     }
@@ -167,9 +201,21 @@ class AuthPullViewModel(
             "token=${current.tokenAddress} spender=${current.operatorAddress} " +
                 "amount=${amount?.toPlainString() ?: "unlimited"}"
         )
-        _state.update { it.copy(isApproving = true, errorText = null, txHash = null) }
+        generation += 1
+        readJob?.cancel()
+        estimateJob?.cancel()
+        approvalJob?.cancel()
+        val requestGeneration = generation
+        _state.update {
+            it.copy(
+                isApproving = true,
+                errorText = null,
+                txHash = null,
+                approvalStatus = "Submitting approval"
+            )
+        }
 
-        job = viewModelScope.launch {
+        approvalJob = viewModelScope.launch {
             try {
                 val result = rainClient.approveTokenAllowance(
                     chainId = chain.chainId,
@@ -178,16 +224,45 @@ class AuthPullViewModel(
                     amount = amount
                 )
                 SampleLog.i("AuthPull.approve", "success txHash=${result.transactionHash}")
-                _state.update { it.copy(isApproving = false, txHash = result.transactionHash) }
-                // The allowance only changes once the transaction is mined, so this read may
-                // still show the old value on a slow chain — refresh again.
-                refreshAllowance(chain)
+                if (requestGeneration != generation) return@launch
+                _state.update {
+                    it.copy(
+                        txHash = result.transactionHash,
+                        approvalStatus = "Pending network confirmation"
+                    )
+                }
+                val confirmed = rainClient.confirmTokenAllowance(
+                    transactionHash = result.transactionHash,
+                    chainId = chain.chainId,
+                    contractAddress = current.tokenAddress,
+                    spender = current.operatorAddress,
+                    amount = amount
+                )
+                if (requestGeneration != generation) return@launch
+                _state.update {
+                    it.copy(
+                        isApproving = false,
+                        approvalStatus = "Confirmed on-chain",
+                        allowanceText = if (confirmed.isUnlimited) {
+                            "Unlimited"
+                        } else {
+                            confirmed.formatted
+                        },
+                        isUnlimitedAllowance = confirmed.isUnlimited,
+                        isRevokedAllowance = confirmed.isZero
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 SampleLog.e("AuthPull.approve", "failed: ${e.message}", e)
+                if (requestGeneration != generation) return@launch
                 _state.update {
-                    it.copy(isApproving = false, errorText = "Approval failed: ${e.message}")
+                    it.copy(
+                        isApproving = false,
+                        approvalStatus = "Approval not confirmed",
+                        errorText = "Approval failed or was not confirmed: ${e.message}"
+                    )
                 }
             }
         }
@@ -223,7 +298,7 @@ class AuthPullViewModel(
     }
 
     private fun validate(chain: WalletChain, current: AuthPullUiState): Boolean {
-        if (!chain.supportsAuthPull) {
+        if (!supportsAuthPull(chain)) {
             _state.update { it.copy(errorText = "Auth Pull is not available on ${chain.displayName}") }
             return false
         }
@@ -248,7 +323,7 @@ data class AuthPullUiState(
     val operatorAddress: String = SampleEnvironment.authPullOperator,
     val tokenAddress: String = WalletChain.firstAuthPullChain?.defaultTokenAddress ?: "",
     val amount: String = "250",
-    val isUnlimited: Boolean = true,
+    val isUnlimited: Boolean = false,
     val allowanceText: String? = null,
     val isUnlimitedAllowance: Boolean = false,
     /** Nothing is approved: either never approved, or revoked. */
@@ -257,6 +332,7 @@ data class AuthPullUiState(
     val isApproving: Boolean = false,
     val estimatedFee: String? = null,
     val txHash: String? = null,
+    val approvalStatus: String? = null,
     val errorText: String? = null
 )
 

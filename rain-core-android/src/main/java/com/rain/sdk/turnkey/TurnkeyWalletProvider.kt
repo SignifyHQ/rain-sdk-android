@@ -104,6 +104,8 @@ internal class TurnkeyWalletProvider(
     // it. Mutex (rather than synchronized) so the suspend-friendly address() doesn't block
     // a thread while it's waiting on Turnkey's refresh.
     private val cachedAddressLock = Mutex()
+    /** Covers nonce acquisition through Turnkey acceptance so concurrent sends cannot reuse it. */
+    private val evmSendLock = Mutex()
     @Volatile
     private var cachedAddress: String? = null
     @Volatile
@@ -247,7 +249,7 @@ internal class TurnkeyWalletProvider(
         to: String,
         data: String,
         value: String
-    ): String {
+    ): String = evmSendLock.withLock {
         requireEvmChain(chainId, "sendTransaction")
         val (session, client) = resolveSessionAndClient()
         val sendBody = buildSendTransactionBody(
@@ -261,7 +263,7 @@ internal class TurnkeyWalletProvider(
 
         val response = client.ethSendTransaction(sendBody)
         val statusId = response.result.sendTransactionStatusId
-        return pollForTransactionHash(client, session.organizationId, statusId)
+        pollForTransactionHash(client, session.organizationId, statusId)
     }
 
     override suspend fun signTypedData(
