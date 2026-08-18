@@ -45,6 +45,7 @@ dependencies {
 
     // Web3j for ABI Encoding
     implementation(libs.web3j.core)
+    implementation(libs.bouncycastle.bcprov)
 
     // JSON Serialization
     implementation(libs.kotlinx.serialization.json)
