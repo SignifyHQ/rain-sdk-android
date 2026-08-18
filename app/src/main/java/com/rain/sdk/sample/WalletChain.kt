@@ -47,7 +47,7 @@ enum class WalletChain(
     BASE_SEPOLIA(
         displayName = "EVM · Base Sepolia",
         chainId = RainChain.BASE_SEPOLIA,
-        rpcUrl = "https://sepolia.base.org",
+        rpcUrl = "https://base-sepolia-rpc.publicnode.com",
         nativeSymbol = "ETH",
         isSolana = false,
         explorerName = "Basescan",

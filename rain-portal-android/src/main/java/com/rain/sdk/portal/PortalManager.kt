@@ -17,6 +17,7 @@ import java.math.BigInteger
 import io.portalhq.android.api.data.GetTransactionsOrder
 import io.portalhq.android.api.data.Transaction
 import io.portalhq.android.storage.mobile.PortalNamespace
+import io.portalhq.android.provider.data.PortalProviderRpcResponse
 import io.portalhq.android.provider.data.PortalRequestMethod
 import org.web3j.abi.FunctionEncoder
 import org.web3j.abi.TypeReference
@@ -32,6 +33,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
@@ -482,6 +484,9 @@ internal class PortalManager {
       throw RainError.TransactionSimulationFailed(e)
     }
 
+    // Read before the submit, so the UserOperation scan below has a lower bound to search from.
+    val submittedFrom = currentBlockNumber(portal, eip155ChainId)
+
     val params = EthTransactionParam(
       from = from,
       to = to,
@@ -511,7 +516,129 @@ internal class PortalManager {
       PortalErrorMapping.mapSimulationOrNull(e)?.let { throw it }
       throw e
     }
-    return result.toTransactionHash()
+    return minedTransactionHash(
+      portal = portal,
+      chainId = eip155ChainId,
+      hash = result.toTransactionHash(),
+      fromBlock = submittedFrom
+    )
+  }
+
+  /**
+   * Where the Portal environment has Account Abstraction enabled on a chain, `eth_sendTransaction`
+   * returns a UserOperation hash rather than a transaction hash. No node has heard of that hash,
+   * so a receipt poll on it never terminates. Resolve it through the EntryPoint's
+   * `UserOperationEvent` and return the hash the operation was actually mined under.
+   *
+   * A plain transaction is in the mempool the moment it is submitted, so it returns on the first
+   * pass and never reaches the scan.
+   */
+  private suspend fun minedTransactionHash(
+    portal: Portal,
+    chainId: String,
+    hash: String,
+    fromBlock: BigInteger?
+  ): String {
+    // Without a lower bound there is nothing to scan, so Portal's hash is all this can offer.
+    if (fromBlock == null) return hash
+
+    repeat(UserOperationLookup.ATTEMPTS) { attempt ->
+      if (isKnownTransaction(portal, chainId, hash)) return hash
+
+      val event = userOperationEvent(portal, chainId, hash, fromBlock)
+      if (event != null) {
+        val (transactionHash, succeeded) = event
+        if (!succeeded) {
+          throw RainError.TransactionSimulationFailed(
+            IllegalStateException(
+              "UserOperation $hash reverted on-chain in transaction $transactionHash"
+            )
+          )
+        }
+        Timber.i("Rain SDK: UserOperation $hash mined in transaction $transactionHash")
+        return transactionHash
+      }
+
+      if (attempt < UserOperationLookup.ATTEMPTS - 1) delay(UserOperationLookup.INTERVAL_MS)
+    }
+
+    // Neither shape resolved. Return what Portal gave us rather than failing a submit that may
+    // still land; the caller's own confirmation reports the timeout.
+    Timber.w("Rain SDK: %s did not resolve to a mined transaction", hash)
+    return hash
+  }
+
+  /** Whether the chain knows this hash as a transaction, mined or pending. */
+  private suspend fun isKnownTransaction(portal: Portal, chainId: String, hash: String): Boolean {
+    val response = try {
+      portal.request(
+        chainId = chainId,
+        method = PortalRequestMethod.eth_getTransactionByHash,
+        params = listOf(hash)
+      )
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      return false
+    }
+    return (response.result as? PortalProviderRpcResponse)?.result != null
+  }
+
+  /** Finds the `UserOperationEvent` this hash was emitted under, if it has been included yet. */
+  private suspend fun userOperationEvent(
+    portal: Portal,
+    chainId: String,
+    hash: String,
+    fromBlock: BigInteger
+  ): Pair<String, Boolean>? {
+    val filter = mapOf(
+      "fromBlock" to "0x" + fromBlock.toString(16),
+      "toBlock" to "latest",
+      // Public RPCs reject an address-less log filter, so name every canonical EntryPoint.
+      "address" to UserOperationLookup.ENTRY_POINTS,
+      "topics" to listOf(UserOperationLookup.EVENT_TOPIC, hash)
+    )
+    val response = try {
+      portal.request(
+        chainId = chainId,
+        method = PortalRequestMethod.eth_getLogs,
+        params = listOf(filter)
+      )
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      return null
+    }
+    val logs = (response.result as? PortalProviderRpcResponse)?.result as? List<*> ?: return null
+    val log = logs.firstOrNull() as? Map<*, *> ?: return null
+    val transactionHash = log["transactionHash"] as? String ?: return null
+    return transactionHash to userOperationSucceeded(log["data"] as? String)
+  }
+
+  private suspend fun currentBlockNumber(portal: Portal, chainId: String): BigInteger? {
+    val response = try {
+      portal.request(
+        chainId = chainId,
+        method = PortalRequestMethod.eth_blockNumber,
+        params = emptyList()
+      )
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      return null
+    }
+    val hex = (response.result as? PortalProviderRpcResponse)?.result as? String ?: return null
+    val block = hex.removePrefix("0x").toBigIntegerOrNull(16) ?: return null
+    return if (block > BigInteger.ZERO) block else null
+  }
+
+  /**
+   * `UserOperationEvent` data is `(nonce, success, actualGasCost, actualGasUsed)`. An unreadable
+   * payload counts as success: the operation was mined, and inventing a failure here would mask
+   * whatever the caller's own confirmation reads back.
+   */
+  private fun userOperationSucceeded(data: String?): Boolean {
+    if (data == null || !data.startsWith("0x")) return true
+    val words = data.removePrefix("0x")
+    if (words.length < 128) return true
+    return words.substring(64, 128).any { it != '0' }
   }
 
   /** On-chain ERC-20 metadata for one contract, resolved at most once per `getTransactions` call. */
@@ -666,4 +793,22 @@ internal class PortalManager {
     _portal = null
     Timber.d("Rain SDK: PortalManager destroyed and coroutines cancelled")
   }
+}
+
+private object UserOperationLookup {
+  /**
+   * `UserOperationEvent(bytes32,address,address,uint256,bool,uint256,uint256)`, identical across
+   * EntryPoint versions. Topic 1 is the UserOperation hash.
+   */
+  const val EVENT_TOPIC = "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f"
+
+  /** Canonical EntryPoint deployments, v0.6 through v0.8. */
+  val ENTRY_POINTS = listOf(
+    "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789",
+    "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+    "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
+  )
+
+  const val ATTEMPTS = 20
+  const val INTERVAL_MS = 1_000L
 }
