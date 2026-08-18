@@ -288,6 +288,7 @@ provider is asked for one thing: the wallet address to read the allowance *for*,
 | `RAIN_401` | `RainError.UserRejected` | The user declined the signature in the wallet UI. |
 | `RAIN_402` | `RainError.InsufficientFunds` | Not enough native gas to submit the approval. |
 | `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight simulation reverted (providers that simulate), or `confirmTokenAllowance` found a mined receipt that reverted. |
+| `RAIN_404` | `RainError.WalletUnavailable` | The wallet provider has no address — the user has not connected or created a wallet. Reachable on any approval or fee estimate (they resolve the `from` address), and on an allowance read or confirmation with `owner` omitted. |
 | `RAIN_406` | `RainError.InvalidAmount` | Negative amount, or more decimal places than the token supports. |
 | `RAIN_501` | `RainError.ProviderError` | The wallet provider failed for its own reasons. |
 | `RAIN_502` | `RainError.InternalError` | ABI encoding failed, a Solana chain ID was passed (approvals are EVM-only), or a mined allowance contradicted the request (revoke left a spendable allowance, or an approval left zero). |

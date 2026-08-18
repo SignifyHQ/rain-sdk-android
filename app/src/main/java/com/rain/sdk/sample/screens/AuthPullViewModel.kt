@@ -37,6 +37,14 @@ class AuthPullViewModel(
     private var generation: Long = 0
 
     /**
+     * Owns the in-flight allowance read, separately from [generation]: an allowance read depends
+     * on the chain and wallet, not the amount fields, so a form edit (which bumps [generation])
+     * must not orphan its result — gating on [generation] stranded [AuthPullUiState.isLoadingAllowance]
+     * true forever. Only a newer read, a chain switch, or an approval may supersede a read.
+     */
+    private var readRun: Long = 0
+
+    /**
      * Whether the built SDK will accept an approval on [chain].
      *
      * Read off the client rather than from [WalletChain.supportsAuthPull], which answers for the
@@ -66,6 +74,9 @@ class AuthPullViewModel(
         if (chain == seededChain) return
         seededChain = chain
         generation += 1
+        // Retire any in-flight read now: if the new chain does not support Auth Pull no fresh
+        // read will start, and the old chain's answer must not land on this chain's blank card.
+        readRun += 1
         readJob?.cancel()
         estimateJob?.cancel()
         approvalJob?.cancel()
@@ -100,7 +111,8 @@ class AuthPullViewModel(
         _state.update { it.copy(isLoadingAllowance = true, errorText = null) }
 
         readJob?.cancel()
-        val requestGeneration = generation
+        readRun += 1
+        val requestRun = readRun
         readJob = viewModelScope.launch {
             try {
                 val allowance = rainClient.getTokenAllowance(
@@ -113,7 +125,7 @@ class AuthPullViewModel(
                     "raw=${allowance.rawAmount} decimals=${allowance.decimals} " +
                         "unlimited=${allowance.isUnlimited}"
                 )
-                if (requestGeneration != generation) return@launch
+                if (requestRun != readRun) return@launch
                 _state.update {
                     it.copy(
                         isLoadingAllowance = false,
@@ -129,7 +141,7 @@ class AuthPullViewModel(
                 throw e
             } catch (e: Exception) {
                 SampleLog.e("AuthPull.allowance", "failed: ${e.message}", e)
-                if (requestGeneration != generation) return@launch
+                if (requestRun != readRun) return@launch
                 _state.update {
                     it.copy(
                         isLoadingAllowance = false,
@@ -202,6 +214,9 @@ class AuthPullViewModel(
                 "amount=${amount?.toPlainString() ?: "unlimited"}"
         )
         generation += 1
+        // An approval supersedes any in-flight read; the confirmed allowance is published below.
+        // The superseded read no longer owns the spinner, so clear it here or it never clears.
+        readRun += 1
         readJob?.cancel()
         estimateJob?.cancel()
         approvalJob?.cancel()
@@ -209,6 +224,7 @@ class AuthPullViewModel(
         _state.update {
             it.copy(
                 isApproving = true,
+                isLoadingAllowance = false,
                 errorText = null,
                 txHash = null,
                 approvalStatus = "Submitting approval"

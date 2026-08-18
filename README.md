@@ -344,6 +344,8 @@ val rain = RainSdk.builder()
     .register(provider)
     .build()
 
+val client = rain.provider(provider.id)
+
 // 1. What can the operator move today?
 val allowance = client.getTokenAllowance(
     chainId = RainChain.BASE_SEPOLIA,

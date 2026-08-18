@@ -70,6 +70,28 @@ class Erc20ApproveCalldataGoldenTest {
     }
 
     @Test
+    fun `an amount past uint256 max is rejected before encoding`() {
+        // The ABI word would silently truncate it into a completely different allowance.
+        val ex = assertThrows(RainError.InvalidAmount::class.java) {
+            Erc20Abi.encodeApprove(
+                spender,
+                RainTokenAllowance.UNLIMITED_RAW_AMOUNT.add(BigInteger.ONE)
+            )
+        }
+
+        assertThat(ex.errorCode.code).isEqualTo("RAIN_406")
+    }
+
+    @Test
+    fun `a negative base-unit amount is rejected before encoding`() {
+        val ex = assertThrows(RainError.InvalidAmount::class.java) {
+            Erc20Abi.encodeApprove(spender, BigInteger.valueOf(-1))
+        }
+
+        assertThat(ex.errorCode.code).isEqualTo("RAIN_406")
+    }
+
+    @Test
     fun `unlimitedRawAmount is exactly uint256 max`() {
         assertThat(RainTokenAllowance.UNLIMITED_RAW_AMOUNT)
             .isEqualTo(BigInteger.valueOf(2).pow(256).subtract(BigInteger.ONE))
