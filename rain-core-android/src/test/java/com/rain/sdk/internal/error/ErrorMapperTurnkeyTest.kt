@@ -57,6 +57,18 @@ class ErrorMapperTurnkeyTest {
     }
 
     @Test
+    fun `mapTurnkeyError wrapper with an HTTP 401 cause maps to TokenExpired not UserRejected`() {
+        // The wrapped cause carries a status and a rejection keyword; the status wins.
+        val cause = RuntimeException(
+            "HTTP error calling ACTIVITY_TYPE_ETH_SEND_TRANSACTION request\n" +
+                "Error: session expired, request cancelled\nCode: 401"
+        )
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToSignRawPayload(cause)
+        val mapped = mapper.mapTurnkeyError(error)
+        assertThat(mapped).isInstanceOf(RainError.TokenExpired::class.java)
+    }
+
+    @Test
     fun `mapTurnkeyError unknown variant falls through to ProviderError`() {
         // FailedToCreateWallet wraps a plain Throwable and isn't in the InternalError allowlist.
         val cause = RuntimeException("server 500")

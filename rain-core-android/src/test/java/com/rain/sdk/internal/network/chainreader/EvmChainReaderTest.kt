@@ -133,6 +133,68 @@ class EvmChainReaderTest {
     }
 
     @Test
+    fun `getBalances drops a malformed token address instead of failing the batch`() = runBlocking {
+        val chainId = 43113
+        rpc.stub("eth_getBalance", "0x0")
+        rpc.stub("eth_call", "0x" + "0".repeat(59) + "f4240")
+        val reader = EvmChainReader(rpcEndpoints = mapOf(chainId to rpc.urlFor(chainId)))
+
+        val balances = reader.getBalances(
+            chainId = chainId,
+            walletAddress = wallet,
+            tokens = listOf(
+                TokenInfo(chainId, "0x7f5c764c", "BAD", 6), // truncated address
+                TokenInfo(chainId, usdc, "USDC", 6)
+            )
+        )
+
+        // Native + USDC; the malformed entry loses only its own balance.
+        assertThat(balances).hasSize(2)
+        assertThat(balances.single { it.token is Token.Contract }.token)
+            .isEqualTo(Token.Contract(usdc))
+    }
+
+    @Test
+    fun `getBalances on a Multicall3 chain excludes a malformed token address from the batch`() = runBlocking {
+        // The response below carries exactly two results (native + USDC). It only decodes if
+        // the malformed token never entered the batch: the reader demands one result per
+        // submitted call, so a three-call batch against this payload would throw.
+        fun slot(v: String) = "0".repeat(64 - v.length) + v
+        rpc.stub(
+            "eth_call",
+            "0x" +
+                slot("20") +              // outer offset
+                slot("2") +               // count = 2
+                slot("40") +              // offset to tuple 0
+                slot("c0") +              // offset to tuple 1 (0x40 + 0x80 tuple size)
+                slot("1") +               // t0 success
+                slot("40") +              // t0 returnData offset
+                slot("20") +              // t0 returnData length
+                slot("de0b6b3a7640000") + // t0 = 1 ETH in wei
+                slot("1") +               // t1 success
+                slot("40") +              // t1 returnData offset
+                slot("20") +              // t1 returnData length
+                slot("f4240")             // t1 = 1_000_000 (1 USDC at 6 decimals)
+        )
+        val reader = makeReader(chainId = 1)
+
+        val balances = reader.getBalances(
+            chainId = 1,
+            walletAddress = wallet,
+            tokens = listOf(
+                TokenInfo(1, "0x7f5c764c", "BAD", 6),
+                TokenInfo(1, usdc, "USDC", 6)
+            )
+        )
+
+        assertThat(balances).hasSize(2)
+        assertThat(balances.single { it.token is Token.Native }.rawAmount)
+            .isEqualTo(BigInteger("1000000000000000000"))
+        assertThat(balances.single { it.token == Token.Contract(usdc) }.rawAmount)
+            .isEqualTo(BigInteger("1000000"))
+    }
+
+    @Test
     fun `getBalances treats native eth_getBalance failure as fatal`() {
         val chainId = 43113
         rpc.stubNetworkFailure("eth_getBalance")

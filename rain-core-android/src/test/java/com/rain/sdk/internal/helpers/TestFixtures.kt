@@ -34,6 +34,9 @@ internal object TestFixtures {
     const val PROXY_ADDRESS = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
     const val CONTROLLER_ADDRESS = "0x5555555555555555555555555555555555555555"
     const val RECIPIENT_ADDRESS = "0xfedcbafedcbafedcbafedcbafedcbafedcbafedc"
+
+    /** EIP-55 checksummed form of [RECIPIENT_ADDRESS] — what the send paths forward downstream. */
+    const val RECIPIENT_ADDRESS_CHECKSUMMED = "0xfeDcbaFEdcBaFEDcbAfedcBAfeDCBAFeDCBafEdc"
     const val TOKEN_ADDRESS = "0x9876543210987654321098765432109876543210"
     const val USDC_ADDRESS = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
 

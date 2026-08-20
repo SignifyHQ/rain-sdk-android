@@ -874,7 +874,11 @@ internal class TurnkeyWalletProvider(
                 delay(pollingIntervalMs)
             }
         }
-        throw RainError.InternalError("Turnkey transaction status polling timed out")
+
+        // A poll timeout is not a failure: Turnkey accepted the submission and the transaction
+        // may still confirm. Carrying the status id lets the host resume polling instead of
+        // resending, which would risk a duplicate transfer.
+        throw RainError.TransactionPending(sendTransactionStatusId)
     }
 
     // ---------- Solana send ----------
@@ -928,6 +932,10 @@ internal class TurnkeyWalletProvider(
         val rpcUrl = rpcEndpoints[chainId]
             ?: throw RainError.InvalidConfig("No RPC endpoint configured for chainId=$chainId")
         val (session, client) = resolveSessionAndClient()
+
+        // Baseline for the signature recovery below: the wallet's newest signature before this send.
+        val priorSignature = runCatching { solanaRpcClient.getLatestSignature(rpcUrl, from) }.getOrNull()
+
         val response = client.solSendTransaction(
             TSolSendTransactionBody(
                 organizationId = session.organizationId,
@@ -942,10 +950,11 @@ internal class TurnkeyWalletProvider(
         pollForSolanaCompletion(client, session.organizationId, statusId)?.let { return it }
 
         // getSignaturesForAddress lags broadcast slightly, so retry briefly before falling back
-        // to the status id.
+        // to the status id. Only a signature that differs from the pre-send baseline can belong
+        // to this send; returning the baseline would report an older transaction as this one.
         for (attempt in 0 until SOLANA_SIGNATURE_LOOKUP_ATTEMPTS) {
             val signature = solanaRpcClient.getLatestSignature(rpcUrl, from)
-            if (signature != null) return signature
+            if (signature != null && signature != priorSignature) return signature
             if (attempt + 1 < SOLANA_SIGNATURE_LOOKUP_ATTEMPTS) delay(pollingIntervalMs)
         }
         return statusId

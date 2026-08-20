@@ -51,6 +51,7 @@ class RainErrorCodeParityTest {
             RainError.NetworkError(cause = underlying) to "RAIN_301",
             RainError.ApiError(500, "x") to "RAIN_302",
             RainError.SignatureNotReady("pending", 30) to "RAIN_303",
+            RainError.TransactionPending("status-id") to "RAIN_303",
             RainError.NoCollateralContracts() to "RAIN_304",
             RainError.UserRejected() to "RAIN_401",
             RainError.InsufficientFunds() to "RAIN_402",
@@ -75,6 +76,6 @@ class RainErrorCodeParityTest {
         // A case added to the sealed hierarchy but not listed above fails here.
         assertThat(cases.map { it.first::class }.toSet())
             .isEqualTo(RainError::class.sealedSubclasses.toSet())
-        assertThat(cases).hasSize(24)
+        assertThat(cases).hasSize(25)
     }
 }

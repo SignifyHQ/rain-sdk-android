@@ -90,6 +90,20 @@ sealed class RainError(
       "Withdrawal signature not ready: status=$status${retryAfter?.let { " (retry after ${it}s)" } ?: ""}"
     )
 
+  /**
+   * The transaction was accepted by the wallet provider but its hash was not yet visible when
+   * status polling stopped. NOT a failure: the transaction may still confirm, and resending it
+   * risks a duplicate transfer. Resume with [statusId] (getTransactions resolves it to the hash
+   * once available) rather than sending again. Reuses [RainErrorCode.SIGNATURE_NOT_READY]'s
+   * code, since the published code map is a contract (see RainErrorCodeParityTest).
+   */
+  class TransactionPending(val statusId: String) :
+    RainError(
+      RainErrorCode.SIGNATURE_NOT_READY,
+      "Transaction submitted but not yet confirmed (statusId=$statusId). " +
+        "Not a failure: resume polling with the status id; do not resend."
+    )
+
   /** The contracts endpoint returned no collateral contracts for the configured user. */
   class NoCollateralContracts :
     RainError(RainErrorCode.NO_COLLATERAL_CONTRACTS, "No collateral contracts returned for user")

@@ -14,6 +14,7 @@ import com.rain.sdk.internal.transaction.TransactionExecutor
 import com.rain.sdk.internal.transaction.TransactionSigner
 import com.rain.sdk.internal.transaction.TransactionValidator
 import com.rain.sdk.internal.transaction.WithdrawCollateralRequest
+import com.rain.sdk.internal.utils.RainHexUtils
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainTokenTransferResult
 import com.rain.sdk.models.RainWithdrawAddresses
@@ -267,7 +268,11 @@ internal class RainSdkManager(
     amount: BigDecimal
   ): RainTokenTransferResult {
     return try {
-      val txHash = walletProvider.sendNativeToken(chainId, to, amount)
+      // A typo'd recipient would otherwise broadcast as-is and the funds are gone; validate and
+      // checksum up front, as the withdrawal path does. Solana recipients are validated by the
+      // transfer composer.
+      val recipient = if (SolanaChains.isSolanaChain(chainId)) to else checksummedRecipient(to)
+      val txHash = walletProvider.sendNativeToken(chainId, recipient, amount)
       RainTokenTransferResult(transactionHash = txHash)
     } catch (e: Exception) {
       if (e is CancellationException) throw e
@@ -291,11 +296,12 @@ internal class RainSdkManager(
       // Skipped on Solana — the store enriches through the EVM reader, which cannot see an SPL
       // mint — so an unspecified value resolves to 0 there. The Solana adapter reads the mint's
       // own decimals and must not scale with this one.
+      val recipient = if (SolanaChains.isSolanaChain(chainId)) to else checksummedRecipient(to)
       val resolvedDecimals = decimals
         ?: takeUnless { SolanaChains.isSolanaChain(chainId) }
           ?.let { tokenStore?.tokenInfo(chainId, contractAddress)?.decimals }
         ?: if (SolanaChains.isSolanaChain(chainId)) 0 else RainClient.DEFAULT_ERC20_DECIMALS
-      val txHash = walletProvider.sendToken(chainId, contractAddress, to, amount, resolvedDecimals)
+      val txHash = walletProvider.sendToken(chainId, contractAddress, recipient, amount, resolvedDecimals)
       RainTokenTransferResult(transactionHash = txHash)
     } catch (e: Exception) {
       if (e is CancellationException) throw e
@@ -303,6 +309,14 @@ internal class RainSdkManager(
       Timber.e(e, "Rain SDK: Failed to send ERC-20 token")
       throw errorMapper.mapTransactionError(e)
     }
+  }
+
+  /** Validates and EIP-55 checksums an EVM recipient; a malformed address must never broadcast. */
+  private fun checksummedRecipient(to: String): String {
+    if (!RainHexUtils.isValidAddress(to)) {
+      throw RainError.InvalidRecipient(to, "not a valid EVM address")
+    }
+    return RainHexUtils.toChecksumAddress(to)
   }
 
   override suspend fun getBalance(chainId: Int, token: Token): Balance {
@@ -349,6 +363,16 @@ internal class RainSdkManager(
 
   override fun registerTokens(tokens: List<TokenInfo>) {
     if (tokens.isEmpty()) return
+    // Reject malformed EVM addresses at the source: an entry that enters the store rides into
+    // every balance batch on its chain. Solana mints are base58 and validated by their own
+    // paths. Validate the whole list before adding anything, so a bad entry registers nothing.
+    tokens.forEach { token ->
+      if (!SolanaChains.isSolanaChain(token.chainId) && !RainHexUtils.isValidAddress(token.address)) {
+        throw RainError.InvalidConfig(
+          "Invalid token address for chainId=${token.chainId}: ${token.address}"
+        )
+      }
+    }
     registeredTokens.addAll(tokens)
     // Apply to the live store too, fire-and-forget so registration stays synchronous.
     tokenStore?.let { store ->

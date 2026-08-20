@@ -82,6 +82,73 @@ class TurnkeyAdapterTest {
         assertThat(client.sendTransactionStatusCalls).hasSize(2)
     }
 
+    // ---- Amount validation ---------------------------------------------------------
+
+    @Test
+    fun `sendNativeToken rejects a negative amount before contacting anything`() {
+        // A negative amount would hex-encode as "0x-..." and surface as an opaque RPC error.
+        val turnkey = MockTurnkey()
+        val client = turnkey.turnkeyClient as MockTurnkeyClient
+        val provider = makeProvider(turnkey)
+
+        assertThrows(RainError.InvalidAmount::class.java) {
+            runBlocking {
+                provider.sendNativeToken(1, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("-1"))
+            }
+        }
+        assertThat(client.ethSendTransactionCalls).isEmpty()
+        assertThat(rpc.recordedMethods).isEmpty()
+    }
+
+    @Test
+    fun `sendNativeToken rejects sub-wei precision as a typed error`() {
+        val turnkey = MockTurnkey()
+        val client = turnkey.turnkeyClient as MockTurnkeyClient
+        val provider = makeProvider(turnkey)
+
+        assertThrows(RainError.InvalidAmount::class.java) {
+            runBlocking {
+                provider.sendNativeToken(
+                    1,
+                    TestFixtures.RECIPIENT_ADDRESS,
+                    java.math.BigDecimal("0.0000000000000000015")
+                )
+            }
+        }
+        assertThat(client.ethSendTransactionCalls).isEmpty()
+    }
+
+    // ---- Polling: timeout is pending, not failure ---------------------------------
+
+    @Test
+    fun `sendTransaction surfaces a poll timeout as TransactionPending carrying the status id`() {
+        // Turnkey never reported failure, so the transaction may still confirm; the host needs
+        // the status id to resume instead of resending (which could duplicate the transfer).
+        stubSendTransactionRPCs()
+        val turnkey = MockTurnkey()
+        val client = (turnkey.turnkeyClient as MockTurnkeyClient).apply {
+            sendTransactionStatusQueue = mutableListOf(MockTurnkeyClient.StatusFixture.pending())
+        }
+        val provider = makeProvider(turnkey)
+
+        val ex = runCatching {
+            runBlocking {
+                provider.sendTransaction(
+                    chainId = 1,
+                    from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
+                    to = TestFixtures.RECIPIENT_ADDRESS,
+                    data = "0x",
+                    value = "0x0"
+                )
+            }
+        }.exceptionOrNull()
+
+        assertThat(ex).isInstanceOf(RainError.TransactionPending::class.java)
+        assertThat((ex as RainError.TransactionPending).statusId).isEqualTo("send-status-id")
+        // The full polling budget was spent before giving up.
+        assertThat(client.sendTransactionStatusCalls).hasSize(30)
+    }
+
     // ---- Polling: failure status path -------------------------------------------
 
     @Test

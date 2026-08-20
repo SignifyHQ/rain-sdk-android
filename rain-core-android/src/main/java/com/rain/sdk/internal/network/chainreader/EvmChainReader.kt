@@ -87,10 +87,17 @@ internal class EvmChainReader(
     ): List<Balance> {
         val rpcUrl = resolveRpcUrl(chainId)
         validateAddress(walletAddress, "wallet address")
+        // A malformed token address must not enter a batch: Multicall3's address padding only
+        // left-pads, so an over-long entry would shift the whole aggregate encoding and take
+        // every balance on the chain down with it. Drop it and keep the rest readable.
+        val (valid, malformed) = tokens.partition { it.address.isValidEthereumAddress }
+        malformed.forEach {
+            Timber.w("Rain SDK: skipping token with malformed address ${it.address} on chainId=$chainId")
+        }
         return if (isMulticall3CanonicallyDeployed(chainId)) {
-            fetchViaMulticall3(rpcUrl, chainId, walletAddress, tokens)
+            fetchViaMulticall3(rpcUrl, chainId, walletAddress, valid)
         } else {
-            fetchViaParallelCalls(rpcUrl, chainId, walletAddress, tokens)
+            fetchViaParallelCalls(rpcUrl, chainId, walletAddress, valid)
         }
     }
 

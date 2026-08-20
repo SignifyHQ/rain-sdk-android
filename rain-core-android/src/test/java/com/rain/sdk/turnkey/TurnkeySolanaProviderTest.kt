@@ -71,7 +71,8 @@ class TurnkeySolanaProviderTest {
             rpcEndpoints = mapOf(devnet to rpc.urlFor(devnet)),
             httpClient = OkHttpClient(),
             chainReader = evmReader,
-            solanaChainReader = solanaReader
+            solanaChainReader = solanaReader,
+            pollingIntervalMs = 0L
         )
     }
 
@@ -370,6 +371,7 @@ class TurnkeySolanaProviderTest {
     @Test
     fun `sendNativeToken on solana submits an unsigned transfer and returns the chain signature`() = runBlocking {
         val blockhash = MockTurnkey.DEFAULT_SOLANA_ADDRESS // a valid 32-byte base58 stand-in
+        val priorSignature = "5oldSigFromAnEarlierTransfer11111111111111111111111111111111"
         val signature = "2id3YC2jK9G5Wo2phDx4gJVAew8DcY5NAB7jTLd5p3KqJ7xQy9bniaP4q1hk2N1nF"
         rpc.stubObject(
             "getLatestBlockhash",
@@ -377,8 +379,10 @@ class TurnkeySolanaProviderTest {
                 .put("context", JSONObject().put("slot", 1))
                 .put("value", JSONObject().put("blockhash", blockhash).put("lastValidBlockHeight", 150))
         )
-        rpc.stubObject(
+        // Pre-send baseline sees an older signature; after the send the new one is newest.
+        rpc.stubObjectSequence(
             "getSignaturesForAddress",
+            JSONArray().put(JSONObject().put("signature", priorSignature).put("slot", 140)),
             JSONArray().put(JSONObject().put("signature", signature).put("slot", 150))
         )
 
@@ -401,6 +405,60 @@ class TurnkeySolanaProviderTest {
         assertThat(body.recentBlockhash).isEqualTo(blockhash)
         assertThat(body.sponsor).isEqualTo(false)
         assertThat(body.unsignedTransaction).isNotEmpty()
+    }
+
+    @Test
+    fun `sendNativeToken on solana does not report an older signature when no new one appears`() = runBlocking {
+        val staleSignature = "5oldSigFromAnEarlierTransfer11111111111111111111111111111111"
+        rpc.stubObject(
+            "getLatestBlockhash",
+            JSONObject()
+                .put("context", JSONObject().put("slot", 1))
+                .put("value", JSONObject().put("blockhash", MockTurnkey.DEFAULT_SOLANA_ADDRESS).put("lastValidBlockHeight", 150))
+        )
+        // The wallet's newest signature never changes across the send: whatever was broadcast
+        // never landed, so the pre-send signature must not be reported as this transfer's.
+        rpc.stubObject(
+            "getSignaturesForAddress",
+            JSONArray().put(JSONObject().put("signature", staleSignature).put("slot", 140))
+        )
+        val client = MockTurnkeyClient().apply {
+            sendTransactionStatusQueue = mutableListOf(
+                MockTurnkeyClient.StatusFixture(txHash = null, txStatus = "TX_STATUS_INCLUDED")
+            )
+        }
+        val provider = makeProvider(client = client)
+
+        val result = provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5"))
+
+        assertThat(result).isEqualTo("sol-send-status-id")
+    }
+
+    @Test
+    fun `sendNativeToken on solana recovers the chain signature for a wallet with no history`() = runBlocking {
+        val signature = "2id3YC2jK9G5Wo2phDx4gJVAew8DcY5NAB7jTLd5p3KqJ7xQy9bniaP4q1hk2N1nF"
+        rpc.stubObject(
+            "getLatestBlockhash",
+            JSONObject()
+                .put("context", JSONObject().put("slot", 1))
+                .put("value", JSONObject().put("blockhash", MockTurnkey.DEFAULT_SOLANA_ADDRESS).put("lastValidBlockHeight", 150))
+        )
+        // No signatures before the send; the transfer's own signature appears after it.
+        rpc.stubObjectSequence(
+            "getSignaturesForAddress",
+            JSONArray(),
+            JSONArray().put(JSONObject().put("signature", signature).put("slot", 150))
+        )
+        val client = MockTurnkeyClient().apply {
+            sendTransactionStatusQueue = mutableListOf(
+                MockTurnkeyClient.StatusFixture(txHash = null, txStatus = "TX_STATUS_INCLUDED")
+            )
+        }
+        val provider = makeProvider(client = client)
+
+        val result = provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5"))
+
+        assertThat(result).isEqualTo(signature)
     }
 
     @Test

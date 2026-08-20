@@ -94,26 +94,28 @@ internal object Multicall3 {
         if (bytes.size < 64) {
             throw RainError.InternalError("Multicall3 result too short (<64 bytes)")
         }
-        val count = parseBe(bytes, 32, 64)
+        val count = parseBeSlot(bytes, 32, "array length")
         val arrayBodyStart = 64
-        val offsetsTableEnd = arrayBodyStart + 32 * count
-        if (bytes.size < offsetsTableEnd) {
+        // Long arithmetic throughout the bounds checks: the parsed values are individually
+        // capped at Int.MAX_VALUE, but their sums could still wrap an Int and slip past a check.
+        if (bytes.size < arrayBodyStart + 32L * count) {
             throw RainError.InternalError("Multicall3 result truncated at offsets table")
         }
 
         val results = ArrayList<Result>(count)
         for (i in 0 until count) {
             val offsetSlot = arrayBodyStart + 32 * i
-            val tupleOffset = arrayBodyStart + parseBe(bytes, offsetSlot, offsetSlot + 32)
+            val tupleOffsetLong = arrayBodyStart + parseBeSlot(bytes, offsetSlot, "tuple #$i offset").toLong()
             // Each tuple: [success(32)][returnData_offset(=0x40)(32)][returnData_length(32)][returnData_padded]
-            if (bytes.size < tupleOffset + 96) {
+            if (bytes.size < tupleOffsetLong + 96) {
                 throw RainError.InternalError("Multicall3 tuple #$i truncated")
             }
+            val tupleOffset = tupleOffsetLong.toInt()
             val success = bytes[tupleOffset + 31].toInt() == 1
-            val dataLen = parseBe(bytes, tupleOffset + 64, tupleOffset + 96)
+            val dataLen = parseBeSlot(bytes, tupleOffset + 64, "tuple #$i returnData length")
             val dataStart = tupleOffset + 96
             val dataEnd = dataStart + dataLen
-            if (bytes.size < dataEnd) {
+            if (bytes.size < dataStart + dataLen.toLong()) {
                 throw RainError.InternalError("Multicall3 tuple #$i returnData truncated")
             }
             val dataHex = buildString(2 + dataLen * 2) {
@@ -198,14 +200,25 @@ internal object Multicall3 {
     }
 
     /**
-     * Parses a big-endian byte slice as `Int`. Values read here (counts, offsets, lengths)
-     * are always < 2^31 in practice for any realistic batch.
+     * Parses a 32-byte big-endian ABI slot as a non-negative Int. Counts, offsets, and lengths
+     * in a well-formed response are all bounded by the payload's own size, so a slot that does
+     * not fit in Int is malformed rather than merely large. Folding it into an Int would keep
+     * only the low four bytes and could come out negative, defeating the bounds checks built
+     * on it. The RPC endpoint is host-configured, so a hostile payload is in scope.
      */
-    private fun parseBe(bytes: ByteArray, fromInclusive: Int, toExclusive: Int): Int {
-        var v = 0
-        for (i in fromInclusive until toExclusive) {
-            v = (v shl 8) or (bytes[i].toInt() and 0xFF)
+    private fun parseBeSlot(bytes: ByteArray, fromInclusive: Int, label: String): Int {
+        for (i in fromInclusive until fromInclusive + 28) {
+            if (bytes[i].toInt() != 0) {
+                throw RainError.InternalError("Multicall3 $label does not fit in Int")
+            }
         }
-        return v
+        var v = 0L
+        for (i in fromInclusive + 28 until fromInclusive + 32) {
+            v = (v shl 8) or (bytes[i].toLong() and 0xFF)
+        }
+        if (v > Int.MAX_VALUE) {
+            throw RainError.InternalError("Multicall3 $label does not fit in Int")
+        }
+        return v.toInt()
     }
 }

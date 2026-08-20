@@ -40,6 +40,9 @@ internal class MockRpcServer {
 
     /** Stubs keyed by method and a substring of the request body, for deeper params. */
     private val bodyStubs = ConcurrentHashMap<Pair<String, String>, Stub>()
+
+    /** Per-method result sequences; each dispatch consumes the next result, the last is sticky. */
+    private val sequenceStubs = ConcurrentHashMap<String, MutableList<Any>>()
     private val recorded = mutableListOf<String>()
 
     fun start() {
@@ -54,7 +57,12 @@ internal class MockRpcServer {
                 // A parameter-specific stub wins over the method-wide one, so a test can give
                 // different answers for e.g. getAccountInfo on a mint vs on a token account.
                 val firstParam = requestJson?.optJSONArray("params")?.optString(0, "").orEmpty()
-                val stub = paramStubs[method to firstParam]
+                val stub = sequenceStubs[method]?.let { sequence ->
+                    synchronized(sequence) {
+                        Stub(result = if (sequence.size > 1) sequence.removeAt(0) else sequence.first())
+                    }
+                }
+                    ?: paramStubs[method to firstParam]
                     ?: bodyStubs.entries
                         .firstOrNull { (key, _) -> key.first == method && body.contains(key.second) }
                         ?.value
@@ -103,6 +111,16 @@ internal class MockRpcServer {
      */
     fun stubObject(method: String, result: Any) {
         stubs[method] = Stub(result = result)
+    }
+
+    /**
+     * Stub [method] with a sequence of results: each request consumes the next one and the
+     * last repeats — for reads whose answer changes across a flow, such as
+     * `getSignaturesForAddress` before vs after a send.
+     */
+    fun stubObjectSequence(method: String, vararg results: Any) {
+        require(results.isNotEmpty()) { "stubObjectSequence needs at least one result" }
+        sequenceStubs[method] = results.toMutableList()
     }
 
     /**

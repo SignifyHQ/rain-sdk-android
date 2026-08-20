@@ -19,13 +19,7 @@ internal class ErrorMapper {
      */
     fun mapSigningError(e: Exception): RainError {
         Timber.e(e, "Rain SDK: Signing error")
-
-        return when {
-            e is TurnkeyKotlinError -> mapTurnkeyError(e)
-            isUserRejection(e) -> RainError.UserRejected()
-            isInsufficientFunds(e) -> RainError.InsufficientFunds()
-            else -> mapTurnkeyHttpStatus(e) ?: RainError.ProviderError(e)
-        }
+        return classify(e)
     }
 
     /**
@@ -36,12 +30,22 @@ internal class ErrorMapper {
      */
     fun mapTransactionError(e: Exception): RainError {
         Timber.e(e, "Rain SDK: Transaction execution error")
+        return classify(e)
+    }
 
+    /**
+     * Typed signals win over keyword heuristics: an HTTP 401 whose body happens to say
+     * "session expired, request cancelled" is a session problem, not a user rejection, and
+     * hosts branch on TokenExpired/Unauthorized to decide whether to re-authenticate. The
+     * keyword checks are best-effort English vendor prose and run last.
+     */
+    private fun classify(e: Exception): RainError {
+        if (e is TurnkeyKotlinError) return mapTurnkeyError(e)
+        mapTurnkeyHttpStatus(e)?.let { return it }
         return when {
-            e is TurnkeyKotlinError -> mapTurnkeyError(e)
             isUserRejection(e) -> RainError.UserRejected()
             isInsufficientFunds(e) -> RainError.InsufficientFunds()
-            else -> mapTurnkeyHttpStatus(e) ?: RainError.ProviderError(e)
+            else -> RainError.ProviderError(e)
         }
     }
 
@@ -86,10 +90,12 @@ internal class ErrorMapper {
             else -> Unit // fall through to cause inspection
         }
 
-        // Recurse into wrapped causes (e.g. FailedToSignRawPayload(underlying))
+        // Recurse into wrapped causes (e.g. FailedToSignRawPayload(underlying)). The status
+        // check precedes the rejection keywords here too, for the same reason as classify().
         val cause = e.cause
         if (cause != null && cause !== e) {
             if (cause is TurnkeyKotlinError) return mapTurnkeyError(cause)
+            mapTurnkeyHttpStatus(cause)?.let { return it }
             if (isUserRejection(cause)) return RainError.UserRejected()
         }
 

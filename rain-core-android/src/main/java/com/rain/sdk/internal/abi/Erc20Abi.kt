@@ -2,6 +2,7 @@ package com.rain.sdk.internal.abi
 
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.utils.RainAmountUtils
+import com.rain.sdk.internal.utils.RainHexUtils
 import org.web3j.abi.FunctionEncoder
 import org.web3j.abi.TypeReference
 import org.web3j.abi.datatypes.Address
@@ -20,8 +21,17 @@ import java.math.BigInteger
  */
 object Erc20Abi {
 
-    /** Encodes `transfer(address,uint256)` calldata for [tokenAmount] base units. */
+    /**
+     * Encodes `transfer(address,uint256)` calldata for [tokenAmount] base units.
+     *
+     * @throws RainError.InvalidRecipient if [toAddress] is not a well-formed EVM address —
+     *         web3j's [Address] would otherwise left-zero-pad a short one into a wrong-but-legal
+     *         recipient inside opaque calldata.
+     */
     fun encodeTransfer(toAddress: String, tokenAmount: BigInteger): String {
+        if (!RainHexUtils.isValidAddress(toAddress)) {
+            throw RainError.InvalidRecipient(toAddress, "not a valid EVM address")
+        }
         val function = Web3jFunction(
             "transfer",
             listOf(Address(toAddress), Uint256(tokenAmount)),
