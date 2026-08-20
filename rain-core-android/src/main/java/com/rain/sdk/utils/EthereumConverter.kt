@@ -1,6 +1,7 @@
 package com.rain.sdk.utils
 
 import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.internal.utils.RainAmountUtils
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.math.RoundingMode
@@ -62,9 +63,18 @@ object EthereumConverter {
     fun convertWeiToEthDecimal(wei: BigInteger): BigDecimal =
         wei.toBigDecimal().movePointLeft(18)
 
-    /** Converts an ETH BigDecimal value to a Wei hex string (exact base-10 scaling). */
+    /**
+     * Converts an ETH BigDecimal value to a Wei hex string (exact base-10 scaling).
+     *
+     * This value ships straight into `eth_estimateGas` and the provider send body, so it takes
+     * the same guards as every other money path: a negative amount would produce malformed hex
+     * ("0x-..."), and sub-wei precision would be truncated silently.
+     *
+     * @throws RainError.InvalidAmount if [ethBalance] is negative or carries more than 18
+     *         decimal places
+     */
     fun convertEthToWeiHex(ethBalance: BigDecimal): String {
-        val wei = ethBalance.multiply(BigDecimal.TEN.pow(18)).toBigInteger()
+        val wei = RainAmountUtils.toBaseUnits(ethBalance, 18)
         return "0x${wei.toString(16)}"
     }
 

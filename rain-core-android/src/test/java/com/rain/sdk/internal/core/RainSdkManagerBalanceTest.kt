@@ -8,6 +8,7 @@ import com.rain.sdk.internal.helpers.TestManagers
 import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
+import com.rain.sdk.models.TokenInfo
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertThrows
@@ -122,5 +123,37 @@ class RainSdkManagerBalanceTest {
         assertThrows(RainError.WalletUnavailable::class.java) {
             runBlocking { manager.getBalance(chainId = 1, token = Token.Native) }
         }
+    }
+
+    // ---- registerTokens validation --------------------------------------------------
+
+    @Test
+    fun `registerTokens rejects a malformed EVM token address`() {
+        // A malformed entry in the store rides into every balance batch on its chain, so it
+        // must be refused at registration.
+        val (manager, _) = TestManagers.stubProviderManager()
+
+        assertThrows(RainError.InvalidConfig::class.java) {
+            manager.registerTokens(
+                listOf(TokenInfo(chainId = 1, address = "0x7f5c764c", symbol = "BAD", decimals = 6))
+            )
+        }
+    }
+
+    @Test
+    fun `registerTokens accepts valid EVM and base58 solana addresses`() {
+        val (manager, _) = TestManagers.stubProviderManager()
+
+        manager.registerTokens(
+            listOf(
+                TokenInfo(chainId = 1, address = TestFixtures.USDC_ADDRESS, symbol = "USDC", decimals = 6),
+                TokenInfo(
+                    chainId = com.rain.sdk.RainChain.SOLANA_DEVNET,
+                    address = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+                    symbol = "USDC",
+                    decimals = 6
+                )
+            )
+        )
     }
 }

@@ -147,6 +147,36 @@ class ErrorMapperTest {
     }
 
     @Test
+    fun `a 401 whose body contains rejection keywords still maps to TokenExpired`() {
+        // The status is the reliable signal; "session expired, request cancelled" is a session
+        // problem, and hosts branch on TokenExpired to re-authenticate.
+        val e = RuntimeException(
+            "HTTP error calling ACTIVITY_TYPE_ETH_SEND_TRANSACTION request\n" +
+                "Error: session expired, request cancelled\nCode: 401"
+        )
+        assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.TokenExpired::class.java)
+        assertThat(mapper.mapSigningError(e)).isInstanceOf(RainError.TokenExpired::class.java)
+    }
+
+    @Test
+    fun `a 403 whose body says permission denied still maps to Unauthorized`() {
+        val e = RuntimeException(
+            "HTTP error calling ACTIVITY_TYPE_ETH_SEND_TRANSACTION request\n" +
+                "Error: permission denied\nCode: 403"
+        )
+        assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.Unauthorized::class.java)
+    }
+
+    @Test
+    fun `an unclassified HTTP status still falls through to the keyword checks`() {
+        val e = RuntimeException(
+            "HTTP error calling ACTIVITY_TYPE_ETH_SEND_TRANSACTION request\n" +
+                "Error: user rejected the signing request\nCode: 400"
+        )
+        assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.UserRejected::class.java)
+    }
+
+    @Test
     fun `other HTTP statuses stay ProviderError`() {
         val e = RuntimeException("HTTP error from /public/v1/query/get_activity: 500")
         assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.ProviderError::class.java)

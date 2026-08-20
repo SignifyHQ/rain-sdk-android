@@ -99,6 +99,64 @@ class Multicall3Test {
         }
     }
 
+    // ---------- decoding: hostile slot values ----------
+    //
+    // The RPC endpoint is host-configured, so a hostile or MITM'd node can return arbitrary
+    // ABI. Every count/offset/length slot must surface as RainError.InternalError, never as
+    // a runtime exception (negative Int folds previously escaped the bounds checks).
+
+    @Test
+    fun `decodeAggregate3Result rejects an array length that does not fit in Int`() {
+        // All 0xff: folding into Int yields -1, which slipped past the offsets-table check
+        // and crashed ArrayList(count) with IllegalArgumentException.
+        val hex = "0x" +
+            "0000000000000000000000000000000000000000000000000000000000000020" +
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        assertThrows(RainError.InternalError::class.java) {
+            Multicall3.decodeAggregate3Result(hex)
+        }
+    }
+
+    @Test
+    fun `decodeAggregate3Result rejects a tuple offset that does not fit in Int`() {
+        // 0xffffffff fits in 4 bytes but not in a signed Int: the old fold produced -1 and
+        // indexed out of bounds.
+        val hex = "0x" +
+            "0000000000000000000000000000000000000000000000000000000000000020" +
+            "0000000000000000000000000000000000000000000000000000000000000001" +
+            "00000000000000000000000000000000000000000000000000000000ffffffff"
+        assertThrows(RainError.InternalError::class.java) {
+            Multicall3.decodeAggregate3Result(hex)
+        }
+    }
+
+    @Test
+    fun `decodeAggregate3Result rejects a huge in-range tuple offset as truncation`() {
+        // Int.MAX_VALUE parses fine; adding the array-body base must not wrap negative and
+        // dodge the truncation check.
+        val hex = "0x" +
+            "0000000000000000000000000000000000000000000000000000000000000020" +
+            "0000000000000000000000000000000000000000000000000000000000000001" +
+            "000000000000000000000000000000000000000000000000000000007fffffff"
+        assertThrows(RainError.InternalError::class.java) {
+            Multicall3.decodeAggregate3Result(hex)
+        }
+    }
+
+    @Test
+    fun `decodeAggregate3Result rejects a returnData length that does not fit in Int`() {
+        val hex = "0x" +
+            "0000000000000000000000000000000000000000000000000000000000000020" + // outer offset
+            "0000000000000000000000000000000000000000000000000000000000000001" + // length = 1
+            "0000000000000000000000000000000000000000000000000000000000000020" + // tuple offset = 32
+            "0000000000000000000000000000000000000000000000000000000000000001" + // success
+            "0000000000000000000000000000000000000000000000000000000000000040" + // returnData offset
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"   // hostile length
+        assertThrows(RainError.InternalError::class.java) {
+            Multicall3.decodeAggregate3Result(hex)
+        }
+    }
+
     // ---------- deployment table ----------
 
     @Test

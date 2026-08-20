@@ -2,7 +2,9 @@ package com.rain.sdk.utils
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
+import org.junit.Assert.assertThrows
 import org.junit.Test
+import java.math.BigDecimal
 import java.math.BigInteger
 
 /**
@@ -22,6 +24,32 @@ class EthereumConverterTest {
             .isEqualToIgnoringScale(java.math.BigDecimal("1.000000000000000001"))
         assertThat(EthereumConverter.convertWeiHexToDecimal("0x"))
             .isEqualToIgnoringScale(java.math.BigDecimal.ZERO)
+    }
+
+    @Test
+    fun `convertEthToWeiHex scales exactly and hex-encodes`() {
+        assertThat(EthereumConverter.convertEthToWeiHex(BigDecimal.ONE))
+            .isEqualTo("0xde0b6b3a7640000")
+        // 1 wei, the finest amount the chain can represent.
+        assertThat(EthereumConverter.convertEthToWeiHex(BigDecimal("0.000000000000000001")))
+            .isEqualTo("0x1")
+        assertThat(EthereumConverter.convertEthToWeiHex(BigDecimal.ZERO)).isEqualTo("0x0")
+    }
+
+    @Test
+    fun `convertEthToWeiHex rejects a negative amount instead of emitting malformed hex`() {
+        // "-1" would otherwise render as "0x-de0b6b3a7640000" and ship into eth_estimateGas.
+        val ex = assertThrows(RainError.InvalidAmount::class.java) {
+            EthereumConverter.convertEthToWeiHex(BigDecimal("-1"))
+        }
+        assertThat(ex.amount).isEqualTo("-1")
+    }
+
+    @Test
+    fun `convertEthToWeiHex rejects sub-wei precision instead of truncating`() {
+        assertThrows(RainError.InvalidAmount::class.java) {
+            EthereumConverter.convertEthToWeiHex(BigDecimal("0.0000000000000000015"))
+        }
     }
 
     @Test

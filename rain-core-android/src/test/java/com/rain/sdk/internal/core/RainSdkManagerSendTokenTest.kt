@@ -52,7 +52,8 @@ class RainSdkManagerSendTokenTest {
         assertThat(stub.sendNativeTokenCalls).hasSize(1)
         val call = stub.sendNativeTokenCalls.single()
         assertThat(call.chainId).isEqualTo(1)
-        assertThat(call.toAddress).isEqualTo(TestFixtures.RECIPIENT_ADDRESS)
+        // The recipient reaches the provider in checksummed form.
+        assertThat(call.toAddress).isEqualTo(TestFixtures.RECIPIENT_ADDRESS_CHECKSUMMED)
         assertThat(call.amount).isEqualTo(1.5)
     }
 
@@ -71,7 +72,7 @@ class RainSdkManagerSendTokenTest {
 
         assertThat(result.transactionHash).isEqualTo(expectedHash)
         val call = stub.sendNativeTokenCalls.single()
-        assertThat(call.toAddress).isEqualTo(TestFixtures.RECIPIENT_ADDRESS)
+        assertThat(call.toAddress).isEqualTo(TestFixtures.RECIPIENT_ADDRESS_CHECKSUMMED)
         assertThat(call.amount).isEqualTo(0.5)
     }
 
@@ -97,7 +98,7 @@ class RainSdkManagerSendTokenTest {
         val call = stub.sendTokenCalls.single()
         assertThat(call.chainId).isEqualTo(1)
         assertThat(call.contractAddress).isEqualTo(TestFixtures.TOKEN_ADDRESS)
-        assertThat(call.toAddress).isEqualTo(TestFixtures.RECIPIENT_ADDRESS)
+        assertThat(call.toAddress).isEqualTo(TestFixtures.RECIPIENT_ADDRESS_CHECKSUMMED)
         assertThat(call.amount).isEqualTo(100.0)
         assertThat(call.decimals).isEqualTo(6)
     }
@@ -182,6 +183,56 @@ class RainSdkManagerSendTokenTest {
         )
 
         assertThat(stub.sendTokenCalls.single().decimals).isEqualTo(6)
+    }
+
+    // ---- recipient validation ------------------------------------------------------
+
+    @Test
+    fun `sendNative rejects a truncated recipient before contacting the provider`() {
+        // web3j's ABI types would left-zero-pad a short address into a wrong-but-legal
+        // recipient, so a malformed one must never reach a provider.
+        val (manager, stub) = TestManagers.stubProviderManager()
+
+        val ex = assertThrows(RainError.InvalidRecipient::class.java) {
+            runBlocking {
+                manager.sendNative(chainId = 1, to = "0x7f5c764c", amount = BigDecimal("1.0"))
+            }
+        }
+
+        assertThat(ex.address).isEqualTo("0x7f5c764c")
+        assertThat(stub.sendNativeTokenCalls).isEmpty()
+    }
+
+    @Test
+    fun `sendToken rejects a truncated recipient before contacting the provider`() {
+        val (manager, stub) = TestManagers.stubProviderManager()
+
+        assertThrows(RainError.InvalidRecipient::class.java) {
+            runBlocking {
+                manager.sendToken(
+                    chainId = 1,
+                    contractAddress = TestFixtures.TOKEN_ADDRESS,
+                    to = "0x7f5c764c",
+                    amount = BigDecimal("1.0"),
+                    decimals = 6
+                )
+            }
+        }
+        assertThat(stub.sendTokenCalls).isEmpty()
+    }
+
+    @Test
+    fun `sendNative passes a solana recipient through without EVM validation`(): Unit = runBlocking {
+        val (manager, stub) = TestManagers.stubProviderManager()
+        val solanaRecipient = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+
+        manager.sendNative(
+            chainId = com.rain.sdk.RainChain.SOLANA_DEVNET,
+            to = solanaRecipient,
+            amount = BigDecimal("0.5")
+        )
+
+        assertThat(stub.sendNativeTokenCalls.single().toAddress).isEqualTo(solanaRecipient)
     }
 
     // ---- error wrapping ----------------------------------------------------------
