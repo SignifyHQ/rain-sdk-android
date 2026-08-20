@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,16 +37,23 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.sample.WalletChain
 
 @Composable
 fun SendTokensScreen(
     innerPadding: PaddingValues,
     rainClient: RainClient,
+    selectedChain: WalletChain,
     onBack: () -> Unit,
     viewModel: SendTokensViewModel = viewModel(factory = SendTokensViewModelFactory(rainClient))
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
+    val isTokenSend = state.isTokenMode
+
+    // Address defaults differ per chain (contract vs mint), so re-seed the form on a switch;
+    // the ViewModel no-ops when the chain is unchanged.
+    LaunchedEffect(selectedChain) { viewModel.onChainChanged(selectedChain) }
 
     Column(
         modifier = Modifier
@@ -74,20 +82,20 @@ fun SendTokensScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Mode Toggle
+        // Mode toggle — every chain supports both a native and a token transfer.
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
         ) {
             FilterChip(
-                selected = !state.isErc20Mode,
+                selected = !state.isTokenMode,
                 onClick = { viewModel.onSendModeChanged(false) },
-                label = { Text("Native (AVAX)") }
+                label = { Text("Native (${selectedChain.nativeSymbol})") }
             )
             FilterChip(
-                selected = state.isErc20Mode,
+                selected = state.isTokenMode,
                 onClick = { viewModel.onSendModeChanged(true) },
-                label = { Text("ERC-20 Token") }
+                label = { Text("${selectedChain.tokenStandard} Token") }
             )
         }
 
@@ -105,27 +113,30 @@ fun SendTokensScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = if (state.isErc20Mode) "Send ERC-20 Token" else "Send Native AVAX",
+                    text = if (isTokenSend) "Send ${selectedChain.tokenStandard} Token"
+                    else "Send Native ${selectedChain.nativeSymbol}",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
 
-                // ERC-20 specific fields
-                if (state.isErc20Mode) {
+                // Token-transfer specific fields
+                if (isTokenSend) {
                     OutlinedTextField(
                         value = state.contractAddress,
                         onValueChange = { viewModel.onContractAddressChanged(it) },
-                        label = { Text("Token Contract Address") },
+                        label = { Text(selectedChain.tokenAddressLabel) },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-
-                    OutlinedTextField(
-                        value = state.decimals,
-                        onValueChange = { viewModel.onDecimalsChanged(it) },
-                        label = { Text("Token Decimals") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        singleLine = true,
+                        supportingText = {
+                            Text(
+                                if (selectedChain.isSolana) {
+                                    "Decimals come from the mint. If the recipient has no account " +
+                                        "for this token, one is created and you pay ~0.002 SOL rent."
+                                } else {
+                                    "Decimals are resolved automatically by the SDK"
+                                }
+                            )
+                        }
                     )
                 }
 
@@ -141,7 +152,12 @@ fun SendTokensScreen(
                 OutlinedTextField(
                     value = state.amount,
                     onValueChange = { viewModel.onAmountChanged(it) },
-                    label = { Text(if (state.isErc20Mode) "Amount (Token Units)" else "Amount (AVAX)") },
+                    label = {
+                        Text(
+                            if (isTokenSend) "Amount (Token Units)"
+                            else "Amount (${selectedChain.nativeSymbol})"
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
@@ -171,16 +187,16 @@ fun SendTokensScreen(
         // Send Button
         Button(
             onClick = {
-                if (state.isErc20Mode) viewModel.sendErc20Token()
-                else viewModel.sendNativeToken()
+                if (isTokenSend) viewModel.sendTokenTransfer(selectedChain)
+                else viewModel.sendNative(selectedChain)
             },
             enabled = !state.isSending,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(
                 if (state.isSending) "Sending..."
-                else if (state.isErc20Mode) "🔗 Send ERC-20"
-                else "💎 Send AVAX"
+                else if (isTokenSend) "🔗 Send ${selectedChain.tokenStandard}"
+                else "💎 Send ${selectedChain.nativeSymbol}"
             )
         }
 
@@ -215,7 +231,7 @@ fun SendTokensScreen(
                         color = MaterialTheme.colorScheme.primary,
                         textDecoration = TextDecoration.Underline,
                         modifier = Modifier.clickable {
-                            val url = "https://testnet.snowtrace.io/tx/$txHash"
+                            val url = selectedChain.explorerTxUrl(txHash)
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                         }
                     )

@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.rain.sdk.sample"
-        minSdk = 26
+        minSdk = 28
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
@@ -45,8 +45,13 @@ android {
 }
 
 dependencies {
-    implementation(project(":rain-sdk"))
-    
+    implementation(project(":rain-core-android"))
+    implementation(project(":rain-portal-android"))
+    implementation(project(":rain-privy-android"))
+
+    implementation(libs.portal.android)
+    implementation(libs.timber)
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -59,6 +64,4 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.navigation.compose)
 
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.google.code.gson:gson:2.10.1")
 }

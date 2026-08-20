@@ -4,9 +4,10 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
-import com.rain.sdk.sample.NetworkClient
-import io.portalhq.android.storage.mobile.PortalNamespace
+import com.rain.sdk.sample.SampleLog
+import com.rain.sdk.sample.WalletChain
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,52 +15,70 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class WalletInfoViewModel(
+    private val rainSdk: RainSdk,
     private val rainClient: RainClient
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(WalletInfoUiState())
     val state: StateFlow<WalletInfoUiState> = _state.asStateFlow()
 
-    fun fetchWalletInfo(accessToken: String) {
-        _state.update { it.copy(isLoading = true, errorText = null) }
+    fun fetchWalletInfo(chain: WalletChain = WalletChain.EVM) {
+        SampleLog.i("WalletInfo", "fetching wallet info chain=${chain.displayName}")
+        _state.update {
+            it.copy(
+                isLoading = true,
+                errorText = null,
+                // Clear stale data when switching chains so the previous wallet doesn't linger.
+                portalAddress = "",
+                portalQrBitmap = null,
+                collateralAddress = "",
+                collateralQrBitmap = null
+            )
+        }
 
         viewModelScope.launch {
             try {
-                // 1. Fetch Portal Address (user's wallet)
-                val portalAddress = rainClient.portal.getAddress(PortalNamespace.EIP155)
-                    ?: throw Exception("Portal address not found")
-                val portalQr = rainClient.generateAddressQRCode(portalAddress)
+                val walletAddress = rainClient.getWalletAddress(chain.chainId)
+                SampleLog.d("WalletInfo", "wallet address=$walletAddress")
+                val walletQr = rainClient.generateAddressQRCode(walletAddress)
 
                 _state.update {
                     it.copy(
-                        portalAddress = portalAddress,
-                        portalQrBitmap = portalQr
+                        portalAddress = walletAddress,
+                        portalQrBitmap = walletQr
                     )
                 }
 
-                // 2. Fetch Collateral Contract (deposit address)
-                val contractResponse = NetworkClient.fetchCollateralContract(accessToken)
-                if (contractResponse.result.isFailure) {
+                // Rain provisions one collateral contract per chain family (e.g. Base Sepolia
+                // for EVM, chainId 901 for Solana devnet) — pick the one for the active chain.
+                val contract = rainSdk.fetchCollateralContracts()
+                    .firstOrNull { chain.ownsCollateralContract(it.chainId) }
+                if (contract == null) {
+                    SampleLog.w("WalletInfo", "no collateral contract for ${chain.displayName}")
                     _state.update {
                         it.copy(
                             isLoading = false,
-                            errorText = "Failed to fetch collateral: ${contractResponse.result.exceptionOrNull()?.message}"
+                            errorText = "No collateral contract on ${chain.displayName}"
                         )
                     }
                     return@launch
                 }
+                // Deposits go to the dedicated deposit address when Rain provides one (distinct
+                // from the collateral account on Solana); EVM contracts deposit at the proxy.
+                val depositTarget = contract.depositAddress ?: contract.proxyAddress
+                SampleLog.d("WalletInfo", "collateral address=$depositTarget (chainId=${contract.chainId})")
+                val collateralQr = rainClient.generateAddressQRCode(depositTarget)
 
-                val contract = contractResponse.result.getOrThrow()
-                val collateralQr = rainClient.generateAddressQRCode(contract.address)
-
+                SampleLog.i("WalletInfo", "success")
                 _state.update {
                     it.copy(
-                        collateralAddress = contract.address,
+                        collateralAddress = depositTarget,
                         collateralQrBitmap = collateralQr,
                         isLoading = false
                     )
                 }
             } catch (e: Exception) {
+                SampleLog.e("WalletInfo", "failed: ${e.message}", e)
                 _state.update {
                     it.copy(
                         isLoading = false,
@@ -88,12 +107,13 @@ data class WalletInfoUiState(
 }
 
 class WalletInfoViewModelFactory(
+    private val rainSdk: RainSdk,
     private val rainClient: RainClient
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(WalletInfoViewModel::class.java)) {
-            return WalletInfoViewModel(rainClient) as T
+            return WalletInfoViewModel(rainSdk, rainClient) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

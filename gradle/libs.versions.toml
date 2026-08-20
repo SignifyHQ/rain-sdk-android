@@ -1,6 +1,6 @@
 [versions]
 # -- Build Config --
-minSdk = "26"
+minSdk = "28"
 compileSdk = "36"
 targetSdk = "36"
 
@@ -16,10 +16,16 @@ maven-publish = "0.30.0"
 
 # -- Core SDK Dependencies --
 portal-android = "8.4.0"
+turnkey = "2.0.0"
+privy = "0.13.1"
+# Security: pin Turnkey transitive deps above CVE-affected versions.
+# bitcoinj < 0.17.1 = GHSA-hfcf-v2f8-x9pc (P2PKH/P2WPKH verify bypass).
+# protobuf-javalite < 3.25.5 = GHSA-735f-pc8j-v9w8 (DoS).
+bitcoinj = "0.17.1"
+protobuf-javalite = "3.25.5"
 web3j = "4.10.0"
-bouncycastle = "1.81.1"
 timber = "5.0.1"
-okhttp = "4.12.0"
+okhttp = "5.1.0"
 
 # -- Kotlin --
 coroutines = "1.10.2"
@@ -42,6 +48,11 @@ androidx-junit = "1.2.1"
 androidx-espresso = "3.6.1"
 mockk = "1.13.10"
 truth = "1.4.2"
+json = "20240303"
+# Test-only reference implementation for Solana transaction/address encoding. Never shipped —
+# see the `testImplementation` note in rain-core-android/build.gradle.kts.
+sol4k = "0.8.2"
+sol4k-tweetnacl = "0.1.6"
 
 [libraries]
 # -- Build Tools --
@@ -49,12 +60,20 @@ zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 
 # -- Rain SDK Core --
 portal-android = { module = "io.portalhq.android:portal-android", version.ref = "portal-android" }
+turnkey-sdk-kotlin = { module = "com.turnkey:sdk-kotlin", version.ref = "turnkey" }
+turnkey-http = { module = "com.turnkey:http", version.ref = "turnkey" }
+turnkey-types = { module = "com.turnkey:types", version.ref = "turnkey" }
+# Pulls Privy's KMP model artifacts (kmp-embedded-wallet-public / kmp-authentication-public) transitively.
+privy-core = { module = "io.privy:privy-core", version.ref = "privy" }
 web3j-core = { module = "org.web3j:core", version.ref = "web3j" }
-bouncycastle-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
+# Security pins (CVE patches) for Turnkey transitive deps.
+bitcoinj-core = { module = "org.bitcoinj:bitcoinj-core", version.ref = "bitcoinj" }
+protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobuf-javalite" }
 timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 okhttp-logging = { module = "com.squareup.okhttp3:logging-interceptor", version.ref = "okhttp" }
 okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver", version.ref = "okhttp" }
+json = { module = "org.json:json", version.ref = "json" }
 
 # -- Kotlin --
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -85,6 +104,10 @@ androidx-compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4
 androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
 truth = { module = "com.google.truth:truth", version.ref = "truth" }
+sol4k = { module = "org.sol4k:sol4k", version.ref = "sol4k" }
+# sol4k's ed25519 primitives — runtime-scoped in its POM, so declared explicitly for the
+# curve-membership assertions in SolanaAddressesTest.
+sol4k-tweetnacl = { module = "org.sol4k:tweetnacl", version.ref = "sol4k-tweetnacl" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "android-gradle-plugin" }

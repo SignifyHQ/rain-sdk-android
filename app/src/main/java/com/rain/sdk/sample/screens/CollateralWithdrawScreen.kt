@@ -37,23 +37,25 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.sample.WalletChain
 
 @Composable
 fun CollateralWithdrawScreen(
     innerPadding: PaddingValues,
-    accessToken: String,
+    rainSdk: RainSdk,
     rainClient: RainClient,
+    selectedChain: WalletChain,
     onBack: () -> Unit,
-    viewModel: CollateralWithdrawViewModel = viewModel(factory = CollateralWithdrawViewModelFactory(rainClient))
+    viewModel: CollateralWithdrawViewModel = viewModel(factory = CollateralWithdrawViewModelFactory(rainSdk, rainClient))
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
 
-    LaunchedEffect(Unit) {
-        if (state.availableTokens.isEmpty() && !state.isLoadingContract) {
-            viewModel.loadContractInfo(accessToken)
-        }
+    // Re-load whenever the active chain changes so the screen shows that chain's contract.
+    LaunchedEffect(selectedChain) {
+        viewModel.loadContractInfo(selectedChain)
     }
 
     Column(
@@ -160,7 +162,7 @@ fun CollateralWithdrawScreen(
                                         fontWeight = FontWeight.Medium
                                     )
                                     Text(
-                                        text = "Balance: ${"%.2f".format(token.balance)}",
+                                        text = "Balance: ${token.balanceDisplay}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -194,33 +196,71 @@ fun CollateralWithdrawScreen(
                 label = { Text("Amount to Withdraw") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                isError = state.isAmountOverBalance,
                 supportingText = {
-                    state.selectedToken?.let { token ->
-                        Text("Available: ${"%.2f".format(token.balance)} ${token.symbol}")
+                    val token = state.selectedToken
+                    if (token != null) {
+                        if (state.isAmountOverBalance) {
+                            Text(
+                                "Amount exceeds available balance " +
+                                    "(${token.balanceDisplay} ${token.symbol})",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        } else {
+                            Text("Available: ${token.balanceDisplay} ${token.symbol}")
+                        }
                     }
                 }
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Action Buttons
+            // Dry-run actions: both build the withdrawal exactly as "Withdraw" would — signing
+            // EIP-712 and reading the collateral's admin set — but broadcast nothing.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Estimate Gas
                 OutlinedButton(
-                    onClick = { viewModel.estimateGas(accessToken) },
-                    enabled = state.amount.isNotBlank() && !state.isEstimating && !state.isWithdrawing,
+                    onClick = { viewModel.estimateFee() },
+                    // EVM only: the SDK rejects a Solana chain id for fee estimation.
+                    enabled = state.isAmountValid && !state.isWithdrawing && !state.isSolanaContract,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(if (state.isEstimating) "Estimating..." else "⛽ Estimate Gas")
+                    Text("Estimate Fee")
                 }
 
-                // Execute Withdraw
+                OutlinedButton(
+                    onClick = { viewModel.prepareWithdrawal() },
+                    enabled = state.isAmountValid && !state.isWithdrawing,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Prepare Only")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Action Buttons. Gas estimation also happens in the background as part of the
+            // withdraw itself, so "Estimate Fee" above is optional.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Withdraw Maximum — withdraws the full available balance of the selected token.
+                OutlinedButton(
+                    onClick = { viewModel.withdrawMaximum() },
+                    enabled = !state.isWithdrawing &&
+                        (state.selectedToken?.balance?.signum() ?: 0) > 0,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Withdraw Maximum")
+                }
+
+                // Withdraw the typed amount — disabled unless the amount is valid and within balance.
                 Button(
-                    onClick = { viewModel.executeWithdraw(accessToken) },
-                    enabled = state.amount.isNotBlank() && !state.isWithdrawing && !state.isEstimating,
+                    onClick = { viewModel.executeWithdraw() },
+                    enabled = state.isAmountValid && !state.isWithdrawing,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error
@@ -232,29 +272,19 @@ fun CollateralWithdrawScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Estimated Gas Result
-            state.estimatedGas?.let { gas ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "⛽ Estimated Gas",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = gas,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.tertiary,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
+            // Dry-run results — neither of these broadcast anything.
+            state.estimatedFee?.let { fee ->
+                DryRunCard(title = "⛽ Estimated Fee", body = fee)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            state.preparedWithdrawal?.let { summary ->
+                DryRunCard(
+                    title = "📝 Prepared (not broadcast)",
+                    body = summary,
+                    footnote = "A Solana blockhash is valid ~60-90s — submit promptly or re-prepare."
+                )
+                Spacer(modifier = Modifier.height(8.dp))
             }
 
             // Withdrawal Result
@@ -286,12 +316,52 @@ fun CollateralWithdrawScreen(
                             color = MaterialTheme.colorScheme.primary,
                             textDecoration = TextDecoration.Underline,
                             modifier = Modifier.clickable {
-                                val url = "https://testnet.snowtrace.io/tx/$txHash"
+                                // Link to the explorer for the contract's actual chain (Base
+                                // Sepolia → Basescan), not a hardcoded one.
+                                val chain = WalletChain.entries
+                                    .firstOrNull { it.chainId == state.chainId.toInt() }
+                                    ?: WalletChain.BASE_SEPOLIA
+                                val url = chain.explorerTxUrl(txHash)
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                             }
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Result card for the two dry-run actions (estimate / prepare). Neither broadcasts. */
+@Composable
+private fun DryRunCard(title: String, body: String, footnote: String? = null) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.secondary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            footnote?.let {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
