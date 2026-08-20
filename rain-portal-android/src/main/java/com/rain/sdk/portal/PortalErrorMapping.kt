@@ -1,0 +1,64 @@
+package com.rain.sdk.portal
+
+import com.rain.sdk.internal.error.RainError
+import io.portalhq.android.exceptions.PortalException
+import io.portalhq.android.utils.errors.PortalErrorCodes
+
+/**
+ * Maps Portal vendor errors to specific [RainError] cases before generic wrapping. Mapping is
+ * split by call path:
+ * - [mapAuthOrNull] applies at every Portal call site:
+ *   - HTTP 401 / unauthorized ([PortalException.Api.HttpUnauthorized], the only path token-expired
+ *     errors reach the SDK through) maps to [RainError.TokenExpired].
+ *   - MPC result errors carrying id 320 or `INVALID_API_KEY` map to [RainError.TokenExpired].
+ * - [mapSimulationOrNull] applies only at send and fee-estimation call sites: auth mapping first,
+ *   then JSON-RPC error code 3 ("execution reverted", not declared by the Portal SDK) maps to
+ *   [RainError.TransactionSimulationFailed]. Read paths never map code 3 (a revert reported
+ *   during a read is not a failed simulation). Whether a simulation failure is a
+ *   [RainError.WithdrawalRevertedByNetwork] is decided in core, on the withdrawal flows only.
+ *
+ * Anything else returns `null`, so call sites keep their existing behavior (wrap in
+ * [RainError.ProviderError], or let the raw error flow to core's keyword-based `ErrorMapper`).
+ */
+internal object PortalErrorMapping {
+
+  /** Legacy MPC error id Portal's backend returns for an invalid API key. */
+  private const val MPC_INVALID_API_KEY_LEGACY_CODE = 320
+
+  /** JSON-RPC error code nodes return for "execution reverted". */
+  private const val RPC_EXECUTION_REVERTED_CODE = 3
+
+  /** Auth-only mapping (401 / invalid API key to TokenExpired). Applies at every call site. */
+  fun mapAuthOrNull(e: Throwable): RainError? = when (e) {
+    is PortalException.Api.HttpUnauthorized -> RainError.TokenExpired()
+    is PortalException.Mpc.MpcResultError -> mapMpcResultError(e)
+    else -> null
+  }
+
+  /**
+   * Auth mapping plus JSON-RPC code 3 to [RainError.TransactionSimulationFailed]. Applies only
+   * where a revert means a failed simulation: `sendTransaction` and `estimateTransactionFee`.
+   */
+  fun mapSimulationOrNull(e: Throwable): RainError? =
+    mapAuthOrNull(e) ?: (e as? PortalException.Api.RpcError)?.let { mapRpcError(it) }
+
+  private fun mapMpcResultError(e: PortalException.Mpc.MpcResultError): RainError? {
+    val code = e.id.toIntOrNull() ?: e.error.rawCode
+    return if (
+      code == MPC_INVALID_API_KEY_LEGACY_CODE ||
+      code == PortalErrorCodes.INVALID_API_KEY.code ||
+      e.id == PortalErrorCodes.INVALID_API_KEY.name
+    ) {
+      RainError.TokenExpired()
+    } else {
+      null
+    }
+  }
+
+  private fun mapRpcError(e: PortalException.Api.RpcError): RainError? =
+    if (e.code == RPC_EXECUTION_REVERTED_CODE) {
+      RainError.TransactionSimulationFailed(e)
+    } else {
+      null
+    }
+}

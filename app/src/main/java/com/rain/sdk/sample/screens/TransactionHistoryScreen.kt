@@ -27,6 +27,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,20 +46,22 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.models.RainTransaction
+import java.math.BigDecimal
+import com.rain.sdk.sample.WalletChain
 
 @Composable
 fun TransactionHistoryScreen(
     innerPadding: PaddingValues,
     rainClient: RainClient,
+    selectedChain: WalletChain,
     onBack: () -> Unit,
     viewModel: TransactionHistoryViewModel = viewModel(factory = TransactionHistoryViewModelFactory(rainClient))
 ) {
     val state by viewModel.state.collectAsState()
 
-    LaunchedEffect(Unit) {
-        if (state.transactions.isEmpty() && !state.isLoading) {
-            viewModel.fetchTransactions()
-        }
+    // Re-fetch whenever the active chain changes.
+    LaunchedEffect(selectedChain) {
+        viewModel.fetchTransactions(selectedChain)
     }
 
     Column(
@@ -90,11 +93,11 @@ fun TransactionHistoryScreen(
 
         // Refresh button
         Button(
-            onClick = { viewModel.fetchTransactions() },
+            onClick = { viewModel.fetchTransactions(selectedChain) },
             enabled = !state.isLoading,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (state.isLoading) "Loading..." else "🔄 Refresh")
+            Text(if (state.isLoading) "Loading..." else "🔄 Refresh (${selectedChain.nativeSymbol})")
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -117,27 +120,42 @@ fun TransactionHistoryScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // Empty state
+        // Empty state. The Turnkey-backed history is sourced from this wallet's Turnkey
+        // send-activities filtered to the selected chain — so it shows only transactions sent
+        // through this wallet on this network (no receives, nothing sent outside Turnkey).
+        // An empty list here is expected for a fresh wallet, not a failure.
         if (!state.isLoading && state.transactions.isEmpty() && state.errorText == null) {
-            Text(
-                text = "No transactions found.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
-            )
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "No transactions found on ${selectedChain.displayName}.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "History lists transactions sent from this wallet on the selected " +
+                        "network. Sends on other chains, or transfers received from someone " +
+                        "else, won't appear here.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+            }
         }
 
         // Transaction list
         state.transactions.forEach { tx ->
-            TransactionCard(tx, state.walletAddress)
+            TransactionCard(tx, state.walletAddress, selectedChain)
             Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
 
 @Composable
-private fun TransactionCard(tx: RainTransaction, walletAddress: String?) {
+private fun TransactionCard(tx: RainTransaction, walletAddress: String?, selectedChain: WalletChain) {
     val context = LocalContext.current
 
     val isSend = walletAddress?.let { tx.from.equals(it, ignoreCase = true) } ?: false
@@ -194,17 +212,24 @@ private fun TransactionCard(tx: RainTransaction, walletAddress: String?) {
                     }
                 }
             }
+            // Solana history rows carry the Turnkey status id, not an explorer-resolvable
+            // signature, so the hash is shown plainly (no link) on Solana.
+            val explorerLinkable = !selectedChain.isSolana
             Text(
                 text = truncateHash(tx.hash),
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.primary,
-                textDecoration = TextDecoration.Underline,
+                color = if (explorerLinkable) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface,
+                textDecoration = if (explorerLinkable) TextDecoration.Underline else null,
                 maxLines = 1,
-                modifier = Modifier.clickable {
-                    val url = "https://testnet.snowtrace.io/tx/${tx.hash}"
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                }
+                modifier = if (explorerLinkable) {
+                    Modifier.clickable {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(selectedChain.explorerTxUrl(tx.hash)))
+                        )
+                    }
+                } else Modifier
             )
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -240,45 +265,73 @@ private fun TransactionCard(tx: RainTransaction, walletAddress: String?) {
                 }
             }
 
-            // Value
-            tx.value?.let { value ->
-                if (value != "0") {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        val symbolText = tx.symbol?.let { " $it" } ?: ""
+            // Value — formatted like the Balances screen (clean decimal, no trailing zeros /
+            // scientific notation) with the native symbol falling back to the active chain's.
+            val formattedValue = tx.value?.let { formatAmount(it) }
+            if (formattedValue != null && formattedValue != "0") {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Only a transfer with no token address is denominated in the native symbol.
+                    // A token transfer whose symbol is unknown (SPL names live in off-chain
+                    // metadata) shows the bare amount, identified by the mint shown beside it —
+                    // labelling it "SOL" would name the wrong asset entirely.
+                    val unit = tx.asset ?: selectedChain.nativeSymbol.takeIf { tx.tokenAddress == null }
+                    Text(
+                        text = listOfNotNull("Value: $formattedValue", unit).joinToString(" "),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    tx.tokenAddress?.let { tokenAddr ->
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "Value: $value$symbolText",
+                            text = "(${truncateAddress(tokenAddr)})",
                             style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        
-                        tx.tokenAddress?.let { tokenAddr ->
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "(${truncateAddress(tokenAddr)})",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "⧉",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier
-                                    .clickable {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val clip = ClipData.newPlainText("Contract Address", tokenAddr)
-                                        clipboard.setPrimaryClip(clip)
-                                        Toast.makeText(context, "Copied Contract Address", Toast.LENGTH_SHORT).show()
-                                    }
-                            )
-                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "⧉",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .clickable {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clip = ClipData.newPlainText("Contract Address", tokenAddr)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Copied Contract Address", Toast.LENGTH_SHORT).show()
+                                }
+                        )
                     }
+                }
+            }
+
+            // Explorer link only where the hash is a real on-chain signature — hidden on Solana,
+            // whose history row carries the Turnkey status id rather than a tx signature.
+            if (explorerLinkable) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(selectedChain.explorerTxUrl(tx.hash)))
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("🔎 View on ${selectedChain.explorerName}")
                 }
             }
         }
     }
+}
+
+/**
+ * Formats a transaction's value the same way the Balances screen formats balances: a clean
+ * decimal with trailing zeros stripped and no scientific notation.
+ */
+private fun formatAmount(value: BigDecimal): String {
+    return if (value.signum() == 0) "0" else value.stripTrailingZeros().toPlainString()
 }
 
 private fun truncateHash(hash: String): String {

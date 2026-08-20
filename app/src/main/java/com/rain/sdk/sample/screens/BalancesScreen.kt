@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
@@ -33,8 +32,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -44,27 +41,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.sample.WalletChain
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BalancesScreen(
     innerPadding: PaddingValues,
-    accessToken: String,
+    rainSdk: RainSdk,
     rainClient: RainClient,
+    selectedChain: WalletChain,
     onBack: () -> Unit,
-    viewModel: BalancesViewModel = viewModel(factory = BalancesViewModelFactory(rainClient))
+    viewModel: BalancesViewModel = viewModel(factory = BalancesViewModelFactory(rainSdk, rainClient))
 ) {
     val state by viewModel.state.collectAsState()
 
-    LaunchedEffect(accessToken) {
-        viewModel.setAccessToken(accessToken)
-        viewModel.loadWalletAddresses()
+    LaunchedEffect(selectedChain) {
+        viewModel.loadWalletAddresses(selectedChain)
     }
 
     Column(
@@ -179,7 +177,7 @@ fun BalancesScreen(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 OutlinedButton(
-                    onClick = { viewModel.fetchCollateralBalances() },
+                    onClick = { viewModel.fetchCollateralBalances(selectedChain) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
@@ -193,7 +191,7 @@ fun BalancesScreen(
                         Text("Fetch", fontWeight = FontWeight.Bold)
                     }
                 }
-                
+            
                 // Collateral error and results
                 if (state.collateralError != null) {
                     Text(
@@ -275,59 +273,7 @@ fun BalancesScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                Text(
-                    text = "ERC-20 CONTRACT ADDRESS",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Gray
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                TextField(
-                    value = state.tokenContractAddress,
-                    onValueChange = { viewModel.onTokenContractAddressChanged(it) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp)),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color(0xFFF5F3FF),
-                        unfocusedContainerColor = Color(0xFFF5F3FF),
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        focusedTextColor = Color(0xFF6B4EFF),
-                        unfocusedTextColor = Color(0xFF6B4EFF)
-                    ),
-                    singleLine = true
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = "DECIMALS",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Gray
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                TextField(
-                    value = state.tokenDecimals,
-                    onValueChange = { viewModel.onTokenDecimalsChanged(it) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp)),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color(0xFFF5F3FF),
-                        unfocusedContainerColor = Color(0xFFF5F3FF),
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        focusedTextColor = Color(0xFF6B4EFF),
-                        unfocusedTextColor = Color(0xFF6B4EFF)
-                    ),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
+                // Token discovery works on every chain: ERC-20s on EVM, SPL tokens on Solana.
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -336,7 +282,7 @@ fun BalancesScreen(
                 ) {
                     Column {
                         Text(
-                            text = "Will fetch both",
+                            text = "Will fetch",
                             color = Color(0xFF1D8EE6),
                             fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold
@@ -350,7 +296,7 @@ fun BalancesScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "AVAX — native token",
+                                text = "${selectedChain.nativeSymbol} — native token",
                                 fontSize = 14.sp,
                                 color = Color(0xFF1D8EE6),
                                 fontWeight = FontWeight.Medium
@@ -365,7 +311,7 @@ fun BalancesScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "ERC-20 — discovered from Portal assets",
+                                text = "Every ${selectedChain.tokenStandard} token with a balance > 0 (auto-discovered)",
                                 fontSize = 14.sp,
                                 color = Color(0xFF1D8EE6),
                                 fontWeight = FontWeight.Medium
@@ -377,7 +323,7 @@ fun BalancesScreen(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 OutlinedButton(
-                    onClick = { viewModel.fetchBalances() },
+                    onClick = { viewModel.fetchBalances(selectedChain) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
@@ -402,34 +348,23 @@ fun BalancesScreen(
                     )
                 }
                 
-                if (state.nativeBalance != null || state.erc20Balance != null) {
+                if (state.nativeBalance != null || state.walletTokenBalances.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(text = "Results:", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
         
                     state.nativeBalance?.let { balance ->
                         BalanceCard(
                             emoji = "⛰️",
-                            label = "Native (AVAX)",
+                            label = "Native (${selectedChain.nativeSymbol})",
                             value = balance
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
-        
-                    state.erc20Balance?.let { balance ->
-                        BalanceCard(
-                            emoji = "🪙",
-                            label = "Selected ERC-20",
-                            value = balance,
-                            subtitle = state.tokenContractAddress.let {
-                                if (it.length > 12) "${it.take(6)}...${it.takeLast(4)}" else it
-                            }
-                        )
-                    }
 
                     if (state.walletTokenBalances.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Discovered ERC-20 balances:",
+                            text = "Tokens with a balance:",
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 14.sp,
                             color = Color.DarkGray,
@@ -439,12 +374,21 @@ fun BalancesScreen(
                         state.walletTokenBalances.forEach { token ->
                             BalanceCard(
                                 emoji = "🪙",
-                                label = "ERC-20",
-                                value = token.balance.toString(),
-                                subtitle = token.displayAddress
+                                label = token.displayName,
+                                // The unit is always stated: an SPL mint has no on-chain symbol,
+                                // so an unregistered token is named by its mint rather than
+                                // showing a bare number.
+                                value = "${token.formattedBalance} ${token.displayUnit}",
+                                subtitle = "${selectedChain.tokenAddressLabel}: ${token.address}"
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                         }
+                    } else {
+                        Text(
+                            text = "No ${selectedChain.tokenStandard} tokens with a balance > 0.",
+                            fontSize = 14.sp,
+                            color = Color.Gray
+                        )
                     }
                 }
             }
