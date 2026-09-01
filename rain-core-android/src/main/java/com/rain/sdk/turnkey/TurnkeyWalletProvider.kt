@@ -77,7 +77,8 @@ internal class TurnkeyWalletProvider(
     solanaSupport: SolanaSupport? = null,
     tokenStore: TokenMetadataStore? = null,
     history: TurnkeyHistoryProtocol? = null,
-    sessionCoordinator: TurnkeySessionCoordinator? = null
+    sessionCoordinator: TurnkeySessionCoordinator? = null,
+    private val sponsorGas: Boolean = false
 ) : WalletProvider {
 
     override val id: ProviderId get() = ProviderId.TURNKEY
@@ -251,6 +252,7 @@ internal class TurnkeyWalletProvider(
         toAddress: String,
         amountInEth: BigDecimal
     ): String {
+        TurnkeyBroadcastChains.requireSendSupport(chainId)
         if (SolanaChains.isSolanaChain(chainId)) {
             return sendSolanaNative(chainId, toAddress, amountInEth)
         }
@@ -273,6 +275,7 @@ internal class TurnkeyWalletProvider(
         amount: BigDecimal,
         decimals: Int
     ): String {
+        TurnkeyBroadcastChains.requireSendSupport(chainId)
         if (SolanaChains.isSolanaChain(chainId)) {
             // `decimals` is deliberately unread — it is not authoritative here. sendSolanaSplToken
             // reads the mint's own scale from the chain, which `TransferChecked` then enforces.
@@ -1125,7 +1128,7 @@ internal class TurnkeyWalletProvider(
             maxFeePerGas = gasPrice,
             maxPriorityFeePerGas = gasPrice,
             nonce = nonce,
-            sponsor = false,
+            sponsor = sponsorGas,
             to = to,
             value = decimalStringFromHex(value)
         )
@@ -1228,7 +1231,10 @@ internal class TurnkeyWalletProvider(
     override suspend fun sendSolanaTransaction(
         chainId: Int,
         unsigned: UnsignedSolanaTransfer
-    ): String = submitSolanaTransaction(chainId, getWalletAddress(chainId), unsigned)
+    ): String {
+        TurnkeyBroadcastChains.requireSendSupport(chainId)
+        return submitSolanaTransaction(chainId, getWalletAddress(chainId), unsigned)
+    }
 
     /**
      * Signs and broadcasts a composed transfer through Turnkey, then resolves the signature:
@@ -1254,7 +1260,7 @@ internal class TurnkeyWalletProvider(
                     organizationId = session.organizationId,
                     unsignedTransaction = unsigned.transactionHex,
                     signWith = from,
-                    sponsor = false,
+                    sponsor = sponsorGas,
                     caip2 = SolanaChains.caip2(chainId),
                     recentBlockhash = unsigned.recentBlockhash
                 )

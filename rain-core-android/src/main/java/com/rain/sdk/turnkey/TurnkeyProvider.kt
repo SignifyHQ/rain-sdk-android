@@ -30,12 +30,17 @@ import kotlinx.coroutines.withContext
  *                         coroutine's thread or a watcher thread; hop to the main thread before
  *                         touching UI, and never call back into the SDK synchronously from it.
  *                         Restart authentication from here.
+ * @param sponsorGas When true, sends ask Turnkey's managed broadcast to sponsor the network fee
+ *                   (gasless for the end user). Requires gas sponsorship to be enabled on the
+ *                   Rain parent organization in Turnkey — with it off org-side, sponsored sends
+ *                   are rejected by Turnkey, so this defaults to false until the tenant confirms.
  */
 class TurnkeyConfig(
     val turnkey: TurnkeyContext,
     val walletAddress: String? = null,
     val sessionPolicy: TurnkeySessionPolicy = TurnkeySessionPolicy(),
     val onSessionExpired: (() -> Unit)? = null,
+    val sponsorGas: Boolean = false,
 )
 
 /**
@@ -115,6 +120,7 @@ class TurnkeyProvider internal constructor(
             solanaSupport = context.solanaSupport,
             tokenStore = context.tokenStore,
             sessionCoordinator = coordinator,
+            sponsorGas = config.sponsorGas,
         )
 
         // Probe — ensures Turnkey has an EVM wallet available before the provider is handed out.

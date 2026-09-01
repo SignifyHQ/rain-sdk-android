@@ -16,6 +16,7 @@ class RainErrorCodeParityTest {
             RainErrorCode.INVALID_CONFIG to "RAIN_102",
             RainErrorCode.INVALID_RPC_URL to "RAIN_103",
             RainErrorCode.API_NOT_CONFIGURED to "RAIN_104",
+            RainErrorCode.CHAIN_NOT_SUPPORTED to "RAIN_105",
             RainErrorCode.TOKEN_EXPIRED to "RAIN_201",
             RainErrorCode.UNAUTHORIZED to "RAIN_202",
             RainErrorCode.NETWORK_ERROR to "RAIN_301",
@@ -46,6 +47,8 @@ class RainErrorCodeParityTest {
             RainError.ProviderNotRegistered("x") to "RAIN_102",
             RainError.InvalidRpcUrl("x") to "RAIN_103",
             RainError.ApiNotConfigured() to "RAIN_104",
+            // New in WALL-31; iOS must add the same code before its next release.
+            RainError.ChainNotSupported(43114, "x") to "RAIN_105",
             RainError.TokenExpired() to "RAIN_201",
             RainError.Unauthorized("x") to "RAIN_202",
             RainError.NetworkError(cause = underlying) to "RAIN_301",
@@ -76,6 +79,6 @@ class RainErrorCodeParityTest {
         // A case added to the sealed hierarchy but not listed above fails here.
         assertThat(cases.map { it.first::class }.toSet())
             .isEqualTo(RainError::class.sealedSubclasses.toSet())
-        assertThat(cases).hasSize(25)
+        assertThat(cases).hasSize(26)
     }
 }

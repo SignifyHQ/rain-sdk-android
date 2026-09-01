@@ -43,7 +43,8 @@ class TurnkeyAdapterTest {
     private fun makeProvider(
         turnkey: MockTurnkey = MockTurnkey(),
         walletAddressOverride: String? = null,
-        chainId: Int = 1
+        chainId: Int = 1,
+        sponsorGas: Boolean = false
     ): TurnkeyWalletProvider = TurnkeyWalletProvider(
         turnkey = turnkey,
         rpcEndpoints = mapOf(chainId to rpc.urlFor(chainId)),
@@ -53,7 +54,8 @@ class TurnkeyAdapterTest {
         // and regressions in failure detection fail fast instead of hanging for 30s.
         pollingIntervalMs = 0L,
         // Indexed history fails like a feature-gated org, so these tests cover the activity path.
-        history = ThrowingTurnkeyHistory
+        history = ThrowingTurnkeyHistory,
+        sponsorGas = sponsorGas
     )
 
     // ---- Polling: pending → broadcasted -----------------------------------------
@@ -425,6 +427,89 @@ class TurnkeyAdapterTest {
     // ---- helpers ----------------------------------------------------------------
 
     /** Stubs the three JSON-RPC calls made when building a Turnkey send-transaction body. */
+    // ---- Broadcast-chain gate + gas sponsorship (WALL-31) ------------------------
+
+    @Test
+    fun `sendNativeToken on avalanche fails closed before contacting anything`() {
+        val turnkey = MockTurnkey()
+        val client = turnkey.turnkeyClient as MockTurnkeyClient
+        val provider = makeProvider(turnkey, chainId = 43114)
+
+        val error = assertThrows(RainError.ChainNotSupported::class.java) {
+            runBlocking {
+                provider.sendNativeToken(43114, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal.ONE)
+            }
+        }
+        assertThat(error.chainId).isEqualTo(43114)
+        assertThat(error.errorCode.code).isEqualTo("RAIN_105")
+        assertThat(client.ethSendTransactionCalls).isEmpty()
+    }
+
+    @Test
+    fun `sendToken on an unlisted EVM chain fails with the published code`() {
+        val turnkey = MockTurnkey()
+        val client = turnkey.turnkeyClient as MockTurnkeyClient
+        val provider = makeProvider(turnkey, chainId = 42220) // Celo: readable, never broadcastable
+
+        val error = assertThrows(RainError.ChainNotSupported::class.java) {
+            runBlocking {
+                provider.sendToken(
+                    chainId = 42220,
+                    contractAddress = TestFixtures.RECIPIENT_ADDRESS,
+                    toAddress = TestFixtures.RECIPIENT_ADDRESS,
+                    amount = java.math.BigDecimal.ONE,
+                    decimals = 6
+                )
+            }
+        }
+        assertThat(error.errorCode.code).isEqualTo("RAIN_105")
+        assertThat(client.ethSendTransactionCalls).isEmpty()
+    }
+
+    @Test
+    fun `sendNativeToken on the solana testnet cluster fails closed`() {
+        val provider = makeProvider(chainId = 902)
+        assertThrows(RainError.ChainNotSupported::class.java) {
+            runBlocking {
+                provider.sendNativeToken(902, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal.ONE)
+            }
+        }
+    }
+
+    @Test
+    fun `send carries sponsor=false unless configured`(): Unit = runBlocking {
+        stubSendTransactionRPCs()
+        val expectedHash = "0x" + "a".repeat(64)
+        val turnkey = MockTurnkey()
+        val client = (turnkey.turnkeyClient as MockTurnkeyClient).apply {
+            sendTransactionStatusQueue = mutableListOf(
+                MockTurnkeyClient.StatusFixture.broadcasted(expectedHash)
+            )
+        }
+        val provider = makeProvider(turnkey)
+
+        val hash = provider.sendNativeToken(1, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
+
+        assertThat(hash).isEqualTo(expectedHash)
+        assertThat(client.ethSendTransactionCalls.single().sponsor).isEqualTo(false)
+    }
+
+    @Test
+    fun `configured sponsorGas reaches the turnkey send body`(): Unit = runBlocking {
+        stubSendTransactionRPCs()
+        val turnkey = MockTurnkey()
+        val client = (turnkey.turnkeyClient as MockTurnkeyClient).apply {
+            sendTransactionStatusQueue = mutableListOf(
+                MockTurnkeyClient.StatusFixture.broadcasted("0x" + "b".repeat(64))
+            )
+        }
+        val provider = makeProvider(turnkey, sponsorGas = true)
+
+        provider.sendNativeToken(1, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
+
+        assertThat(client.ethSendTransactionCalls.single().sponsor).isEqualTo(true)
+    }
+
     private fun stubSendTransactionRPCs() {
         rpc.stub(method = "eth_getTransactionCount", result = "0x1")
         rpc.stub(method = "eth_estimateGas", result = "0x5208") // 21000
