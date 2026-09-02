@@ -44,7 +44,7 @@ class TokenMetadataStoreTest {
     @Test
     fun `decimalsOrNull returns null rather than the 18-decimal default when the read fails`() =
         runBlocking {
-            // The whole point of this accessor: a transfer must never scale by a guessed 18.
+            // The whole point of this accessor: a transfer or approval must never scale by a guessed 18.
             val reader = MockChainReader(metadataError = RuntimeException("rpc down"))
             val store = TokenMetadataStore(reader)
 
@@ -131,6 +131,50 @@ class TokenMetadataStoreTest {
         assertThat(info.decimals).isEqualTo(12)
         assertThat(reader.decimalsCalls).isEmpty()
         assertThat(reader.symbolCalls).isEmpty()
+    }
+
+    /**
+     * A wrong `decimals` on a known token would rescale its balances and approvals by orders of
+     * magnitude, so the registry stays authoritative for the addresses it ships.
+     */
+    @Test
+    fun `a registration cannot override a built-in token's metadata`() = runBlocking {
+        val reader = MockChainReader(decimals = 99, symbol = "WRONG")
+        val store = TokenMetadataStore(reader)
+
+        store.register(listOf(TokenInfo(chainId = 1, address = usdcEthereum, symbol = "USDX", decimals = 18, name = "Not USDC")))
+
+        val info = store.tokenInfo(chainId = 1, address = usdcEthereum)
+        assertThat(info.symbol).isEqualTo("USDC")
+        assertThat(info.decimals).isEqualTo(6)
+        assertThat(store.decimalsOrNull(chainId = 1, address = usdcEthereum)).isEqualTo(6)
+        assertThat(store.registeredTokens(chainId = 1).filter { it.address.lowercase() == usdcEthereum }).hasSize(1)
+        assertThat(reader.decimalsCalls).isEmpty()
+    }
+
+    @Test
+    fun `a seed token cannot override a built-in token's metadata either`() = runBlocking {
+        val reader = MockChainReader(decimals = 99)
+        val store = TokenMetadataStore(
+            reader,
+            seedTokens = listOf(TokenInfo(chainId = 1, address = usdcEthereum, symbol = "USDC", decimals = 18))
+        )
+
+        assertThat(store.decimalsOrNull(chainId = 1, address = usdcEthereum)).isEqualTo(6)
+        assertThat(reader.decimalsCalls).isEmpty()
+    }
+
+    @Test
+    fun `a host-registered token can still be re-registered`() = runBlocking {
+        val store = TokenMetadataStore(MockChainReader())
+
+        store.register(listOf(TokenInfo(chainId = 1, address = unknown, symbol = "FOO", decimals = 12)))
+        store.register(listOf(TokenInfo(chainId = 1, address = unknown.uppercase(), symbol = "FOO", decimals = 8, name = "Foo")))
+
+        val info = store.tokenInfo(chainId = 1, address = unknown)
+        assertThat(info.decimals).isEqualTo(8)
+        assertThat(info.name).isEqualTo("Foo")
+        assertThat(store.registeredTokens(chainId = 1).filter { it.address.lowercase() == unknown.lowercase() }).hasSize(1)
     }
 
     @Test

@@ -39,6 +39,7 @@ module isn't on the classpath simply can't be registered.
 | `providers` | `Collection<RainProvider>` | The registered provider descriptors, for capability resolution. |
 | `transactionBuilder` | `RainTransactionBuilder` | **Deprecated** — the builder methods are now on `RainSdk` itself. |
 | `isRainApiConfigured` | `Boolean` | True once an Api-Key and userId have been supplied. |
+| `authPullChainIds` | `Set<Int>` | Chains Auth Pull is enabled on for this instance: the configured `RainAuthPullConfig`'s chains intersected with the chains that have an RPC endpoint. Empty when no `authPullConfig(...)` was supplied. Also exposed on `RainClient`; see [authPullChainIds](#authpullchainids). |
 
 ### Methods
 
@@ -158,7 +159,8 @@ never names a vendor SDK itself.
 | `registerTokens(tokens: List<TokenInfo>)` | Seeds the shared token store with extra token metadata. |
 | `rainApiEnvironment(environment: RainApiEnvironment)` | Selects the Rain issuing API environment. Defaults to `Dev`. |
 | `rainApiCredentials(apiKey: String, userId: String)` | Supplies the Rain program Api-Key and userId at build time — same effect as `configureRainApi` on the built instance. |
-| `build(): RainSdk` | Validates endpoints (fail-fast on a bad URL / chain id) and returns the SDK. Throws `RainError.InvalidConfig` if no RPC endpoints were configured, or the Rain API base URL does not parse. |
+| `authPullConfig(config: RainAuthPullConfig)` | Enables Auth Pull for the exact operator and token contracts in `config` (`RainAuthPullConfig.sandbox(...)` / `.production(...)` / `.custom(...)`). Without it, the approval, allowance, confirmation, and approval-fee methods fail closed. See [AUTH_PULL.md](AUTH_PULL.md). |
+| `build(): RainSdk` | Validates endpoints (fail-fast on a bad URL / chain id) and returns the SDK. Throws `RainError.InvalidConfig` if no RPC endpoints were configured, or the Rain API base URL does not parse, or the Auth Pull configuration is invalid: a malformed or zero operator or token address, an empty token map, an environment mismatch, a chain outside the known Auth Pull sets, or no RPC endpoint for any configured Auth Pull chain. |
 
 Registering **zero** providers is allowed: the SDK is then wallet-agnostic, exposing
 the transaction-building methods and the Rain API methods. Resolving `provider(id)` throws
@@ -170,18 +172,26 @@ Each adapter is a `RainProvider` descriptor that owns its vendor SDK as a privat
 
 | Adapter | Module | Config | Notes |
 |---------|--------|--------|-------|
-| `PortalProvider(PortalConfig(sessionToken, chainId?, sessionPolicy?, onSessionTokenNeeded?, onSessionExpired?))` | `rain-portal-android` | `sessionToken: String`, `chainId: Int?`, `sessionPolicy: PortalSessionPolicy`, `onSessionTokenNeeded: (suspend () -> String?)?`, `onSessionExpired: (() -> Unit)?` | Portal MPC signer (EVM). Advertises `EXPORT`, `RECOVERY`. See [PORTAL_SUPPORT.md](PORTAL_SUPPORT.md). |
+| `PortalProvider(PortalConfig(sessionToken, chainId?, sessionPolicy?, onSessionTokenNeeded?, onSessionExpired?, autoApprove?))` | `rain-portal-android` | `sessionToken: String`, `chainId: Int?`, `sessionPolicy: PortalSessionPolicy`, `onSessionTokenNeeded: (suspend () -> String?)?`, `onSessionExpired: (() -> Unit)?`, `autoApprove: Boolean = true` | Portal MPC signer (EVM). Advertises `EXPORT`, `RECOVERY`.|
 | `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?, sessionPolicy?, onSessionExpired?))` | `rain-core-android` | `turnkey: TurnkeyContext`, `walletAddress: String?`, `sessionPolicy: TurnkeySessionPolicy`, `onSessionExpired: (() -> Unit)?` | Turnkey P256 signer (EVM + Solana). Advertises `MULTI_CHAIN`, `BIOMETRIC_GATE`. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
-| `PrivyProvider(PrivyConfig(privy, walletAddress?, sessionPolicy?, onSessionExpired?))` | `rain-privy-android` | `privy: Privy`, `walletAddress: String?`, `sessionPolicy: PrivySessionPolicy`, `onSessionExpired: (() -> Unit)?` | Privy embedded-wallet signer (EVM + Solana). Advertises `EXPORT`, `RECOVERY`, `MULTI_CHAIN`. See [PRIVY_SUPPORT.md](PRIVY_SUPPORT.md). |
+| `PrivyProvider(PrivyConfig(privy, walletAddress?, sessionPolicy?, onSessionExpired?))` | `rain-privy-android` | `privy: Privy`, `walletAddress: String?`, `sessionPolicy: PrivySessionPolicy`, `onSessionExpired: (() -> Unit)?` | Privy embedded-wallet signer (EVM + Solana). Advertises `EXPORT`, `RECOVERY`, `MULTI_CHAIN`.|
 
 #### Portal construction
 
-The adapter constructs the vendor `Portal` with `autoApprove = true`,
-`FeatureFlags(isMultiBackupEnabled = true)`, and an `eip155:<chainId> → rpcUrl` RPC config. Two
+The adapter constructs the vendor `Portal` with `autoApprove = PortalConfig.autoApprove`,
+`FeatureFlags(isMultiBackupEnabled = true)`, and an `eip155:<chainId> → rpcUrl` RPC config. Three
 vendor-shaped details are worth knowing:
 
 - **Storage backends.** portal-android registers backup storage at backup-call time, so the
   adapter passes none at construction.
+- **`autoApprove`.** Defaults to `true`, and the adapter also answers
+  `PortalEvents.PortalSigningRequested` with `PortalSigningApproved` while it is on. Every Rain call
+  that signs is already an explicit, user-initiated SDK call and Portal raises no approval UI of its
+  own, so an unanswered signing request simply hangs. Pass `false` only if the host gates signing
+  itself, and then answer the event on the `Portal` instance handed to `onPortalCreated`. The
+  handler is registered on the `Portal` instance itself, so while `autoApprove` is on every signing
+  request on that instance is auto-approved, including ones the host makes directly through the
+  `onPortalCreated` instance.
 - **`chainId`.** `PortalConfig.chainId` feeds portal-android's **required** `legacyEthChainId`
   constructor parameter, so the adapter must supply one; the field lets the host pick it instead of
   guessing. Omit it and the adapter falls back to Avalanche mainnet when configured, else the first
@@ -209,6 +219,7 @@ Money APIs are `BigDecimal`-first.
 | `providerId` | `ProviderId` | Identifier of the provider backing this client (e.g. `ProviderId.PORTAL`). |
 | `capabilities` | `Set<Capability>` | Optional behaviours the backing provider supports (see [Capabilities](#capabilities)). |
 | `isInitialized` | `Boolean` | Whether the SDK's chain configuration is set up. |
+| `authPullChainIds` | `Set<Int>` | Chains this client will accept an Auth Pull approval on. Empty until `RainSdk.Builder.authPullConfig(...)` supplies the trusted targets; see [authPullChainIds](#authpullchainids). |
 
 ---
 
@@ -385,6 +396,164 @@ Routed by `chainId`.
 
 ---
 
+### authPullChainIds
+
+The chains this client will accept an Auth Pull approval on — the host's `RainAuthPullConfig`
+narrowed to the chains that have an RPC endpoint, and the same set the approval guard enforces.
+Empty until `RainSdk.Builder.authPullConfig(...)` supplies the trusted targets. Also available on
+`RainSdk` itself, for gating before a client is resolved.
+
+Gate host UI on this rather than on `RainAuthPullChains.supported(environment)`, which answers for
+an environment and is the wider set. See [Auth Pull](AUTH_PULL.md#supported-chains-and-assets).
+
+- **Type:** `Set<Int>`
+- **Suspend:** No
+
+---
+
+### approveTokenAllowance(chainId, contractAddress, spender, amount?)
+
+Approves `spender` to move up to `amount` of an ERC-20 token from the current wallet — the
+wallet-side prerequisite for Rain's [Auth Pull](AUTH_PULL.md). Rain executes the pull itself; the
+SDK only sets the allowance.
+
+Auth Pull is disabled until `RainSdk.Builder.authPullConfig(...)` supplies the trusted operator and
+per-chain token targets. The SDK rejects any different chain, token, or spender before wallet access.
+
+- **Returns:** `RainTokenApprovalResult` — the transaction hash of the `approve` call.
+- **Throws:** `RainError`. EVM only — a Solana `chainId` throws `RainError.InternalError`, since
+  SPL delegation is not an ERC-20 allowance. A `chainId` outside `authPullChainIds` throws
+  `RainError.InvalidConfig`.
+- **Suspend:** Yes
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `chainId` | `Int` | Target EVM network chain ID. Must be an Auth Pull chain for the configured environment. |
+| `contractAddress` | `String` | ERC-20 token contract (USDC for Auth Pull today). |
+| `spender` | `String` | Address being approved — Rain's operator. Source it from Rain; it differs between sandbox and production. |
+| `amount` | `BigDecimal?` | Human-readable allowance (e.g. `BigDecimal("250")`). `null` (the default) approves an unlimited (`uint256` max) allowance; `BigDecimal.ZERO` revokes. |
+
+There is deliberately **no `decimals` parameter** on any Auth Pull method: the scale comes from
+trusted registry metadata or a strict on-chain `decimals()` read, never from the caller. A token
+whose decimals cannot be established throws `RainError.TokenNotFound` rather than being guessed at.
+
+```kotlin
+// Unlimited — what Rain recommends, so the user never has to re-approve.
+val result = client.approveTokenAllowance(
+    chainId = RainChain.BASE_SEPOLIA,
+    contractAddress = usdc,
+    spender = rainOperator
+)
+
+// Capped, then revoked.
+client.approveTokenAllowance(RainChain.BASE_SEPOLIA, usdc, rainOperator, BigDecimal("250"))
+client.approveTokenAllowance(RainChain.BASE_SEPOLIA, usdc, rainOperator, BigDecimal.ZERO)
+```
+
+The new value is written straight over the old one. USDC accepts that; some ERC-20s (USDT and its
+clones) revert unless an existing non-zero allowance is set to zero first — see
+[Auth Pull](AUTH_PULL.md#3-approve).
+
+---
+
+### getTokenAllowance(chainId, contractAddress, spender, owner?)
+
+Reads the ERC-20 allowance `spender` currently holds over `owner`'s balance. Call it before
+approving (to skip a redundant transaction). To confirm an approval was mined, use
+`confirmTokenAllowance`, this read is unpinned and can still return the pre-approval value.
+
+- **Returns:** `RainTokenAllowance` — see [RainTokenAllowance value type](#raintokenallowance-value-type).
+- **Throws:** `RainError`. EVM only, and gated to the configured environment's Auth Pull chains like
+  the approval itself.
+- **Suspend:** Yes
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `chainId` | `Int` | Target EVM network chain ID. |
+| `contractAddress` | `String` | ERC-20 token contract. |
+| `spender` | `String` | Address whose allowance is being read — Rain's operator. |
+| `owner` | `String?` | Wallet whose balance is approved. `null` (the default) reads this client's own wallet, which is the only case that touches the wallet provider at all. |
+
+> `spender` precedes `owner` so the optional parameters land last and Kotlin's default arguments
+> work.
+
+---
+
+### estimateApprovalFee(chainId, contractAddress, spender, amount?)
+
+Estimates the total fee (estimated gas x gas price) to submit the approval, in the chain's native
+token. Nothing is broadcast and no signature is requested; the fee is priced against the exact
+calldata `approveTokenAllowance` would send.
+
+- **Returns:** `BigDecimal` — fee in the chain's native currency (e.g. ETH).
+- **Throws:** `RainError`.
+- **Suspend:** Yes
+
+Parameters are identical to `approveTokenAllowance`.
+
+---
+
+### confirmTokenAllowance(transactionHash, chainId, contractAddress, spender, amount?, owner?)
+
+Waits for an approval transaction to mine successfully, then reads back the resulting allowance. A
+transaction hash alone means submitted, not ready: use this before treating the user as approved for
+Auth Pull.
+
+Polls `eth_getTransactionReceipt` once a second for up to 60 seconds, then reads the allowance
+through the same path as `getTokenAllowance`, pinned to the block the transaction mined in.
+
+- **Returns:** `RainTokenAllowance` — the allowance actually in place after the transaction mined.
+- **Throws:** `RainError`. Reverted receipt → `TransactionSimulationFailed`; poll window exhausted →
+  `TransactionPending` with the transaction hash as `statusId` (not confirmed *yet* — re-read, don't
+  re-approve); mined allowance not equal to the request, or a Solana `chainId` → `InternalError`.
+- **Suspend:** Yes
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `transactionHash` | `String` | Hash returned by `approveTokenAllowance`. |
+| `chainId` | `Int` | Target EVM network chain ID. Must match the approval's chain. |
+| `contractAddress` | `String` | ERC-20 token contract the approval was against. |
+| `spender` | `String` | Address that was approved — Rain's operator. |
+| `amount` | `BigDecimal?` | The allowance that was requested, so the result can be checked against it. `null` (the default) means the unlimited approval; `BigDecimal.ZERO` means a revoke. |
+| `owner` | `String?` | Wallet whose allowance to read. `null` (the default) reads this client's own wallet. |
+
+**The returned allowance must equal `amount`.** The read is pinned to the block the approval mined
+in, so later blocks cannot move what is read back. Anything but the requested amount means the
+approval did not do what was asked — below when it was raising the allowance, above when it was
+lowering it, still zero when it mined against the wrong owner, token, or spender, or non-zero after
+a revoke — and throws `InternalError` (`RAIN_502`). One edge: an Auth Pull `transferFrom` mined in
+the *same block* as the approval also reads back lower and surfaces as `RAIN_502`; re-read with
+`getTokenAllowance` before treating that as a failed approval. Later pulls decrement the live
+allowance, so use `getTokenAllowance` (and `covers`) for the ongoing check.
+
+```kotlin
+val result = client.approveTokenAllowance(RainChain.BASE_SEPOLIA, usdc, rainOperator)
+val allowance = client.confirmTokenAllowance(
+    transactionHash = result.transactionHash,
+    chainId = RainChain.BASE_SEPOLIA,
+    contractAddress = usdc,
+    spender = rainOperator
+)
+```
+
+---
+
+### RainTokenAllowance value type
+
+| Member | Type | Description |
+|--------|------|-------------|
+| `rawAmount` | `BigInteger` | Exact allowance in the token's smallest unit. Never lossy — compare against this. |
+| `decimals` | `Int` | The token's decimals (e.g. 6 for USDC). |
+| `chainId` / `tokenAddress` / `owner` / `spender` | | What was read, so a merged list stays self-describing. |
+| `isUnlimited` | `Boolean` | `rawAmount == uint256` max. Exact: some tokens decrement even a max allowance, so `false` does not mean "must re-approve" — compare `rawAmount` against what you need. |
+| `isZero` | `Boolean` | Nothing approved — the state after a revoke. |
+| `decimalAmount` | `BigDecimal` | Derived: `rawAmount / 10^decimals`. For an unlimited approval this is ~1.16e71; gate on `isUnlimited` before rendering. |
+| `formatted` | `String` | Derived display string with trailing zeros trimmed. |
+| `covers(amount)` | `(BigDecimal) -> Boolean` | Whether a human-readable amount is still covered, compared in exact base units. An amount that cannot be represented at all (negative, or finer than the token's scale) is `false` too. |
+| `UNLIMITED_RAW_AMOUNT` | `BigInteger` | Companion constant: `uint256` max. |
+
+---
+
 ### Balance value type
 
 All balance methods return rich `Balance` values rather than lossy `Double`s.
@@ -449,14 +618,16 @@ call.
 ### registerTokens(tokens)
 
 Registers additional tokens so their metadata (decimals / symbol) resolves without an
-on-chain enrichment call. Retained across re-initialization; cleared by `reset()`.
+on-chain enrichment call. Retained across re-initialization; cleared by `reset()`. Built-in
+registry tokens are trusted and cannot be overridden: a registration naming one is ignored with a
+warning.
 
 - **Returns:** `Unit`
 - **Suspend:** No
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `tokens` | `List<TokenInfo>` | Tokens to add to the SDK's token store. |
+| `tokens` | `List<TokenInfo>` | Tokens to add to the SDK's token store. Re-registering a host-added address replaces its entry; built-in registry tokens cannot be overridden. |
 
 ---
 
@@ -655,12 +826,16 @@ pre-set to `"0x0"`. Hosts can hand the result to any provider for signing / broa
 | **`RainAdminSignature`** | `salt` (String), `signature` (hex String), `expiresAt` (String, ISO-8601). |
 | **`RainPreparedWithdrawal`** | Sealed: `Evm(parameters: RainTransactionParameters)` or `Solana(transfer: UnsignedSolanaTransfer)`. Has `evmParameters` / `solanaTransfer` accessors. |
 | **`RainTokenTransferResult`** | `transactionHash` (String). Returned by `sendNative` and `sendToken`. |
+| **`RainTokenApprovalResult`** | `transactionHash` (String): hash of the ERC-20 `approve` call. Returned by `approveTokenAllowance`. |
+| **`RainTokenAllowance`** | Exact allowance value type; see [RainTokenAllowance value type](#raintokenallowance-value-type). |
+| **`RainAuthPullConfig`** | Trusted Auth Pull targets for one environment: `operatorAddress` plus a `chainId → token contract` map. Built via `RainAuthPullConfig.sandbox(...)`, `.production(...)`, or `.custom(...)`; passed to `RainSdk.Builder.authPullConfig(...)`. |
+| **`RainAuthPullChains`** | The Auth Pull chain sets by environment: `SANDBOX` (Base Sepolia, Arbitrum Sepolia), `PRODUCTION` (Base, Arbitrum), `supported(environment)`, `isSupported(chainId, environment)`. Answers for an *environment*; gate UI on `authPullChainIds`, which answers for the built SDK. |
 | **`NetworkConfig`** | `chainId`, `rpcUrl`, `networkName?`; `eip155ChainId` renders `eip155:<chainId>`, and `NetworkConfig.fromEip155(...)` parses that form. Accepted by `Builder.rpcEndpoints(List<NetworkConfig>)`. |
 | **`RainTransactionParameters`** | `from`, `to`, `value` (hex wei), `data` (hex calldata). Wallet-agnostic transaction parameter bag returned by `RainSdk.buildTransactionParameters`. |
 | **`RainTransaction`** | Transaction record: `hash`, `uniqueId`, `blockNumber`, `timestamp`, `from`, `to`, `value`, `asset`, `tokenAddress`, `rawValue`, `decimals`, `category`, `chainId`, `metadata`. Identical in shape to the iOS type. |
 | **`RainTransactionCategory`** | Extensible constant: `External`, `Token`, `Erc20`, `Erc721`, `Erc1155`, `ContractInternal`. |
 | **`RainTransactionOrder`** | Enum: `.ASC`, `.DESC`. Used in `getTransactions(..., order:)`. |
-| **`RainChain`** | Constants: `AVALANCHE_MAINNET` (43114), `AVALANCHE_TESTNET` (43113). |
+| **`RainChain`** | Constants: `AVALANCHE_MAINNET` (43114), `AVALANCHE_TESTNET` (43113), `BASE_MAINNET` (8453), `BASE_SEPOLIA` (84532), `ARBITRUM_MAINNET` (42161), `ARBITRUM_SEPOLIA` (421614), plus the Solana sentinels. |
 
 ---
 
@@ -678,11 +853,13 @@ Format: `"RainSDK Error [CODE]: message"`
 | `RAIN_201` | `RainError.TokenExpired` | Provider session token expired or invalid. |
 | `RAIN_202` | `RainError.Unauthorized` | Invalid or missing token / permissions. |
 | `RAIN_301` | `RainError.NetworkError` | Network/connectivity failure. |
+| `RAIN_303` | `RainError.TransactionPending` | Submitted, not yet confirmed. `statusId` is what to resume from (status id, UserOperation hash, or transaction hash). Do not resend. |
 | `RAIN_401` | `RainError.UserRejected` | User cancelled the signing request in the wallet. |
 | `RAIN_402` | `RainError.InsufficientFunds` | Balance too low for the requested amount or gas. |
 | `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight `eth_call` simulation failed (e.g. contract revert, insufficient funds). |
 | `RAIN_404` | `RainError.WalletUnavailable` | The backing provider returned no usable wallet address (e.g. Turnkey context has no Ethereum account). |
 | `RAIN_405` | `RainError.WithdrawalRevertedByNetwork` | Withdrawal reverted on-chain (e.g. duplicate withdrawal, already-used signature). |
+| `RAIN_406` | `RainError.InvalidAmount` | The amount is invalid for the token — negative, more decimal places than the token supports, or past `uint256` max. |
 | `RAIN_501` | `RainError.ProviderError` | Portal, Turnkey, or other provider error. |
 | `RAIN_502` | `RainError.InternalError` | EIP-712 encoding, ABI encoding, or internal processing error. |
 

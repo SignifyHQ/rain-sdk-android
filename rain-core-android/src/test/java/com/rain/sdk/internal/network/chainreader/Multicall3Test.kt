@@ -1,6 +1,7 @@
 package com.rain.sdk.internal.network.chainreader
 
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import com.rain.sdk.internal.constants.TokenRegistry
 import com.rain.sdk.internal.error.RainError
 import org.junit.Assert.assertThrows
@@ -160,15 +161,23 @@ class Multicall3Test {
     // ---------- deployment table ----------
 
     @Test
-    fun `every chain with tokens in the registry is in the canonical deployment set`() {
-        // Keeps Multicall3 fast-path tokens in sync with the deployments list — if someone
-        // adds a chain to TokenRegistry without adding it to CANONICALLY_DEPLOYED_CHAIN_IDS,
-        // we want to know.
+    fun `every chain with tokens in the registry has a Multicall3 deployment`() {
+        // Keeps Multicall3 fast-path tokens in sync with the deployments map — if someone
+        // adds a chain to TokenRegistry without adding it to MULTICALL3_DEPLOYMENTS, we want
+        // to know.
         val orphans = TokenRegistry.tokensByChainId.keys
-            .filterNot { isMulticall3CanonicallyDeployed(it) }
+            .filterNot { multicall3Address(it) != null }
             .toSet()
-        // Plasma (9745) and Monad (143) currently sit in the deployment list, so this set
-        // should be empty for the chains we ship with.
         assertThat(orphans).isEmpty()
+    }
+
+    /** zkSync Era cannot host the canonical CREATE2 deployment; every other chain uses it. */
+    @Test
+    fun `zkSync Era resolves to its own Multicall3 address and every other chain to the canonical one`() {
+        assertThat(multicall3Address(324)).isEqualTo("0xF9cda624FBC7e059355ce98a31693d299FACd963")
+        MULTICALL3_DEPLOYMENTS.filterKeys { it != 324 }.forEach { (chainId, address) ->
+            assertWithMessage("chain $chainId").that(address).isEqualTo(Multicall3.CANONICAL_ADDRESS)
+        }
+        assertThat(multicall3Address(11_155_111)).isNull()
     }
 }

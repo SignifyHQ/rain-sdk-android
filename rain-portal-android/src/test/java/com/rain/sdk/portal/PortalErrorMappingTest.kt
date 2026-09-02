@@ -72,6 +72,17 @@ class PortalErrorMappingTest {
         assertThat(PortalErrorMapping.mapAuthOrNull(error)).isNull()
     }
 
+    /** Some nodes report an execution failure under the generic -32000 with only the prose to go on. */
+    @Test
+    fun `RpcError naming an execution failure maps to TransactionSimulationFailed on the simulation path`() {
+        for (message in listOf("out of gas", "invalid opcode: INVALID", "Execution reverted: custom error")) {
+            val error = PortalException.Api.RpcError(code = -32000, message = message)
+            assertThat(PortalErrorMapping.mapSimulationOrNull(error))
+                .isInstanceOf(RainError.TransactionSimulationFailed::class.java)
+            assertThat(PortalErrorMapping.mapAuthOrNull(error)).isNull()
+        }
+    }
+
     @Test
     fun `RpcError with another code stays unmapped`() {
         val error = PortalException.Api.RpcError(code = -32000, message = "nonce too low")

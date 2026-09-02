@@ -48,8 +48,8 @@ class TokenMetadataStore internal constructor(
     }
 
     /**
-     * Adds host-supplied tokens. A token replaces any existing entry with the same address
-     * (case-insensitive) on the same chain.
+     * Adds host-supplied tokens. A token replaces an earlier host registration with the same
+     * address (case-insensitive) on the same chain. Built-in registry tokens are never replaced.
      */
     suspend fun register(tokens: List<TokenInfo>) {
         mutex.withLock {
@@ -187,6 +187,18 @@ class TokenMetadataStore internal constructor(
     /** Must be called while holding [mutex]. */
     private fun upsert(token: TokenInfo) {
         val key = token.address.lowercase()
+        // The registry is the trusted source for its own tokens: a host-supplied `decimals` for
+        // one would rescale every balance and approval against it, so the registration is dropped.
+        val trusted = TokenRegistry.tokensFor(token.chainId).firstOrNull { it.address.lowercase() == key }
+        if (trusted != null) {
+            if (trusted != token) {
+                Timber.w(
+                    "Rain SDK: Ignoring registration of %s on chain %d: built-in token %s (%d decimals) cannot be overridden",
+                    token.address, token.chainId, trusted.symbol ?: "?", trusted.decimals
+                )
+            }
+            return
+        }
         val list = knownTokens.getOrPut(token.chainId) { mutableListOf() }
         val index = list.indexOfFirst { it.address.lowercase() == key }
         if (index >= 0) {

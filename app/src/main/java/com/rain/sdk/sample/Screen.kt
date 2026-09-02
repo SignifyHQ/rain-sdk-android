@@ -6,5 +6,6 @@ sealed class Screen(val route: String) {
     data object Balances : Screen("balances")
     data object SendTokens : Screen("send_tokens")
     data object CollateralWithdraw : Screen("collateral_withdraw")
+    data object AuthPull : Screen("auth_pull")
     data object TransactionHistory : Screen("transaction_history")
 }

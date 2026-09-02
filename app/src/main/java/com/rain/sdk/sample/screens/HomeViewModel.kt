@@ -238,7 +238,7 @@ class HomeViewModel(
                 // Initialize with every EVM chain's RPC (Fuji + Base Sepolia) so the chain
                 // dropdown and Rain collateral (which lives on Base Sepolia) both work; the
                 // screens pick the active chain via `selectedChain`.
-                val rpcConfig = WalletChain.entries
+                val rpcConfig = WalletChain.selectable
                     .filter { !it.isSolana }
                     .associate { it.chainId to it.rpcUrl }
 
@@ -290,11 +290,15 @@ class HomeViewModel(
                 }
             } catch (e: Exception) {
                 SampleLog.e("Portal.init", "failed: ${e.message}", e)
+                // Nothing usable survives a failed init: tear the half-built SDK down so its
+                // session watcher stops reporting, and drop the stale status with it.
+                session.reset()
                 _state.update {
                     it.copy(
                         isLoading = false,
                         statusText = "Error: ${e.message}",
-                        isInitialized = false
+                        isInitialized = false,
+                        sessionStatus = null
                     )
                 }
             }
@@ -467,9 +471,12 @@ class HomeViewModel(
                 }
             } catch (e: Exception) {
                 SampleLog.e("Turnkey.rainInit", "failed: ${e.message}", e)
+                session.reset()
                 _state.update {
                     it.copy(
                         isLoading = false,
+                        isInitialized = false,
+                        sessionStatus = null,
                         statusText = "Rain Turnkey init failed: ${e.message}"
                     )
                 }
@@ -625,8 +632,14 @@ class HomeViewModel(
                 }
             } catch (e: Exception) {
                 SampleLog.e("Privy.rainInit", "failed: ${e.message}", e)
+                session.reset()
                 _state.update {
-                    it.copy(isLoading = false, statusText = "Rain Privy init failed: ${e.message}")
+                    it.copy(
+                        isLoading = false,
+                        isInitialized = false,
+                        sessionStatus = null,
+                        statusText = "Rain Privy init failed: ${e.message}"
+                    )
                 }
             }
         }

@@ -31,6 +31,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.sample.screens.AuthPullScreen
 import com.rain.sdk.sample.screens.BalancesScreen
 import com.rain.sdk.sample.screens.CollateralWithdrawScreen
 import com.rain.sdk.sample.screens.HomeScreen
@@ -110,6 +111,16 @@ fun SampleApp() {
                     CollateralWithdrawScreen(
                         innerPadding = innerPadding,
                         rainSdk = sdk,
+                        rainClient = client,
+                        selectedChain = selectedChain,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+            }
+            composable(Screen.AuthPull.route) {
+                WithClient(session, navController) { _, client ->
+                    AuthPullScreen(
+                        innerPadding = innerPadding,
                         rainClient = client,
                         selectedChain = selectedChain,
                         onBack = { navController.popBackStack() }

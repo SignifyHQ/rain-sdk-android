@@ -166,6 +166,15 @@ object EthereumConverter {
         }
     }
 
+    /** Strict decoder for ABI uint values that must fit in a non-negative [Int]. */
+    fun parseHexToIntStrict(hex: String): Int {
+        val value = parseHexToBigIntegerStrict(hex)
+        if (value.signum() < 0 || value.bitLength() > 31) {
+            throw RainError.InternalError("Hex value does not fit in a non-negative Int: $hex")
+        }
+        return value.toInt()
+    }
+
     /**
      * Decodes an ABI-encoded string returned by `eth_call` (e.g. from ERC-20 `symbol()`).
      *

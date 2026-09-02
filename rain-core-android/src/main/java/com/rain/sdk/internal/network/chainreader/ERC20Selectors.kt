@@ -16,4 +16,7 @@ internal object ERC20Selectors {
 
     /** `decimals()` */
     const val DECIMALS = "313ce567"
+
+    /** `allowance(address,address)` */
+    const val ALLOWANCE = "dd62ed3e"
 }

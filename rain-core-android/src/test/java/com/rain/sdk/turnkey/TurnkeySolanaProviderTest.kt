@@ -414,6 +414,33 @@ class TurnkeySolanaProviderTest {
         assertThat(body.unsignedTransaction).isNotEmpty()
     }
 
+    /**
+     * Turnkey accepted the transfer before the status read failed — for any reason, not just
+     * session expiry — so polling stops but the send did not: the signature is recovered from
+     * chain exactly as when the status carries no hash.
+     */
+    @Test
+    fun `sendNativeToken on solana recovers the signature when the status read fails outright`() = runBlocking {
+        val priorSignature = "5oldSigFromAnEarlierTransfer11111111111111111111111111111111"
+        val signature = "2id3YC2jK9G5Wo2phDx4gJVAew8DcY5NAB7jTLd5p3KqJ7xQy9bniaP4q1hk2N1nF"
+        stubBlockhash()
+        rpc.stubObjectSequence(
+            "getSignaturesForAddress",
+            JSONArray().put(JSONObject().put("signature", priorSignature).put("slot", 140)),
+            JSONArray().put(JSONObject().put("signature", signature).put("slot", 150))
+        )
+        stubTransaction(signature, feePayer = MockTurnkey.DEFAULT_SOLANA_ADDRESS)
+        val client = MockTurnkeyClient().apply {
+            sendTransactionStatusError = IllegalStateException("status service unavailable")
+        }
+        val provider = makeProvider(client = client)
+
+        val result = provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5"))
+
+        assertThat(result).isEqualTo(signature)
+        assertThat(client.solSendTransactionCalls).hasSize(1)
+    }
+
     @Test
     fun `sendNativeToken on solana reports pending when no newer signature appears`() {
         val staleSignature = "5oldSigFromAnEarlierTransfer11111111111111111111111111111111"

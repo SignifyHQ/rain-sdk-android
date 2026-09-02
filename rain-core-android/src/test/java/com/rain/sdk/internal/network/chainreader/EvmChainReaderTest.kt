@@ -3,9 +3,11 @@ package com.rain.sdk.internal.network.chainreader
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.MockRpcServer
+import com.rain.sdk.models.RainTokenAllowance
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertThrows
 import org.junit.Before
@@ -27,6 +29,9 @@ class EvmChainReaderTest {
     private val wallet = "0x1111111111111111111111111111111111111111"
     private val usdc = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
     private val dai = "0x6b175474e89094c44da98b954eedeac495271d0f"
+    /** Rain's sandbox Auth Pull operator — the allowance spender. */
+    private val spender = "0x5a6E6b0d5Ea051CfFF9b3dcC2Aa8Dac226458f29"
+    private val txHash = "0x" + "ab".repeat(32)
 
     @Before
     fun setUp() {
@@ -81,7 +86,7 @@ class EvmChainReaderTest {
 
     @Test
     fun `getBalances on a non-Multicall3 chain fans out one balanceOf per token`() = runBlocking {
-        // Use a chain not in CANONICALLY_DEPLOYED_CHAIN_IDS so the parallel fallback runs.
+        // Use a chain not in MULTICALL3_DEPLOYMENTS so the parallel fallback runs.
         val chainId = 43113 // Avalanche Fuji testnet
         rpc.stub("eth_getBalance", "0x0") // native = 0
         // 0xf4240 = 1_000_000 → exact raw. Both tokens share the same stubbed eth_call
@@ -194,6 +199,34 @@ class EvmChainReaderTest {
             .isEqualTo(BigInteger("1000000"))
     }
 
+    /** The canonical address has no code on zkSync Era; batching there must go to its own deployment. */
+    @Test
+    fun `getBalances on zkSync Era targets the zkSync Multicall3 address, not the canonical one`() = runBlocking {
+        fun slot(v: String) = "0".repeat(64 - v.length) + v
+        rpc.stub(
+            "eth_call",
+            "0x" +
+                slot("20") +              // outer offset
+                slot("1") +               // count = 1
+                slot("20") +              // offset to tuple 0
+                slot("1") +               // t0 success
+                slot("40") +              // t0 returnData offset
+                slot("20") +              // t0 returnData length
+                slot("de0b6b3a7640000")   // t0 = 1 ETH in wei
+        )
+        val zkSyncEra = 324
+        val reader = makeReader(chainId = zkSyncEra)
+
+        val balances = reader.getBalances(chainId = zkSyncEra, walletAddress = wallet, tokens = emptyList())
+
+        assertThat(balances).hasSize(1)
+        assertThat(rpc.recordedMethods).containsExactly("eth_call")
+        val body = rpc.recordedBodies.single()
+        // The checksummed form only appears in the `to` field; calldata targets are lowercase hex.
+        assertThat(body).contains(Multicall3.ZKSYNC_ERA_ADDRESS)
+        assertThat(body).doesNotContain(Multicall3.CANONICAL_ADDRESS)
+    }
+
     @Test
     fun `getBalances treats native eth_getBalance failure as fatal`() {
         val chainId = 43113
@@ -257,6 +290,89 @@ class EvmChainReaderTest {
     }
 
     @Test
+    fun `getDecimals rejects malformed responses instead of treating them as zero`() {
+        rpc.stub("eth_call", "0x")
+        val reader = makeReader(chainId = 1)
+
+        assertThrows(RainError.InternalError::class.java) {
+            runBlocking { reader.getDecimals(1, usdc) }
+        }
+    }
+
+    // ---------- allowances ----------
+
+    @Test
+    fun `getErc20Allowance reads eth_call and returns exact base units`() = runBlocking {
+        // 250 USDC at 6 decimals = 250_000_000 = 0xee6b280.
+        rpc.stub("eth_call", "0x" + "ee6b280".padStart(64, '0'))
+        val reader = makeReader(chainId = 1)
+
+        val allowance = reader.getErc20Allowance(1, usdc, wallet, spender)
+
+        assertThat(allowance).isEqualTo(BigInteger.valueOf(250_000_000))
+    }
+
+    @Test
+    fun `an unlimited allowance comes back exact rather than saturating`() = runBlocking {
+        rpc.stub("eth_call", "0x" + "f".repeat(64))
+        val reader = makeReader(chainId = 1)
+
+        val allowance = reader.getErc20Allowance(1, usdc, wallet, spender)
+
+        assertThat(allowance).isEqualTo(RainTokenAllowance.UNLIMITED_RAW_AMOUNT)
+    }
+
+    /**
+     * The block tag is the whole defence against a load-balanced endpoint answering a
+     * post-transaction read from a replica that is still behind. Defaulting it is fine for a
+     * standalone read; silently ignoring a caller's block would put the staleness bug straight back.
+     */
+    @Test
+    fun `getErc20Allowance reads at the requested block rather than at latest`() = runBlocking {
+        rpc.stub("eth_call", "0x" + "ee6b280".padStart(64, '0'))
+        val reader = makeReader(chainId = 1)
+
+        reader.getErc20Allowance(1, usdc, wallet, spender, atBlock = "0x1a2b3c")
+
+        val call = rpc.recordedBodies.single { it.contains("eth_call") }
+        assertThat(call).contains("\"0x1a2b3c\"")
+        assertThat(call).doesNotContain("latest")
+    }
+
+    @Test
+    fun `getErc20Allowance defaults to latest when no block is given`() = runBlocking {
+        rpc.stub("eth_call", "0x" + "ee6b280".padStart(64, '0'))
+        val reader = makeReader(chainId = 1)
+
+        reader.getErc20Allowance(1, usdc, wallet, spender)
+
+        assertThat(rpc.recordedBodies.single { it.contains("eth_call") }).contains("\"latest\"")
+    }
+
+    @Test
+    fun `getErc20Allowance surfaces a malformed payload instead of reporting no allowance`() =
+        runBlocking {
+            rpc.stub("eth_call", "0x")
+            val reader = makeReader(chainId = 1)
+
+            assertThrows(RainError::class.java) {
+                runBlocking { reader.getErc20Allowance(1, usdc, wallet, spender) }
+            }
+            Unit
+        }
+
+    @Test
+    fun `getErc20Allowance rejects a malformed spender before hitting the network`() =
+        runBlocking {
+            val reader = makeReader(chainId = 1)
+
+            assertThrows(RainError::class.java) {
+                runBlocking { reader.getErc20Allowance(1, usdc, wallet, "0xnope") }
+            }
+            Unit
+        }
+
+    @Test
     fun `getSymbol decodes an ABI-encoded string`() = runBlocking {
         // ABI string: [offset=0x20][length=4]["USDC" right-padded]
         val symbolHex = "0x" +
@@ -268,6 +384,134 @@ class EvmChainReaderTest {
 
         assertThat(reader.getSymbol(1, usdc)).isEqualTo("USDC")
     }
+
+    // ---------- transaction receipts ----------
+
+    /**
+     * The status field is a JSON-RPC *quantity*, and nodes disagree about minimal encoding. Every
+     * spelling of 1 has to read as success: an approval that mined is the input this drives, and
+     * rejecting a valid receipt would fail a confirmation that in fact succeeded.
+     */
+    @Test
+    fun `a successful receipt is recognised however the node encodes the status`(): Unit =
+        runBlocking {
+            for (encoded in listOf("0x1", "0X1", "0x01", "0x0000000000000001")) {
+                rpc.stubObject("eth_getTransactionReceipt", receipt(status = encoded))
+                val reader = makeReader(chainId = 1)
+
+                assertThat(reader.getTransactionReceipt(1, txHash)?.succeeded).isTrue()
+            }
+        }
+
+    @Test
+    fun `a reverted receipt is recognised however the node encodes the status`(): Unit =
+        runBlocking {
+            for (encoded in listOf("0x0", "0X0", "0x00", "0x0000000000000000")) {
+                rpc.stubObject("eth_getTransactionReceipt", receipt(status = encoded))
+                val reader = makeReader(chainId = 1)
+
+                assertThat(reader.getTransactionReceipt(1, txHash)?.succeeded).isFalse()
+            }
+        }
+
+    /**
+     * The block the transaction landed in is what a confirmation pins its read to, so losing it
+     * here is what forced verification back onto `latest` — and onto whatever head answered.
+     */
+    @Test
+    fun `a mined receipt carries the block it landed in`(): Unit = runBlocking {
+        rpc.stubObject("eth_getTransactionReceipt", receipt(status = "0x1"))
+        val reader = makeReader(chainId = 1)
+
+        assertThat(reader.getTransactionReceipt(1, txHash)?.blockNumber).isEqualTo("0x10")
+    }
+
+    @Test
+    fun `a receipt with no blockNumber is malformed rather than confirmable`() {
+        rpc.stubObject(
+            "eth_getTransactionReceipt",
+            JSONObject().put("transactionHash", txHash).put("status", "0x1")
+        )
+        val reader = makeReader(chainId = 1)
+
+        assertThrows(RainError.InternalError::class.java) {
+            runBlocking { reader.getTransactionReceipt(1, txHash) }
+        }
+    }
+
+    /** The value is sent back to a node as a block tag, so a non-quantity cannot be passed through. */
+    @Test
+    fun `a non-quantity blockNumber is rejected rather than used as a block tag`() {
+        rpc.stubObject(
+            "eth_getTransactionReceipt",
+            JSONObject()
+                .put("transactionHash", txHash)
+                .put("blockNumber", "latest")
+                .put("status", "0x1")
+        )
+        val reader = makeReader(chainId = 1)
+
+        assertThrows(RainError.InternalError::class.java) {
+            runBlocking { reader.getTransactionReceipt(1, txHash) }
+        }
+    }
+
+    /** A pending transaction: the node has the hash but no receipt yet. `null` means keep polling. */
+    @Test
+    fun `a null result reads as pending rather than reverted`(): Unit = runBlocking {
+        rpc.stubObject("eth_getTransactionReceipt", JSONObject.NULL)
+        val reader = makeReader(chainId = 1)
+
+        assertThat(reader.getTransactionReceipt(1, txHash)).isNull()
+    }
+
+    @Test
+    fun `a status outside 0 and 1 is malformed rather than guessed at`() {
+        rpc.stubObject("eth_getTransactionReceipt", receipt(status = "0x2"))
+        val reader = makeReader(chainId = 1)
+
+        assertThrows(RainError.InternalError::class.java) {
+            runBlocking { reader.getTransactionReceipt(1, txHash) }
+        }
+    }
+
+    @Test
+    fun `a non-hex status is malformed rather than guessed at`() {
+        rpc.stubObject("eth_getTransactionReceipt", receipt(status = "success"))
+        val reader = makeReader(chainId = 1)
+
+        assertThrows(RainError.InternalError::class.java) {
+            runBlocking { reader.getTransactionReceipt(1, txHash) }
+        }
+    }
+
+    /** Pre-Byzantium receipts carry no status. Unknown is not success. */
+    @Test
+    fun `a receipt with no status field throws instead of reading as mined`() {
+        rpc.stubObject("eth_getTransactionReceipt", JSONObject().put("blockNumber", "0x1"))
+        val reader = makeReader(chainId = 1)
+
+        assertThrows(RainError.InternalError::class.java) {
+            runBlocking { reader.getTransactionReceipt(1, txHash) }
+        }
+    }
+
+    @Test
+    fun `a malformed transaction hash is rejected before hitting the network`() {
+        val reader = makeReader(chainId = 1)
+
+        for (bad in listOf("0xnope", "0x" + "a".repeat(63), "0x" + "a".repeat(65), "a".repeat(64))) {
+            assertThrows(RainError.InvalidConfig::class.java) {
+                runBlocking { reader.getTransactionReceipt(1, bad) }
+            }
+        }
+        assertThat(rpc.recordedMethods).isEmpty()
+    }
+
+    private fun receipt(status: String): JSONObject = JSONObject()
+        .put("transactionHash", txHash)
+        .put("blockNumber", "0x10")
+        .put("status", status)
 
     // ---------- guards ----------
 

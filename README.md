@@ -5,7 +5,7 @@ Android SDK that connects an MPC or embedded wallet — [Portal](https://portalh
 messages, compose withdrawal transactions, sign and submit via a registered wallet provider, read
 balances and history, and estimate fees. Works on EVM chains and Solana.
 
-- **Portal wallet integration** — Register a `PortalProvider` with a Portal session token and resolve a client; use the connected MPC wallet for signing and sending transactions. See [docs/PORTAL_SUPPORT.md](docs/PORTAL_SUPPORT.md) for session refresh and retry behavior.
+- **Portal wallet integration** — Register a `PortalProvider` with a Portal session token and resolve a client; use the connected MPC wallet for signing and sending transactions. Session refresh is host-driven via `PortalConfig.onSessionTokenNeeded` / `onSessionExpired`; see the adapter table in [docs/METHODS.md](docs/METHODS.md#provider-adapters).
 - **Turnkey wallet integration** — Register a `TurnkeyProvider` with an authenticated `TurnkeyContext` (passkeys / auth proxy / OAuth / OTP handled outside Rain by the Turnkey Kotlin SDK). See [docs/TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md).
 - **Privy wallet integration** — Register a `PrivyProvider` with an authenticated `Privy` instance; embedded EVM and Solana wallets are used for custody.
 - **Solana support** — Native SOL and SPL transfers, balances, history, and collateral withdrawal, on the same `RainClient` methods as EVM. See [Solana](#9-solana).
@@ -19,6 +19,7 @@ balances and history, and estimate fees. Works on EVM chains and Solana.
 - **Balances** — Get native, ERC-20, and SPL token balances for the current wallet.
 - **Transaction history** — Get transactions for the current wallet with optional pagination and sort order.
 - **Send tokens** — Send native, ERC-20, or SPL tokens from the current wallet.
+- **Auth Pull approvals** — Approve Rain's operator to spend the user's USDC, read the allowance back, and estimate the approval fee. See [docs/AUTH_PULL.md](docs/AUTH_PULL.md).
 - **Exact money handling** — Public money APIs are `BigDecimal`; base-unit conversion is exact and rejects an amount finer than the token's scale rather than truncating it.
 
 ## Installation
@@ -155,7 +156,8 @@ val balances: List<Balance> = client.getTokenBalances(chainId = 43114)
 // Every configured chain, flattened into one list — each Balance carries its own chainId
 val all: List<Balance> = client.getAllBalances()
 
-// Optionally register extra tokens so their metadata resolves without an on-chain lookup
+// Optionally register extra tokens so their metadata resolves without an on-chain lookup.
+// Built-in tokens are trusted: a registration for an address the SDK already ships is ignored.
 client.registerTokens(
     listOf(TokenInfo(chainId = 43114, address = "0x...", symbol = "FOO", decimals = 18))
 )
@@ -329,7 +331,66 @@ result.transactions.forEach { tx ->
 }
 ```
 
-### 12. QR Code Generation
+### 12. Auth Pull: approve the Rain operator
+
+Auth Pull draws a card authorization's amount straight from the user's wallet into their Rain
+collateral contract. The wallet-side prerequisite is an ERC-20 allowance for Rain's operator — that
+part is the SDK's; the pull itself is Rain's.
+
+```kotlin
+val authPull = RainAuthPullConfig.sandbox(rainOperatorAddress)
+val rain = RainSdk.builder()
+    .rpcEndpoints(rpcEndpoints)
+    .rainApiEnvironment(RainApiEnvironment.Dev)
+    .authPullConfig(authPull)
+    .register(provider)
+    .build()
+
+val client = rain.provider(provider.id)
+
+// 1. What can the operator move today?
+val allowance = client.getTokenAllowance(
+    chainId = RainChain.BASE_SEPOLIA,
+    contractAddress = usdcAddress,
+    spender = rainOperatorAddress   // per environment; read it from Rain
+)
+if (allowance.covers(expectedSpend)) return
+
+// 2. What will the approval cost?
+val fee = client.estimateApprovalFee(RainChain.BASE_SEPOLIA, usdcAddress, rainOperatorAddress)
+
+// 3. Approve. Omitting `amount` approves an unlimited allowance, so the user never re-approves;
+//    pass a BigDecimal to cap it, or BigDecimal.ZERO to revoke.
+val result = client.approveTokenAllowance(
+    chainId = RainChain.BASE_SEPOLIA,
+    contractAddress = usdcAddress,
+    spender = rainOperatorAddress
+)
+println(result.transactionHash)
+
+// A hash means submitted, not ready. Confirm reads the allowance back at the mined block; a
+// timeout is TransactionPending (carrying the hash), not failure — re-read, don't re-approve.
+val confirmed = client.confirmTokenAllowance(
+    transactionHash = result.transactionHash,
+    chainId = RainChain.BASE_SEPOLIA,
+    contractAddress = usdcAddress,
+    spender = rainOperatorAddress
+)
+```
+
+Sandbox runs on Base Sepolia and Arbitrum Sepolia, production on Base and Arbitrum; USDC on all four
+is in the built-in token registry. Auth Pull remains disabled until `authPullConfig(...)` supplies
+Rain's trusted operator and canonical token targets, and the SDK rejects any different chain, token,
+or spender before a wallet prompt. `RainApiEnvironment.Custom` fails closed unless it receives an
+explicit custom Auth Pull configuration.
+
+Gate your UI on `rain.authPullChainIds` (also on `RainClient`), which is what the approval guard
+enforces: the configuration narrowed to chains with an RPC endpoint. `RainAuthPullChains.supported(...)`
+answers for an environment and is the wider set — use it only before an SDK exists.
+`RainTokenAllowance.rawAmount` is the exact base-unit value and the one to compare against — gate on
+`isUnlimited` before rendering a number. Full guide: [docs/AUTH_PULL.md](docs/AUTH_PULL.md).
+
+### 13. QR Code Generation
 
 ```kotlin
 val bitmap = client.generateAddressQRCode(dimension = 256)
@@ -339,7 +400,7 @@ imageView.setImageBitmap(bitmap)
 
 ## Documentation
 
-For a complete reference of all public methods, parameters, types, and error codes, see the [Method Reference](docs/METHODS.md).
+For a complete reference of all public methods, parameters, types, and error codes, see the [Method Reference](docs/METHODS.md). For the Auth Pull approval flow end to end, see [docs/AUTH_PULL.md](docs/AUTH_PULL.md).
 
 ## License
 

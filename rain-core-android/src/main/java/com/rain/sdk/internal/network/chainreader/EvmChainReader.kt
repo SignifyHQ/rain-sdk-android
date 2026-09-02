@@ -15,16 +15,18 @@ import kotlinx.coroutines.coroutineScope
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
 import java.math.BigDecimal
+import java.math.BigInteger
 
 /**
  * EVM implementation of [ChainReader].
  *
  * Primary path — Multicall3 (`aggregate3`) for batched balance reads, so a wallet holding
  * N tokens on a chain costs one RPC round-trip regardless of N. Used when
- * [isMulticall3CanonicallyDeployed] returns true for the target chain.
+ * [multicall3Address] knows a deployment for the target chain (zkSync Era is at a
+ * non-canonical address).
  *
  * Fallback — parallel `eth_call` (`balanceOf`) and `eth_getBalance`, used on chains outside
- * the canonical deployment list.
+ * the deployment map.
  *
  * Native balance failures are fatal — they indicate a chain-wide problem (bad RPC, wrong
  * chain ID). Per-token failures (a single `balanceOf` reverts) are logged via Timber and
@@ -39,6 +41,12 @@ internal class EvmChainReader(
     private companion object {
         /** Decimals used for native balances. Every chain the SDK targets today uses 18. */
         const val DEFAULT_NATIVE_DECIMALS = 18
+
+        /** An EVM transaction hash: 32 bytes of hex behind a `0x`. */
+        val TRANSACTION_HASH = Regex("^0x[0-9a-fA-F]{64}$")
+
+        /** A JSON-RPC quantity — validated before a node-supplied value is sent back as a block tag. */
+        val HEX_QUANTITY = Regex("^0[xX][0-9a-fA-F]+$")
     }
 
     /** Convenience constructor backed by a static `chainId → rpcUrl` map. */
@@ -94,8 +102,9 @@ internal class EvmChainReader(
         malformed.forEach {
             Timber.w("Rain SDK: skipping token with malformed address ${it.address} on chainId=$chainId")
         }
-        return if (isMulticall3CanonicallyDeployed(chainId)) {
-            fetchViaMulticall3(rpcUrl, chainId, walletAddress, valid)
+        val multicallAddress = multicall3Address(chainId)
+        return if (multicallAddress != null) {
+            fetchViaMulticall3(rpcUrl, chainId, multicallAddress, walletAddress, valid)
         } else {
             fetchViaParallelCalls(rpcUrl, chainId, walletAddress, valid)
         }
@@ -138,7 +147,7 @@ internal class EvmChainReader(
         val rpcUrl = resolveRpcUrl(chainId)
         validateAddress(tokenAddress, "token address")
         val hex = ethCall(rpcUrl, tokenAddress, "0x" + ERC20Selectors.DECIMALS)
-        return EthereumConverter.parseHexToInt(hex)
+        return EthereumConverter.parseHexToIntStrict(hex)
     }
 
     override suspend fun getSymbol(chainId: Int, tokenAddress: String): String? {
@@ -155,16 +164,82 @@ internal class EvmChainReader(
         return EthereumConverter.parseHexToString(hex)
     }
 
+    override suspend fun getErc20Allowance(
+        chainId: Int,
+        tokenAddress: String,
+        owner: String,
+        spender: String,
+        atBlock: String
+    ): BigInteger {
+        val rpcUrl = resolveRpcUrl(chainId)
+        validateAddress(tokenAddress, "token address")
+        validateAddress(owner, "owner address")
+        validateAddress(spender, "spender address")
+        val hex = ethCall(rpcUrl, tokenAddress, Erc20Calldata.allowance(owner, spender), atBlock)
+        return EthereumConverter.parseHexToBigIntegerStrict(hex)
+    }
+
+    override suspend fun getTransactionReceipt(
+        chainId: Int,
+        transactionHash: String
+    ): MinedReceipt? {
+        if (!TRANSACTION_HASH.matches(transactionHash)) {
+            throw RainError.InvalidConfig("Invalid transaction hash: $transactionHash")
+        }
+        val rpcUrl = resolveRpcUrl(chainId)
+        val response = jsonRpcClient.call(
+            rpcUrl = rpcUrl,
+            method = "eth_getTransactionReceipt",
+            params = listOf(transactionHash)
+        )
+        if (response.isNull("result")) return null
+        val receipt = response.optJSONObject("result")
+            ?: throw RainError.InternalError("Malformed transaction receipt for $transactionHash")
+        val status = receipt.opt("status") as? String
+            ?: throw RainError.InternalError(
+                "Transaction receipt for $transactionHash carries no status field"
+            )
+        // Kept, not discarded: without it a caller can only read at whatever head answers next.
+        val blockNumber = receipt.opt("blockNumber") as? String
+            ?: throw RainError.InternalError(
+                "Transaction receipt for $transactionHash carries no blockNumber field"
+            )
+        if (!HEX_QUANTITY.matches(blockNumber)) {
+            throw RainError.InternalError(
+                "Malformed receipt blockNumber for $transactionHash: $blockNumber"
+            )
+        }
+        // Decoded as a quantity rather than matched against literals: nodes are inconsistent about
+        // minimal hex encoding, and a node answering "0x01" would otherwise make a perfectly good
+        // approval receipt read as malformed.
+        val succeeded = when (EthereumConverter.parseHexToBigIntegerStrict(status)) {
+            BigInteger.ONE -> true
+            BigInteger.ZERO -> false
+            else -> throw RainError.InternalError(
+                "Malformed transaction receipt status for $transactionHash: $status"
+            )
+        }
+        return MinedReceipt(succeeded = succeeded, blockNumber = blockNumber)
+    }
+
     /**
-     * Issues a raw `eth_call` and returns the hex result. For read functions with
+     * Issues a raw `eth_call` at [block] and returns the hex result. For read functions with
      * pre-encoded [data] (no-arg selectors like `decimals()` / `symbol()`, or `balanceOf`).
+     *
+     * A node that has not reached [block] errors instead of answering from older state — a retryable
+     * failure, where a stale success would be undetectable.
      */
-    private suspend fun ethCall(rpcUrl: String, to: String, data: String): String {
+    private suspend fun ethCall(
+        rpcUrl: String,
+        to: String,
+        data: String,
+        block: String = LATEST_BLOCK
+    ): String {
         val callParams = mapOf("to" to to, "data" to data)
         return jsonRpcClient.callForHexResult(
             rpcUrl = rpcUrl,
             method = "eth_call",
-            params = listOf(callParams, "latest")
+            params = listOf(callParams, block)
         )
     }
 
@@ -173,6 +248,7 @@ internal class EvmChainReader(
     private suspend fun fetchViaMulticall3(
         rpcUrl: String,
         chainId: Int,
+        multicallAddress: String,
         walletAddress: String,
         tokens: List<TokenInfo>
     ): List<Balance> {
@@ -181,7 +257,7 @@ internal class EvmChainReader(
         val calls = buildList {
             add(
                 Multicall3.Call3(
-                    target = Multicall3.CANONICAL_ADDRESS,
+                    target = multicallAddress,
                     allowFailure = true,
                     callData = Multicall3.encodeGetEthBalance(walletAddress)
                 )
@@ -198,7 +274,7 @@ internal class EvmChainReader(
         }
 
         val aggregateCallData = Multicall3.encodeAggregate3(calls)
-        val callParams = mapOf("to" to Multicall3.CANONICAL_ADDRESS, "data" to aggregateCallData)
+        val callParams = mapOf("to" to multicallAddress, "data" to aggregateCallData)
         val hex = jsonRpcClient.callForHexResult(
             rpcUrl = rpcUrl,
             method = "eth_call",

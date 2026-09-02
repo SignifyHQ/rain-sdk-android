@@ -316,6 +316,36 @@ class PortalWalletProviderTest {
     }
 
     @Test
+    fun `ERC-20 approve calldata reaches Portal unchanged through the generic send path`() =
+        runBlocking {
+            // approve(0x5a6E...8f29, uint256 max) — the Auth Pull approval. Portal broadcasts it
+            // through the same path a withdrawal uses; nothing here may rewrite the calldata.
+            val approveCalldata = "0x095ea7b3" +
+                "0000000000000000000000005a6e6b0d5ea051cfff9b3dcc2aa8dac226458f29" +
+                "f".repeat(64)
+            val expectedHash = "0x" + "c".repeat(64)
+            coEvery {
+                portalManager.sendTransaction(
+                    chainId = 1,
+                    from = TestFixtures.WALLET_ADDRESS,
+                    to = TestFixtures.CONTRACT_ADDRESS,
+                    data = approveCalldata,
+                    value = "0x0"
+                )
+            } returns expectedHash
+
+            val txHash = portalWalletProvider.sendTransaction(
+                chainId = 1,
+                from = TestFixtures.WALLET_ADDRESS,
+                to = TestFixtures.CONTRACT_ADDRESS,
+                data = approveCalldata,
+                value = "0x0"
+            )
+
+            assertThat(txHash).isEqualTo(expectedHash)
+        }
+
+    @Test
     fun `sendTransaction propagates TransactionSimulationFailed from PortalManager`() {
         coEvery {
             portalManager.sendTransaction(any(), any(), any(), any(), any())

@@ -48,6 +48,35 @@ class PrivyWalletProviderTest {
     }
 
     @Test
+    fun `ERC-20 approve calldata reaches Privy unchanged through the generic send path`() =
+        runBlocking {
+            // approve(0x5a6E...8f29, uint256 max) — the Auth Pull approval. Core encodes it and
+            // hands it to the provider's generic sendTransaction; nothing here may rewrite it.
+            val approveCalldata = "0x095ea7b3" +
+                "0000000000000000000000005a6e6b0d5ea051cfff9b3dcc2aa8dac226458f29" +
+                "f".repeat(64)
+            val manager = mockk<PrivyManager>()
+            coEvery { manager.getAddress(null) } returns WALLET
+            val txJson = slot<String>()
+            coEvery { manager.sendTransaction(WALLET, RPC, capture(txJson)) } returns "0xAPPROVE"
+
+            val wallet = provider(manager)
+            val hash = wallet.sendTransaction(
+                chainId = 1,
+                from = WALLET,
+                to = CONTRACT,
+                data = approveCalldata,
+                value = "0x0"
+            )
+
+            assertThat(hash).isEqualTo("0xAPPROVE")
+            val tx = JSONObject(txJson.captured)
+            assertThat(tx.getString("to")).isEqualTo(CONTRACT)
+            assertThat(tx.getString("value")).isEqualTo("0x0")
+            assertThat(tx.getString("data")).isEqualTo(approveCalldata)
+        }
+
+    @Test
     fun `sendNativeToken scales the value by the registry's native decimals, not a fixed 18`() = runBlocking {
         val manager = mockk<PrivyManager>()
         coEvery { manager.getAddress(null) } returns WALLET

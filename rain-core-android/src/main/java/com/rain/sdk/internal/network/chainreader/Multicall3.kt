@@ -14,10 +14,16 @@ internal object Multicall3 {
 
     /**
      * Canonical Multicall3 deployment address (https://www.multicall3.com), deployed at the
-     * same address on most major EVM chains. The set of chains where this address is
-     * known-deployed lives in `Multicall3Deployments.kt`.
+     * same address on most major EVM chains. Per-chain addresses (zkSync Era differs) live in
+     * `Multicall3Deployments.kt`.
      */
     const val CANONICAL_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11"
+
+    /**
+     * zkSync Era derives contract addresses differently, so the canonical CREATE2 address does
+     * not exist there; the project ships a separate deployment.
+     */
+    const val ZKSYNC_ERA_ADDRESS = "0xF9cda624FBC7e059355ce98a31693d299FACd963"
 
     // Multicall3-specific function selectors (first 4 bytes of keccak256(signature)).
     // ERC-20 selectors live in `ERC20Selectors`.
@@ -26,7 +32,7 @@ internal object Multicall3 {
 
     /** One entry in an `aggregate3` batch. */
     data class Call3(
-        /** Target contract address (the token contract for `balanceOf`, or `CANONICAL_ADDRESS` for `getEthBalance`). */
+        /** Target contract address (the token contract for `balanceOf`, or the chain's Multicall3 deployment for `getEthBalance`). */
         val target: String,
         /** If true, a revert in this individual call doesn't fail the whole batch. */
         val allowFailure: Boolean,

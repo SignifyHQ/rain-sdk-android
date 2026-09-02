@@ -18,14 +18,34 @@ internal object RainAmountUtils {
                 reason = "amount must not be negative"
             )
         }
-        if (amount.scale() > decimals) {
+        // Scaling raises 10 to this power, and `decimals` can come from an on-chain `decimals()`
+        // read — a contract the SDK does not control. An absurd value would either blow up with a
+        // raw ArithmeticException or allocate a monstrous BigDecimal; reject it as a typed error.
+        // 77 is the ceiling that means anything: uint256 max is ~1.16e77, so one whole unit of a
+        // finer token is unrepresentable.
+        if (decimals !in 0..77) {
             throw RainError.InvalidAmount(
                 amount = amount.toPlainString(),
-                reason = "amount scale (${amount.scale()}) exceeds token decimals ($decimals)"
+                reason = "token decimals must be between 0 and 77, got $decimals"
             )
         }
-        return amount
-            .multiply(BigDecimal.TEN.pow(decimals))
-            .toBigInteger()
+        val baseUnits = try {
+            amount.movePointRight(decimals).toBigIntegerExact()
+        } catch (_: ArithmeticException) {
+            throw RainError.InvalidAmount(
+                amount = amount.toPlainString(),
+                reason = "amount has fractional base units for a $decimals-decimal token"
+            )
+        }
+        if (baseUnits > MAX_UINT256) {
+            throw RainError.InvalidAmount(
+                amount = amount.toPlainString(),
+                reason = "amount exceeds the maximum ERC-20 uint256 value"
+            )
+        }
+        return baseUnits
     }
+
+    private val MAX_UINT256: BigInteger =
+        BigInteger.valueOf(2).pow(256).subtract(BigInteger.ONE)
 }

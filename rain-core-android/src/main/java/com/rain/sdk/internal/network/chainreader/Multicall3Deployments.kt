@@ -1,26 +1,27 @@
 package com.rain.sdk.internal.network.chainreader
 
 /**
- * Set of EVM chains where Multicall3 is known-deployed at [Multicall3.CANONICAL_ADDRESS].
- * Used to decide between the batched `aggregate3` path and the parallel `eth_call` fallback.
+ * Multicall3 address per Rain chain ID. Used to decide between the batched `aggregate3` path
+ * and the parallel `eth_call` fallback, and to target the batch.
  *
  * Source: https://www.multicall3.com/deployments
  */
-internal val CANONICALLY_DEPLOYED_CHAIN_IDS: Set<Int> = setOf(
-    1,       // Ethereum
-    10,      // Optimism
-    56,      // BNB Chain
-    137,     // Polygon
-    143,     // Monad
-    324,     // zkSync Era
-    8453,    // Base
-    9745,    // Plasma
-    42161,   // Arbitrum
-    42220,   // Celo
-    43114,   // Avalanche
-    57073,   // Ink
+internal val MULTICALL3_DEPLOYMENTS: Map<Int, String> = mapOf(
+    1 to Multicall3.CANONICAL_ADDRESS,        // Ethereum
+    10 to Multicall3.CANONICAL_ADDRESS,       // Optimism
+    56 to Multicall3.CANONICAL_ADDRESS,       // BNB Chain
+    137 to Multicall3.CANONICAL_ADDRESS,      // Polygon
+    143 to Multicall3.CANONICAL_ADDRESS,      // Monad
+    324 to Multicall3.ZKSYNC_ERA_ADDRESS,     // zkSync Era
+    8453 to Multicall3.CANONICAL_ADDRESS,     // Base
+    9745 to Multicall3.CANONICAL_ADDRESS,     // Plasma
+    42161 to Multicall3.CANONICAL_ADDRESS,    // Arbitrum
+    42220 to Multicall3.CANONICAL_ADDRESS,    // Celo
+    43114 to Multicall3.CANONICAL_ADDRESS,    // Avalanche
+    57073 to Multicall3.CANONICAL_ADDRESS,    // Ink
+    84532 to Multicall3.CANONICAL_ADDRESS,    // Base Sepolia
+    421614 to Multicall3.CANONICAL_ADDRESS,   // Arbitrum Sepolia
 )
 
-/** True when Multicall3 is known-deployed at [Multicall3.CANONICAL_ADDRESS] on [chainId]. */
-internal fun isMulticall3CanonicallyDeployed(chainId: Int): Boolean =
-    chainId in CANONICALLY_DEPLOYED_CHAIN_IDS
+/** The Multicall3 address on [chainId], or null where no deployment is known. */
+internal fun multicall3Address(chainId: Int): String? = MULTICALL3_DEPLOYMENTS[chainId]

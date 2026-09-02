@@ -1,6 +1,16 @@
 package com.rain.sdk.internal.core
 
+import com.rain.sdk.RainAuthPullChains
 import com.rain.sdk.internal.constants.SolanaChains
+import com.rain.sdk.internal.abi.Erc20Abi
+import com.rain.sdk.models.RainApiEnvironment
+import com.rain.sdk.internal.network.chainreader.ChainReader
+import com.rain.sdk.internal.network.chainreader.EvmChainReader
+import com.rain.sdk.internal.network.chainreader.MinedReceipt
+import com.rain.sdk.internal.utils.RainAmountUtils
+import com.rain.sdk.internal.utils.isValidEthereumAddress
+import com.rain.sdk.models.RainTokenAllowance
+import com.rain.sdk.models.RainTokenApprovalResult
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.interfaces.RainTransactionBuilder
@@ -36,6 +46,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.math.BigDecimal
 import java.math.BigInteger
@@ -68,7 +79,25 @@ internal class RainSdkManager(
   private val errorMapper: ErrorMapper = ErrorMapper(),
   transactionBuilder: RainTransactionBuilder = RainTransactionBuilderImpl(rpcEndpoints),
   override val providerId: ProviderId = walletProvider.id,
-  override val capabilities: Set<Capability> = walletProvider.capabilities
+  override val capabilities: Set<Capability> = walletProvider.capabilities,
+  /**
+   * Read-only chain access for state the wallet provider does not expose — today, ERC-20
+   * allowances. Balances still route through the provider, which may have a faster native API.
+   */
+  private val chainReader: ChainReader = EvmChainReader(rpcEndpoints = rpcEndpoints),
+  /**
+   * Chains an Auth Pull approval may target: the host's [com.rain.sdk.RainAuthPullConfig] narrowed
+   * to the chains that have an RPC endpoint. Held as a resolved set rather than the environment
+   * itself so the approval guard has one thing to check and no opinion about API hosts, and
+   * exposed on [RainClient] so host UI can gate on exactly what the guard enforces.
+   */
+  override val authPullChainIds: Set<Int> = emptySet(),
+  /** Rain's operator for the configured environment — the only spender an approval may name. */
+  private val authPullOperator: String? = null,
+  /** The trusted token contract per Auth Pull chain — the only token an approval may target. */
+  private val authPullTokenAddresses: Map<Int, String> = emptyMap(),
+  /** Pause between confirmation polls; injectable so tests can drive the full window instantly. */
+  private val approvalConfirmationIntervalMs: Long = APPROVAL_CONFIRMATION_INTERVAL_MS
 ) : RainClient {
 
   /** Chains the SDK was initialized with; [getAllBalances] fans out across them. */
@@ -377,6 +406,353 @@ internal class RainSdkManager(
         }
       }.awaitAll().flatten()
     }
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // Token approvals (Auth Pull)
+  //
+  // The wallet-side prerequisite for Rain's Auth Pull: approve the Rain operator to move USDC
+  // from the user's wallet, read back what it may still move, and price the approval beforehand.
+  // The pull itself is Rain's, not the SDK's.
+  //
+  // Approvals ride the same generic pipeline as any other send — calldata from `Erc20Abi`,
+  // broadcast through `TransactionExecutor.sendTransaction` — so provider-specific behaviour
+  // (Portal/Privy simulation, biometric prompts) applies unchanged.
+  // ---------------------------------------------------------------------------------------
+
+  override suspend fun approveTokenAllowance(
+    chainId: Int,
+    contractAddress: String,
+    spender: String,
+    amount: BigDecimal?
+  ): RainTokenApprovalResult {
+    return try {
+      val (from, data) = buildApproval(chainId, contractAddress, spender, amount)
+      val txHash = executor.sendTransaction(
+        chainId = chainId,
+        from = from,
+        to = contractAddress,
+        data = data,
+        value = "0x0"
+      )
+      Timber.i("Rain SDK: Approval transaction submitted. Hash: %s", txHash)
+      RainTokenApprovalResult(transactionHash = txHash)
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      if (e is RainError) throw e
+      Timber.e(e, "Rain SDK: Failed to approve token allowance")
+      throw errorMapper.mapTransactionError(e)
+    }
+  }
+
+  override suspend fun getTokenAllowance(
+    chainId: Int,
+    contractAddress: String,
+    spender: String,
+    owner: String?
+  ): RainTokenAllowance {
+    return try {
+      validateApprovalRequest(chainId, contractAddress, spender)
+
+      val resolvedOwner = owner ?: walletProvider.getWalletAddress()
+      if (!resolvedOwner.isValidEthereumAddress) {
+        throw RainError.InvalidConfig("Invalid owner address: $resolvedOwner")
+      }
+
+      val rawAmount = chainReader.getErc20Allowance(
+        chainId = chainId,
+        tokenAddress = contractAddress,
+        owner = resolvedOwner,
+        spender = spender
+      )
+      // Same strictness as the approval: an allowance whose scale is a guess cannot be compared
+      // against anything — `covers` would answer from the wrong exponent.
+      val resolvedDecimals = requireDecimals(chainId, contractAddress)
+
+      RainTokenAllowance(
+        chainId = chainId,
+        tokenAddress = contractAddress,
+        owner = resolvedOwner,
+        spender = spender,
+        rawAmount = rawAmount,
+        decimals = resolvedDecimals
+      )
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      if (e is RainError) throw e
+      Timber.e(e, "Rain SDK: Failed to read token allowance")
+      throw errorMapper.mapTransactionError(e)
+    }
+  }
+
+  override suspend fun estimateApprovalFee(
+    chainId: Int,
+    contractAddress: String,
+    spender: String,
+    amount: BigDecimal?
+  ): BigDecimal {
+    return try {
+      val (from, data) = buildApproval(chainId, contractAddress, spender, amount)
+      walletProvider.estimateTransactionFee(
+        chainId = chainId,
+        from = from,
+        to = contractAddress,
+        data = data,
+        value = "0x0"
+      )
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      if (e is RainError) throw e
+      Timber.e(e, "Rain SDK: Failed to estimate approval fee")
+      throw errorMapper.mapTransactionError(e)
+    }
+  }
+
+  override suspend fun confirmTokenAllowance(
+    transactionHash: String,
+    chainId: Int,
+    contractAddress: String,
+    spender: String,
+    amount: BigDecimal?,
+    owner: String?
+  ): RainTokenAllowance {
+    try {
+      validateApprovalRequest(chainId, contractAddress, spender)
+      // Resolved up front: these fail on configuration, not timing, so retrying them changes
+      // nothing.
+      val expectedRaw = approvalBaseUnits(chainId, contractAddress, amount)
+      val resolvedDecimals = requireDecimals(chainId, contractAddress)
+      val resolvedOwner = owner ?: walletProvider.getWalletAddress()
+      if (!resolvedOwner.isValidEthereumAddress) {
+        throw RainError.InvalidConfig("Invalid owner address: $resolvedOwner")
+      }
+
+      var receipt: MinedReceipt? = null
+      var lastReadFailure: Exception? = null
+
+      repeat(APPROVAL_CONFIRMATION_ATTEMPTS) { attempt ->
+        if (receipt == null) {
+          // The approval is already out, so a failed receipt read is a reason to try again, not
+          // a verdict on the transaction. Only a malformed hash is final.
+          val mined = try {
+            chainReader.getTransactionReceipt(chainId, transactionHash)
+          } catch (e: CancellationException) {
+            throw e
+          } catch (e: RainError.InvalidConfig) {
+            throw e
+          } catch (e: Exception) {
+            Timber.w(e, "Rain SDK: Receipt read for %s failed; retrying", transactionHash)
+            lastReadFailure = e
+            null
+          }
+          if (mined != null && !mined.succeeded) {
+            throw RainError.TransactionSimulationFailed(
+              IllegalStateException("Approval transaction reverted on-chain: $transactionHash")
+            )
+          }
+          receipt = mined
+        }
+
+        receipt?.let { mined ->
+          val rawAmount = try {
+            chainReader.getErc20Allowance(
+              chainId = chainId,
+              tokenAddress = contractAddress,
+              owner = resolvedOwner,
+              spender = spender,
+              atBlock = mined.blockNumber
+            )
+          } catch (e: CancellationException) {
+            throw e
+          } catch (e: Exception) {
+            Timber.w(
+              e,
+              "Rain SDK: Allowance read at block %s failed; the node may not have it yet",
+              mined.blockNumber
+            )
+            lastReadFailure = e
+            null
+          }
+
+          if (rawAmount != null) {
+            val allowance = RainTokenAllowance(
+              chainId = chainId,
+              tokenAddress = contractAddress,
+              owner = resolvedOwner,
+              spender = spender,
+              rawAmount = rawAmount,
+              decimals = resolvedDecimals
+            )
+            verifyConfirmedAllowance(allowance, expectedRaw)
+            return allowance
+          }
+        }
+
+        if (attempt < APPROVAL_CONFIRMATION_ATTEMPTS - 1) {
+          delay(approvalConfirmationIntervalMs)
+        }
+      }
+
+      val mined = receipt
+      if (mined == null) {
+        // Not a failure: the approval may still mine. The hash is what the host resumes from —
+        // re-read the allowance or confirm again, never re-approve.
+        Timber.w(
+          lastReadFailure,
+          "Rain SDK: Approval %s was not confirmed within the window",
+          transactionHash
+        )
+        throw RainError.TransactionPending(transactionHash)
+      }
+      // Mined, but the allowance never read back. Surface the node's own failure where there is
+      // one; a generic timeout would hide why every read at that block failed.
+      throw when (val cause = lastReadFailure) {
+        is RainError -> cause
+        else -> RainError.NetworkError(
+          message = "Approval transaction $transactionHash mined in block ${mined.blockNumber}, " +
+            "but the allowance could not be read at that block before timing out",
+          cause = cause
+        )
+      }
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      if (e is RainError) throw e
+      Timber.e(e, "Rain SDK: Failed to confirm token allowance")
+      throw errorMapper.mapTransactionError(e)
+    }
+  }
+
+  /**
+   * Checks the allowance a mined approval actually left behind, read at the block it mined in.
+   *
+   * Pinning the read to that block is what makes the comparison exact: `approve` sets the value
+   * outright and later blocks cannot move what it reads. Anything but the requested amount
+   * therefore means the approval did not do what was asked — a revoke that left a spendable
+   * allowance, an approval that mined against nothing (the shape a wrong owner, token, or
+   * spender produces), or one that reverted inside a bundle whose transaction as a whole
+   * succeeded: below when it was raising the allowance, above when it was lowering it.
+   *
+   * One edge: the read sees end-of-block state, so an Auth Pull `transferFrom` mined later in the
+   * same block also reads back lower and is reported here as a mismatch.
+   */
+  private fun verifyConfirmedAllowance(allowance: RainTokenAllowance, expectedRaw: BigInteger) {
+    if (expectedRaw.signum() == 0) {
+      if (!allowance.isZero) {
+        throw RainError.InternalError(
+          "Revoke mined but ${allowance.spender} still holds an allowance of ${allowance.rawAmount}"
+        )
+      }
+      return
+    }
+    if (allowance.isZero) {
+      throw RainError.InternalError(
+        "Approval mined but the allowance for ${allowance.spender} on ${allowance.tokenAddress} " +
+          "is still zero; expected $expectedRaw"
+      )
+    }
+    if (allowance.rawAmount < expectedRaw) {
+      throw RainError.InternalError(
+        "Approval mined but the allowance for ${allowance.spender} on ${allowance.tokenAddress} " +
+          "is ${allowance.rawAmount}, below the requested $expectedRaw"
+      )
+    }
+    if (allowance.rawAmount > expectedRaw) {
+      throw RainError.InternalError(
+        "Approval mined but the allowance for ${allowance.spender} on ${allowance.tokenAddress} " +
+          "is ${allowance.rawAmount}, above the requested $expectedRaw"
+      )
+    }
+  }
+
+  /**
+   * Builds the `approve` transaction shared by the broadcast and estimate paths, so the fee is
+   * priced against the exact calldata that would be sent.
+   */
+  private suspend fun buildApproval(
+    chainId: Int,
+    contractAddress: String,
+    spender: String,
+    amount: BigDecimal?
+  ): Pair<String, String> {
+    validateApprovalRequest(chainId, contractAddress, spender)
+
+    val from = walletProvider.getWalletAddress()
+    val allowanceBaseUnits = approvalBaseUnits(chainId, contractAddress, amount)
+    return from to Erc20Abi.encodeApprove(spender, allowanceBaseUnits)
+  }
+
+  /**
+   * An omitted amount means unlimited, which needs no decimals and so no metadata read. A
+   * supplied amount is scaled by the token's decimals, and `0` is legal — that is a revoke.
+   */
+  private suspend fun approvalBaseUnits(
+    chainId: Int,
+    contractAddress: String,
+    amount: BigDecimal?
+  ): BigInteger {
+    if (amount == null) return RainTokenAllowance.UNLIMITED_RAW_AMOUNT
+    if (amount.signum() < 0) {
+      throw RainError.InvalidAmount(
+        amount = amount.toPlainString(),
+        reason = "approval amount must not be negative"
+      )
+    }
+    val resolvedDecimals = requireDecimals(chainId, contractAddress)
+    return RainAmountUtils.toBaseUnits(amount, resolvedDecimals)
+  }
+
+  /**
+   * Rejects approval parameters that cannot produce a valid transaction, before any network call
+   * or signature prompt.
+   */
+  private fun validateApprovalRequest(chainId: Int, contractAddress: String, spender: String) {
+    if (chainId <= 0) {
+      throw RainError.InvalidConfig("Invalid chainId: $chainId. Must be a positive integer.")
+    }
+    // SPL delegation is per token account and carries its own semantics, so an ERC-20 approval
+    // has no Solana equivalent to fall back on.
+    if (SolanaChains.isSolanaChain(chainId)) {
+      throw RainError.InternalError(
+        "Token approvals are EVM-only; chainId=$chainId is a Solana chain"
+      )
+    }
+    // Rain's operator and USDC are per environment, and the sandbox and production chain sets are
+    // disjoint. Approving on the other environment's chain mines a real allowance that no
+    // authorization will ever draw on — on mainnet, at real cost. Nothing downstream would catch
+    // it, since `approve` succeeds against any address, so refuse the pairing here.
+    if (authPullOperator == null || authPullTokenAddresses.isEmpty()) {
+      throw RainError.InvalidConfig(
+        "Auth Pull is disabled. Configure RainSdk.Builder.authPullConfig(...) first."
+      )
+    }
+    if (chainId !in authPullChainIds) {
+      throw RainError.InvalidConfig(
+        "chainId=$chainId is not an Auth Pull chain for the configured Rain API environment " +
+          "(expected one of ${authPullChainIds.sorted().joinToString(", ")}). Set " +
+          "RainSdk.Builder.rainApiEnvironment(...) to match the chain you are approving on."
+      )
+    }
+    if (!contractAddress.isValidEthereumAddress) {
+      throw RainError.InvalidConfig("Invalid token contract address: $contractAddress")
+    }
+    if (!spender.isValidEthereumAddress) {
+      throw RainError.InvalidConfig("Invalid spender address: $spender")
+    }
+    if (!spender.equals(authPullOperator, ignoreCase = true)) {
+      throw RainError.InvalidConfig("Spender does not match the configured Auth Pull operator")
+    }
+    val trustedToken = authPullTokenAddresses[chainId]
+      ?: throw RainError.InvalidConfig("No Auth Pull token configured for chainId=$chainId")
+    if (!contractAddress.equals(trustedToken, ignoreCase = true)) {
+      throw RainError.InvalidConfig(
+        "Token contract does not match the configured Auth Pull token for chainId=$chainId"
+      )
+    }
+  }
+
+  internal companion object {
+    const val APPROVAL_CONFIRMATION_ATTEMPTS = 60
+    const val APPROVAL_CONFIRMATION_INTERVAL_MS = 1_000L
   }
 
   override fun registerTokens(tokens: List<TokenInfo>) {

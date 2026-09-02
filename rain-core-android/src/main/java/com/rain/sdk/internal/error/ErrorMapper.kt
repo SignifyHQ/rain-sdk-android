@@ -35,6 +35,15 @@ internal class ErrorMapper {
     }
 
     /**
+     * Maps a vendor failure raised while a provider materializes its wallet, so credentials that
+     * are wrong at init time surface through the same error contract as every later call.
+     */
+    fun mapProviderInitError(e: Exception): RainError {
+        Timber.e(e, "Rain SDK: Provider initialization error")
+        return classify(e)
+    }
+
+    /**
      * Typed signals win over prose heuristics: an HTTP 401 whose body happens to say
      * "session expired, request cancelled" is a session problem, not a user rejection, and
      * hosts branch on TokenExpired/Unauthorized to decide whether to re-authenticate. The

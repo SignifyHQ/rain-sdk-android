@@ -9,6 +9,7 @@ import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.provider.RainProvider
 import io.portalhq.android.Portal
 import io.portalhq.android.mpc.data.FeatureFlags
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -24,6 +25,16 @@ import kotlinx.coroutines.flow.StateFlow
  *                             this provider from it.
  * @param onSessionExpired Fired once per session death when no fresh token could be installed.
  *                         Not on the main thread; restart authentication from here.
+ * @param autoApprove Whether the adapter approves Portal's signing requests for the host. Defaults
+ *                    to `true`: every Rain call that signs is already an explicit, user-initiated
+ *                    SDK call, and Portal raises no UI of its own. Pass `false` only if the host
+ *                    gates signing itself — it must then handle
+ *                    `PortalEvents.PortalSigningRequested` and emit `PortalSigningApproved` on the
+ *                    Portal instance from `onPortalCreated`, or every signature hangs unanswered.
+ *                    Heads-up: the handler is registered on the Portal instance itself, so while
+ *                    this is `true` every signing request on that instance is auto-approved —
+ *                    including ones the host makes directly through the `onPortalCreated` instance.
+ *                    Last so existing positional callers keep compiling.
  */
 class PortalConfig(
     val sessionToken: String,
@@ -31,6 +42,7 @@ class PortalConfig(
     val sessionPolicy: PortalSessionPolicy = PortalSessionPolicy(),
     val onSessionTokenNeeded: (suspend () -> String?)? = null,
     val onSessionExpired: (() -> Unit)? = null,
+    val autoApprove: Boolean = true,
 )
 
 /**
@@ -127,13 +139,21 @@ class PortalProvider internal constructor(
             }
 
         val manager = portalManagerFactory()
-        manager.initialize(
-            apiKey = config.sessionToken,
-            legacyEthChainId = legacyChainId,
-            rpcConfig = eip155RpcConfig,
-            featureFlags = FeatureFlags(isMultiBackupEnabled = true),
-            autoApprove = true,
-        )
+        try {
+            manager.initialize(
+                apiKey = config.sessionToken,
+                legacyEthChainId = legacyChainId,
+                rpcConfig = eip155RpcConfig,
+                featureFlags = FeatureFlags(isMultiBackupEnabled = true),
+                autoApprove = config.autoApprove,
+            )
+            // Portal's constructor is offline; without this probe a bad token would only fail on
+            // the first later call. Turnkey and Privy probe at creation too.
+            manager.verifySession()
+        } catch (e: Exception) {
+            if (e is CancellationException || e is RainError) throw e
+            throw PortalErrorMapping.mapAuthOrNull(e) ?: RainError.ProviderError(e)
+        }
         portalManager = manager
         onPortalCreated?.invoke(manager.getPortalInstance())
 

@@ -1,6 +1,8 @@
 package com.rain.sdk.interfaces
 
 import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.RainTokenAllowance
+import com.rain.sdk.models.RainTokenApprovalResult
 import com.rain.sdk.models.RainTokenTransferResult
 import com.rain.sdk.models.RainTransactionParameters
 import com.rain.sdk.models.RainWithdrawAddresses
@@ -16,6 +18,9 @@ import com.rain.sdk.provider.ProviderId
 import android.graphics.Bitmap
 import java.math.BigDecimal
 import java.math.BigInteger
+
+/** Default body of the Auth Pull methods: implementations that do not support them keep compiling. */
+private const val AUTH_PULL_NOT_SUPPORTED = "Auth Pull is not supported by this RainClient implementation"
 
 /**
  * Operations Rain exposes against a single, already-resolved wallet provider.
@@ -412,9 +417,117 @@ interface RainClient {
             key to balance.decimalAmount.toDouble()
         }
 
+    // ---------------------------------------------------------------------------------------
+    // Token approvals (Auth Pull)
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * The chains this client will accept an Auth Pull approval on, and the only answer that
+     * matches what the approval methods below enforce.
+     *
+     * Empty until `RainSdk.Builder.authPullConfig(...)` supplies the trusted targets, and narrower
+     * than `RainAuthPullChains.supported(environment)` whenever the configuration is narrower than
+     * its environment or a chain has no RPC endpoint. Gate host UI on this rather than on the
+     * environment's chain set, so a chain is never offered that an approval would reject.
+     */
+    val authPullChainIds: Set<Int> get() = emptySet()
+
+    /**
+     * Approves [spender] to move up to [amount] of an ERC-20 token from this wallet, and returns
+     * the resulting transaction hash.
+     *
+     * This is the wallet-side prerequisite for Rain's Auth Pull: the Rain operator must be
+     * approved on the user's wallet before an authorization can pull USDC into their collateral
+     * contract. Rain executes the pull itself; the SDK only sets the allowance.
+     *
+     * Auth Pull is disabled until `RainSdk.Builder.authPullConfig(...)` supplies the trusted
+     * operator and token targets. This method rejects any different chain, token, or spender.
+     *
+     * @param chainId EVM chain the token lives on. Solana chain IDs throw — SPL has no
+     *                ERC-20-style allowance.
+     * @param contractAddress The ERC-20 token contract (USDC for Auth Pull today).
+     * @param spender The address being approved. Source Rain's operator address from Rain rather
+     *                than hardcoding it — it differs between sandbox and production.
+     * @param amount Human-readable allowance (e.g. `250` for 250 USDC). `null` (the default)
+     *               approves an unlimited (`uint256` max) allowance, so the user never has to
+     *               re-approve; `BigDecimal.ZERO` revokes an existing approval.
+     * @return [RainTokenApprovalResult] carrying the transaction hash.
+     */
+    @Throws(RainError::class)
+    suspend fun approveTokenAllowance(
+        chainId: Int,
+        contractAddress: String,
+        spender: String,
+        amount: BigDecimal? = null
+    ): RainTokenApprovalResult = throw RainError.InvalidConfig(AUTH_PULL_NOT_SUPPORTED)
+
+    /**
+     * Reads the ERC-20 allowance [spender] currently holds over [owner]'s balance.
+     *
+     * Call it before approving (to skip a redundant transaction). To confirm an approval was
+     * mined, use [confirmTokenAllowance], this read is unpinned and can still return the
+     * pre-approval value right after submitting.
+     *
+     * @param owner The wallet whose balance is approved. `null` (the default) reads this client's
+     *              own wallet.
+     */
+    @Throws(RainError::class)
+    suspend fun getTokenAllowance(
+        chainId: Int,
+        contractAddress: String,
+        spender: String,
+        owner: String? = null
+    ): RainTokenAllowance = throw RainError.InvalidConfig(AUTH_PULL_NOT_SUPPORTED)
+
+    /**
+     * Estimates the total fee (estimated gas x gas price) to submit the approval, in the chain's
+     * native token. Same parameters as [approveTokenAllowance]; nothing is broadcast and no
+     * signature is requested.
+     */
+    @Throws(RainError::class)
+    suspend fun estimateApprovalFee(
+        chainId: Int,
+        contractAddress: String,
+        spender: String,
+        amount: BigDecimal? = null
+    ): BigDecimal = throw RainError.InvalidConfig(AUTH_PULL_NOT_SUPPORTED)
+
+    /**
+     * Waits for an approval transaction to mine successfully, then reads back the resulting
+     * allowance at the block it mined in. A submitted transaction hash alone does not make Auth
+     * Pull ready.
+     *
+     * Because the read is pinned to the transaction's own block, the result is exactly what the
+     * approval left behind: anything but [amount] means the approval did not do what was asked
+     * (wrong owner, token, or spender, or a revert inside a bundle — leaving less when raising
+     * the allowance, more when lowering it) and throws, as does a revoke that left a spendable
+     * allowance.
+     *
+     * @param amount The allowance that was requested, so the result can be checked against it.
+     *               `null` (the default) means the unlimited approval.
+     * @throws RainError.TransactionSimulationFailed when the mined transaction reverted.
+     * @throws RainError.TransactionPending when the transaction has not mined by the end of the
+     *   poll window. Not a failure: `statusId` carries [transactionHash]; re-read the allowance or
+     *   confirm again rather than re-approving.
+     * @throws RainError.InternalError when the mined allowance contradicts the request. An Auth
+     *   Pull `transferFrom` mined later in the same block also reads back lower and surfaces here;
+     *   re-read with [getTokenAllowance] before treating it as a failed approval.
+     */
+    @Throws(RainError::class)
+    suspend fun confirmTokenAllowance(
+        transactionHash: String,
+        chainId: Int,
+        contractAddress: String,
+        spender: String,
+        amount: BigDecimal? = null,
+        owner: String? = null
+    ): RainTokenAllowance = throw RainError.InvalidConfig(AUTH_PULL_NOT_SUPPORTED)
+
     /**
      * Registers additional tokens with the SDK so their metadata (decimals / symbol) resolves
      * without an on-chain enrichment call. Retained across re-initialization; cleared by [reset].
+     * Re-registering a host-added address replaces its entry; built-in registry tokens are
+     * trusted and cannot be overridden.
      *
      * @param tokens Tokens to add to the SDK's token store.
      */

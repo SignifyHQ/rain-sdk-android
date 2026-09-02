@@ -14,3 +14,7 @@ internal val String.isValidEthereumAddress: Boolean
         if (cleaned.length != 40) return false
         return cleaned.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }
     }
+
+/** True for the zero address in any casing, with or without a `0x` prefix. */
+internal val String.isZeroAddress: Boolean
+    get() = strippingHexPrefix().let { it.isNotEmpty() && it.all { c -> c == '0' } }

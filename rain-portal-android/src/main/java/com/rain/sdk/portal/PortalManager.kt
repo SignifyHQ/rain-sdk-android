@@ -17,6 +17,8 @@ import java.math.BigInteger
 import io.portalhq.android.api.data.GetTransactionsOrder
 import io.portalhq.android.api.data.Transaction
 import io.portalhq.android.storage.mobile.PortalNamespace
+import io.portalhq.android.provider.data.PortalProviderResult
+import io.portalhq.android.provider.data.PortalProviderRpcResponse
 import io.portalhq.android.provider.data.PortalRequestMethod
 import org.web3j.abi.FunctionEncoder
 import org.web3j.abi.TypeReference
@@ -32,6 +34,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
@@ -42,7 +45,10 @@ import java.math.BigDecimal
  * Provides a clean API for signing and sending transactions through Portal,
  * and manages the Portal instance lifecycle.
  */
-internal class PortalManager {
+internal class PortalManager(
+  /** Pause between post-submit retries (UserOperation scan, block-number read); injectable for tests. */
+  private val retryIntervalMs: Long = UserOperationLookup.INTERVAL_MS
+) {
 
   @Volatile
   private var _portal: Portal? = null
@@ -85,6 +91,21 @@ internal class PortalManager {
     swapPortal(apiKey)
   }
 
+  /**
+   * Round-trips the session token against Portal's API. Construction never touches the network,
+   * so this is where a rejected token first fails — as [RainError.TokenExpired], not a raw 401.
+   */
+  suspend fun verifySession() {
+    val portal = getPortalInstance()
+    try {
+      portal.api.getClient()
+    } catch (e: Exception) {
+      if (e is CancellationException || e is RainError) throw e
+      throw PortalErrorMapping.mapAuthOrNull(e)
+        ?: if (PortalErrorMapping.isTransient(e)) RainError.NetworkError(cause = e) else RainError.ProviderError(e)
+    }
+  }
+
   /** Rebuilds the client around a new token with the config from [initialize]; MPC shares survive. */
   fun reinitialize(apiKey: String) {
     if (_portal == null) throw RainError.SdkNotInitialized()
@@ -103,21 +124,30 @@ internal class PortalManager {
       autoApprove = autoApprove
     )
 
-    // Setup auto-signing handler matching InitPortalUseCase logic
-    portal.on(PortalEvents.PortalSigningRequested) { data ->
-      Timber.d("Rain SDK: Auto-approving signing request")
-      if (nextScope.isActive) {
-        nextScope.launch {
-          portal.emit(PortalEvents.PortalSigningApproved, data)
+    // Portal raises no approval UI of its own: an unanswered PortalSigningRequested just hangs the
+    // signature. The handler is therefore registered unless the host opted out to gate signing
+    // itself, in which case answering the event is the host's job.
+    if (autoApprove) {
+      portal.on(PortalEvents.PortalSigningRequested) { data ->
+        Timber.d("Rain SDK: Auto-approving signing request")
+        if (nextScope.isActive) {
+          nextScope.launch {
+            portal.emit(PortalEvents.PortalSigningApproved, data)
+          }
         }
       }
+    } else {
+      Timber.w(
+        "Rain SDK: Portal autoApprove is disabled — the host must answer " +
+          "PortalSigningRequested or every signature will hang"
+      )
     }
 
     // Publish before retiring the old one so concurrent callers never see a gap.
     scope = nextScope
     _portal = portal
     previousScope.cancel()
-    Timber.d("Rain SDK: Portal initialized successfully with event handlers")
+    Timber.d("Rain SDK: Portal initialized (autoApprove=$autoApprove)")
   }
 
   /**
@@ -490,12 +520,18 @@ internal class PortalManager {
       )
     } catch (e: Exception) {
       if (e is CancellationException) throw e
+      if (e is RainError) throw e
       Timber.e(e, "Rain SDK: Transaction simulation failed (eth_call)")
-      // Auth failures (401 / invalid API key) surface as TokenExpired even here; anything
-      // else that fails the pre-flight is a simulation failure.
+      // A rejected token is a session problem and a network failure is retryable: neither is a
+      // verdict on the transaction, and calling them a failed simulation would tell the
+      // withdrawal flow the send reverted when it never left the device.
       PortalErrorMapping.mapAuthOrNull(e)?.let { throw it }
+      if (PortalErrorMapping.isTransient(e)) throw RainError.NetworkError(e.message, e)
       throw RainError.TransactionSimulationFailed(e)
     }
+
+    // Read before the submit, so the UserOperation scan below has a lower bound to search from.
+    val submittedFrom = currentBlockNumber(portal, eip155ChainId)
 
     val params = EthTransactionParam(
       from = from,
@@ -526,7 +562,168 @@ internal class PortalManager {
       PortalErrorMapping.mapSimulationOrNull(e)?.let { throw it }
       throw e
     }
-    return result.toTransactionHash()
+    return minedTransactionHash(
+      portal = portal,
+      chainId = eip155ChainId,
+      hash = result.toTransactionHash(),
+      fromBlock = submittedFrom
+    )
+  }
+
+  /**
+   * Where the Portal environment has Account Abstraction enabled on a chain, `eth_sendTransaction`
+   * returns a UserOperation hash rather than a transaction hash. No node has heard of that hash,
+   * so a receipt poll on it never terminates. Resolve it through the EntryPoint's
+   * `UserOperationEvent` and return the hash the operation was actually mined under.
+   *
+   * A plain transaction is in the mempool the moment it is submitted, so it returns on the first
+   * pass and never reaches the scan.
+   */
+  private suspend fun minedTransactionHash(
+    portal: Portal,
+    chainId: String,
+    hash: String,
+    fromBlock: BigInteger?
+  ): String {
+    // A lookup that keeps failing looks the same as "not mined yet" from the outside; keep the
+    // last failure so the terminal log says which it was.
+    var lastLookupFailure: Exception? = null
+    val recordFailure = { e: Exception -> lastLookupFailure = e }
+
+    // Without a lower bound there is nothing to scan; only hand the hash on if a node knows it.
+    if (fromBlock == null) {
+      if (isKnownTransaction(portal, chainId, hash, recordFailure)) return hash
+      Timber.w(
+        lastLookupFailure,
+        "Rain SDK: %s could not be verified as a transaction hash (block read failed)",
+        hash
+      )
+      throw RainError.TransactionPending(hash)
+    }
+
+    repeat(UserOperationLookup.ATTEMPTS) { attempt ->
+      if (isKnownTransaction(portal, chainId, hash, recordFailure)) return hash
+
+      val event = userOperationEvent(portal, chainId, hash, fromBlock, recordFailure)
+      if (event != null) {
+        val (transactionHash, succeeded) = event
+        if (!succeeded) {
+          throw RainError.TransactionSimulationFailed(
+            IllegalStateException(
+              "UserOperation $hash reverted on-chain in transaction $transactionHash"
+            )
+          )
+        }
+        Timber.i("Rain SDK: UserOperation $hash mined in transaction $transactionHash")
+        return transactionHash
+      }
+
+      if (attempt < UserOperationLookup.ATTEMPTS - 1) delay(retryIntervalMs)
+    }
+
+    // Neither shape resolved within the window. The operation is out and may still mine, so this
+    // is pending, not failure — and the UserOperation hash is what the host resumes from. Handing
+    // it on as a transaction hash would send the caller's receipt poll after something no node
+    // can ever answer for.
+    Timber.w(
+      lastLookupFailure,
+      "Rain SDK: %s did not resolve to a mined transaction within the scan window",
+      hash
+    )
+    throw RainError.TransactionPending(hash)
+  }
+
+  /** Whether the chain knows this hash as a transaction, mined or pending. */
+  private suspend fun isKnownTransaction(
+    portal: Portal,
+    chainId: String,
+    hash: String,
+    onFailure: (Exception) -> Unit
+  ): Boolean {
+    val response = try {
+      portal.request(
+        chainId = chainId,
+        method = PortalRequestMethod.eth_getTransactionByHash,
+        params = listOf(hash)
+      )
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      Timber.w(e, "Rain SDK: eth_getTransactionByHash failed during UserOperation resolution")
+      onFailure(e)
+      return false
+    }
+    return (response.result as? PortalProviderRpcResponse)?.result != null
+  }
+
+  /** Finds the `UserOperationEvent` this hash was emitted under, if it has been included yet. */
+  private suspend fun userOperationEvent(
+    portal: Portal,
+    chainId: String,
+    hash: String,
+    fromBlock: BigInteger,
+    onFailure: (Exception) -> Unit
+  ): Pair<String, Boolean>? {
+    val filter = mapOf(
+      "fromBlock" to "0x" + fromBlock.toString(16),
+      "toBlock" to "latest",
+      // Public RPCs reject an address-less log filter, so name every canonical EntryPoint.
+      "address" to UserOperationLookup.ENTRY_POINTS,
+      "topics" to listOf(UserOperationLookup.EVENT_TOPIC, hash)
+    )
+    val response = try {
+      portal.request(
+        chainId = chainId,
+        method = PortalRequestMethod.eth_getLogs,
+        params = listOf(filter)
+      )
+    } catch (e: Exception) {
+      if (e is CancellationException) throw e
+      Timber.w(e, "Rain SDK: eth_getLogs failed during UserOperation resolution")
+      onFailure(e)
+      return null
+    }
+    val logs = (response.result as? PortalProviderRpcResponse)?.result as? List<*> ?: return null
+    val log = logs.firstOrNull() as? Map<*, *> ?: return null
+    val transactionHash = log["transactionHash"] as? String ?: return null
+    return transactionHash to userOperationSucceeded(log["data"] as? String)
+  }
+
+  /**
+   * Retried on failure: the read has no side effects, and without it the UserOperation scan is
+   * off for this send.
+   */
+  private suspend fun currentBlockNumber(portal: Portal, chainId: String): BigInteger? {
+    var response: PortalProviderResult? = null
+    for (attempt in 0 until UserOperationLookup.BLOCK_NUMBER_ATTEMPTS) {
+      response = try {
+        portal.request(
+          chainId = chainId,
+          method = PortalRequestMethod.eth_blockNumber,
+          params = emptyList()
+        )
+      } catch (e: Exception) {
+        if (e is CancellationException) throw e
+        Timber.w(e, "Rain SDK: eth_blockNumber read failed (attempt %d)", attempt + 1)
+        if (attempt < UserOperationLookup.BLOCK_NUMBER_ATTEMPTS - 1) delay(retryIntervalMs)
+        null
+      }
+      if (response != null) break
+    }
+    val hex = (response?.result as? PortalProviderRpcResponse)?.result as? String ?: return null
+    val block = hex.removePrefix("0x").toBigIntegerOrNull(16) ?: return null
+    return if (block > BigInteger.ZERO) block else null
+  }
+
+  /**
+   * `UserOperationEvent` data is `(nonce, success, actualGasCost, actualGasUsed)`. An unreadable
+   * payload counts as success: the operation was mined, and inventing a failure here would mask
+   * whatever the caller's own confirmation reads back.
+   */
+  private fun userOperationSucceeded(data: String?): Boolean {
+    if (data == null || !data.startsWith("0x")) return true
+    val words = data.removePrefix("0x")
+    if (words.length < 128) return true
+    return words.substring(64, 128).any { it != '0' }
   }
 
   /** On-chain ERC-20 metadata for one contract, resolved at most once per `getTransactions` call. */
@@ -686,4 +883,25 @@ internal class PortalManager {
     _portal = null
     Timber.d("Rain SDK: PortalManager destroyed and coroutines cancelled")
   }
+}
+
+private object UserOperationLookup {
+  /**
+   * `UserOperationEvent(bytes32,address,address,uint256,bool,uint256,uint256)`, identical across
+   * EntryPoint versions. Topic 1 is the UserOperation hash.
+   */
+  const val EVENT_TOPIC = "0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f"
+
+  /** Canonical EntryPoint deployments, v0.6 through v0.8. */
+  val ENTRY_POINTS = listOf(
+    "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789",
+    "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+    "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
+  )
+
+  const val ATTEMPTS = 20
+  const val INTERVAL_MS = 1_000L
+
+  /** The pre-submit block read is side-effect free, so a failure is worth a couple of retries. */
+  const val BLOCK_NUMBER_ATTEMPTS = 3
 }

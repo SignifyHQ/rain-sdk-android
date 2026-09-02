@@ -33,7 +33,7 @@ class RainAmountUtilsTest {
             RainAmountUtils.toBaseUnits(BigDecimal("1.2345678"), 6)
         }
         assertThat(ex.amount).isEqualTo("1.2345678")
-        assertThat(ex.message).contains("decimals")
+        assertThat(ex.message).contains("fractional base units")
     }
 
     @Test
@@ -81,11 +81,42 @@ class RainAmountUtilsTest {
     }
 
     @Test
+    fun `out-of-range decimals throw instead of blowing up the scaling math`() {
+        // `decimals` can come from a contract's own `decimals()` read, so an absurd value must
+        // surface as a typed error rather than a raw ArithmeticException or a monstrous alloc.
+        assertThrows(RainError.InvalidAmount::class.java) {
+            RainAmountUtils.toBaseUnits(BigDecimal.ONE, 40_000)
+        }
+        assertThrows(RainError.InvalidAmount::class.java) {
+            RainAmountUtils.toBaseUnits(BigDecimal.ONE, -1)
+        }
+        // The bounds themselves stay usable.
+        assertThat(RainAmountUtils.toBaseUnits(BigDecimal.ONE, 0)).isEqualTo(BigInteger.ONE)
+        assertThat(RainAmountUtils.toBaseUnits(BigDecimal.ZERO, 77)).isEqualTo(BigInteger.ZERO)
+    }
+
+    @Test
     fun `toBaseUnits with a zero-decimal token passes whole amounts and rejects fractions`() {
         assertThat(RainAmountUtils.toBaseUnits(BigDecimal("5"), 0)).isEqualTo(BigInteger("5"))
         val ex = assertThrows(RainError.InvalidAmount::class.java) {
             RainAmountUtils.toBaseUnits(BigDecimal("5.5"), 0)
         }
         assertThat(ex.amount).isEqualTo("5.5")
+    }
+
+    @Test
+    fun `representable trailing zeros are accepted`() {
+        assertThat(RainAmountUtils.toBaseUnits(BigDecimal("250.0000000"), 6))
+            .isEqualTo(BigInteger("250000000"))
+        assertThat(RainAmountUtils.toBaseUnits(BigDecimal("0.0000000"), 6))
+            .isEqualTo(BigInteger.ZERO)
+    }
+
+    @Test
+    fun `amount above uint256 max is rejected`() {
+        val tooLarge = BigInteger.valueOf(2).pow(256).toBigDecimal()
+        assertThrows(RainError.InvalidAmount::class.java) {
+            RainAmountUtils.toBaseUnits(tooLarge, 0)
+        }
     }
 }

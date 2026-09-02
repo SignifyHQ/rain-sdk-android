@@ -120,6 +120,8 @@ internal class TurnkeyWalletProvider(
     // it. Mutex (rather than synchronized) so the suspend-friendly address() doesn't block
     // a thread while it's waiting on Turnkey's refresh.
     private val cachedAddressLock = Mutex()
+    /** Covers nonce acquisition through Turnkey acceptance so concurrent sends cannot reuse it. */
+    private val evmSendLock = Mutex()
     @Volatile
     private var cachedAddress: String? = null
     @Volatile
@@ -295,7 +297,7 @@ internal class TurnkeyWalletProvider(
         to: String,
         data: String,
         value: String
-    ): String {
+    ): String = evmSendLock.withLock {
         requireEvmChain(chainId, "sendTransaction")
         // The body is rebuilt on a refresh-and-retry so the nonce and gas quotes stay fresh.
         val statusId = sessions.executeWrite { session, client ->
@@ -309,7 +311,7 @@ internal class TurnkeyWalletProvider(
             )
             client.ethSendTransaction(sendBody).result.sendTransactionStatusId
         }
-        return pollForTransactionHash(statusId)
+        pollForTransactionHash(statusId)
     }
 
     override suspend fun signTypedData(
@@ -1145,9 +1147,9 @@ internal class TurnkeyWalletProvider(
     private suspend fun pollForTransactionHash(sendTransactionStatusId: String): String {
         for (attempt in 0 until DEFAULT_POLLING_ATTEMPTS) {
             // Session-guarded per poll: a session expiring mid-poll refreshes instead of
-            // aborting a transaction that was already submitted. If the session dies for good,
-            // the status id must survive — losing it here would invite a duplicate send after
-            // re-auth. The expiry hook has already fired by then.
+            // aborting a transaction that was already submitted. Turnkey has accepted it by now,
+            // so a failed status read — session death, network, anything — is not a failed send:
+            // the status id must survive, or the host's natural next move is a duplicate send.
             val status = try {
                 sessions.executeRead { session, client ->
                     client.getSendTransactionStatus(
@@ -1157,7 +1159,10 @@ internal class TurnkeyWalletProvider(
                         )
                     )
                 }
-            } catch (e: RainError.TokenExpired) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "Rain SDK: Turnkey status read failed after submission; reporting pending")
                 throw RainError.TransactionPending(sendTransactionStatusId)
             }
 
@@ -1308,8 +1313,8 @@ internal class TurnkeyWalletProvider(
      */
     private suspend fun pollForSolanaCompletion(sendTransactionStatusId: String): String? {
         for (attempt in 0 until DEFAULT_POLLING_ATTEMPTS) {
-            // A session dying mid-poll stops the status reads, not the submitted transaction:
-            // returning null lets the caller recover the signature from chain.
+            // A failed status read (session death, network) stops the polling, not the submitted
+            // transaction: returning null lets the caller recover the signature from chain.
             val status = try {
                 sessions.executeRead { session, client ->
                     client.getSendTransactionStatus(
@@ -1319,7 +1324,10 @@ internal class TurnkeyWalletProvider(
                         )
                     )
                 }
-            } catch (e: RainError.TokenExpired) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "Rain SDK: Turnkey Solana status read failed after submission")
                 return null
             }
 
