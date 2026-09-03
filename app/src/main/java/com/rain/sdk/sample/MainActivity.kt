@@ -53,7 +53,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun SampleApp() {
     val navController = rememberNavController()
-    var selectedChain by remember { mutableStateOf(WalletChain.EVM) }
+    var selectedChain by remember { mutableStateOf(WalletChain.BASE_SEPOLIA) }
     val session = (LocalContext.current.applicationContext as RainSampleApp).session
 
     Scaffold(

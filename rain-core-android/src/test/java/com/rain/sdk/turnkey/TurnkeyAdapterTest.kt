@@ -500,6 +500,76 @@ class TurnkeyAdapterTest {
     }
 
     @Test
+    fun `the raw send funnel is gated - unsupported chains fail before the vendor call`() {
+        // withdrawCollateral, Auth Pull approvals, and host-composed sends reach the funnel
+        // without passing the transfer entries; the funnel gate is what covers them.
+        val turnkey = MockTurnkey()
+        val client = turnkey.turnkeyClient as MockTurnkeyClient
+        val provider = makeProvider(turnkey, chainId = 43114)
+
+        val error = assertThrows(RainError.ChainNotSupported::class.java) {
+            runBlocking {
+                provider.sendTransaction(
+                    chainId = 43114,
+                    from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
+                    to = TestFixtures.RECIPIENT_ADDRESS,
+                    data = "0x",
+                    value = "0x0"
+                )
+            }
+        }
+        assertThat(error.errorCode.code).isEqualTo("RAIN_105")
+        assertThat(client.ethSendTransactionCalls).isEmpty()
+        assertThat(rpc.recordedMethods).isEmpty()
+    }
+
+    @Test
+    fun `raw sends stay self-paid even when sponsorGas is on`(): Unit = runBlocking {
+        // Sponsorship cost passes through to customers, so only the transfer entries may
+        // sponsor: withdrawals, approvals, and host-composed sends keep a full self-paid
+        // envelope regardless of the provider flag.
+        stubSendTransactionRPCs()
+        val turnkey = MockTurnkey()
+        val client = (turnkey.turnkeyClient as MockTurnkeyClient).apply {
+            sendTransactionStatusQueue = mutableListOf(
+                MockTurnkeyClient.StatusFixture.broadcasted("0x" + "d".repeat(64))
+            )
+        }
+        val provider = makeProvider(turnkey, sponsorGas = true)
+
+        provider.sendTransaction(
+            chainId = 1,
+            from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
+            to = TestFixtures.RECIPIENT_ADDRESS,
+            data = "0x",
+            value = "0x0"
+        )
+
+        val body = client.ethSendTransactionCalls.single()
+        assertThat(body.sponsor).isEqualTo(false)
+        assertThat(body.nonce).isNotNull()
+        assertThat(body.gasLimit).isNotNull()
+    }
+
+    @Test
+    fun `sponsored fee estimate is zero and makes no RPC calls`(): Unit = runBlocking {
+        // No RPC stubs on purpose: estimating as if the sender paid would both misquote a
+        // sponsored transfer and fail for zero-balance wallets. Passing proves no RPCs ran.
+        val provider = makeProvider(sponsorGas = true)
+
+        val fee = provider.estimateTransactionFee(
+            chainId = 1,
+            from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
+            to = TestFixtures.RECIPIENT_ADDRESS,
+            data = "0x",
+            value = "0x0"
+        )
+
+        assertThat(fee.compareTo(java.math.BigDecimal.ZERO)).isEqualTo(0)
+        assertThat(rpc.recordedMethods).isEmpty()
+    }
+
+    @Test
     fun `sponsored send is a minimal payload - no nonce, no fees, no fee RPCs`(): Unit = runBlocking {
         // Deliberately NO stubSendTransactionRPCs(): if the sponsored path still called
         // eth_getTransactionCount / eth_estimateGas / eth_gasPrice, the unstubbed mock RPC
@@ -512,8 +582,9 @@ class TurnkeyAdapterTest {
         }
         val provider = makeProvider(turnkey, sponsorGas = true)
 
-        provider.sendNativeToken(1, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
+        val hash = provider.sendNativeToken(1, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
 
+        assertThat(hash).isEqualTo("0x" + "b".repeat(64))
         val body = client.ethSendTransactionCalls.single()
         assertThat(body.sponsor).isEqualTo(true)
         // Omitted fields are auto-filled by Turnkey's Gas Station; a client-computed account

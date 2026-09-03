@@ -1052,8 +1052,11 @@ class TurnkeySolanaProviderTest {
     }
 
     @Test
-    fun `sponsored sendToken on solana proceeds with zero fee lamports and skips the dry run`(): Unit = runBlocking {
-        splFixture(recipientAccountExists = true, lamports = 0L)
+    fun `sponsorGas has no effect on solana - sends stay self-paid with every preflight intact`(): Unit = runBlocking {
+        // Solana sponsorship is deferred until the sponsored payer model is validated on
+        // devnet (signature recovery only accepts records this wallet fee-paid). This pins
+        // the deferral: the flag must not reach the wire or weaken any preflight.
+        splFixture(recipientAccountExists = true)
         val client = includedStatusClient()
         val provider = makeProvider(client = client, sponsorGas = true)
 
@@ -1061,17 +1064,13 @@ class TurnkeySolanaProviderTest {
 
         assertThat(result).isEqualTo(SIGNATURE)
         val body = client.solSendTransactionCalls.single()
-        assertThat(body.sponsor).isEqualTo(true)
-        // The self-paid dry run would false-fail a zero-SOL sponsored wallet; the sponsor's own
-        // pipeline simulates instead.
-        assertThat(rpc.recordedMethods).doesNotContain("simulateTransaction")
+        assertThat(body.sponsor).isEqualTo(false)
+        assertThat(rpc.recordedMethods).contains("simulateTransaction")
     }
 
     @Test
-    fun `sponsored sendToken still requires rent when the recipient account must be created`(): Unit = runBlocking {
-        // Fee sponsorship covers the network fee only; token-account rent is a separate,
-        // default-off dashboard toggle, so the sender must still hold it.
-        splFixture(recipientAccountExists = false, lamports = 0L)
+    fun `sponsorGas does not bypass the solana fee gate`(): Unit = runBlocking {
+        splFixture(recipientAccountExists = true, lamports = 0L)
 
         assertThrows(RainError.InsufficientFunds::class.java) {
             runBlocking {

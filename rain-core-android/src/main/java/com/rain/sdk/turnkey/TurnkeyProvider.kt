@@ -30,10 +30,16 @@ import kotlinx.coroutines.withContext
  *                         coroutine's thread or a watcher thread; hop to the main thread before
  *                         touching UI, and never call back into the SDK synchronously from it.
  *                         Restart authentication from here.
- * @param sponsorGas When true, sends ask Turnkey's managed broadcast to sponsor the network fee
- *                   (gasless for the end user). Requires gas sponsorship to be enabled on the
- *                   Rain parent organization in Turnkey — with it off org-side, sponsored sends
- *                   are rejected by Turnkey, so this defaults to false until the tenant confirms.
+ * @param sponsorGas When true, the two transfer entries ([sendNative]/[sendToken]-style sends)
+ *                   on EVM broadcast chains are sponsored: Turnkey's Gas Station builds and
+ *                   pays the fee (gasless for the end user) and fee estimates return zero.
+ *                   Scope is deliberate — withdrawals, Auth Pull approvals, and raw sends stay
+ *                   self-paid because sponsorship cost passes through to customers, and Solana
+ *                   sends stay self-paid until the sponsored payer model is validated on devnet.
+ *                   Requires gas sponsorship enabled on the Rain parent organization in Turnkey;
+ *                   with it off org-side, sponsored sends are rejected, so this defaults to
+ *                   false until the tenant confirms. Sponsored sends have no client-side revert
+ *                   preflight; failures surface through Turnkey's decoded FAILED status.
  */
 class TurnkeyConfig(
     val turnkey: TurnkeyContext,

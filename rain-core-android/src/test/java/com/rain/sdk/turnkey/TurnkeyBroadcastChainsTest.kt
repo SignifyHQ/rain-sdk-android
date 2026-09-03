@@ -64,4 +64,37 @@ class TurnkeyBroadcastChainsTest {
         TurnkeyBroadcastChains.requireSendSupport(8453)
         TurnkeyBroadcastChains.requireSendSupport(RainChain.SOLANA_DEVNET)
     }
+
+    @Test
+    fun `every Rain product chain is deliberately classified as sendable or read-only`() {
+        // Parallel registries drift (docs.rain.xyz's chain table vs this broadcast list); a
+        // Rain chain that is neither sendable nor consciously read-only means someone added a
+        // chain without deciding what Turnkey sends do there. Update BOTH sets on purpose.
+        val sendable = mapOf(
+            "Polygon" to listOf(137, 80002),
+            "Base" to listOf(8453, 84532),
+            "Optimism" to listOf(10, 11155420),
+            "BNB" to listOf(56, 97),
+            "Arbitrum" to listOf(42161, 421614),
+            "Monad" to listOf(143, 10143),
+            "Solana" to listOf(RainChain.SOLANA_MAINNET, RainChain.SOLANA_DEVNET),
+        )
+        val readOnly = mapOf(
+            "Celo" to listOf(42220, 44787),
+            "Avalanche" to listOf(RainChain.AVALANCHE_MAINNET, RainChain.AVALANCHE_TESTNET),
+            "ZKsync" to listOf(324, 300),
+            "Plasma" to listOf(9745, 9746),
+            "Ink" to listOf(57073),
+        )
+        sendable.forEach { (name, ids) ->
+            ids.forEach { id ->
+                assertThat(TurnkeyBroadcastChains.supportsSend(id)).isTrue()
+            }
+        }
+        readOnly.forEach { (name, ids) ->
+            ids.forEach { id ->
+                assertThat(TurnkeyBroadcastChains.supportsSend(id)).isFalse()
+            }
+        }
+    }
 }

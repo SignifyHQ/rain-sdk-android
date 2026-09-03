@@ -94,8 +94,8 @@ import com.turnkey.core.TurnkeyContext
 val rain = RainSdk.builder()
     .rpcEndpoints(
         mapOf(
-            43114 to "https://avalanche-c-chain-rpc.publicnode.com",
-            43113 to "https://avalanche-fuji-c-chain-rpc.publicnode.com"
+            8453 to "https://mainnet.base.org",
+            84532 to "https://sepolia.base.org"
         )
     )
     .register(
@@ -173,9 +173,11 @@ import java.math.BigDecimal
 
 // `client` is the RainClient resolved in Quick Start (rain.provider(...))
 
-// Send native token (AVAX)
+// Send native token (ETH on Base). Turnkey sends work only on Turnkey's
+// managed-broadcast chains; other configured chains (e.g. Avalanche) stay
+// read-only and sends there fail fast with RAIN_105.
 val result = client.sendNative(
-    chainId = 43114,
+    chainId = 8453,
     to = "0x...",
     amount = BigDecimal("0.1")
 )
@@ -183,7 +185,7 @@ println("Tx Hash: ${result.transactionHash}")
 
 // Send ERC-20 token (e.g. USDC). Omit decimals to let the SDK resolve them.
 val result = client.sendToken(
-    chainId = 43114,
+    chainId = 8453,
     contractAddress = "0x...",
     to = "0x...",
     amount = BigDecimal("100.0")

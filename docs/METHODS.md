@@ -173,7 +173,7 @@ Each adapter is a `RainProvider` descriptor that owns its vendor SDK as a privat
 | Adapter | Module | Config | Notes |
 |---------|--------|--------|-------|
 | `PortalProvider(PortalConfig(sessionToken, chainId?, sessionPolicy?, onSessionTokenNeeded?, onSessionExpired?, autoApprove?))` | `rain-portal-android` | `sessionToken: String`, `chainId: Int?`, `sessionPolicy: PortalSessionPolicy`, `onSessionTokenNeeded: (suspend () -> String?)?`, `onSessionExpired: (() -> Unit)?`, `autoApprove: Boolean = true` | Portal MPC signer (EVM). Advertises `EXPORT`, `RECOVERY`.|
-| `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?, sessionPolicy?, onSessionExpired?))` | `rain-core-android` | `turnkey: TurnkeyContext`, `walletAddress: String?`, `sessionPolicy: TurnkeySessionPolicy`, `onSessionExpired: (() -> Unit)?` | Turnkey P256 signer (EVM + Solana). Advertises `MULTI_CHAIN`, `BIOMETRIC_GATE`. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
+| `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?))` | `rain-core-android` | `turnkey: TurnkeyContext`, `walletAddress: String?`, `sessionPolicy: TurnkeySessionPolicy`, `onSessionExpired: (() -> Unit)?`, `sponsorGas: Boolean = false` | Turnkey P256 signer (EVM + Solana). Advertises `MULTI_CHAIN`, `BIOMETRIC_GATE`. Sends work only on Turnkey's managed-broadcast chains (others throw `RAIN_105`; reads unaffected). `sponsorGas` sponsors EVM transfer fees via Turnkey Gas Station (requires org-side enablement; fee estimates return 0; withdrawals, approvals, raw and Solana sends stay self-paid). See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
 | `PrivyProvider(PrivyConfig(privy, walletAddress?, sessionPolicy?, onSessionExpired?))` | `rain-privy-android` | `privy: Privy`, `walletAddress: String?`, `sessionPolicy: PrivySessionPolicy`, `onSessionExpired: (() -> Unit)?` | Privy embedded-wallet signer (EVM + Solana). Advertises `EXPORT`, `RECOVERY`, `MULTI_CHAIN`.|
 
 #### Portal construction
@@ -312,6 +312,10 @@ distinction and return the hex address.
 
 Estimates the gas fee required for a transaction.
 
+On Turnkey with `sponsorGas` enabled, transfer estimates on broadcast-supported chains return
+`0` — the sponsored sender pays nothing, so zero is the honest quote. Withdrawal fee estimates
+are unaffected (withdrawals are always self-paid).
+
 - **Returns:** `BigDecimal` — estimated gas fee in the chain's native token (e.g. AVAX).
 - **Throws:** `RainError` if estimation fails.
 - **Suspend:** Yes
@@ -356,7 +360,11 @@ EVM only — throws on a Solana chain id.
 
 ### sendNative(chainId, to, amount)
 
-Sends native tokens (e.g. AVAX) from the current wallet.
+Sends native tokens (e.g. ETH, AVAX, SOL) from the current wallet.
+
+On Turnkey, sends are refused with `RAIN_105` on chains outside Turnkey's managed-broadcast
+coverage (Avalanche, Celo, ZKsync, Plasma, and Ink are read-only there); this applies to
+`sendToken` and raw sends too. Balance and history reads are never gated.
 
 > `sendNativeToken(chainId, toAddress, amount)` is a deprecated alias that delegates to this method.
 
@@ -850,6 +858,7 @@ Format: `"RainSDK Error [CODE]: message"`
 | `RAIN_101` | `RainError.SdkNotInitialized` | Operation called before the SDK's chain configuration was set up (i.e. before `build()`). |
 | `RAIN_102` | `RainError.InvalidConfig` / `RainError.ProviderNotRegistered` | Invalid RPC URL, chain ID, or address format; no provider registered for the requested id; or no provider matched a capability. |
 | `RAIN_103` | `RainError.InvalidRpcUrl` | RPC URL could not be parsed as a valid URL. |
+| `RAIN_105` | `RainError.ChainNotSupported` | The active wallet provider cannot broadcast transactions on this chain (e.g. Turnkey-managed sends do not cover Avalanche). Thrown before any network or wallet work; carries `chainId`. Reads — balances, history, estimates — are never gated. |
 | `RAIN_201` | `RainError.TokenExpired` | Provider session token expired or invalid. |
 | `RAIN_202` | `RainError.Unauthorized` | Invalid or missing token / permissions. |
 | `RAIN_301` | `RainError.NetworkError` | Network/connectivity failure. |

@@ -144,8 +144,8 @@ import com.rain.sdk.turnkey.TurnkeyProvider
 val rain = RainSdk.builder()
     .rpcEndpoints(
         mapOf(
-            43114 to "https://avalanche-c-chain-rpc.publicnode.com",
-            43113 to "https://avalanche-fuji-c-chain-rpc.publicnode.com"
+            8453 to "https://mainnet.base.org",
+            84532 to "https://sepolia.base.org"
         )
     )
     .register(
@@ -176,7 +176,7 @@ After the Turnkey-backed `client` is resolved, every wallet operation routes thr
 | `client.getBalance(chainId, Token.Native)` | `TurnkeyClient.getWalletAddressBalances` (CAIP-19 `slip44:` filter) on supported chains; RPC `eth_getBalance` otherwise |
 | `client.getBalance(chainId, Token.Contract(...))` | RPC `eth_call` (`balanceOf`) |
 | `client.getBalances(chainId)` | `TurnkeyClient.getWalletAddressBalances` (CAIP-19) on supported chains; Multicall3 / parallel `eth_call` otherwise |
-| `client.sendNative(...)` / `client.sendToken(...)` | `TurnkeyClient.ethSendTransaction` + `getSendTransactionStatus` polling |
+| `client.sendNative(...)` / `client.sendToken(...)` | `TurnkeyClient.ethSendTransaction` + `getSendTransactionStatus` polling. Only on Turnkey's managed-broadcast chains — other chains (Avalanche, Celo, ZKsync, Plasma, Ink) are read-only and sends throw `RAIN_105` up front. With `TurnkeyConfig(sponsorGas = true)`, EVM transfers are sponsored by Turnkey Gas Station (minimal payload, fee estimate `0`); withdrawals, approvals, raw and Solana sends always stay self-paid. |
 | `client.withdrawCollateral(...)` | `TurnkeyContext.signRawPayload` (EIP-712) + `ethSendTransaction` |
 | `client.getTransactions(...)` | `TurnkeyClient.getActivities` (filtered to `ACTIVITY_TYPE_ETH_SEND_TRANSACTION`) |
 | `client.estimateGas(...)` | RPC `eth_estimateGas` + `eth_gasPrice` |

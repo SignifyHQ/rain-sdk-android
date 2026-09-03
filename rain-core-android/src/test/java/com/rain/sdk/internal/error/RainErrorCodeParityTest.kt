@@ -47,7 +47,7 @@ class RainErrorCodeParityTest {
             RainError.ProviderNotRegistered("x") to "RAIN_102",
             RainError.InvalidRpcUrl("x") to "RAIN_103",
             RainError.ApiNotConfigured() to "RAIN_104",
-            // New in WALL-31; iOS must add the same code before its next release.
+            // iOS must mirror this code before its next release.
             RainError.ChainNotSupported(43114, "x") to "RAIN_105",
             RainError.TokenExpired() to "RAIN_201",
             RainError.Unauthorized("x") to "RAIN_202",
