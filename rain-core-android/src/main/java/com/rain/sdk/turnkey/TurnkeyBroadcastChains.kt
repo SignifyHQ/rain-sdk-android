@@ -18,6 +18,12 @@ import com.rain.sdk.internal.error.RainError
  * Source of truth: Turnkey's transaction-management broadcasting documentation
  * (https://docs.turnkey.com/features/transaction-management). When Turnkey adds a network,
  * extend this list and mirror the change in the iOS SDK's equivalent table.
+ *
+ * This list is the VENDOR's capability, not Rain's product offering — those are different
+ * questions. Rain's supported chains and tokens live at
+ * https://docs.rain.xyz (Supported Chains and Tokens); a send actually works only for chains
+ * in BOTH lists that also have an RPC endpoint registered. Rain chains outside this list
+ * (Avalanche, Celo, ZKsync, Plasma, Stellar) are read-only through this provider in v0.
  */
 internal object TurnkeyBroadcastChains {
 
