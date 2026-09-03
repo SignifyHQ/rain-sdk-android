@@ -1094,6 +1094,23 @@ internal class TurnkeyWalletProvider(
         data: String,
         value: String
     ): TEthSendTransactionBody {
+        if (sponsorGas) {
+            // Sponsored sends are minimal payloads. Turnkey's Gas Station builds and fee-covers
+            // the outer EIP-7702 transaction, so this wallet's account nonce and self-estimated
+            // fees are the wrong values to pin (the outer tx is not this account's; replay
+            // protection is the gas-station nonce, auto-fetched server-side). Estimating gas as
+            // if the sender paid would also reject the zero-balance wallets sponsorship exists
+            // for. Null fields are omitted from the wire payload and auto-filled by Turnkey.
+            return TEthSendTransactionBody(
+                organizationId = session.organizationId,
+                caip2 = ChainIdFormat.EIP155.format(chainId),
+                data = data.ifEmpty { "0x" },
+                from = from,
+                sponsor = true,
+                to = to,
+                value = decimalStringFromHex(value)
+            )
+        }
         val nonceHex = rpcCallForHex(
             chainId = chainId,
             method = "eth_getTransactionCount",
@@ -1219,8 +1236,9 @@ internal class TurnkeyWalletProvider(
         amount: BigDecimal
     ): String {
         val from = getWalletAddress(chainId)
-        val unsigned =
-            solanaTransferComposer.composeSplToken(chainId, from, mintAddress, toAddress, amount)
+        val unsigned = solanaTransferComposer.composeSplToken(
+            chainId, from, mintAddress, toAddress, amount, sponsoredFees = sponsorGas
+        )
         return submitSolanaTransaction(chainId, from, unsigned)
     }
 

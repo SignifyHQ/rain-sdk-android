@@ -60,7 +60,8 @@ class TurnkeySolanaProviderTest {
     private fun makeProvider(
         client: MockTurnkeyClient = MockTurnkeyClient(),
         evmReader: MockChainReader = MockChainReader(),
-        solanaReader: MockChainReader? = MockChainReader()
+        solanaReader: MockChainReader? = MockChainReader(),
+        sponsorGas: Boolean = false
     ): TurnkeyWalletProvider {
         val turnkey = MockTurnkey(
             wallets = listOf(MockTurnkey.walletWithEthAndSolana()),
@@ -74,7 +75,8 @@ class TurnkeySolanaProviderTest {
             solanaChainReader = solanaReader,
             pollingIntervalMs = 0L,
             // Indexed history fails like a feature-gated org, so these tests cover the activity path.
-            history = ThrowingTurnkeyHistory
+            history = ThrowingTurnkeyHistory,
+            sponsorGas = sponsorGas
         )
     }
 
@@ -1047,6 +1049,35 @@ class TurnkeySolanaProviderTest {
         }
         // Nothing reached Turnkey.
         assertThat(client.solSendTransactionCalls).isEmpty()
+    }
+
+    @Test
+    fun `sponsored sendToken on solana proceeds with zero fee lamports and skips the dry run`(): Unit = runBlocking {
+        splFixture(recipientAccountExists = true, lamports = 0L)
+        val client = includedStatusClient()
+        val provider = makeProvider(client = client, sponsorGas = true)
+
+        val result = provider.sendToken(devnet, mint, recipient, BigDecimal("1.5"), decimals = 6)
+
+        assertThat(result).isEqualTo(SIGNATURE)
+        val body = client.solSendTransactionCalls.single()
+        assertThat(body.sponsor).isEqualTo(true)
+        // The self-paid dry run would false-fail a zero-SOL sponsored wallet; the sponsor's own
+        // pipeline simulates instead.
+        assertThat(rpc.recordedMethods).doesNotContain("simulateTransaction")
+    }
+
+    @Test
+    fun `sponsored sendToken still requires rent when the recipient account must be created`(): Unit = runBlocking {
+        // Fee sponsorship covers the network fee only; token-account rent is a separate,
+        // default-off dashboard toggle, so the sender must still hold it.
+        splFixture(recipientAccountExists = false, lamports = 0L)
+
+        assertThrows(RainError.InsufficientFunds::class.java) {
+            runBlocking {
+                makeProvider(sponsorGas = true).sendToken(devnet, mint, recipient, BigDecimal("1"), decimals = 6)
+            }
+        }
     }
 
     @Test

@@ -491,12 +491,19 @@ class TurnkeyAdapterTest {
         val hash = provider.sendNativeToken(1, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
 
         assertThat(hash).isEqualTo(expectedHash)
-        assertThat(client.ethSendTransactionCalls.single().sponsor).isEqualTo(false)
+        val body = client.ethSendTransactionCalls.single()
+        assertThat(body.sponsor).isEqualTo(false)
+        // The self-paid path keeps pinning its own envelope: nonce and fees stay client-filled.
+        assertThat(body.nonce).isNotNull()
+        assertThat(body.gasLimit).isNotNull()
+        assertThat(body.maxFeePerGas).isNotNull()
     }
 
     @Test
-    fun `configured sponsorGas reaches the turnkey send body`(): Unit = runBlocking {
-        stubSendTransactionRPCs()
+    fun `sponsored send is a minimal payload - no nonce, no fees, no fee RPCs`(): Unit = runBlocking {
+        // Deliberately NO stubSendTransactionRPCs(): if the sponsored path still called
+        // eth_getTransactionCount / eth_estimateGas / eth_gasPrice, the unstubbed mock RPC
+        // would fail this send. Passing proves the fee RPCs are skipped entirely.
         val turnkey = MockTurnkey()
         val client = (turnkey.turnkeyClient as MockTurnkeyClient).apply {
             sendTransactionStatusQueue = mutableListOf(
@@ -507,7 +514,14 @@ class TurnkeyAdapterTest {
 
         provider.sendNativeToken(1, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
 
-        assertThat(client.ethSendTransactionCalls.single().sponsor).isEqualTo(true)
+        val body = client.ethSendTransactionCalls.single()
+        assertThat(body.sponsor).isEqualTo(true)
+        // Omitted fields are auto-filled by Turnkey's Gas Station; a client-computed account
+        // nonce would pin the wrong account's sequence on the sponsored outer transaction.
+        assertThat(body.nonce).isNull()
+        assertThat(body.gasLimit).isNull()
+        assertThat(body.maxFeePerGas).isNull()
+        assertThat(body.maxPriorityFeePerGas).isNull()
     }
 
     private fun stubSendTransactionRPCs() {

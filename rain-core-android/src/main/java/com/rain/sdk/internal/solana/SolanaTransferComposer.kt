@@ -81,7 +81,8 @@ internal class SolanaTransferComposer(
         fromAddress: String,
         mintAddress: String,
         toAddress: String,
-        amount: BigDecimal
+        amount: BigDecimal,
+        sponsoredFees: Boolean = false
     ): UnsignedSolanaTransfer {
         val rpcUrl = resolveRpcUrl(chainId)
 
@@ -124,7 +125,12 @@ internal class SolanaTransferComposer(
         }
 
         val createDestination = !solanaRpcClient.accountExists(rpcUrl, Base58.encode(destinationAta))
-        requireLamportsForFees(rpcUrl, fromAddress, includeAccountRent = createDestination)
+        requireLamportsForFees(
+            rpcUrl,
+            fromAddress,
+            includeAccountRent = createDestination,
+            feesSponsored = sponsoredFees
+        )
 
         val instructions = buildList {
             if (createDestination) {
@@ -157,7 +163,11 @@ internal class SolanaTransferComposer(
             recentBlockhash = blockhash,
             instructions = instructions
         )
-        simulate(rpcUrl, transaction)
+        // The dry run charges the fee to the sender, so for a sponsored transfer it would
+        // false-fail exactly the zero-SOL wallets sponsorship exists for. Sponsored sends are
+        // simulated by the sponsor's own pipeline, which reports decoded reverts via the
+        // transaction status instead.
+        if (!sponsoredFees) simulate(rpcUrl, transaction)
 
         Timber.d(
             "Rain SDK: sending %s of mint %s on chainId=%d (creating recipient token account: %b)",
@@ -207,10 +217,14 @@ internal class SolanaTransferComposer(
     private suspend fun requireLamportsForFees(
         rpcUrl: String,
         address: String,
-        includeAccountRent: Boolean
+        includeAccountRent: Boolean,
+        feesSponsored: Boolean
     ) {
-        val required = SOLANA_FEE_LAMPORTS +
+        // Fee sponsorship covers the network fee only. Rent for a newly created token account is
+        // a separate Turnkey dashboard toggle (off by default), so the sender must still hold it.
+        val required = (if (feesSponsored) 0L else SOLANA_FEE_LAMPORTS) +
             if (includeAccountRent) SOLANA_TOKEN_ACCOUNT_RENT_LAMPORTS else 0L
+        if (required == 0L) return
         val lamports = solanaRpcClient.getBalanceLamports(rpcUrl, address)
         if (lamports < BigInteger.valueOf(required)) {
             Timber.w(
