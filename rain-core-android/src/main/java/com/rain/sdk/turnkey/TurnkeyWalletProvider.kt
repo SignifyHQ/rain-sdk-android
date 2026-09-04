@@ -1289,16 +1289,15 @@ internal class TurnkeyWalletProvider(
     ): String {
         val from = getWalletAddress(chainId)
         val unsigned = solanaTransferComposer.composeSplToken(
-            chainId, from, mintAddress, toAddress, amount
+            chainId, from, mintAddress, toAddress, amount, sponsoredFees = sponsorGas
         )
         return submitSolanaTransaction(chainId, from, unsigned)
     }
 
     /**
      * Signs and broadcasts a core-composed Solana transaction (e.g. a collateral withdrawal)
-     * with the Turnkey Solana account. The fee payer is always this wallet — [sponsorGas]
-     * never applies here (Solana sponsorship is deferred until the sponsored payer model is
-     * validated on devnet).
+     * with the Turnkey Solana account. Follows [sponsorGas] like every other send: with it on,
+     * Turnkey covers the fee; the composed message is submitted as-is either way.
      */
     override suspend fun sendSolanaTransaction(
         chainId: Int,
@@ -1335,11 +1334,11 @@ internal class TurnkeyWalletProvider(
                     organizationId = session.organizationId,
                     unsignedTransaction = unsigned.transactionHex,
                     signWith = from,
-                    // Solana sponsorship is deferred: signature recovery below only accepts
-                    // records this wallet fee-paid, and whether a sponsored transaction keeps
-                    // the user as on-chain payer is unvalidated. Until a devnet run proves the
-                    // payer model, sponsorGas is EVM-only and every Solana send stays self-paid.
-                    sponsor = false,
+                    // Sponsored: Turnkey covers the fee. Whether it swaps its own payer key into
+                    // the message or pre-funds this wallet is not documented; signature recovery
+                    // below matches on signers, so it holds either way. The payer model still
+                    // needs a devnet validation run before sponsorship is enabled in sandbox.
+                    sponsor = sponsorGas,
                     caip2 = SolanaChains.caip2(chainId),
                     recentBlockhash = unsigned.recentBlockhash
                 )
@@ -1363,8 +1362,10 @@ internal class TurnkeyWalletProvider(
     }
 
     /**
-     * Newest post-baseline signature that is a confirmed transaction fee-paid by [from] with no
-     * on-chain error, or null when none of them is.
+     * Newest post-baseline signature that is a confirmed transaction signed by [from] with no
+     * on-chain error, or null when none of them is. Matching on the signers rather than the fee
+     * payer keeps sponsored sends recoverable: the sponsor may pay, but this wallet always signs
+     * its own send, and a deposit from elsewhere never carries its signature.
      */
     private suspend fun findOwnConfirmedSignature(
         rpcUrl: String,
@@ -1375,7 +1376,7 @@ internal class TurnkeyWalletProvider(
         for (signature in candidates) {
             if (signature == priorSignature) continue
             val record = solanaRpcClient.getTransaction(rpcUrl, signature) ?: continue
-            if (record.feePayer == from && record.succeeded) return signature
+            if (record.signedBy(from) && record.succeeded) return signature
         }
         return null
     }

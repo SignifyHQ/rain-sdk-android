@@ -498,8 +498,57 @@ class TurnkeySolanaProviderTest {
             JSONArray().put(JSONObject().put("signature", priorSignature).put("slot", 140)),
             JSONArray().put(JSONObject().put("signature", depositSignature).put("slot", 151))
         )
-        // Newer than the baseline, but fee-paid by another wallet: not this send.
+        // Newer than the baseline, but signed only by another wallet: not this send.
         stubTransaction(depositSignature, feePayer = MockTurnkey.DEFAULT_SOLANA_RECIPIENT)
+        val provider = makeProvider(client = includedWithoutSignatureClient())
+
+        val ex = assertThrows(RainError.TransactionPending::class.java) {
+            runBlocking { provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5")) }
+        }
+
+        assertThat(ex.statusId).isEqualTo("sol-send-status-id")
+    }
+
+    @Test
+    fun `sendNativeToken on solana recovers a sponsored send that the sponsor fee-paid`() = runBlocking {
+        // Under sponsorship Turnkey's key may sit in the payer slot with this wallet as the
+        // second signer. Recovery matches on "did this wallet sign it", so the send is found.
+        val priorSignature = "5oldSigFromAnEarlierTransfer11111111111111111111111111111111"
+        val signature = "4sponsoredSendSignature1111111111111111111111111111111111111"
+        val sponsorKey = "SponsorFeePayer1111111111111111111111111111"
+        stubBlockhash()
+        rpc.stubObjectSequence(
+            "getSignaturesForAddress",
+            JSONArray().put(JSONObject().put("signature", priorSignature).put("slot", 140)),
+            JSONArray().put(JSONObject().put("signature", signature).put("slot", 150))
+        )
+        stubTransaction(signature, feePayer = sponsorKey, coSigner = MockTurnkey.DEFAULT_SOLANA_ADDRESS)
+        val client = includedWithoutSignatureClient()
+        val provider = makeProvider(client = client, sponsorGas = true)
+
+        val result = provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5"))
+
+        assertThat(result).isEqualTo(signature)
+        assertThat(client.solSendTransactionCalls.single().sponsor).isEqualTo(true)
+    }
+
+    @Test
+    fun `sendNativeToken on solana does not claim a deposit just because this wallet appears in it`() {
+        // A deposit lists this wallet as the recipient account, not as a signer. The signer
+        // check must reject it even though the wallet address is present in the account keys.
+        val priorSignature = "5oldSigFromAnEarlierTransfer11111111111111111111111111111111"
+        val depositSignature = "3depositFromSomeoneElse1111111111111111111111111111111111111"
+        stubBlockhash()
+        rpc.stubObjectSequence(
+            "getSignaturesForAddress",
+            JSONArray().put(JSONObject().put("signature", priorSignature).put("slot", 140)),
+            JSONArray().put(JSONObject().put("signature", depositSignature).put("slot", 151))
+        )
+        stubTransaction(
+            depositSignature,
+            feePayer = MockTurnkey.DEFAULT_SOLANA_RECIPIENT,
+            nonSigner = MockTurnkey.DEFAULT_SOLANA_ADDRESS
+        )
         val provider = makeProvider(client = includedWithoutSignatureClient())
 
         val ex = assertThrows(RainError.TransactionPending::class.java) {
@@ -1052,11 +1101,8 @@ class TurnkeySolanaProviderTest {
     }
 
     @Test
-    fun `sponsorGas has no effect on solana - sends stay self-paid with every preflight intact`(): Unit = runBlocking {
-        // Solana sponsorship is deferred until the sponsored payer model is validated on
-        // devnet (signature recovery only accepts records this wallet fee-paid). This pins
-        // the deferral: the flag must not reach the wire or weaken any preflight.
-        splFixture(recipientAccountExists = true)
+    fun `sponsored sendToken on solana proceeds with zero fee lamports and skips the dry run`(): Unit = runBlocking {
+        splFixture(recipientAccountExists = true, lamports = 0L)
         val client = includedStatusClient()
         val provider = makeProvider(client = client, sponsorGas = true)
 
@@ -1064,13 +1110,17 @@ class TurnkeySolanaProviderTest {
 
         assertThat(result).isEqualTo(SIGNATURE)
         val body = client.solSendTransactionCalls.single()
-        assertThat(body.sponsor).isEqualTo(false)
-        assertThat(rpc.recordedMethods).contains("simulateTransaction")
+        assertThat(body.sponsor).isEqualTo(true)
+        // The self-paid dry run would false-fail a zero-SOL sponsored wallet; the sponsor's own
+        // pipeline simulates instead.
+        assertThat(rpc.recordedMethods).doesNotContain("simulateTransaction")
     }
 
     @Test
-    fun `sponsorGas does not bypass the solana fee gate`(): Unit = runBlocking {
-        splFixture(recipientAccountExists = true, lamports = 0L)
+    fun `sponsored sendToken still requires rent when the recipient account must be created`(): Unit = runBlocking {
+        // Fee sponsorship covers the network fee only; token-account rent is a separate,
+        // default-off dashboard toggle, so the sender must still hold it.
+        splFixture(recipientAccountExists = false, lamports = 0L)
 
         assertThrows(RainError.InsufficientFunds::class.java) {
             runBlocking {
@@ -1195,8 +1245,22 @@ class TurnkeySolanaProviderTest {
         )
     }
 
-    /** A `getTransaction` result for [signature]: `json` encoding, [feePayer] first, [err] in meta. */
-    private fun stubTransaction(signature: String, feePayer: String, err: JSONObject? = null) {
+    /**
+     * A `getTransaction` result for [signature]: `json` encoding, [feePayer] first, then an
+     * optional [coSigner], with `numRequiredSignatures` counting exactly those signers; the
+     * [nonSigner] account and the System Program follow; [err] in meta.
+     */
+    private fun stubTransaction(
+        signature: String,
+        feePayer: String,
+        err: JSONObject? = null,
+        coSigner: String? = null,
+        nonSigner: String = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
+    ) {
+        val signers = listOfNotNull(feePayer, coSigner)
+        val accountKeys = JSONArray()
+        signers.forEach { accountKeys.put(it) }
+        accountKeys.put(nonSigner).put(SolanaPrograms.SYSTEM_ADDRESS)
         rpc.stubObjectFor(
             "getTransaction",
             signature,
@@ -1208,10 +1272,9 @@ class TurnkeySolanaProviderTest {
                         .put("signatures", JSONArray().put(signature))
                         .put(
                             "message",
-                            JSONObject().put(
-                                "accountKeys",
-                                JSONArray().put(feePayer).put(MockTurnkey.DEFAULT_SOLANA_RECIPIENT).put(SolanaPrograms.SYSTEM_ADDRESS)
-                            )
+                            JSONObject()
+                                .put("header", JSONObject().put("numRequiredSignatures", signers.size))
+                                .put("accountKeys", accountKeys)
                         )
                 )
                 .put("meta", JSONObject().put("err", err ?: JSONObject.NULL))

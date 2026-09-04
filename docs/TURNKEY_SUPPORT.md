@@ -176,7 +176,7 @@ After the Turnkey-backed `client` is resolved, every wallet operation routes thr
 | `client.getBalance(chainId, Token.Native)` | `TurnkeyClient.getWalletAddressBalances` (CAIP-19 `slip44:` filter) on supported chains; RPC `eth_getBalance` otherwise |
 | `client.getBalance(chainId, Token.Contract(...))` | RPC `eth_call` (`balanceOf`) |
 | `client.getBalances(chainId)` | `TurnkeyClient.getWalletAddressBalances` (CAIP-19) on supported chains; Multicall3 / parallel `eth_call` otherwise |
-| `client.sendNative(...)` / `client.sendToken(...)` | `TurnkeyClient.ethSendTransaction` + `getSendTransactionStatus` polling. Only on Turnkey's managed-broadcast chains — other chains (Avalanche, Celo, ZKsync, Plasma, Ink) are read-only and sends throw `RAIN_105` up front. With `TurnkeyConfig(sponsorGas = true)`, every EVM send (transfers, withdrawals, approvals, raw sends) is sponsored by Turnkey Gas Station (minimal payload carrying Turnkey's gas-station nonce for replay protection, fee estimate `0`); Solana sends stay self-paid. |
+| `client.sendNative(...)` / `client.sendToken(...)` | `TurnkeyClient.ethSendTransaction` + `getSendTransactionStatus` polling. Only on Turnkey's managed-broadcast chains — other chains (Avalanche, Celo, ZKsync, Plasma, Ink) are read-only and sends throw `RAIN_105` up front. With `TurnkeyConfig(sponsorGas = true)`, every EVM send (transfers, withdrawals, approvals, raw sends) is sponsored by Turnkey Gas Station (minimal payload carrying Turnkey's gas-station nonce for replay protection, fee estimate `0`), and Solana network fees are sponsored too (a zero-SOL sender skips the fee check and dry run; rent for a new recipient token account is a separate Turnkey toggle and stays with the sender). |
 | `client.withdrawCollateral(...)` | `TurnkeyContext.signRawPayload` (EIP-712) + `ethSendTransaction` |
 | `client.getTransactions(...)` | `TurnkeyClient.getActivities` (filtered to `ACTIVITY_TYPE_ETH_SEND_TRANSACTION`) |
 | `client.estimateGas(...)` | RPC `eth_estimateGas` + `eth_gasPrice` |
@@ -196,7 +196,8 @@ chain ids (`RainChain.SOLANA_MAINNET` 900 / `SOLANA_DEVNET` 901 / `SOLANA_TESTNE
   covers recipient validation, resolving the mint's decimals and owning token program on chain,
   deriving both associated token accounts, creating the recipient's when missing
   (`CreateIdempotent`, ~0.002 SOL rent paid by the sender), fee checks, and a `simulateTransaction`
-  dry run. Failures surface as `TokenNotFound`, `TokenAccountNotFound`,
+  dry run (with `sponsorGas` the fee check and dry run are skipped; the rent check stays). Failures
+  surface as `TokenNotFound`, `TokenAccountNotFound`,
   `InsufficientTokenBalance`, or `InvalidRecipient`.
 - **Balances.** From Turnkey's `get-balances` where it indexes the cluster; where it doesn't (devnet
   in particular), `getTokenBalances` discovers holdings from the node via `getTokenAccountsByOwner`
@@ -207,7 +208,8 @@ chain ids (`RainChain.SOLANA_MAINNET` 900 / `SOLANA_DEVNET` 901 / `SOLANA_TESTNE
 - **Encoding.** Turnkey hex-decodes `unsignedTransaction` despite the type documenting base64, so
   Rain sends hex. Turnkey returns a status id rather than a signature; Rain polls for it, then
   recovers it from `getSignaturesForAddress` (newer than the pre-send baseline only) and verifies
-  via `getTransaction` that the candidate is fee-paid by this wallet with `err == null`. If the
+  via `getTransaction` that the candidate is signed by this wallet (the fee payer on a self-paid
+  send, a later signer on a sponsored one) with `err == null`. If the
   baseline read failed or nothing verifiable lands in time, the send surfaces as
   `TransactionPending` carrying the status id — the same contract as EVM — never the status id
   posing as a signature.

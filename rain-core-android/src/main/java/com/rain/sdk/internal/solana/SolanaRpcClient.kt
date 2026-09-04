@@ -96,20 +96,29 @@ internal class SolanaRpcClient(
             )
         )
         val result = response.optJSONObject("result") ?: return null
-        val accountKeys = result.optJSONObject("transaction")
-            ?.optJSONObject("message")
-            ?.optJSONArray("accountKeys")
+        val message = result.optJSONObject("transaction")?.optJSONObject("message")
+        val accountKeys = message?.optJSONArray("accountKeys")
             ?: throw RainError.InternalError("Unexpected getTransaction response for $signature")
+        // The first `numRequiredSignatures` account keys are the signers, fee payer first. A
+        // sponsored send may carry the sponsor's key there with this wallet as a later signer,
+        // so the record keeps every signer rather than just the payer. A missing header reads
+        // as the single-signer layout.
+        val signerCount = message.optJSONObject("header")
+            ?.optInt("numRequiredSignatures", 1)
+            ?.coerceAtLeast(1)
+            ?: 1
         // `json` encoding lists keys as strings; `jsonParsed` wraps them in {pubkey, signer, ...}.
-        val feePayer = when (val first = accountKeys.opt(0)) {
-            is String -> first
-            is JSONObject -> first.optString("pubkey", "")
-            else -> ""
+        val signers = (0 until minOf(signerCount, accountKeys.length())).mapNotNull { index ->
+            when (val key = accountKeys.opt(index)) {
+                is String -> key
+                is JSONObject -> key.optString("pubkey", "")
+                else -> ""
+            }.takeIf { it.isNotEmpty() }
         }
         val error = result.optJSONObject("meta")?.opt("err")
             ?.takeIf { it != JSONObject.NULL }
             ?.toString()
-        return SolanaTransactionRecord(feePayer = feePayer.ifEmpty { null }, error = error)
+        return SolanaTransactionRecord(signers = signers, error = error)
     }
 
     // ---------- accounts ----------
@@ -327,11 +336,15 @@ internal data class SolanaTokenAccount(
 
 /** The fields of a `getTransaction` result the SDK reads. [error] is null when it succeeded. */
 internal data class SolanaTransactionRecord(
-    /** First account key: the signer that paid the fee. */
-    val feePayer: String?,
+    /** The transaction's signers in account-key order; the first one paid the fee. */
+    val signers: List<String>,
     val error: String?
 ) {
+    /** First signer: the account that paid the fee (a sponsor's key on a sponsored send). */
+    val feePayer: String? get() = signers.firstOrNull()
     val succeeded: Boolean get() = error == null
+    /** True when [address] had to sign this transaction: its own send, sponsored or not. */
+    fun signedBy(address: String): Boolean = address in signers
 }
 
 /** Outcome of a `simulateTransaction` dry run. [error] is null when the transaction would succeed. */

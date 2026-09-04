@@ -28,7 +28,9 @@ class UnsignedSolanaTransfer internal constructor(
  * Composes unsigned Solana transfers, running every preflight the SDK requires before a wallet
  * provider signs: address validation, mint resolution, associated-token-account derivation and
  * creation, balance and fee checks, and a simulation dry run for SPL transfers. Providers only
- * sign and broadcast the result, so the checks cannot drift between them.
+ * sign and broadcast the result, so the checks cannot drift between them. A provider whose fee
+ * is sponsored opts out of the two self-paid preflights (fee lamports and the dry run) through
+ * `sponsoredFees`; the rent check stays, because rent sponsorship is a separate toggle.
  */
 internal class SolanaTransferComposer(
     private val solanaRpcClient: SolanaRpcClient,
@@ -72,16 +74,19 @@ internal class SolanaTransferComposer(
      * Creating a missing recipient account costs the sender rent (~0.002 SOL).
      *
      * The mint is read from the chain first: its decimals scale [amount], and the token program
-     * that owns it both receives the transfer and seeds the token-account derivation. The
+     * that owns it both receives the transfer and seeds the token-account derivation. A self-paid
      * transfer is simulated against the cluster while still unsigned, so a failure surfaces as a
-     * typed error rather than as a broadcast that quietly fails on chain.
+     * typed error rather than as a broadcast that quietly fails on chain. With [sponsoredFees]
+     * the dry run is skipped (it would charge the fee to a sender who pays none) and the
+     * sponsor's pipeline simulates instead, reporting failures through the send status.
      */
     suspend fun composeSplToken(
         chainId: Int,
         fromAddress: String,
         mintAddress: String,
         toAddress: String,
-        amount: BigDecimal
+        amount: BigDecimal,
+        sponsoredFees: Boolean = false
     ): UnsignedSolanaTransfer {
         val rpcUrl = resolveRpcUrl(chainId)
 
@@ -124,7 +129,12 @@ internal class SolanaTransferComposer(
         }
 
         val createDestination = !solanaRpcClient.accountExists(rpcUrl, Base58.encode(destinationAta))
-        requireLamportsForFees(rpcUrl, fromAddress, includeAccountRent = createDestination)
+        requireLamportsForFees(
+            rpcUrl,
+            fromAddress,
+            includeAccountRent = createDestination,
+            feesSponsored = sponsoredFees
+        )
 
         val instructions = buildList {
             if (createDestination) {
@@ -157,7 +167,11 @@ internal class SolanaTransferComposer(
             recentBlockhash = blockhash,
             instructions = instructions
         )
-        simulate(rpcUrl, transaction)
+        // The dry run charges the fee to the sender, so for a sponsored transfer it would
+        // false-fail exactly the zero-SOL wallets sponsorship exists for. Sponsored sends are
+        // simulated by the sponsor's own pipeline, which reports decoded reverts via the
+        // transaction status instead.
+        if (!sponsoredFees) simulate(rpcUrl, transaction)
 
         Timber.d(
             "Rain SDK: sending %s of mint %s on chainId=%d (creating recipient token account: %b)",
@@ -207,10 +221,14 @@ internal class SolanaTransferComposer(
     private suspend fun requireLamportsForFees(
         rpcUrl: String,
         address: String,
-        includeAccountRent: Boolean
+        includeAccountRent: Boolean,
+        feesSponsored: Boolean
     ) {
-        val required = SOLANA_FEE_LAMPORTS +
+        // Fee sponsorship covers the network fee only. Rent for a newly created token account is
+        // a separate Turnkey dashboard toggle (off by default), so the sender must still hold it.
+        val required = (if (feesSponsored) 0L else SOLANA_FEE_LAMPORTS) +
             if (includeAccountRent) SOLANA_TOKEN_ACCOUNT_RENT_LAMPORTS else 0L
+        if (required == 0L) return
         val lamports = solanaRpcClient.getBalanceLamports(rpcUrl, address)
         if (lamports < BigInteger.valueOf(required)) {
             Timber.w(
@@ -251,7 +269,7 @@ internal class SolanaTransferComposer(
          * Rent-exempt minimum for a 165-byte SPL token account (~0.00204 SOL), paid by the sender
          * when a transfer has to create the recipient's account. Read from the chain it would be
          * `getMinimumBalanceForRentExemption(165)`; this constant only gates a friendlier
-         * up-front error, and the transaction is simulated afterwards regardless.
+         * up-front error; a self-paid transaction is simulated afterwards as well.
          */
         const val SOLANA_TOKEN_ACCOUNT_RENT_LAMPORTS = 2_039_280L
     }
