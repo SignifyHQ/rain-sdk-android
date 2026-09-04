@@ -51,6 +51,10 @@ val sdkTestModules = listOf("rain-core-android", "rain-portal-android", "rain-pr
 // Baselines should only shrink (CI enforces this); fix new findings or @Suppress at the
 // smallest scope. NOTE: a baseline entry waives its whole (rule, class, expression) triple,
 // not one occurrence — a new identical catch in a baselined class would pass silently.
+// Captured at root scope: the type-safe `libs` accessor does not resolve inside
+// a `subprojects {}` block (it evaluates against the subproject, which has no catalog).
+val detektFormatting = libs.detekt.formatting
+
 subprojects {
     apply(plugin = "io.gitlab.arturbosch.detekt")
     extensions.configure<io.gitlab.arturbosch.detekt.extensions.DetektExtension> {
@@ -58,6 +62,15 @@ subprojects {
         config.setFrom(rootProject.files("config/detekt/detekt.yml"))
         baseline = file("detekt-baseline.xml")
         parallel = true
+        // Formatting violations are machine-fixable: run
+        //   ./gradlew detektMain detektTest -PdetektAutoCorrect
+        // and commit the result. Gated behind the property so a plain check run
+        // never rewrites the working tree.
+        autoCorrect = providers.gradleProperty("detektAutoCorrect").isPresent
+    }
+    dependencies {
+        // ktlint rules (android_studio code style, see .editorconfig) inside detekt.
+        "detektPlugins"(detektFormatting)
     }
 
     // Dokka is a CI check (dokkaHtml leg): with the 1.9.20 defaults it can only fail on a

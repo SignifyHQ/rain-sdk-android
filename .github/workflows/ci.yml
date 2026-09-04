@@ -124,6 +124,10 @@ jobs:
       - name: Run ${{ matrix.task }}
         run: ./gradlew ${{ matrix.task }} --stacktrace --no-daemon
 
+      - name: How to fix formatting findings
+        if: failure() && matrix.name == 'detekt'
+        run: echo "::error::detekt failed. Formatting findings are auto-fixable — run './gradlew detektMain detektTest -PdetektAutoCorrect' locally and commit the result. Other findings need a manual fix or a @Suppress at the smallest scope."
+
       # detekt baseline signatures are positionless (a baselined rule+class+expression
       # triple also waives FUTURE identical findings in that class), so growth must be
       # caught in review: baselines may only shrink. Missing on main = newly adopted, allowed.

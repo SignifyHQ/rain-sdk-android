@@ -12,3 +12,14 @@ naming:
   FunctionNaming:
     # Composables are PascalCase by convention (sample app UI).
     ignoreAnnotated: ['Composable']
+
+style:
+  MaxLineLength:
+    maxLineLength: 150
+
+# ktlint rules (detekt-formatting plugin). Line length is enforced ONCE, by
+# style.MaxLineLength above — the ktlint wrapper's copy stays off so the two
+# can't disagree.
+formatting:
+  MaximumLineLength:
+    active: false
