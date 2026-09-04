@@ -10,9 +10,7 @@ import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import java.math.BigDecimal
 import kotlinx.coroutines.runBlocking
-import org.junit.After
 import org.junit.Assert.assertThrows
-import org.junit.Before
 import org.junit.Test
 
 /**
@@ -21,14 +19,6 @@ import org.junit.Test
  * `TurnkeyWalletProviderTest`.
  */
 class RainSdkManagerSendTokenTest {
-
-    @Before
-    fun setUp() {
-    }
-
-    @After
-    fun tearDown() {
-    }
 
     // ---- guards: not initialized -------------------------------------------------
 

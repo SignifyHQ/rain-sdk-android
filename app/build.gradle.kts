@@ -23,7 +23,12 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Minified on purpose: the sample doubles as the SDK's build-time R8 consumer
+            // check. CI builds :app:assembleRelease, which proves R8 completes against the
+            // SDK modules and exercises their consumer-rules.pro keep rules. It does NOT
+            // run the shrunk app — runtime behavior under R8 is not verified in CI.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

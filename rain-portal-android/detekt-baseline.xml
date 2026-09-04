@@ -1,0 +1,51 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues />
+  <CurrentIssues>
+    <ID>CyclomaticComplexMethod:PortalSessionCoordinator.kt$PortalSessionCoordinator$private suspend fun &lt;T&gt; execute(idempotent: Boolean, block: suspend () -&gt; T): T</ID>
+    <ID>InstanceOfCheckForException:PortalManager.kt$PortalManager$e is CancellationException</ID>
+    <ID>InstanceOfCheckForException:PortalManager.kt$PortalManager$e is RainError</ID>
+    <ID>InstanceOfCheckForException:PortalProvider.kt$PortalProvider$e is CancellationException</ID>
+    <ID>InstanceOfCheckForException:PortalProvider.kt$PortalProvider$e is RainError</ID>
+    <ID>LargeClass:PortalManager.kt$PortalManager</ID>
+    <ID>LoopWithTooManyJumpStatements:PortalManager.kt$PortalManager$for</ID>
+    <ID>MagicNumber:PortalErrorMapping.kt$PortalErrorMapping$408</ID>
+    <ID>MagicNumber:PortalErrorMapping.kt$PortalErrorMapping$429</ID>
+    <ID>MagicNumber:PortalErrorMapping.kt$PortalErrorMapping$500</ID>
+    <ID>MagicNumber:PortalErrorMapping.kt$PortalErrorMapping$599</ID>
+    <ID>MagicNumber:PortalManager.kt$PortalManager$128</ID>
+    <ID>MagicNumber:PortalManager.kt$PortalManager$16</ID>
+    <ID>MagicNumber:PortalManager.kt$PortalManager$64</ID>
+    <ID>MatchingDeclarationName:PortalTestFixtures.kt$TestFixtures</ID>
+    <ID>MaxLineLength:PortalManager.kt$PortalManager$val function = Function("symbol", emptyList(), listOf(object : TypeReference&lt;org.web3j.abi.datatypes.Utf8String&gt;() {}))</ID>
+    <ID>MaxLineLength:PortalProviderSessionTest.kt$PortalProviderSessionTest$coEvery { fresh.request(any(), any(), any(), null as io.portalhq.android.provider.data.RequestOptions?) }</ID>
+    <ID>MaxLineLength:PortalProviderSessionTest.kt$PortalProviderSessionTest$fresh.request(any(), PortalRequestMethod.eth_getTransactionByHash, any(), null as io.portalhq.android.provider.data.RequestOptions?)</ID>
+    <ID>MaxLineLength:PortalProviderSessionTest.kt$PortalProviderSessionTest$result = io.portalhq.android.provider.data.PortalProviderRpcResponse(jsonrpc = "2.0", result = mapOf("hash" to "0xhash"))</ID>
+    <ID>MaxLineLength:PortalWalletProviderTest.kt$PortalWalletProviderTest$portalManager.estimateTransactionFee(1, TestFixtures.WALLET_ADDRESS, TestFixtures.CONTRACT_ADDRESS, "0x", "0x0")</ID>
+    <ID>NestedBlockDepth:PortalSessionCoordinator.kt$PortalSessionCoordinator$private suspend fun &lt;T&gt; execute(idempotent: Boolean, block: suspend () -&gt; T): T</ID>
+    <ID>ReturnCount:PortalManager.kt$PortalManager$private fun resolveTransactionValue(tx: Transaction, resolvedDecimals: Int?): BigDecimal?</ID>
+    <ID>ReturnCount:PortalManager.kt$PortalManager$private fun userOperationSucceeded(data: String?): Boolean</ID>
+    <ID>ReturnCount:PortalManager.kt$PortalManager$private suspend fun currentBlockNumber(portal: Portal, chainId: String): BigInteger?</ID>
+    <ID>ReturnCount:PortalManager.kt$PortalManager$private suspend fun minedTransactionHash( portal: Portal, chainId: String, hash: String, fromBlock: BigInteger? ): String</ID>
+    <ID>ReturnCount:PortalManager.kt$PortalManager$private suspend fun userOperationEvent( portal: Portal, chainId: String, hash: String, fromBlock: BigInteger, onFailure: (Exception) -&gt; Unit ): Pair&lt;String, Boolean&gt;?</ID>
+    <ID>ReturnCount:PortalSessionCoordinator.kt$PortalSessionCoordinator$private suspend fun attempt(): RefreshOutcome</ID>
+    <ID>ThrowsCount:PortalManager.kt$PortalManager$private suspend fun fetchContractBalance( chainId: Int, address: String, tokenStore: TokenMetadataStore ): Balance</ID>
+    <ID>ThrowsCount:PortalManager.kt$PortalManager$private suspend fun fetchNativeBalance(chainId: Int, tokenStore: TokenMetadataStore): Balance</ID>
+    <ID>ThrowsCount:PortalManager.kt$PortalManager$private suspend fun minedTransactionHash( portal: Portal, chainId: String, hash: String, fromBlock: BigInteger? ): String</ID>
+    <ID>ThrowsCount:PortalManager.kt$PortalManager$suspend fun estimateTransactionFee( chainId: Int, from: String, to: String, data: String, value: String = "0x0" ): BigDecimal</ID>
+    <ID>ThrowsCount:PortalManager.kt$PortalManager$suspend fun getAddress(): String</ID>
+    <ID>ThrowsCount:PortalManager.kt$PortalManager$suspend fun getBalances( chainId: Int, tokenStore: TokenMetadataStore ): List&lt;Balance&gt;</ID>
+    <ID>ThrowsCount:PortalManager.kt$PortalManager$suspend fun getTransactions( chainId: Int, tokenStore: TokenMetadataStore, limit: Int? = null, offset: Int? = null, order: RainTransactionOrder? = null ): List&lt;RainTransaction&gt;</ID>
+    <ID>ThrowsCount:PortalManager.kt$PortalManager$suspend fun sendTransaction( chainId: Int, from: String, to: String, data: String, value: String = "0x0" ): String</ID>
+    <ID>ThrowsCount:PortalManager.kt$PortalManager$suspend fun signTypedData( chainId: Int, walletAddress: String, typedDataJson: String ): String</ID>
+    <ID>TooGenericExceptionCaught:PortalManager.kt$PortalManager$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:PortalProvider.kt$PortalProvider$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:PortalSessionCoordinator.kt$PortalSessionCoordinator$e: Exception</ID>
+    <ID>TooManyFunctions:PortalManager.kt$PortalManager</ID>
+    <ID>TooManyFunctions:PortalSessionCoordinator.kt$PortalSessionCoordinator</ID>
+    <ID>UnnecessarySafeCall:PortalManager.kt$PortalManager$tx.category?.let { RainTransactionCategory(it) }</ID>
+    <ID>UseCheckOrError:PortalSessionCoordinatorTest.kt$PortalSessionCoordinatorTest$throw IllegalStateException("boom")</ID>
+    <ID>UselessCallOnNotNull:PortalErrorMapping.kt$PortalErrorMapping$e.message.orEmpty()</ID>
+    <ID>UselessCallOnNotNull:PortalManager.kt$PortalManager$rawBalance.isNullOrEmpty()</ID>
+  </CurrentIssues>
+</SmellBaseline>

@@ -1,0 +1,14 @@
+# Rain SDK detekt configuration.
+#
+# Runs with buildUponDefaultConfig = true: every rule not mentioned here uses detekt's
+# defaults. Pre-existing findings at adoption time are recorded in each module's
+# detekt-baseline.xml — those files should only ever shrink. Fix new findings, or
+# @Suppress("RuleName") at the smallest possible scope; don't add baseline entries.
+
+build:
+  maxIssues: 0
+
+naming:
+  FunctionNaming:
+    # Composables are PascalCase by convention (sample app UI).
+    ignoreAnnotated: ['Composable']

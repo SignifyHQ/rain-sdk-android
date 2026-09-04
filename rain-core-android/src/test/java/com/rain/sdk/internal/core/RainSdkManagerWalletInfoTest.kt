@@ -10,9 +10,7 @@ import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
 import java.math.BigDecimal
 import kotlinx.coroutines.runBlocking
-import org.junit.After
 import org.junit.Assert.assertThrows
-import org.junit.Before
 import org.junit.Test
 
 /**
@@ -21,14 +19,6 @@ import org.junit.Test
  * requires the Android runtime — that case belongs in `androidTest`, not pure-JVM `test`.
  */
 class RainSdkManagerWalletInfoTest {
-
-    @Before
-    fun setUp() {
-    }
-
-    @After
-    fun tearDown() {
-    }
 
     // ---- getAddress --------------------------------------------------------------
 

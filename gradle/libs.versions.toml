@@ -13,6 +13,7 @@ kotlin = "2.2.20"
 ksp = "2.2.20-2.0.3"
 dokka = "1.9.20"
 maven-publish = "0.30.0"
+detekt = "1.23.8"
 
 # -- Core SDK Dependencies --
 portal-android = "8.4.0"
@@ -126,3 +127,4 @@ compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
 vanniktech-maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "maven-publish" }
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }

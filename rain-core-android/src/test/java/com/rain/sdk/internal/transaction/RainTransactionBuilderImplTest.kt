@@ -52,7 +52,6 @@ class RainTransactionBuilderImplTest {
 
   @Test
   fun `getLatestNonce uses Web3jProvider and returns nonce`() = runBlocking {
-    val rpcUrl = "https://rpc.com"
     val proxy = "0x1111111111111111111111111111111111111111"
     val expectedNonce = BigInteger.TEN
 
