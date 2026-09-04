@@ -11,6 +11,8 @@ import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TEthSendTransactionResponse
 import com.turnkey.types.TGetActivitiesBody
 import com.turnkey.types.TGetActivitiesResponse
+import com.turnkey.types.TGetNoncesBody
+import com.turnkey.types.TGetNoncesResponse
 import com.turnkey.types.TGetSendTransactionStatusBody
 import com.turnkey.types.TGetSendTransactionStatusResponse
 import com.turnkey.types.TGetWalletAddressBalancesBody
@@ -88,11 +90,27 @@ internal class MockTurnkeyClient(
     /** When set, [getActivities] throws this instead of producing a response. */
     var getActivitiesError: Exception? = null
 
+    /** Gas-station nonce [getNonces] returns when the request asks for one. */
+    var mockGasStationNonce: String? = "7"
+
+    /** When set, [getNonces] throws this instead of producing a response. */
+    var getNoncesError: Exception? = null
+
     val walletAddressBalanceCalls = mutableListOf<TGetWalletAddressBalancesBody>()
     val ethSendTransactionCalls = mutableListOf<TEthSendTransactionBody>()
     val solSendTransactionCalls = mutableListOf<TSolSendTransactionBody>()
     val sendTransactionStatusCalls = mutableListOf<TGetSendTransactionStatusBody>()
     val getActivitiesCalls = mutableListOf<TGetActivitiesBody>()
+    val getNoncesCalls = mutableListOf<TGetNoncesBody>()
+
+    override suspend fun getNonces(input: TGetNoncesBody): TGetNoncesResponse {
+        getNoncesCalls += input
+        getNoncesError?.let { throw it }
+        return TGetNoncesResponse(
+            gasStationNonce = if (input.gasStationNonce == true) mockGasStationNonce else null,
+            nonce = if (input.nonce == true) "0" else null
+        )
+    }
 
     override suspend fun getWalletAddressBalances(
         input: TGetWalletAddressBalancesBody

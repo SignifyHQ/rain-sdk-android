@@ -29,6 +29,7 @@ import com.rain.sdk.models.TokenInfo
 import com.rain.sdk.utils.EthereumConverter
 import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TGetActivitiesBody
+import com.turnkey.types.TGetNoncesBody
 import com.turnkey.types.TGetSendTransactionStatusBody
 import com.turnkey.types.TGetWalletAddressBalancesBody
 import com.turnkey.types.TSolSendTransactionBody
@@ -329,6 +330,7 @@ internal class TurnkeyWalletProvider(
             val statusId = sessions.executeWrite { session, client ->
                 val sendBody = buildSendTransactionBody(
                     session = session,
+                    client = client,
                     chainId = chainId,
                     from = from,
                     to = to,
@@ -1120,6 +1122,7 @@ internal class TurnkeyWalletProvider(
 
     private suspend fun buildSendTransactionBody(
         session: com.turnkey.core.models.Session,
+        client: TurnkeyClientProtocol,
         chainId: Int,
         from: String,
         to: String,
@@ -1130,15 +1133,31 @@ internal class TurnkeyWalletProvider(
         if (sponsored) {
             // Sponsored sends are minimal payloads. Turnkey's Gas Station builds and fee-covers
             // the outer EIP-7702 transaction, so this wallet's account nonce and self-estimated
-            // fees are the wrong values to pin (the outer tx is not this account's; replay
-            // protection is the gas-station nonce, auto-fetched server-side). Estimating gas as
-            // if the sender paid would also reject the zero-balance wallets sponsorship exists
-            // for. Null fields are omitted from the wire payload and auto-filled by Turnkey.
+            // fees are the wrong values to pin (the outer tx is not this account's). Estimating
+            // gas as if the sender paid would also reject the zero-balance wallets sponsorship
+            // exists for. Null fields are omitted from the wire payload and auto-filled by
+            // Turnkey.
+            //
+            // Replay protection is the gas-station nonce, and Turnkey's one-transaction-per-
+            // request guarantee holds only when the request carries it. Turnkey's other SDKs
+            // attach it by default; the Kotlin client forwards what it is given, so it is
+            // fetched here with one Turnkey call (not a chain RPC, so zero-balance wallets are
+            // unaffected) and refetched on every refresh-and-retry rebuild. A null from Turnkey
+            // is omitted, which falls back to their server-side fetch.
+            val gasStationNonce = client.getNonces(
+                TGetNoncesBody(
+                    organizationId = session.organizationId,
+                    address = from,
+                    caip2 = ChainIdFormat.EIP155.format(chainId),
+                    gasStationNonce = true
+                )
+            ).gasStationNonce
             return TEthSendTransactionBody(
                 organizationId = session.organizationId,
                 caip2 = ChainIdFormat.EIP155.format(chainId),
                 data = data.ifEmpty { "0x" },
                 from = from,
+                gasStationNonce = gasStationNonce,
                 sponsor = true,
                 to = to,
                 value = decimalStringFromHex(value)

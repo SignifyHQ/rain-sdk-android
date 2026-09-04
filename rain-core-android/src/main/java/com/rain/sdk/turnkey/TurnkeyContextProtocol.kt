@@ -9,6 +9,8 @@ import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TEthSendTransactionResponse
 import com.turnkey.types.TGetActivitiesBody
 import com.turnkey.types.TGetActivitiesResponse
+import com.turnkey.types.TGetNoncesBody
+import com.turnkey.types.TGetNoncesResponse
 import com.turnkey.types.TGetSendTransactionStatusBody
 import com.turnkey.types.TGetSendTransactionStatusResponse
 import com.turnkey.types.TGetWalletAddressBalancesBody
@@ -46,6 +48,10 @@ internal interface TurnkeyClientProtocol {
     suspend fun getActivities(
         input: TGetActivitiesBody
     ): TGetActivitiesResponse
+
+    suspend fun getNonces(
+        input: TGetNoncesBody
+    ): TGetNoncesResponse
 }
 
 internal interface TurnkeyContextProtocol {
@@ -142,4 +148,8 @@ internal class TurnkeyClientAdapter(
     override suspend fun getActivities(
         input: TGetActivitiesBody
     ): TGetActivitiesResponse = client.getActivities(input)
+
+    override suspend fun getNonces(
+        input: TGetNoncesBody
+    ): TGetNoncesResponse = client.getNonces(input)
 }

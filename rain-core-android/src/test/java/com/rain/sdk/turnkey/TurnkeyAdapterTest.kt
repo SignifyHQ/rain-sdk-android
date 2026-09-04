@@ -497,6 +497,9 @@ class TurnkeyAdapterTest {
         assertThat(body.nonce).isNotNull()
         assertThat(body.gasLimit).isNotNull()
         assertThat(body.maxFeePerGas).isNotNull()
+        // And it never asks Turnkey for a gas-station nonce: that is a sponsored-only field.
+        assertThat(body.gasStationNonce).isNull()
+        assertThat(client.getNoncesCalls).isEmpty()
     }
 
     @Test
@@ -549,6 +552,7 @@ class TurnkeyAdapterTest {
         assertThat(body.sponsor).isEqualTo(true)
         assertThat(body.nonce).isNull()
         assertThat(body.gasLimit).isNull()
+        assertThat(body.gasStationNonce).isNotNull()
     }
 
     @Test
@@ -576,6 +580,7 @@ class TurnkeyAdapterTest {
         // would fail this send. Passing proves the fee RPCs are skipped entirely.
         val turnkey = MockTurnkey()
         val client = (turnkey.turnkeyClient as MockTurnkeyClient).apply {
+            mockGasStationNonce = "7"
             sendTransactionStatusQueue = mutableListOf(
                 MockTurnkeyClient.StatusFixture.broadcasted("0x" + "b".repeat(64))
             )
@@ -593,6 +598,33 @@ class TurnkeyAdapterTest {
         assertThat(body.gasLimit).isNull()
         assertThat(body.maxFeePerGas).isNull()
         assertThat(body.maxPriorityFeePerGas).isNull()
+        // Replay protection: the request carries Turnkey's gas-station nonce, fetched with one
+        // Turnkey call (not a chain RPC) for this wallet on this chain.
+        assertThat(body.gasStationNonce).isEqualTo("7")
+        val nonceRequest = client.getNoncesCalls.single()
+        assertThat(nonceRequest.address).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
+        assertThat(nonceRequest.caip2).isEqualTo("eip155:1")
+        assertThat(nonceRequest.gasStationNonce).isEqualTo(true)
+    }
+
+    @Test
+    fun `sponsored send does not broadcast when the gas station nonce cannot be fetched`() {
+        // A sponsored request without its gas-station nonce would broadcast with no replay
+        // protection, so a failed nonce lookup must stop the send before the vendor call.
+        val turnkey = MockTurnkey()
+        val client = (turnkey.turnkeyClient as MockTurnkeyClient).apply {
+            getNoncesError = RuntimeException("nonce service unavailable")
+        }
+        val provider = makeProvider(turnkey, sponsorGas = true)
+
+        val ex = runCatching {
+            runBlocking {
+                provider.sendNativeToken(1, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
+            }
+        }.exceptionOrNull()
+
+        assertThat(ex).isNotNull()
+        assertThat(client.ethSendTransactionCalls).isEmpty()
     }
 
     private fun stubSendTransactionRPCs() {
