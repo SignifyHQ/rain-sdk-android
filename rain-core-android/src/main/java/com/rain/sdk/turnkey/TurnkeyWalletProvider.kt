@@ -297,9 +297,12 @@ internal class TurnkeyWalletProvider(
     // ---------- low-level send / sign / fee ----------
 
     /**
-     * Raw sends stay self-paid: withdrawals, Auth Pull approvals, and host-composed calldata
-     * arrive here, and sponsorship cost passes through to customers, so only the flows product
-     * priced — the user-initiated transfer entries — ever opt in.
+     * Raw sends follow [sponsorGas] exactly like the transfer entries. Withdrawals, Auth Pull
+     * approvals, and host-composed calldata arrive here, and Turnkey sponsors any
+     * `ethSendTransaction`, not just plain transfers. A zero-balance card user's first action
+     * is often the Auth Pull approval, so leaving these self-paid would defeat the feature and
+     * would make the zero fee estimate wrong for exactly these flows. Sponsorship cost passes
+     * through to the partner that turned the flag on.
      */
     override suspend fun sendTransaction(
         chainId: Int,
@@ -307,7 +310,7 @@ internal class TurnkeyWalletProvider(
         to: String,
         data: String,
         value: String
-    ): String = sendEvmTransaction(chainId, from, to, data, value, sponsored = false)
+    ): String = sendEvmTransaction(chainId, from, to, data, value, sponsored = sponsorGas)
 
     private suspend fun sendEvmTransaction(
         chainId: Int,
@@ -365,10 +368,10 @@ internal class TurnkeyWalletProvider(
     ): BigDecimal {
         requireEvmChain(chainId, "estimateTransactionFee")
         if (sponsorGas && TurnkeyBroadcastChains.supportsSend(chainId)) {
-            // Sponsored transfers cost the user nothing, so zero is the honest quote (product
-            // decision: pass through what Turnkey charges the sender, which is nothing).
-            // Estimating as if the sender paid would also reject the zero-balance wallets
-            // sponsorship serves.
+            // Every EVM send is sponsored under this flag, so zero is the honest quote for
+            // transfers, withdrawals, and approvals alike (product decision: pass through what
+            // Turnkey charges the sender, which is nothing). Estimating as if the sender paid
+            // would also reject the zero-balance wallets sponsorship serves.
             return BigDecimal.ZERO
         }
         val estimateHex = rpcCallForHex(
@@ -1275,8 +1278,8 @@ internal class TurnkeyWalletProvider(
     /**
      * Signs and broadcasts a core-composed Solana transaction (e.g. a collateral withdrawal)
      * with the Turnkey Solana account. The fee payer is always this wallet — [sponsorGas]
-     * never applies here (raw sends stay self-paid, and Solana sponsorship as a whole is
-     * deferred until the sponsored payer model is validated on devnet).
+     * never applies here (Solana sponsorship is deferred until the sponsored payer model is
+     * validated on devnet).
      */
     override suspend fun sendSolanaTransaction(
         chainId: Int,

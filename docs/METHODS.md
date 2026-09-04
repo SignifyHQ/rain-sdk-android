@@ -173,7 +173,7 @@ Each adapter is a `RainProvider` descriptor that owns its vendor SDK as a privat
 | Adapter | Module | Config | Notes |
 |---------|--------|--------|-------|
 | `PortalProvider(PortalConfig(sessionToken, chainId?, sessionPolicy?, onSessionTokenNeeded?, onSessionExpired?, autoApprove?))` | `rain-portal-android` | `sessionToken: String`, `chainId: Int?`, `sessionPolicy: PortalSessionPolicy`, `onSessionTokenNeeded: (suspend () -> String?)?`, `onSessionExpired: (() -> Unit)?`, `autoApprove: Boolean = true` | Portal MPC signer (EVM). Advertises `EXPORT`, `RECOVERY`.|
-| `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?))` | `rain-core-android` | `turnkey: TurnkeyContext`, `walletAddress: String?`, `sessionPolicy: TurnkeySessionPolicy`, `onSessionExpired: (() -> Unit)?`, `sponsorGas: Boolean = false` | Turnkey P256 signer (EVM + Solana). Advertises `MULTI_CHAIN`, `BIOMETRIC_GATE`. Sends work only on Turnkey's managed-broadcast chains (others throw `RAIN_105`; reads unaffected). `sponsorGas` sponsors EVM transfer fees via Turnkey Gas Station (requires org-side enablement; fee estimates return 0; withdrawals, approvals, raw and Solana sends stay self-paid). See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
+| `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?))` | `rain-core-android` | `turnkey: TurnkeyContext`, `walletAddress: String?`, `sessionPolicy: TurnkeySessionPolicy`, `onSessionExpired: (() -> Unit)?`, `sponsorGas: Boolean = false` | Turnkey P256 signer (EVM + Solana). Advertises `MULTI_CHAIN`, `BIOMETRIC_GATE`. Sends work only on Turnkey's managed-broadcast chains (others throw `RAIN_105`; reads unaffected). `sponsorGas` sponsors every EVM send (transfers, withdrawals, approvals, raw sends) via Turnkey Gas Station (requires org-side enablement; fee estimates return 0; Solana sends stay self-paid). See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
 | `PrivyProvider(PrivyConfig(privy, walletAddress?, sessionPolicy?, onSessionExpired?))` | `rain-privy-android` | `privy: Privy`, `walletAddress: String?`, `sessionPolicy: PrivySessionPolicy`, `onSessionExpired: (() -> Unit)?` | Privy embedded-wallet signer (EVM + Solana). Advertises `EXPORT`, `RECOVERY`, `MULTI_CHAIN`.|
 
 #### Portal construction
@@ -312,9 +312,8 @@ distinction and return the hex address.
 
 Estimates the gas fee required for a transaction.
 
-On Turnkey with `sponsorGas` enabled, transfer estimates on broadcast-supported chains return
-`0` — the sponsored sender pays nothing, so zero is the honest quote. Withdrawal fee estimates
-are unaffected (withdrawals are always self-paid).
+On Turnkey with `sponsorGas` enabled, EVM estimates on broadcast-supported chains return `0`:
+every EVM send (transfers, withdrawals, approvals) is sponsored, so zero is the honest quote.
 
 - **Returns:** `BigDecimal` — estimated gas fee in the chain's native token (e.g. AVAX).
 - **Throws:** `RainError` if estimation fails.

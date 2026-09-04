@@ -524,11 +524,11 @@ class TurnkeyAdapterTest {
     }
 
     @Test
-    fun `raw sends stay self-paid even when sponsorGas is on`(): Unit = runBlocking {
-        // Sponsorship cost passes through to customers, so only the transfer entries may
-        // sponsor: withdrawals, approvals, and host-composed sends keep a full self-paid
-        // envelope regardless of the provider flag.
-        stubSendTransactionRPCs()
+    fun `raw sends are sponsored when sponsorGas is on`(): Unit = runBlocking {
+        // Withdrawals, approvals, and host-composed sends enter through the raw entry, and a
+        // zero-balance user's first action is often an approval, so the raw entry follows the
+        // flag with the same minimal payload as the transfer entries. Deliberately no RPC
+        // stubs: any self-paid fee RPC would fail this send.
         val turnkey = MockTurnkey()
         val client = (turnkey.turnkeyClient as MockTurnkeyClient).apply {
             sendTransactionStatusQueue = mutableListOf(
@@ -546,9 +546,9 @@ class TurnkeyAdapterTest {
         )
 
         val body = client.ethSendTransactionCalls.single()
-        assertThat(body.sponsor).isEqualTo(false)
-        assertThat(body.nonce).isNotNull()
-        assertThat(body.gasLimit).isNotNull()
+        assertThat(body.sponsor).isEqualTo(true)
+        assertThat(body.nonce).isNull()
+        assertThat(body.gasLimit).isNull()
     }
 
     @Test
