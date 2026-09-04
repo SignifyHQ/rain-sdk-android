@@ -39,9 +39,10 @@ import kotlinx.coroutines.withContext
  *                   account is a separate Turnkey toggle, off by default, so the sender must
  *                   still hold it). Turnkey does not document its Solana payer model, so run
  *                   the devnet validation before enabling this against Solana in sandbox.
- *                   Requires gas sponsorship enabled on the Rain parent organization in Turnkey;
- *                   with it off org-side, sponsored sends are rejected, so this defaults to
- *                   false until the tenant confirms. Sponsored sends have no client-side revert
+ *                   Defaults to true: sponsorship is the product, and Turnkey enables it at the
+ *                   parent-organization level. On an organization where it is not enabled,
+ *                   Turnkey rejects sponsored sends, so pass false there (WALL-15 tracks
+ *                   enablement per environment). Sponsored sends have no client-side revert
  *                   preflight; failures surface through Turnkey's decoded FAILED status.
  */
 class TurnkeyConfig(
@@ -49,7 +50,7 @@ class TurnkeyConfig(
     val walletAddress: String? = null,
     val sessionPolicy: TurnkeySessionPolicy = TurnkeySessionPolicy(),
     val onSessionExpired: (() -> Unit)? = null,
-    val sponsorGas: Boolean = false,
+    val sponsorGas: Boolean = true,
 )
 
 /**

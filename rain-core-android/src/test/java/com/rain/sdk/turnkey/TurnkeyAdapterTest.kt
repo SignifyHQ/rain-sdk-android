@@ -477,7 +477,9 @@ class TurnkeyAdapterTest {
     }
 
     @Test
-    fun `send carries sponsor=false unless configured`(): Unit = runBlocking {
+    fun `send carries sponsor=false when sponsorship is off`(): Unit = runBlocking {
+        // sponsorGas defaults to true on TurnkeyConfig; a host on an organization without
+        // sponsorship passes false and must get the full self-paid envelope back.
         stubSendTransactionRPCs()
         val expectedHash = "0x" + "a".repeat(64)
         val turnkey = MockTurnkey()
@@ -486,7 +488,7 @@ class TurnkeyAdapterTest {
                 MockTurnkeyClient.StatusFixture.broadcasted(expectedHash)
             )
         }
-        val provider = makeProvider(turnkey)
+        val provider = makeProvider(turnkey, sponsorGas = false)
 
         val hash = provider.sendNativeToken(1, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
 
