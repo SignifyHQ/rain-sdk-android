@@ -2,22 +2,22 @@ package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.RainChain
+import com.rain.sdk.internal.constants.SolanaPrograms
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.MockChainReader
 import com.rain.sdk.internal.helpers.MockRpcServer
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.internal.network.chainreader.SolanaChainReader
 import com.rain.sdk.internal.solana.Base58
 import com.rain.sdk.internal.solana.SolanaAddresses
 import com.rain.sdk.internal.solana.SolanaInstructions
-import com.rain.sdk.internal.constants.SolanaPrograms
 import com.rain.sdk.internal.solana.SolanaTransactionBuilder
+import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.Balance
-import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionCategory
+import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
-import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.turnkey.types.V1AssetBalance
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -155,7 +155,10 @@ class TurnkeySolanaProviderTest {
                 V1AssetBalance(
                     balance = "100500000",
                     caip19 = "$devnetCaip2/token:$mint",
-                    decimals = 6L, display = null, name = "USD Coin", symbol = "USDC"
+                    decimals = 6L,
+                    display = null,
+                    name = "USD Coin",
+                    symbol = "USDC"
                 )
             )
         )
@@ -214,12 +217,18 @@ class TurnkeySolanaProviderTest {
                 V1AssetBalance(
                     balance = "2500000000", // 2.5 SOL
                     caip19 = "$devnetCaip2/slip44:501",
-                    decimals = 9L, display = null, name = "Solana", symbol = "SOL"
+                    decimals = 9L,
+                    display = null,
+                    name = "Solana",
+                    symbol = "SOL"
                 ),
                 V1AssetBalance(
                     balance = "100500000",
                     caip19 = "$devnetCaip2/token:$usdcMint",
-                    decimals = 6L, display = null, name = "USD Coin", symbol = "USDC"
+                    decimals = 6L,
+                    display = null,
+                    name = "USD Coin",
+                    symbol = "USDC"
                 )
             )
         )
@@ -250,7 +259,10 @@ class TurnkeySolanaProviderTest {
                 V1AssetBalance(
                     balance = "5000000000",
                     caip19 = "$devnetCaip2/slip44:501",
-                    decimals = 9L, display = null, name = "Solana", symbol = "SOL"
+                    decimals = 9L,
+                    display = null,
+                    name = "Solana",
+                    symbol = "SOL"
                 )
             )
         )
@@ -280,7 +292,10 @@ class TurnkeySolanaProviderTest {
                 V1AssetBalance(
                     balance = "5000000000",
                     caip19 = "$devnetCaip2/slip44:501",
-                    decimals = 9L, display = null, name = "Solana", symbol = "SOL"
+                    decimals = 9L,
+                    display = null,
+                    name = "Solana",
+                    symbol = "SOL"
                 )
             )
         )
@@ -315,7 +330,10 @@ class TurnkeySolanaProviderTest {
                 V1AssetBalance(
                     balance = "5000000000",
                     caip19 = "$devnetCaip2/slip44:501",
-                    decimals = 9L, display = null, name = "Solana", symbol = "SOL"
+                    decimals = 9L,
+                    display = null,
+                    name = "Solana",
+                    symbol = "SOL"
                 )
             )
         )
@@ -557,7 +575,10 @@ class TurnkeySolanaProviderTest {
             "getLatestBlockhash",
             JSONObject()
                 .put("context", JSONObject().put("slot", 1))
-                .put("value", JSONObject().put("blockhash", MockTurnkey.DEFAULT_SOLANA_ADDRESS).put("lastValidBlockHeight", 150))
+                .put(
+                    "value",
+                    JSONObject().put("blockhash", MockTurnkey.DEFAULT_SOLANA_ADDRESS).put("lastValidBlockHeight", 150)
+                )
         )
         // No signatures before the send; the transfer's own signature appears after it.
         rpc.stubObjectSequence(
@@ -585,7 +606,10 @@ class TurnkeySolanaProviderTest {
             "getLatestBlockhash",
             JSONObject()
                 .put("context", JSONObject().put("slot", 1))
-                .put("value", JSONObject().put("blockhash", MockTurnkey.DEFAULT_SOLANA_ADDRESS).put("lastValidBlockHeight", 150))
+                .put(
+                    "value",
+                    JSONObject().put("blockhash", MockTurnkey.DEFAULT_SOLANA_ADDRESS).put("lastValidBlockHeight", 150)
+                )
         )
         // Turnkey SDK 2.0 reports the signature in solana.signature once Included -> returned
         // directly, without the RPC fallback.
@@ -667,7 +691,9 @@ class TurnkeySolanaProviderTest {
     @Test
     fun `getTransactions on solana ignores activities from a different cluster`(): Unit = runBlocking {
         val unsignedTx = SolanaTransactionBuilder.buildTransferHex(
-            MockTurnkey.DEFAULT_SOLANA_ADDRESS, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, 1L,
+            MockTurnkey.DEFAULT_SOLANA_ADDRESS,
+            MockTurnkey.DEFAULT_SOLANA_RECIPIENT,
+            1L,
             MockTurnkey.DEFAULT_SOLANA_ADDRESS
         )
         val client = MockTurnkeyClient(
@@ -692,7 +718,9 @@ class TurnkeySolanaProviderTest {
         val recipientWallet = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
         val destinationAta = Base58.encode(
             SolanaAddresses.associatedTokenAddress(
-                Base58.decode(recipientWallet), Base58.decode(mint), SolanaPrograms.TOKEN
+                Base58.decode(recipientWallet),
+                Base58.decode(mint),
+                SolanaPrograms.TOKEN
             )
         )
         val unsignedTx = SolanaTransactionBuilder.buildUnsignedHex(
@@ -765,7 +793,9 @@ class TurnkeySolanaProviderTest {
         val mint = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
         val destinationAta = Base58.encode(
             SolanaAddresses.associatedTokenAddress(
-                Base58.decode(mint), Base58.decode(mint), SolanaPrograms.TOKEN
+                Base58.decode(mint),
+                Base58.decode(mint),
+                SolanaPrograms.TOKEN
             )
         )
         val unsignedTx = SolanaTransactionBuilder.buildUnsignedHex(
@@ -810,7 +840,9 @@ class TurnkeySolanaProviderTest {
         val mint = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
         val recipientWallet = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
         val destinationAta = SolanaAddresses.associatedTokenAddress(
-            Base58.decode(recipientWallet), Base58.decode(mint), SolanaPrograms.TOKEN
+            Base58.decode(recipientWallet),
+            Base58.decode(mint),
+            SolanaPrograms.TOKEN
         )
         val unsignedTx = SolanaTransactionBuilder.buildUnsignedHex(
             feePayer = Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS),
@@ -1030,7 +1062,11 @@ class TurnkeySolanaProviderTest {
         assertThrows(RainError.InvalidRecipient::class.java) {
             runBlocking {
                 makeProvider().sendToken(
-                    devnet, mint, MockTurnkey.DEFAULT_SOLANA_ADDRESS, BigDecimal("1"), decimals = 6
+                    devnet,
+                    mint,
+                    MockTurnkey.DEFAULT_SOLANA_ADDRESS,
+                    BigDecimal("1"),
+                    decimals = 6
                 )
             }
         }
@@ -1043,7 +1079,11 @@ class TurnkeySolanaProviderTest {
         val client = includedStatusClient()
 
         assertThrows(RainError.TransactionSimulationFailed::class.java) {
-            runBlocking { makeProvider(client = client).sendToken(devnet, mint, recipient, BigDecimal("1"), decimals = 6) }
+            runBlocking {
+                makeProvider(
+                    client = client
+                ).sendToken(devnet, mint, recipient, BigDecimal("1"), decimals = 6)
+            }
         }
         // Nothing reached Turnkey.
         assertThat(client.solSendTransactionCalls).isEmpty()
@@ -1098,12 +1138,16 @@ class TurnkeySolanaProviderTest {
         val mintKey = Base58.decode(mint)
         val senderAta = Base58.encode(
             SolanaAddresses.associatedTokenAddress(
-                Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS), mintKey, tokenProgramKey
+                Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS),
+                mintKey,
+                tokenProgramKey
             )
         )
         val recipientAta = Base58.encode(
             SolanaAddresses.associatedTokenAddress(
-                Base58.decode(recipient), mintKey, tokenProgramKey
+                Base58.decode(recipient),
+                mintKey,
+                tokenProgramKey
             )
         )
 
@@ -1114,8 +1158,11 @@ class TurnkeySolanaProviderTest {
             "getAccountInfo",
             senderAta,
             accountEnvelope(
-                if (senderAccountExists) tokenAccountValue(senderBaseUnits, tokenProgram)
-                else JSONObject.NULL
+                if (senderAccountExists) {
+                    tokenAccountValue(senderBaseUnits, tokenProgram)
+                } else {
+                    JSONObject.NULL
+                }
             )
         )
         rpc.stubObjectFor(
@@ -1161,7 +1208,10 @@ class TurnkeySolanaProviderTest {
             "getLatestBlockhash",
             JSONObject()
                 .put("context", JSONObject().put("slot", 1))
-                .put("value", JSONObject().put("blockhash", MockTurnkey.DEFAULT_SOLANA_ADDRESS).put("lastValidBlockHeight", 150))
+                .put(
+                    "value",
+                    JSONObject().put("blockhash", MockTurnkey.DEFAULT_SOLANA_ADDRESS).put("lastValidBlockHeight", 150)
+                )
         )
     }
 
@@ -1180,7 +1230,9 @@ class TurnkeySolanaProviderTest {
                             "message",
                             JSONObject().put(
                                 "accountKeys",
-                                JSONArray().put(feePayer).put(MockTurnkey.DEFAULT_SOLANA_RECIPIENT).put(SolanaPrograms.SYSTEM_ADDRESS)
+                                JSONArray().put(
+                                    feePayer
+                                ).put(MockTurnkey.DEFAULT_SOLANA_RECIPIENT).put(SolanaPrograms.SYSTEM_ADDRESS)
                             )
                         )
                 )

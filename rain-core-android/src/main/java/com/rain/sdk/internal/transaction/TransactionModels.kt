@@ -8,7 +8,7 @@ import java.math.BigInteger
 
 /**
  * Request model for withdraw collateral operation.
- * 
+ *
  * Encapsulates all parameters needed for withdrawing collateral from a proxy contract.
  */
 internal data class WithdrawCollateralRequest(
@@ -30,7 +30,7 @@ internal sealed class TransactionResult {
      * @param txHash The transaction hash
      */
     data class Success(val txHash: String) : TransactionResult()
-    
+
     /**
      * Transaction failed with an error.
      * @param error The error that occurred

@@ -11,10 +11,10 @@ import io.portalhq.android.Portal
 import io.portalhq.android.api.Api
 import io.portalhq.android.exceptions.PortalException
 import io.portalhq.android.mpc.data.FeatureFlags
-import java.io.IOException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import java.io.IOException
 
 /** The init-time session probe: the one call that turns a bad token into a typed error up front. */
 class PortalManagerVerifySessionTest {

@@ -1,6 +1,5 @@
 package com.rain.sdk.internal.solana
 
-import com.rain.sdk.internal.constants.SolanaPrograms
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.models.RainAdminSignature
 import org.web3j.crypto.Hash
@@ -227,8 +226,10 @@ internal object SolanaWithdrawMessages {
             .toByteArray()
     )
     private val COORDINATOR_WITHDRAW_TYPE_HASH = keccak(
-        ("Withdraw(address user,address collateral,address asset,uint256 amount," +
-            "address recipient,uint256 nonce,uint256 expiresAt)").toByteArray()
+        (
+            "Withdraw(address user,address collateral,address asset,uint256 amount," +
+                "address recipient,uint256 nonce,uint256 expiresAt)"
+            ).toByteArray()
     )
 
     /**

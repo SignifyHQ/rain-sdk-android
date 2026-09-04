@@ -4,26 +4,26 @@ import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.NativeCurrency
+import com.rain.sdk.models.RainTransactionCategory
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.slot
 import io.privy.wallet.transactions.GetTransactionsParams
-import io.privy.wallet.transactions.Transaction as PrivyTransaction
 import io.privy.wallet.transactions.TransactionChain
 import io.privy.wallet.transactions.TransactionDetails
 import io.privy.wallet.transactions.TransactionStatus
 import io.privy.wallet.transactions.TransactionType
 import io.privy.wallet.transactions.TransactionsPage
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.mockk
-import io.mockk.slot
-import io.mockk.every
-import com.rain.sdk.models.RainTransactionCategory
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Test
 import java.math.BigDecimal
+import io.privy.wallet.transactions.Transaction as PrivyTransaction
 
 class PrivyWalletProviderTest {
 
@@ -175,7 +175,10 @@ class PrivyWalletProviderTest {
     fun `an already-classified RainError from the eth_call preflight surfaces unchanged`() = runBlocking {
         // A transport failure during the preflight is retryable. Wrapped as a simulation
         // failure it would escalate to WithdrawalRevertedByNetwork and tell the host not to retry.
-        for (classified in listOf(RainError.NetworkError("RPC request failed for eth_call"), RainError.TokenExpired())) {
+        for (classified in listOf(
+            RainError.NetworkError("RPC request failed for eth_call"),
+            RainError.TokenExpired()
+        )) {
             val manager = mockk<PrivyManager>()
             val rpc = mockk<PrivyRpcClient>()
             coEvery {
@@ -556,6 +559,7 @@ class PrivyWalletProviderTest {
         const val WALLET = "0x000000000000000000000000000000000000dEaD"
         const val TO = "0x1111111111111111111111111111111111111111"
         const val CONTRACT = "0x2222222222222222222222222222222222222222"
+
         /** Avalanche Fuji — a chain Privy's transaction indexer does not support. */
         const val UNINDEXED_CHAIN = 43113
         const val BASE_SEPOLIA = 84532

@@ -5,7 +5,6 @@ import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.MockChainReader
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.TokenInfo
-import java.math.BigInteger
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -15,6 +14,7 @@ import org.junit.After
 import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
+import java.math.BigInteger
 
 class RainApiServiceTest {
 
@@ -113,7 +113,15 @@ class RainApiServiceTest {
         stub("/contracts", contracts())
         val tokenStore = TokenMetadataStore(chainReader = chainReader)
         tokenStore.register(
-            listOf(TokenInfo(chainId = 999888, address = "0xTOKENUNKNOWN", symbol = "REG", decimals = 8, name = "Registered"))
+            listOf(
+                TokenInfo(
+                    chainId = 999888,
+                    address = "0xTOKENUNKNOWN",
+                    symbol = "REG",
+                    decimals = 8,
+                    name = "Registered"
+                )
+            )
         )
         val service = RainApiService(configStore = configStore, tokenStore = tokenStore, chainReader = chainReader)
 
@@ -146,7 +154,9 @@ class RainApiServiceTest {
     fun `fetchAdminSignature returns the mapped signature`() = runBlocking {
         stub(
             "/signatures/withdrawals",
-            json("""{"status":"ready","signature":{"data":"0xsig","salt":"0xsalt"},"expiresAt":"2030-01-01T00:00:00Z"}"""),
+            json(
+                """{"status":"ready","signature":{"data":"0xsig","salt":"0xsalt"},"expiresAt":"2030-01-01T00:00:00Z"}"""
+            ),
         )
 
         val signature = service().fetchAdminSignature(

@@ -4,8 +4,6 @@ import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
 import io.portalhq.android.exceptions.PortalException
 import io.portalhq.android.utils.errors.PortalError
-import java.io.IOException
-import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -13,6 +11,8 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
 
 class PortalSessionCoordinatorTest {
 
@@ -124,7 +124,10 @@ class PortalSessionCoordinatorTest {
         var mintCalls = 0
         val coordinator = coordinator(
             policy = PortalSessionPolicy(autoRefresh = false),
-            onSessionTokenNeeded = { mintCalls++; "new-token" },
+            onSessionTokenNeeded = {
+                mintCalls++
+                "new-token"
+            },
         )
 
         assertThrows(RainError.TokenExpired::class.java) {
@@ -179,13 +182,21 @@ class PortalSessionCoordinatorTest {
         var mintCalls = 0
         var hookCalls = 0
         val coordinator = coordinator(
-            onSessionTokenNeeded = { mintCalls++; "still-bad" },
+            onSessionTokenNeeded = {
+                mintCalls++
+                "still-bad"
+            },
             onSessionExpired = { hookCalls++ },
         )
         var attempts = 0
 
         assertThrows(RainError.TokenExpired::class.java) {
-            runBlocking { coordinator.executeRead { attempts++; throw unauthorized() } }
+            runBlocking {
+                coordinator.executeRead {
+                    attempts++
+                    throw unauthorized()
+                }
+            }
         }
 
         assertThat(attempts).isEqualTo(2)
@@ -260,7 +271,10 @@ class PortalSessionCoordinatorTest {
         // The host re-authenticated; the next call installs the new token first.
         mint = "fresh"
         var blockRuns = 0
-        val result = coordinator.executeRead { blockRuns++; "ok" }
+        val result = coordinator.executeRead {
+            blockRuns++
+            "ok"
+        }
 
         assertThat(result).isEqualTo("ok")
         assertThat(blockRuns).isEqualTo(1)
@@ -296,7 +310,11 @@ class PortalSessionCoordinatorTest {
         val gate = CompletableDeferred<Unit>()
         val installer = InstallRecorder()
         val coordinator = PortalSessionCoordinator(
-            onSessionTokenNeeded = { mintCalls.incrementAndGet(); gate.await(); "new-token" },
+            onSessionTokenNeeded = {
+                mintCalls.incrementAndGet()
+                gate.await()
+                "new-token"
+            },
             installToken = installer.fn,
             retryDelay = { },
         )
@@ -345,7 +363,11 @@ class PortalSessionCoordinatorTest {
         val gate = CompletableDeferred<Unit>()
         var hookCalls = 0
         val coordinator = PortalSessionCoordinator(
-            onSessionTokenNeeded = { mintCalls.incrementAndGet(); gate.await(); null },
+            onSessionTokenNeeded = {
+                mintCalls.incrementAndGet()
+                gate.await()
+                null
+            },
             onSessionExpired = { hookCalls++ },
             retryDelay = { },
         )
@@ -478,7 +500,12 @@ class PortalSessionCoordinatorTest {
         var attempts = 0
 
         assertThrows(PortalException.Api.HttpRequestFailed::class.java) {
-            runBlocking { coordinator.executeRead { attempts++; throw httpFailed(500) } }
+            runBlocking {
+                coordinator.executeRead {
+                    attempts++
+                    throw httpFailed(500)
+                }
+            }
         }
         assertThat(attempts).isEqualTo(2)
     }
@@ -490,7 +517,12 @@ class PortalSessionCoordinatorTest {
         var attempts = 0
 
         assertThrows(PortalException.Api.HttpRequestFailed::class.java) {
-            runBlocking { coordinator.executeWrite { attempts++; throw httpFailed(503) } }
+            runBlocking {
+                coordinator.executeWrite {
+                    attempts++
+                    throw httpFailed(503)
+                }
+            }
         }
         assertThat(attempts).isEqualTo(1)
         assertThat(delays.delays).isEmpty()
@@ -502,7 +534,12 @@ class PortalSessionCoordinatorTest {
         var attempts = 0
 
         assertThrows(PortalException.Api.HttpRequestFailed::class.java) {
-            runBlocking { coordinator.executeRead { attempts++; throw httpFailed(400) } }
+            runBlocking {
+                coordinator.executeRead {
+                    attempts++
+                    throw httpFailed(400)
+                }
+            }
         }
         assertThat(attempts).isEqualTo(1)
     }
@@ -528,7 +565,10 @@ class PortalSessionCoordinatorTest {
     fun `death callbacks run before the host hook and survive a throwing callback`() {
         val order = mutableListOf<String>()
         val coordinator = coordinator(onSessionExpired = { order += "hook" })
-        coordinator.onSessionDeath { order += "evict"; throw IllegalStateException("boom") }
+        coordinator.onSessionDeath {
+            order += "evict"
+            throw IllegalStateException("boom")
+        }
 
         assertThrows(RainError.TokenExpired::class.java) {
             runBlocking { coordinator.executeRead { throw unauthorized() } }

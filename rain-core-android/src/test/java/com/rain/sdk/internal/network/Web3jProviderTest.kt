@@ -40,7 +40,7 @@ class Web3jProviderTest {
 
         assertThat(instance1).isSameInstanceAs(instance2)
         assertThat(instance1).isEqualTo(mockWeb3j1)
-        
+
         // Verify build called only once
         verify(exactly = 1) { Web3j.build(any<HttpService>()) }
     }
@@ -55,7 +55,7 @@ class Web3jProviderTest {
         // Mock build to return different instances based on logic, or just sequence
         // Since HttpService equals is not reliable for matching, we use side effects or sequence.
         // Let's use answer with check
-        
+
         var callCount = 0
         every { Web3j.build(any<HttpService>()) } answers {
             callCount++
@@ -81,13 +81,13 @@ class Web3jProviderTest {
         Web3jProvider.shutDownAll()
 
         verify { mockWeb3j.shutdown() }
-        
+
         // Verify cache cleared by checking if next get creates new one
         // (Reset call count logic or mocks)
-        
+
         val newMockWeb3j = mockk<Web3j>(relaxed = true)
         every { Web3j.build(any<HttpService>()) } returns newMockWeb3j
-        
+
         val instanceAfterShutdown = Web3jProvider.getOrCreate(url)
         assertThat(instanceAfterShutdown).isEqualTo(newMockWeb3j)
         assertThat(instanceAfterShutdown).isNotSameInstanceAs(mockWeb3j)

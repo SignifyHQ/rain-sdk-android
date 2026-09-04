@@ -4,7 +4,6 @@ import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.assumeJdk24
 import com.turnkey.core.models.AuthState
-import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -21,6 +20,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
+import java.io.IOException
 
 class TurnkeySessionCoordinatorTest {
 

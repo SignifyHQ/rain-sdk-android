@@ -29,6 +29,7 @@ class EvmChainReaderTest {
     private val wallet = "0x1111111111111111111111111111111111111111"
     private val usdc = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
     private val dai = "0x6b175474e89094c44da98b954eedeac495271d0f"
+
     /** Rain's sandbox Auth Pull operator — the allowance spender. */
     private val spender = "0x5a6E6b0d5Ea051CfFF9b3dcC2Aa8Dac226458f29"
     private val txHash = "0x" + "ab".repeat(32)
@@ -168,18 +169,18 @@ class EvmChainReaderTest {
         rpc.stub(
             "eth_call",
             "0x" +
-                slot("20") +              // outer offset
-                slot("2") +               // count = 2
-                slot("40") +              // offset to tuple 0
-                slot("c0") +              // offset to tuple 1 (0x40 + 0x80 tuple size)
-                slot("1") +               // t0 success
-                slot("40") +              // t0 returnData offset
-                slot("20") +              // t0 returnData length
+                slot("20") + // outer offset
+                slot("2") + // count = 2
+                slot("40") + // offset to tuple 0
+                slot("c0") + // offset to tuple 1 (0x40 + 0x80 tuple size)
+                slot("1") + // t0 success
+                slot("40") + // t0 returnData offset
+                slot("20") + // t0 returnData length
                 slot("de0b6b3a7640000") + // t0 = 1 ETH in wei
-                slot("1") +               // t1 success
-                slot("40") +              // t1 returnData offset
-                slot("20") +              // t1 returnData length
-                slot("f4240")             // t1 = 1_000_000 (1 USDC at 6 decimals)
+                slot("1") + // t1 success
+                slot("40") + // t1 returnData offset
+                slot("20") + // t1 returnData length
+                slot("f4240") // t1 = 1_000_000 (1 USDC at 6 decimals)
         )
         val reader = makeReader(chainId = 1)
 
@@ -206,13 +207,13 @@ class EvmChainReaderTest {
         rpc.stub(
             "eth_call",
             "0x" +
-                slot("20") +              // outer offset
-                slot("1") +               // count = 1
-                slot("20") +              // offset to tuple 0
-                slot("1") +               // t0 success
-                slot("40") +              // t0 returnData offset
-                slot("20") +              // t0 returnData length
-                slot("de0b6b3a7640000")   // t0 = 1 ETH in wei
+                slot("20") + // outer offset
+                slot("1") + // count = 1
+                slot("20") + // offset to tuple 0
+                slot("1") + // t0 success
+                slot("40") + // t0 returnData offset
+                slot("20") + // t0 returnData length
+                slot("de0b6b3a7640000") // t0 = 1 ETH in wei
         )
         val zkSyncEra = 324
         val reader = makeReader(chainId = zkSyncEra)

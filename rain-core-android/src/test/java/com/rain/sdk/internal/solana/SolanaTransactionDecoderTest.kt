@@ -1,7 +1,7 @@
 package com.rain.sdk.internal.solana
 
-import com.rain.sdk.internal.constants.SolanaPrograms
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.internal.constants.SolanaPrograms
 import org.junit.Test
 import java.math.BigInteger
 import java.util.Base64 as JavaBase64

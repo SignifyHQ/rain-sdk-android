@@ -16,8 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -43,8 +43,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.interfaces.RainClient
-import com.rain.sdk.sample.WalletChain
 import com.rain.sdk.sample.SampleEnvironment
+import com.rain.sdk.sample.WalletChain
 
 /**
  * Approves Rain's operator to spend USDC from this wallet — the wallet-side prerequisite for
@@ -406,8 +406,11 @@ fun AuthPullScreen(
                 Button(
                     onClick = {
                         pendingAction = null
-                        if (isRevoke) viewModel.revoke(selectedChain)
-                        else viewModel.approve(selectedChain)
+                        if (isRevoke) {
+                            viewModel.revoke(selectedChain)
+                        } else {
+                            viewModel.approve(selectedChain)
+                        }
                     }
                 ) { Text(if (isRevoke) "Revoke" else "Approve") }
             },

@@ -5,12 +5,12 @@ import java.math.BigDecimal
 
 /**
  * Validates transaction parameters.
- * 
+ *
  * Centralizes all validation logic to ensure consistent error handling
  * and clear validation rules across the SDK.
  */
 internal class TransactionValidator {
-    
+
     /**
      * Validates a withdraw collateral request. An unusable chain is a config error; an unusable
      * amount or scale is an amount error.

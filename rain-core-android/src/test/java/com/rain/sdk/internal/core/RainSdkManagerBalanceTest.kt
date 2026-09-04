@@ -43,8 +43,6 @@ class RainSdkManagerBalanceTest {
         name = "Ether"
     )
 
-
-
     // ---- happy paths via the stub provider ----------------------------------------
 
     @Test

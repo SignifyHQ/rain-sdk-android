@@ -46,8 +46,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.models.RainTransaction
-import java.math.BigDecimal
 import com.rain.sdk.sample.WalletChain
+import java.math.BigDecimal
 
 @Composable
 fun TransactionHistoryScreen(
@@ -219,8 +219,11 @@ private fun TransactionCard(tx: RainTransaction, walletAddress: String?, selecte
                 text = truncateHash(tx.hash),
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Medium,
-                color = if (explorerLinkable) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurface,
+                color = if (explorerLinkable) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
                 textDecoration = if (explorerLinkable) TextDecoration.Underline else null,
                 maxLines = 1,
                 modifier = if (explorerLinkable) {
@@ -229,7 +232,9 @@ private fun TransactionCard(tx: RainTransaction, walletAddress: String?, selecte
                             Intent(Intent.ACTION_VIEW, Uri.parse(selectedChain.explorerTxUrl(tx.hash)))
                         )
                     }
-                } else Modifier
+                } else {
+                    Modifier
+                }
             )
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -297,7 +302,9 @@ private fun TransactionCard(tx: RainTransaction, walletAddress: String?, selecte
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier
                                 .clickable {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clipboard = context.getSystemService(
+                                        Context.CLIPBOARD_SERVICE
+                                    ) as ClipboardManager
                                     val clip = ClipData.newPlainText("Contract Address", tokenAddr)
                                     clipboard.setPrimaryClip(clip)
                                     Toast.makeText(context, "Copied Contract Address", Toast.LENGTH_SHORT).show()
@@ -341,5 +348,3 @@ private fun truncateHash(hash: String): String {
 private fun truncateAddress(address: String): String {
     return if (address.length > 14) "${address.take(6)}...${address.takeLast(6)}" else address
 }
-
-

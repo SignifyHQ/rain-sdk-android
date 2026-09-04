@@ -8,10 +8,10 @@ import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers
 import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
-import java.math.BigDecimal
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import java.math.BigDecimal
 
 /**
  * Manager-contract tests for send APIs — validation, mode guards, error wrapping.
@@ -21,8 +21,6 @@ import org.junit.Test
 class RainSdkManagerSendTokenTest {
 
     // ---- guards: not initialized -------------------------------------------------
-
-
 
     // ---- happy paths via the stub provider ---------------------------------------
 
@@ -174,7 +172,13 @@ class RainSdkManagerSendTokenTest {
 
         assertThrows(RainError.TokenNotFound::class.java) {
             runBlocking {
-                manager.sendToken(1, TestFixtures.TOKEN_ADDRESS, TestFixtures.RECIPIENT_ADDRESS, BigDecimal("1.0"), null)
+                manager.sendToken(
+                    1,
+                    TestFixtures.TOKEN_ADDRESS,
+                    TestFixtures.RECIPIENT_ADDRESS,
+                    BigDecimal("1.0"),
+                    null
+                )
             }
         }
         reader.metadataError = null
@@ -191,7 +195,13 @@ class RainSdkManagerSendTokenTest {
 
         assertThrows(RainError.InvalidConfig::class.java) {
             runBlocking {
-                manager.sendToken(1, TestFixtures.TOKEN_ADDRESS, TestFixtures.RECIPIENT_ADDRESS, BigDecimal("1.0"), null)
+                manager.sendToken(
+                    1,
+                    TestFixtures.TOKEN_ADDRESS,
+                    TestFixtures.RECIPIENT_ADDRESS,
+                    BigDecimal("1.0"),
+                    null
+                )
             }
         }
 

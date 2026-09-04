@@ -3,8 +3,8 @@ package com.rain.sdk.internal.helpers
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
 import com.rain.sdk.models.Balance
-import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransaction
+import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
 import java.math.BigDecimal
 import java.math.BigInteger
@@ -73,6 +73,7 @@ internal open class StubWalletProvider : WalletProvider {
     var sendNativeTokenHashToReturn: String = "0x" + "0".repeat(64)
     var sendTokenHashToReturn: String = "0x" + "0".repeat(64)
     var sendTransactionHashToReturn: String = "0x" + "0".repeat(64)
+
     /** When set, [sendTransaction] throws it — drives user-rejection and revert paths. */
     var sendTransactionError: Throwable? = null
     var signTypedDataToReturn: String = "0x" + "0".repeat(130)

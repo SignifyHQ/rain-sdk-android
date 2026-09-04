@@ -27,7 +27,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -38,7 +37,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -122,7 +120,15 @@ fun BalancesScreen(
                             color = Color.Black
                         )
                         Text(
-                            text = state.collateralWalletAddress.ifEmpty { "—" }.let { if (it != "—") formatAddress(it) else it },
+                            text = state.collateralWalletAddress.ifEmpty { "—" }.let {
+                                if (it != "—") {
+                                    formatAddress(
+                                        it
+                                    )
+                                } else {
+                                    it
+                                }
+                            },
                             fontSize = 14.sp,
                             color = Color.Gray
                         )
@@ -186,12 +192,16 @@ fun BalancesScreen(
                     border = BorderStroke(1.dp, Color.Gray)
                 ) {
                     if (state.isCollateralLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color.Black,
+                            strokeWidth = 2.dp
+                        )
                     } else {
                         Text("Fetch", fontWeight = FontWeight.Bold)
                     }
                 }
-            
+
                 // Collateral error and results
                 if (state.collateralError != null) {
                     Text(
@@ -252,7 +262,15 @@ fun BalancesScreen(
                             color = Color.Black
                         )
                         Text(
-                            text = state.internalWalletAddress.ifEmpty { "—" }.let { if (it != "—") formatAddress(it) else it },
+                            text = state.internalWalletAddress.ifEmpty { "—" }.let {
+                                if (it != "—") {
+                                    formatAddress(
+                                        it
+                                    )
+                                } else {
+                                    it
+                                }
+                            },
                             fontSize = 14.sp,
                             color = Color.Gray
                         )
@@ -332,12 +350,16 @@ fun BalancesScreen(
                     border = BorderStroke(1.dp, Color.Gray)
                 ) {
                     if (state.isLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color.Black,
+                            strokeWidth = 2.dp
+                        )
                     } else {
                         Text("Fetch", fontWeight = FontWeight.Bold)
                     }
                 }
-                
+
                 // Results and Error
                 if (state.errorMessage != null) {
                     Text(
@@ -347,11 +369,11 @@ fun BalancesScreen(
                         modifier = Modifier.padding(top = 16.dp)
                     )
                 }
-                
+
                 if (state.nativeBalance != null || state.walletTokenBalances.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(text = "Results:", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
-        
+
                     state.nativeBalance?.let { balance ->
                         BalanceCard(
                             emoji = "⛰️",

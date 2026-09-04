@@ -8,7 +8,6 @@ import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.sample.SampleEnvironment
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain
-import java.math.BigDecimal
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.math.BigDecimal
 
 /**
  * Drives the Auth Pull prerequisite: approve Rain's operator to spend USDC from this wallet, and
@@ -135,7 +135,7 @@ class AuthPullViewModel(
                         // An unlimited allowance formats to ~1.16e71 USDC, which is noise —
                         // label it instead.
                         allowanceText =
-                            if (allowance.isUnlimited) "Unlimited" else allowance.formatted
+                        if (allowance.isUnlimited) "Unlimited" else allowance.formatted
                     )
                 }
             } catch (e: CancellationException) {

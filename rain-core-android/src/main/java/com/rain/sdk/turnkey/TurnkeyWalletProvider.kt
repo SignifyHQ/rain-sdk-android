@@ -1,9 +1,6 @@
 package com.rain.sdk.turnkey
 
 import com.rain.sdk.internal.abi.Erc20Abi
-import com.rain.sdk.internal.provider.WalletProvider
-import com.rain.sdk.provider.Capability
-import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.internal.constants.RainConstants
 import com.rain.sdk.internal.constants.SolanaChains
 import com.rain.sdk.internal.error.RainError
@@ -11,6 +8,7 @@ import com.rain.sdk.internal.network.chainreader.ChainReader
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.network.chainreader.JsonRpcClient
 import com.rain.sdk.internal.network.chainreader.SolanaChainReader
+import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.solana.SolanaConverter
 import com.rain.sdk.internal.solana.SolanaRpcClient
 import com.rain.sdk.internal.solana.SolanaSupport
@@ -22,10 +20,12 @@ import com.rain.sdk.internal.utils.ChainIdFormat
 import com.rain.sdk.internal.utils.strippingHexPrefix
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransaction
-import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionCategory
+import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
+import com.rain.sdk.provider.Capability
+import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.utils.EthereumConverter
 import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TGetActivitiesBody
@@ -120,10 +120,13 @@ internal class TurnkeyWalletProvider(
     // it. Mutex (rather than synchronized) so the suspend-friendly address() doesn't block
     // a thread while it's waiting on Turnkey's refresh.
     private val cachedAddressLock = Mutex()
+
     /** Covers nonce acquisition through Turnkey acceptance so concurrent sends cannot reuse it. */
     private val evmSendLock = Mutex()
+
     @Volatile
     private var cachedAddress: String? = null
+
     @Volatile
     private var cachedSolanaAddress: String? = null
 
@@ -1022,7 +1025,9 @@ internal class TurnkeyWalletProvider(
                 timestamp = timestamp,
                 from = draft.from,
                 to = transfer.to,
-                value = if (transfer.lamports.signum() == 0) BigDecimal.ZERO else {
+                value = if (transfer.lamports.signum() == 0) {
+                    BigDecimal.ZERO
+                } else {
                     SolanaConverter.lamportsToSol(transfer.lamports).stripTrailingZeros()
                 },
                 asset = SolanaChains.NATIVE_CURRENCY.symbol,
@@ -1439,8 +1444,11 @@ internal class TurnkeyWalletProvider(
         // Strip every "0x" occurrence (not just a leading prefix) — Turnkey occasionally
         // returns components like "0x...0x..." that need full normalization before padding.
         val clean = value.lowercase().replace("0x", "")
-        return if (clean.length >= length) clean.takeLast(length)
-        else clean.padStart(length, '0')
+        return if (clean.length >= length) {
+            clean.takeLast(length)
+        } else {
+            clean.padStart(length, '0')
+        }
     }
 
     private fun normalizedRecoveryId(value: String): Int {

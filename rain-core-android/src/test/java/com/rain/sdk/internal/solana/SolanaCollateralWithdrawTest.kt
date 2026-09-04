@@ -1,9 +1,9 @@
 package com.rain.sdk.internal.solana
 
 import com.google.common.truth.Truth.assertThat
+import org.junit.Test
 import java.math.BigInteger
 import java.util.Base64
-import org.junit.Test
 
 /**
  * The message-encoding golden test uses values captured from a LIVE Rain dev-API withdrawal

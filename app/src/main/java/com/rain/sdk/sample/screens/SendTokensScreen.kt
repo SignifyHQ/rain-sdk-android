@@ -25,8 +25,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -113,8 +113,11 @@ fun SendTokensScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = if (isTokenSend) "Send ${selectedChain.tokenStandard} Token"
-                    else "Send Native ${selectedChain.nativeSymbol}",
+                    text = if (isTokenSend) {
+                        "Send ${selectedChain.tokenStandard} Token"
+                    } else {
+                        "Send Native ${selectedChain.nativeSymbol}"
+                    },
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
@@ -154,8 +157,11 @@ fun SendTokensScreen(
                     onValueChange = { viewModel.onAmountChanged(it) },
                     label = {
                         Text(
-                            if (isTokenSend) "Amount (Token Units)"
-                            else "Amount (${selectedChain.nativeSymbol})"
+                            if (isTokenSend) {
+                                "Amount (Token Units)"
+                            } else {
+                                "Amount (${selectedChain.nativeSymbol})"
+                            }
                         )
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -187,16 +193,23 @@ fun SendTokensScreen(
         // Send Button
         Button(
             onClick = {
-                if (isTokenSend) viewModel.sendTokenTransfer(selectedChain)
-                else viewModel.sendNative(selectedChain)
+                if (isTokenSend) {
+                    viewModel.sendTokenTransfer(selectedChain)
+                } else {
+                    viewModel.sendNative(selectedChain)
+                }
             },
             enabled = !state.isSending,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(
-                if (state.isSending) "Sending..."
-                else if (isTokenSend) "🔗 Send ${selectedChain.tokenStandard}"
-                else "💎 Send ${selectedChain.nativeSymbol}"
+                if (state.isSending) {
+                    "Sending..."
+                } else if (isTokenSend) {
+                    "🔗 Send ${selectedChain.tokenStandard}"
+                } else {
+                    "💎 Send ${selectedChain.nativeSymbol}"
+                }
             )
         }
 

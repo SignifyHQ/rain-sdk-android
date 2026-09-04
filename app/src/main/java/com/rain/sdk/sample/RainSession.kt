@@ -1,7 +1,6 @@
 package com.rain.sdk.sample
 
 import com.rain.sdk.RainSdk
-import com.rain.sdk.RainAuthPullConfig
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.portal.PortalConfig

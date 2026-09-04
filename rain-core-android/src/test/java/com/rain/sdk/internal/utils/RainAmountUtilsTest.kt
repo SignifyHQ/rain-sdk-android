@@ -2,10 +2,10 @@ package com.rain.sdk.internal.utils
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
-import java.math.BigDecimal
-import java.math.BigInteger
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import java.math.BigDecimal
+import java.math.BigInteger
 
 class RainAmountUtilsTest {
 

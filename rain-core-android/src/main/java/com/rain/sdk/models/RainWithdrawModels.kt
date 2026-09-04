@@ -5,7 +5,7 @@ import com.rain.sdk.internal.utils.RainHexUtils
 
 /**
  * Groups all addresses required for a withdrawal operation.
- * 
+ *
  * @property proxyAddress The address of the collateral proxy contract.
  * @property controllerAddress The address of the collateral controller contract.
  * @property tokenAddress The address of the token being withdrawn.
@@ -31,10 +31,9 @@ data class RainWithdrawAddresses(
     }
 }
 
-
 /**
  * Groups the admin signature and its associated metadata.
- * 
+ *
  * @property salt The salt used for the admin signature.
  * @property signature The hex string of the admin signature.
  * @property expiresAt The expiration timestamp (ISO-8601 String, e.g. "2030-12-31T23:59:59Z").

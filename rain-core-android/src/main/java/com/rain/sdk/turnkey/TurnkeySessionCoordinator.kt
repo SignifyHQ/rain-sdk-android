@@ -5,9 +5,6 @@ import com.rain.sdk.internal.error.RainError
 import com.turnkey.core.models.AuthState
 import com.turnkey.core.models.Session
 import com.turnkey.core.models.errors.TurnkeyKotlinError
-import java.io.IOException
-import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -22,6 +19,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
+import java.io.IOException
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Guards every Turnkey call behind session-expiry checks, proactive refresh, refresh-on-401

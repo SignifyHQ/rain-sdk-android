@@ -2,21 +2,18 @@ package com.rain.sdk.internal.core
 
 import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.RainChain
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers
 import com.rain.sdk.internal.network.Web3jProvider
-import com.rain.sdk.RainChain
 import com.rain.sdk.models.RainPreparedWithdrawal
 import com.rain.sdk.models.RainWithdrawAddresses
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import java.math.BigDecimal
-import java.math.BigInteger
-import java.util.concurrent.CompletableFuture
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertThrows
@@ -25,6 +22,9 @@ import org.junit.Test
 import org.web3j.protocol.Web3j
 import org.web3j.protocol.core.Request
 import org.web3j.protocol.core.methods.response.EthCall
+import java.math.BigDecimal
+import java.math.BigInteger
+import java.util.concurrent.CompletableFuture
 
 /**
  * Manager-contract tests for `estimateWithdrawalFee`: the primary BigDecimal overload

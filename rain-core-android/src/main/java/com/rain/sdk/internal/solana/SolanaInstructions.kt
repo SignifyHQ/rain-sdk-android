@@ -234,7 +234,14 @@ internal object SolanaInstructions {
 
     /** Anchor discriminator `sha256("global:withdraw_single_signer_collateral_asset")[0..8]`. */
     private val WITHDRAW_SINGLE_SIGNER_DISCRIMINATOR = byteArrayOf(
-        13, 25, 64, 83, 111, 184.toByte(), 70, 241.toByte()
+        13,
+        25,
+        64,
+        83,
+        111,
+        184.toByte(),
+        70,
+        241.toByte()
     )
 
     /** In an ed25519 offsets struct, `u16::MAX` points the runtime at this same instruction. */

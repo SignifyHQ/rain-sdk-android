@@ -48,7 +48,9 @@ fun CollateralWithdrawScreen(
     rainClient: RainClient,
     selectedChain: WalletChain,
     onBack: () -> Unit,
-    viewModel: CollateralWithdrawViewModel = viewModel(factory = CollateralWithdrawViewModelFactory(rainSdk, rainClient))
+    viewModel: CollateralWithdrawViewModel = viewModel(
+        factory = CollateralWithdrawViewModelFactory(rainSdk, rainClient)
+    )
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
@@ -138,15 +140,17 @@ fun CollateralWithdrawScreen(
                                 .padding(vertical = 4.dp)
                                 .clickable { viewModel.onTokenSelected(index) },
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected)
+                                containerColor = if (isSelected) {
                                     MaterialTheme.colorScheme.primaryContainer
-                                else
+                                } else {
                                     MaterialTheme.colorScheme.surface
+                                }
                             ),
-                            border = if (isSelected)
+                            border = if (isSelected) {
                                 BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-                            else
+                            } else {
                                 BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                            }
                         ) {
                             Row(
                                 modifier = Modifier

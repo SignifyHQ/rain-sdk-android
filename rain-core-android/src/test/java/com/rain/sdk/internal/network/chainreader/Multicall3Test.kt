@@ -67,7 +67,7 @@ class Multicall3Test {
             "0000000000000000000000000000000000000000000000000000000000000001" + // success = true
             "0000000000000000000000000000000000000000000000000000000000000040" + // returnData offset = 64
             "0000000000000000000000000000000000000000000000000000000000000020" + // returnData length = 32 bytes
-            "0000000000000000000000000000000000000000000000000000000000000539"   // returnData = 0x539
+            "0000000000000000000000000000000000000000000000000000000000000539" // returnData = 0x539
 
         val results = Multicall3.decodeAggregate3Result(hex)
 
@@ -152,7 +152,7 @@ class Multicall3Test {
             "0000000000000000000000000000000000000000000000000000000000000020" + // tuple offset = 32
             "0000000000000000000000000000000000000000000000000000000000000001" + // success
             "0000000000000000000000000000000000000000000000000000000000000040" + // returnData offset
-            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"   // hostile length
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" // hostile length
         assertThrows(RainError.InternalError::class.java) {
             Multicall3.decodeAggregate3Result(hex)
         }

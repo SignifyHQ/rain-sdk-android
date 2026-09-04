@@ -1,7 +1,7 @@
 package com.rain.sdk.internal.solana
 
-import com.rain.sdk.internal.constants.SolanaPrograms
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.internal.constants.SolanaPrograms
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.sol4k.PublicKey
@@ -48,7 +48,8 @@ class SolanaTransactionBuilderTest {
         var i = 0
         // Signature section: count = 1, then a 64-byte zero placeholder.
         assertThat(tx[i++]).isEqualTo(1.toByte())
-        assertThat(tx.copyOfRange(i, i + 64)).isEqualTo(ByteArray(64)); i += 64
+        assertThat(tx.copyOfRange(i, i + 64)).isEqualTo(ByteArray(64))
+        i += 64
 
         // Message header: 1 required signature, 0 readonly signed, 1 readonly unsigned.
         assertThat(tx[i++]).isEqualTo(1.toByte())
@@ -57,12 +58,16 @@ class SolanaTransactionBuilderTest {
 
         // Account keys: count = 3, [from, to, systemProgram(all-zero)].
         assertThat(tx[i++]).isEqualTo(3.toByte())
-        assertThat(tx.copyOfRange(i, i + 32)).isEqualTo(fromBytes); i += 32
-        assertThat(tx.copyOfRange(i, i + 32)).isEqualTo(toBytes); i += 32
-        assertThat(tx.copyOfRange(i, i + 32)).isEqualTo(ByteArray(32)); i += 32
+        assertThat(tx.copyOfRange(i, i + 32)).isEqualTo(fromBytes)
+        i += 32
+        assertThat(tx.copyOfRange(i, i + 32)).isEqualTo(toBytes)
+        i += 32
+        assertThat(tx.copyOfRange(i, i + 32)).isEqualTo(ByteArray(32))
+        i += 32
 
         // Recent blockhash.
-        assertThat(tx.copyOfRange(i, i + 32)).isEqualTo(blockhashBytes); i += 32
+        assertThat(tx.copyOfRange(i, i + 32)).isEqualTo(blockhashBytes)
+        i += 32
 
         // Instructions: count = 1; programIdIndex = 2; accounts [0, 1]; data (12 bytes).
         assertThat(tx[i++]).isEqualTo(1.toByte())
@@ -72,9 +77,11 @@ class SolanaTransactionBuilderTest {
         assertThat(tx[i++]).isEqualTo(1.toByte())
         assertThat(tx[i++]).isEqualTo(12.toByte())
         // Transfer instruction data: u32 LE (2) + u64 LE lamports.
-        assertThat(tx.copyOfRange(i, i + 4)).isEqualTo(byteArrayOf(2, 0, 0, 0)); i += 4
+        assertThat(tx.copyOfRange(i, i + 4)).isEqualTo(byteArrayOf(2, 0, 0, 0))
+        i += 4
         assertThat(tx.copyOfRange(i, i + 8))
-            .isEqualTo(byteArrayOf(0x00, 0xCA.toByte(), 0x9A.toByte(), 0x3B, 0, 0, 0, 0)); i += 8
+            .isEqualTo(byteArrayOf(0x00, 0xCA.toByte(), 0x9A.toByte(), 0x3B, 0, 0, 0, 0))
+        i += 8
 
         assertThat(i).isEqualTo(tx.size)
         assertThat(tx.size).isEqualTo(215)

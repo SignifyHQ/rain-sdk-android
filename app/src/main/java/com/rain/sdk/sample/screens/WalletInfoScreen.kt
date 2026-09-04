@@ -179,10 +179,11 @@ private fun AddressCard(
                 Text(
                     text = if (isValid) "✅ Valid" else "❌ Invalid",
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (isValid)
+                    color = if (isValid) {
                         MaterialTheme.colorScheme.primary
-                    else
+                    } else {
                         MaterialTheme.colorScheme.error
+                    }
                 )
             }
 

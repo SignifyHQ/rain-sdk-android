@@ -7,12 +7,12 @@ import com.rain.sdk.internal.helpers.MockChainReader
 import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.models.RainTransactionCategory
 import com.rain.sdk.models.RainTransactionOrder
-import java.math.BigDecimal
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
+import java.math.BigDecimal
 
 class TurnkeyWalletProviderHistoryTest {
 
@@ -517,7 +517,11 @@ class TurnkeyWalletProviderHistoryTest {
                             transfers = listOf(
                                 TurnkeyHistoryTransfer(
                                     direction = "OUT",
-                                    asset = TurnkeyHistoryAsset(caip19 = "$caip2Devnet/slip44:501", symbol = "SOL", decimals = 9),
+                                    asset = TurnkeyHistoryAsset(
+                                        caip19 = "$caip2Devnet/slip44:501",
+                                        symbol = "SOL",
+                                        decimals = 9
+                                    ),
                                     amount = "1000000000",
                                     counterparty = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
                                 )
@@ -565,6 +569,7 @@ class TurnkeyWalletProviderHistoryTest {
     fun `blank counterparty falls back to transaction addresses instead of empty strings`() = runBlocking<Unit> {
         val wallet = MockTurnkey.DEFAULT_SOLANA_ADDRESS
         val caip2Devnet = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
+
         // Live shape: Turnkey sends counterparty as "" (not null) when it is unknown.
         fun transfer(direction: String) = TurnkeyHistoryTransfer(
             direction = direction,

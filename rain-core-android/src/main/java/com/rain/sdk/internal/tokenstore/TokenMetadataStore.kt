@@ -59,8 +59,11 @@ class TokenMetadataStore internal constructor(
 
     /** Native currency for a chain (gas token metadata). Solana clusters resolve SOL. */
     fun nativeCurrency(chainId: Int): NativeCurrency =
-        if (SolanaChains.isSolanaChain(chainId)) SolanaChains.NATIVE_CURRENCY
-        else TokenRegistry.nativeCurrency(chainId)
+        if (SolanaChains.isSolanaChain(chainId)) {
+            SolanaChains.NATIVE_CURRENCY
+        } else {
+            TokenRegistry.nativeCurrency(chainId)
+        }
 
     /**
      * Native currency for a chain, or `null` when the chain is not in the registry. Unlike
@@ -68,8 +71,11 @@ class TokenMetadataStore internal constructor(
      * show a wrong symbol (e.g. transaction history) can distinguish "unknown chain".
      */
     fun nativeCurrencyOrNull(chainId: Int): NativeCurrency? =
-        if (SolanaChains.isSolanaChain(chainId)) SolanaChains.NATIVE_CURRENCY
-        else TokenRegistry.nativeCurrencyByChainId[chainId]
+        if (SolanaChains.isSolanaChain(chainId)) {
+            SolanaChains.NATIVE_CURRENCY
+        } else {
+            TokenRegistry.nativeCurrencyByChainId[chainId]
+        }
 
     /** All known tokens for a chain (registry + host-registered), in deterministic order. */
     suspend fun registeredTokens(chainId: Int): List<TokenInfo> =
@@ -194,7 +200,10 @@ class TokenMetadataStore internal constructor(
             if (trusted != token) {
                 Timber.w(
                     "Rain SDK: Ignoring registration of %s on chain %d: built-in token %s (%d decimals) cannot be overridden",
-                    token.address, token.chainId, trusted.symbol ?: "?", trusted.decimals
+                    token.address,
+                    token.chainId,
+                    trusted.symbol ?: "?",
+                    trusted.decimals
                 )
             }
             return

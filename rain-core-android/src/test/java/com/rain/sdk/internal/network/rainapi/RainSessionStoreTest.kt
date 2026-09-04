@@ -1,13 +1,13 @@
 package com.rain.sdk.internal.network.rainapi
 
 import com.google.common.truth.Truth.assertThat
-import java.time.Instant
-import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
+import java.time.Instant
+import java.util.concurrent.atomic.AtomicInteger
 
 class RainSessionStoreTest {
 

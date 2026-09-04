@@ -103,7 +103,10 @@ class PrivySolanaProviderTest {
         assertThat(transaction.captured).isNotEmpty()
         // The full preflight chain ran against the RPC before Privy saw the transaction.
         assertThat(rpc.recordedMethods).containsAtLeast(
-            "getAccountInfo", "getBalance", "getLatestBlockhash", "simulateTransaction"
+            "getAccountInfo",
+            "getBalance",
+            "getLatestBlockhash",
+            "simulateTransaction"
         )
     }
 
@@ -167,7 +170,9 @@ class PrivySolanaProviderTest {
                 .composeNativeTransfer(DEVNET, SENDER, RECIPIENT, BigDecimal.ONE)
         }
         val wallet = PrivyWalletProvider(
-            manager, emptyMap(), mockk(),
+            manager,
+            emptyMap(),
+            mockk(),
             rpcClient = mockk(),
             solanaSupport = SolanaSupport(emptyMap()),
         )
@@ -227,11 +232,14 @@ class PrivySolanaProviderTest {
     fun `getBalances on solana discovers SPL holdings from chain`(): Unit = runBlocking {
         rpc.stub("getBalance", envelope(1_000_000_000L))
         rpc.stubWhenBodyContains(
-            "getTokenAccountsByOwner", TOKEN_PROGRAM,
+            "getTokenAccountsByOwner",
+            TOKEN_PROGRAM,
             envelope(JSONArray().put(tokenAccountEntry(amount = "20000000", decimals = 6)))
         )
         rpc.stubWhenBodyContains(
-            "getTokenAccountsByOwner", TOKEN_2022_PROGRAM, envelope(JSONArray())
+            "getTokenAccountsByOwner",
+            TOKEN_2022_PROGRAM,
+            envelope(JSONArray())
         )
 
         val balances = provider(solanaManager()).getBalances(DEVNET)
@@ -298,7 +306,9 @@ class PrivySolanaProviderTest {
         coEvery { tokenStore.registeredTokens(DEVNET) } returns devnetTokens
         coEvery { tokenStore.registeredTokens(MAINNET) } returns mainnetTokens
         return PrivyWalletProvider(
-            manager, endpoints, tokenStore,
+            manager,
+            endpoints,
+            tokenStore,
             rpcClient = mockk(),
             solanaSupport = SolanaSupport(endpoints),
         )

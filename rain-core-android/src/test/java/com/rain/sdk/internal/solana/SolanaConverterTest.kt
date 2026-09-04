@@ -2,8 +2,8 @@ package com.rain.sdk.internal.solana
 
 import com.google.common.truth.Truth.assertThat
 import org.junit.Assert.assertThrows
-import java.math.BigDecimal
 import org.junit.Test
+import java.math.BigDecimal
 import java.math.BigInteger
 
 class SolanaConverterTest {
