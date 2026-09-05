@@ -113,11 +113,12 @@ Two things are stand-ins until the brand assets are dropped in:
 - **Typeface.** Rain's Antique Legacy is licensed and not checked in, so text renders on the
   platform sans at the same two weights. `RainType.fontFamily` documents the one-line swap once the
   OTFs are placed in `app/src/main/res/font/`.
-- **Icon tiles.** The home grid's coin / transaction / settle / secure / time / wallet glyphs are
+- **Icon tiles.** The home grid's wallet / coin / transaction / bank / secure / time glyphs are
   hand-drawn line icons in the Phosphor idiom inside the brand's pink container
-  (`RainIconTile`). Replace the `ic_tile_*` drawables with the brand's own icon PNGs (or Phosphor's
-  SVGs) to match the guidelines exactly. Chrome icons (back, caret, copy, external link, check) are
-  Phosphor's own paths.
+  (`RainIconTile`). The design canvas uses the brand's "settle" (handshake) tile for Withdraw; a
+  legible handshake needs the real asset, so the port uses the set's "bank" glyph until the PNGs
+  (or Phosphor's SVGs) replace the `ic_tile_*` drawables. Chrome icons (back, caret, copy, external
+  link, check) are Phosphor's own paths.
 
 ## Key code
 

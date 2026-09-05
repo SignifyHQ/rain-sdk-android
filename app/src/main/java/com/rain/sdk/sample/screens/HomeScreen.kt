@@ -66,7 +66,7 @@ private val featureActions = listOf(
     FeatureAction(R.drawable.ic_tile_wallet, "Wallet & QR", Screen.WalletInfo),
     FeatureAction(R.drawable.ic_tile_coin, "Balances", Screen.Balances),
     FeatureAction(R.drawable.ic_tile_transaction, "Send tokens", Screen.SendTokens),
-    FeatureAction(R.drawable.ic_tile_settle, "Withdraw", Screen.CollateralWithdraw),
+    FeatureAction(R.drawable.ic_tile_bank, "Withdraw", Screen.CollateralWithdraw),
     FeatureAction(R.drawable.ic_tile_secure, "Auth pull", Screen.AuthPull),
     FeatureAction(R.drawable.ic_tile_time, "History", Screen.TransactionHistory),
 )

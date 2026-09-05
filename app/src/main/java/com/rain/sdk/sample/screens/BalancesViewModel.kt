@@ -224,9 +224,9 @@ data class WalletTokenBalance(
     val displayUnit: String
         get() = symbol?.takeIf { it.isNotBlank() } ?: displayAddress
 
-    /** The balance rendered exactly at the token's own scale, trailing zeros stripped. */
+    /** The balance at the token's own scale, grouped, never fewer than two decimals. */
     val formattedBalance: String
-        get() = balance.stripTrailingZeros().toPlainString()
+        get() = formatBalance(balance)
 }
 
 class BalancesViewModelFactory(

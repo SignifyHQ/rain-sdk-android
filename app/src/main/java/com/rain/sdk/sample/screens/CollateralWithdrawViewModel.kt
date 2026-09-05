@@ -365,8 +365,8 @@ data class WithdrawTokenOption(
 ) {
     val displayName: String get() = if (symbol.isNotBlank()) "$name ($symbol)" else name
 
-    /** Full-precision balance for display — plain notation, no trailing zeros. */
-    val balanceDisplay: String get() = balance.stripTrailingZeros().toPlainString()
+    /** Full-precision balance for display, grouped, never fewer than two decimals. */
+    val balanceDisplay: String get() = formatBalance(balance)
 }
 
 /**

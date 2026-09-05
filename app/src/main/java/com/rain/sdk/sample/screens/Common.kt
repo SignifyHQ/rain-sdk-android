@@ -48,6 +48,18 @@ private val moneyFormat = DecimalFormat("#,##0.00", DecimalFormatSymbols(Locale.
 /** Two-decimal, grouped money figure for stablecoin balances: `1,250.00`. */
 fun formatMoney(value: BigDecimal): String = moneyFormat.format(value)
 
+/**
+ * Grouped balance that keeps the token's full precision but never fewer than two decimals:
+ * `1,250.00`, `250.00`, `0.4821`. Trailing zeros beyond the second decimal are dropped.
+ */
+fun formatBalance(value: BigDecimal): String {
+    val stripped = value.stripTrailingZeros()
+    val format = DecimalFormat("#,##0.00", DecimalFormatSymbols(Locale.US))
+    format.minimumFractionDigits = 2
+    format.maximumFractionDigits = maxOf(2, stripped.scale())
+    return format.format(stripped)
+}
+
 /** A plain decimal with trailing zeros stripped and no scientific notation. */
 fun formatPlain(value: BigDecimal): String =
     if (value.signum() == 0) "0" else value.stripTrailingZeros().toPlainString()
