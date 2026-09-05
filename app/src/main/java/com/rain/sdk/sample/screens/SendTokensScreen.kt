@@ -86,8 +86,11 @@ fun SendTokensScreen(
                 else -> "Send ${selectedChain.nativeSymbol}"
             },
             onClick = {
-                if (isTokenSend) viewModel.sendTokenTransfer(selectedChain)
-                else viewModel.sendNative(selectedChain)
+                if (isTokenSend) {
+                    viewModel.sendTokenTransfer(selectedChain)
+                } else {
+                    viewModel.sendNative(selectedChain)
+                }
             },
             modifier = Modifier.fillMaxWidth(),
             enabled = !state.isSending,

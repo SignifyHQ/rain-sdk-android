@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,7 +43,9 @@ fun CollateralWithdrawScreen(
     rainClient: RainClient,
     selectedChain: WalletChain,
     onBack: () -> Unit,
-    viewModel: CollateralWithdrawViewModel = viewModel(factory = CollateralWithdrawViewModelFactory(rainSdk, rainClient))
+    viewModel: CollateralWithdrawViewModel = viewModel(
+        factory = CollateralWithdrawViewModelFactory(rainSdk, rainClient)
+    )
 ) {
     val state by viewModel.state.collectAsState()
 
@@ -76,9 +77,12 @@ fun CollateralWithdrawScreen(
                 RainLabel("Token")
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     state.availableTokens.forEachIndexed { index, option ->
+                        // Symbol leads; the token's name stays in the descriptor when it adds
+                        // information ("USD Coin"), as the previous layout showed both.
+                        val name = option.name.takeIf { it.isNotBlank() && it != option.symbol && option.symbol.isNotBlank() }
                         RainOptionRow(
                             title = option.symbol.ifBlank { option.name },
-                            subtitle = "Balance ${option.balanceDisplay}",
+                            subtitle = listOfNotNull(name, "Balance ${option.balanceDisplay}").joinToString(" · "),
                             selected = index == state.selectedTokenIndex,
                             onClick = { viewModel.onTokenSelected(index) },
                             enabled = !state.isWithdrawing,

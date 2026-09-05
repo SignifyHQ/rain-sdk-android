@@ -25,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.sample.R
@@ -71,7 +70,10 @@ private val featureActions = listOf(
     FeatureAction(R.drawable.ic_tile_time, "History", Screen.TransactionHistory),
 )
 
-private val WalletMode.displayName: String
+/** Session details up to this length sit beside the headline; longer ones wrap below it. */
+private const val INLINE_DETAIL_MAX_CHARS = 24
+
+internal val WalletMode.displayName: String
     get() = when (this) {
         WalletMode.Portal -> "Portal MPC"
         WalletMode.Turnkey -> "Turnkey"
@@ -88,6 +90,7 @@ private fun HomeUiState.connectedSubtitle(): String {
     return if (account.isBlank()) mode.displayName else "${mode.displayName} · $account"
 }
 
+@Suppress("LongParameterList") // Navigation entry point: the NavHost injects the session, chain, and callbacks.
 @Composable
 fun HomeScreen(
     innerPadding: PaddingValues,
@@ -96,8 +99,8 @@ fun HomeScreen(
     onChainSelected: (WalletChain) -> Unit,
     onNavigate: (Screen) -> Unit,
     viewModel: HomeViewModel = viewModel(
-        factory = HomeViewModelFactory(LocalContext.current.applicationContext as RainSampleApp)
-    )
+        factory = HomeViewModelFactory(LocalContext.current.applicationContext as RainSampleApp),
+    ),
 ) {
     val state by viewModel.state.collectAsState()
     val application = LocalContext.current.applicationContext as Application
@@ -129,52 +132,13 @@ fun HomeScreen(
             // Rain API credentials are independent of the wallet provider: they authenticate
             // contract/signature calls to the Rain dev API, so they live in their own card shown
             // for every provider.
-            RainApiCard(
-                state = state,
-                onRainApiKeyChanged = viewModel::onRainApiKeyChanged,
-                onUserIdChanged = viewModel::onUserIdChanged,
-            )
-
-            when (state.mode) {
-                WalletMode.Portal -> PortalCard(
-                    state = state,
-                    onSessionTokenChanged = viewModel::onSessionTokenChanged,
-                    onInitializeSdk = viewModel::initializeSdk,
-                )
-                WalletMode.Turnkey -> TurnkeyCard(
-                    state = state,
-                    onOrgIdChanged = viewModel::onTurnkeyOrgIdChanged,
-                    onAuthProxyConfigIdChanged = viewModel::onTurnkeyAuthProxyConfigIdChanged,
-                    onEmailChanged = viewModel::onTurnkeyEmailChanged,
-                    onOtpCodeChanged = viewModel::onTurnkeyOtpCodeChanged,
-                    onSendOtp = { viewModel.sendTurnkeyOtp(application) },
-                    onVerifyOtp = viewModel::verifyTurnkeyOtp,
-                    onInitializeRain = viewModel::initializeRainWithTurnkey,
-                )
-                WalletMode.Privy -> PrivyCard(
-                    state = state,
-                    onAppIdChanged = viewModel::onPrivyAppIdChanged,
-                    onAppClientIdChanged = viewModel::onPrivyAppClientIdChanged,
-                    onEmailChanged = viewModel::onPrivyEmailChanged,
-                    onOtpCodeChanged = viewModel::onPrivyOtpCodeChanged,
-                    onSendOtp = { viewModel.sendPrivyOtp(application) },
-                    onVerifyOtp = viewModel::verifyPrivyOtp,
-                    onInitializeRain = viewModel::initializeRainWithPrivy,
-                )
-            }
+            RainApiCard(state, viewModel)
+            ProviderCard(state = state, viewModel = viewModel, application = application)
         }
 
         // Stays visible when the session is dead so the hidden feature grid is explained.
         state.sessionStatus?.let { status ->
-            SessionCard(
-                status = status,
-                mode = state.mode,
-                isLoading = state.isLoading,
-                replacementPortalToken = state.replacementPortalToken,
-                onReplacementPortalTokenChanged = viewModel::onReplacementPortalTokenChanged,
-                onRefreshSession = viewModel::refreshSession,
-                onUpdatePortalToken = viewModel::updatePortalSessionToken,
-            )
+            SessionCard(status = status, state = state, viewModel = viewModel)
         }
 
         if (connected && sessionUsable) {
@@ -194,6 +158,13 @@ fun HomeScreen(
         }
 
         if (connected) {
+            // Connection details stay on the screen after connecting, as before the redesign. The
+            // Rain API card is still live (configureRainApi), so a wallet can be connected first
+            // and the program keys pasted afterwards; the provider card shows what was used and,
+            // after a resume, still offers a fresh sign-in.
+            RainLabel("Connection")
+            RainApiCard(state, viewModel)
+            ProviderCard(state = state, viewModel = viewModel, application = application)
             RainButton(
                 text = "Clear session",
                 onClick = viewModel::clearSession,
@@ -207,231 +178,30 @@ fun HomeScreen(
 }
 
 @Composable
-private fun RainApiCard(
-    state: HomeUiState,
-    onRainApiKeyChanged: (String) -> Unit,
-    onUserIdChanged: (String) -> Unit,
-) {
+private fun RainApiCard(state: HomeUiState, viewModel: HomeViewModel) {
     RainCard {
         RainStrong("Rain API credentials")
         RainField(
             label = "Api-Key",
             value = state.rainApiKey,
-            onValueChange = onRainApiKeyChanged,
+            onValueChange = viewModel::onRainApiKeyChanged,
             placeholder = "Paste your program Api-Key",
         )
         RainField(
             label = "User ID",
             value = state.userId,
-            onValueChange = onUserIdChanged,
+            onValueChange = viewModel::onUserIdChanged,
             placeholder = "Rain user ID",
         )
     }
 }
 
-@Composable
-private fun PortalCard(
-    state: HomeUiState,
-    onSessionTokenChanged: (String) -> Unit,
-    onInitializeSdk: () -> Unit,
-) {
-    RainCard {
-        Column {
-            RainStrong("Portal MPC configuration")
-            RainLabel("Session token")
-        }
-        RainField(
-            label = "Portal session token",
-            value = state.sessionToken,
-            onValueChange = onSessionTokenChanged,
-            placeholder = "Paste a Portal session token",
-            enabled = !state.isInitialized,
-        )
-        RainButton(
-            text = if (state.isInitialized) "SDK initialized" else "Initialize SDK",
-            onClick = onInitializeSdk,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = state.sessionToken.isNotBlank() && !state.isInitialized && !state.isLoading,
-            loading = state.isLoading && !state.isInitialized,
-        )
-    }
-}
-
-@Composable
-private fun TurnkeyCard(
-    state: HomeUiState,
-    onOrgIdChanged: (String) -> Unit,
-    onAuthProxyConfigIdChanged: (String) -> Unit,
-    onEmailChanged: (String) -> Unit,
-    onOtpCodeChanged: (String) -> Unit,
-    onSendOtp: () -> Unit,
-    onVerifyOtp: () -> Unit,
-    onInitializeRain: () -> Unit,
-) {
-    val codeSent = state.turnkeyOtpId != null
-    RainCard {
-        Column {
-            RainStrong("Turnkey configuration")
-            RainLabel("Email one-time code")
-        }
-        RainField(
-            label = "Parent organization ID",
-            value = state.turnkeyOrgId,
-            onValueChange = onOrgIdChanged,
-            placeholder = "Organization ID",
-            enabled = !codeSent,
-        )
-        RainField(
-            label = "Auth proxy config ID",
-            value = state.turnkeyAuthProxyConfigId,
-            onValueChange = onAuthProxyConfigIdChanged,
-            placeholder = "Config ID",
-            enabled = !codeSent,
-        )
-        RainField(
-            label = "Email",
-            value = state.turnkeyEmail,
-            onValueChange = onEmailChanged,
-            placeholder = "you@example.com",
-            enabled = !codeSent,
-            keyboardType = KeyboardType.Email,
-        )
-        RainButton(
-            text = if (codeSent) "Code sent" else "Send code",
-            onClick = onSendOtp,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = state.turnkeyOrgId.isNotBlank() &&
-                state.turnkeyAuthProxyConfigId.isNotBlank() &&
-                state.turnkeyEmail.isNotBlank() &&
-                !state.isLoading &&
-                !codeSent,
-            loading = state.isLoading && !codeSent && !state.turnkeySessionActive,
-        )
-
-        if (codeSent) {
-            RainField(
-                label = "One-time code",
-                value = state.turnkeyOtpCode,
-                onValueChange = onOtpCodeChanged,
-                placeholder = "Code from your email",
-                enabled = !state.turnkeySessionActive,
-                keyboardType = KeyboardType.Number,
-            )
-            RainButton(
-                text = if (state.turnkeySessionActive) "Session active" else "Verify and log in",
-                onClick = onVerifyOtp,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = state.turnkeyOtpCode.isNotBlank() && !state.isLoading && !state.turnkeySessionActive,
-                loading = state.isLoading && !state.turnkeySessionActive,
-            )
-        }
-
-        if (state.turnkeySessionActive) {
-            RainButton(
-                text = if (state.isInitialized) "Rain initialized" else "Initialize Rain",
-                onClick = onInitializeRain,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !state.isLoading && !state.isInitialized,
-                loading = state.isLoading && !state.isInitialized,
-            )
-        }
-    }
-}
-
-@Composable
-private fun PrivyCard(
-    state: HomeUiState,
-    onAppIdChanged: (String) -> Unit,
-    onAppClientIdChanged: (String) -> Unit,
-    onEmailChanged: (String) -> Unit,
-    onOtpCodeChanged: (String) -> Unit,
-    onSendOtp: () -> Unit,
-    onVerifyOtp: () -> Unit,
-    onInitializeRain: () -> Unit,
-) {
-    val idsLocked = state.privyOtpSent || state.privySessionActive
-    RainCard {
-        Column {
-            RainStrong("Privy configuration")
-            RainLabel("Email one-time code")
-        }
-        RainField(
-            label = "App ID",
-            value = state.privyAppId,
-            onValueChange = onAppIdChanged,
-            placeholder = "Privy app ID",
-            enabled = !idsLocked,
-        )
-        RainField(
-            label = "App client ID",
-            value = state.privyAppClientId,
-            onValueChange = onAppClientIdChanged,
-            placeholder = "Privy app client ID",
-            enabled = !idsLocked,
-        )
-        RainField(
-            label = "Email",
-            value = state.privyEmail,
-            onValueChange = onEmailChanged,
-            placeholder = "you@example.com",
-            enabled = !idsLocked,
-            keyboardType = KeyboardType.Email,
-        )
-        RainButton(
-            text = if (state.privyOtpSent) "Code sent" else "Send code",
-            onClick = onSendOtp,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = state.privyAppId.isNotBlank() &&
-                state.privyAppClientId.isNotBlank() &&
-                state.privyEmail.isNotBlank() &&
-                !state.isLoading &&
-                !idsLocked,
-            loading = state.isLoading && !idsLocked,
-        )
-
-        if (state.privyOtpSent && !state.privySessionActive) {
-            RainField(
-                label = "One-time code",
-                value = state.privyOtpCode,
-                onValueChange = onOtpCodeChanged,
-                placeholder = "Code from your email",
-                keyboardType = KeyboardType.Number,
-            )
-            RainButton(
-                text = "Verify and log in",
-                onClick = onVerifyOtp,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = state.privyOtpCode.isNotBlank() && !state.isLoading,
-                loading = state.isLoading,
-            )
-        }
-
-        if (state.privySessionActive) {
-            RainButton(
-                text = if (state.isInitialized) "Rain initialized" else "Initialize Rain",
-                onClick = onInitializeRain,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !state.isLoading && !state.isInitialized,
-                loading = state.isLoading && !state.isInitialized,
-            )
-        }
-    }
-}
-
 /** `sessionState`, `refreshSession()` and, for Portal, `updateSessionToken()`. */
 @Composable
-private fun SessionCard(
-    status: WalletSessionStatus,
-    mode: WalletMode,
-    isLoading: Boolean,
-    replacementPortalToken: String,
-    onReplacementPortalTokenChanged: (String) -> Unit,
-    onRefreshSession: () -> Unit,
-    onUpdatePortalToken: () -> Unit,
-) {
+private fun SessionCard(status: WalletSessionStatus, state: HomeUiState, viewModel: HomeViewModel) {
     // Short details sit beside the headline, as in the design; longer ones drop below it.
     val detail = status.detail
-    val detailInline = detail != null && detail.length <= 24
+    val detailInline = detail != null && detail.length <= INLINE_DETAIL_MAX_CHARS
     RainCard {
         RainRow {
             Row(
@@ -442,38 +212,38 @@ private fun SessionCard(
                 RainStatusDot(status.health.indicatorColor())
                 RainStrong(status.label)
             }
-            if (detailInline) RainMuted(detail!!)
+            if (detail != null && detailInline) RainMuted(detail)
         }
         if (detail != null && !detailInline) RainMuted(detail)
 
         // Portal's refresh goes through onSessionTokenNeeded, which needs a replacement token.
-        val canRefresh = !isLoading &&
-            (mode != WalletMode.Portal || replacementPortalToken.isNotBlank())
+        val canRefresh = !state.isLoading &&
+            (state.mode != WalletMode.Portal || state.replacementPortalToken.isNotBlank())
         RainButton(
             text = "Refresh session",
-            onClick = onRefreshSession,
+            onClick = viewModel::refreshSession,
             modifier = Modifier.fillMaxWidth(),
             style = RainButtonStyle.Secondary,
             enabled = canRefresh,
         )
 
-        if (mode == WalletMode.Portal) {
+        if (state.mode == WalletMode.Portal) {
             RainMuted(
                 "Update token installs the replacement now (updateSessionToken). Refresh and any " +
                     "rejected call take it through onSessionTokenNeeded.",
             )
             RainField(
                 label = "Replacement session token",
-                value = replacementPortalToken,
-                onValueChange = onReplacementPortalTokenChanged,
+                value = state.replacementPortalToken,
+                onValueChange = viewModel::onReplacementPortalTokenChanged,
                 placeholder = "Paste a new Portal session token",
             )
             RainButton(
                 text = "Update token",
-                onClick = onUpdatePortalToken,
+                onClick = viewModel::updatePortalSessionToken,
                 modifier = Modifier.fillMaxWidth(),
                 style = RainButtonStyle.Secondary,
-                enabled = replacementPortalToken.isNotBlank() && !isLoading,
+                enabled = state.replacementPortalToken.isNotBlank() && !state.isLoading,
             )
         }
     }

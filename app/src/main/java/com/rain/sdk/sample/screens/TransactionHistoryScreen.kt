@@ -54,7 +54,7 @@ fun TransactionHistoryScreen(
     rainClient: RainClient,
     selectedChain: WalletChain,
     onBack: () -> Unit,
-    viewModel: TransactionHistoryViewModel = viewModel(factory = TransactionHistoryViewModelFactory(rainClient))
+    viewModel: TransactionHistoryViewModel = viewModel(factory = TransactionHistoryViewModelFactory(rainClient)),
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
@@ -126,28 +126,37 @@ fun TransactionHistoryScreen(
     }
 }
 
-@Composable
-private fun TransactionRow(tx: RainTransaction, walletAddress: String?, chain: WalletChain) {
-    val context = LocalContext.current
-
+/** Sent / Received / Self relative to the connected wallet, or null when the wallet is unknown. */
+private fun transactionKind(tx: RainTransaction, walletAddress: String?): Pair<String, RainBadgeTone>? {
     val isSend = walletAddress?.let { tx.from.equals(it, ignoreCase = true) } ?: false
     val isReceive = walletAddress?.let { tx.to?.equals(it, ignoreCase = true) == true } ?: false
-    val kind: Pair<String, RainBadgeTone>? = when {
+    return when {
         isSend && isReceive -> "Self" to RainBadgeTone.Outline
         isSend -> "Sent" to RainBadgeTone.Neutral
         isReceive -> "Received" to RainBadgeTone.Success
         else -> null
     }
+}
 
-    // Solana history rows carry the provider's status id, not an explorer-resolvable signature,
-    // so the hash is shown plainly (no link) on Solana.
-    val explorerLinkable = !chain.isSolana
-
-    // Formatted like the Balances screen: a clean decimal, no trailing zeros or scientific
-    // notation. Only a transfer with no token address is denominated in the native symbol; a
-    // token transfer whose symbol is unknown shows the bare amount, identified by the mint below.
-    val formattedValue = tx.value?.let { formatPlain(it) }?.takeIf { it != "0" }
+/**
+ * Value formatted like the Balances screen (clean decimal, no trailing zeros), or null for zero.
+ * Only a transfer with no token address is denominated in the native symbol; a token transfer whose
+ * symbol is unknown shows the bare amount, identified by the mint shown on the row.
+ */
+private fun formattedValue(tx: RainTransaction, chain: WalletChain): String? {
+    val amount = tx.value?.let { formatPlain(it) }?.takeIf { it != "0" } ?: return null
     val unit = tx.asset ?: chain.nativeSymbol.takeIf { tx.tokenAddress == null }
+    return listOfNotNull(amount, unit).joinToString(" ")
+}
+
+@Composable
+private fun TransactionRow(tx: RainTransaction, walletAddress: String?, chain: WalletChain) {
+    val context = LocalContext.current
+    val kind = transactionKind(tx, walletAddress)
+    val value = formattedValue(tx, chain)
+    // Solana history rows carry the provider's status id, not an explorer-resolvable signature,
+    // so the hash is shown plainly (no link, no explorer action) on Solana.
+    val explorerLinkable = !chain.isSolana
 
     Column(
         modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
@@ -159,7 +168,7 @@ private fun TransactionRow(tx: RainTransaction, walletAddress: String?, chain: W
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (kind != null) RainBadge(kind.first, kind.second)
+                if (kind != null) RainBadge(kind.first, tone = kind.second)
                 if (explorerLinkable) {
                     RainLink(
                         text = shortHash(tx.hash),
@@ -170,39 +179,51 @@ private fun TransactionRow(tx: RainTransaction, walletAddress: String?, chain: W
                     Text(shortHash(tx.hash), style = RainType.Body, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            if (formattedValue != null) {
-                RainStrong(listOfNotNull(formattedValue, unit).joinToString(" "))
-            }
+            if (value != null) RainStrong(value)
         }
 
+        TransactionAddresses(tx)
+
+        if (explorerLinkable) {
+            RainTextAction(
+                text = "View on ${chain.explorerName}",
+                onClick = { openUrl(context, chain.explorerTxUrl(tx.hash)) },
+                icon = R.drawable.ic_arrow_up_right,
+            )
+        }
+    }
+}
+
+/** From → to, plus the token contract (copyable) for token transfers. */
+@Composable
+private fun TransactionAddresses(tx: RainTransaction) {
+    val context = LocalContext.current
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RainMuted(shortAddress(tx.from))
+        Icon(
+            painter = painterResource(R.drawable.ic_arrow_right),
+            contentDescription = "to",
+            tint = RainColors.TextMuted,
+            modifier = Modifier.size(16.dp),
+        )
+        RainMuted(shortAddress(tx.to ?: "—"))
+    }
+
+    tx.tokenAddress?.let { tokenAddress ->
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            RainMuted(shortAddress(tx.from))
-            Icon(
-                painter = painterResource(R.drawable.ic_arrow_right),
-                contentDescription = "to",
-                tint = RainColors.TextMuted,
-                modifier = Modifier.size(16.dp),
+            RainMuted("Token ${shortAddress(tokenAddress)}")
+            RainIconButton(
+                icon = R.drawable.ic_copy,
+                contentDescription = "Copy token address",
+                onClick = { copyToClipboard(context, "Token address", tokenAddress, "Token address copied") },
+                iconSize = 16.dp,
             )
-            RainMuted(shortAddress(tx.to ?: "—"))
-        }
-
-        tx.tokenAddress?.let { tokenAddress ->
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RainMuted("Token ${shortAddress(tokenAddress)}")
-                RainIconButton(
-                    icon = R.drawable.ic_copy,
-                    contentDescription = "Copy token address",
-                    onClick = { copyToClipboard(context, "Token address", tokenAddress, "Token address copied") },
-                    size = 24.dp,
-                    iconSize = 16.dp,
-                )
-            }
         }
     }
 }

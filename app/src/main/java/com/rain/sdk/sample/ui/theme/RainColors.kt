@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.Color
  * wordmark, the icon tiles) and interaction states (press, focus). It is never a text colour, a
  * border, or a large fill. The neutral ramp carries a faint lilac cast in the mids.
  */
+@Suppress("MagicNumber") // A palette is a list of literal values by definition.
 object RainColors {
     // Pink system — tints and shades of the brand colour.
     val Pink = Color(0xFFFF2FB6)

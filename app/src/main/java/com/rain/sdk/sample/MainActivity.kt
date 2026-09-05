@@ -1,7 +1,9 @@
 package com.rain.sdk.sample
 
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,8 +33,13 @@ import com.rain.sdk.sample.ui.theme.RainTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        // White canvas runs under the system bars; their icons follow the light theme.
-        enableEdgeToEdge()
+        // The canvas is always white and runs under the system bars, so pin dark bar icons
+        // instead of letting them follow the system theme (auto would draw light icons on
+        // white in system dark mode). Pre-29 navigation bars get a white scrim.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.light(Color.WHITE, Color.WHITE),
+        )
         super.onCreate(savedInstanceState)
         setContent {
             RainTheme {

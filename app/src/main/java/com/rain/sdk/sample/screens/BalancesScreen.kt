@@ -28,6 +28,7 @@ import com.rain.sdk.sample.ui.RainScreen
 import com.rain.sdk.sample.ui.RainStrong
 import com.rain.sdk.sample.ui.RainTitleBlock
 
+@Suppress("LongParameterList") // Navigation entry point: the NavHost injects the session, chain, and callbacks.
 @Composable
 fun BalancesScreen(
     innerPadding: PaddingValues,
@@ -35,7 +36,7 @@ fun BalancesScreen(
     rainClient: RainClient,
     selectedChain: WalletChain,
     onBack: () -> Unit,
-    viewModel: BalancesViewModel = viewModel(factory = BalancesViewModelFactory(rainSdk, rainClient))
+    viewModel: BalancesViewModel = viewModel(factory = BalancesViewModelFactory(rainSdk, rainClient)),
 ) {
     val state by viewModel.state.collectAsState()
 
@@ -46,123 +47,120 @@ fun BalancesScreen(
     RainScreen(innerPadding) {
         RainBackHeader(onBack = onBack)
         RainTitleBlock(title = "Balances", subtitle = selectedChain.displayName)
+        CollateralCard(state = state, onFetch = { viewModel.fetchCollateralBalances(selectedChain) })
+        WalletCard(state = state, chain = selectedChain, onFetch = { viewModel.fetchBalances(selectedChain) })
+    }
+}
 
-        // Collateral balances come from the Rain API, not on-chain: tokens are deposited into the
-        // user's collateral contract, so the wallet itself won't hold them.
-        RainCard {
-            RainRow {
-                Column(modifier = Modifier.weight(1f)) {
-                    RainStrong("Collateral")
-                    RainMuted(
-                        if (state.collateralWalletAddress.isNotEmpty()) {
-                            shortAddress(state.collateralWalletAddress)
-                        } else {
-                            "Rain collateral contract"
-                        },
-                    )
-                }
-                RainBadge("Rain API")
-            }
-
-            val collateral = state.collateralBalances
-            if (collateral.isNotEmpty()) {
-                val primary = collateral.first()
-                RainAmount(value = formatMoney(primary.balance), unit = primary.symbol)
-                RainDivider()
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    collateral.forEach { token ->
-                        BalanceRow(
-                            title = token.symbol,
-                            subtitle = shortAddress(token.address),
-                            value = formatMoney(token.balance),
-                        )
-                    }
-                }
-            } else if (!state.isCollateralLoading) {
-                RainMuted("Every token held in the collateral contract, read from the Rain API.")
-            }
-
-            state.collateralError?.let { RainErrorPanel(it) }
-
-            if (collateral.isEmpty()) {
-                RainButton(
-                    text = "Fetch collateral",
-                    onClick = { viewModel.fetchCollateralBalances(selectedChain) },
-                    modifier = Modifier.fillMaxWidth(),
-                    style = RainButtonStyle.Secondary,
-                    enabled = !state.isCollateralLoading,
-                    loading = state.isCollateralLoading,
+/**
+ * Collateral balances come from the Rain API, not on-chain: tokens are deposited into the user's
+ * collateral contract, so the wallet itself won't hold them.
+ */
+@Composable
+private fun CollateralCard(state: BalancesUiState, onFetch: () -> Unit) {
+    val collateral = state.collateralBalances
+    RainCard {
+        RainRow {
+            Column(modifier = Modifier.weight(1f)) {
+                RainStrong("Collateral")
+                RainMuted(
+                    if (state.collateralWalletAddress.isNotEmpty()) {
+                        shortAddress(state.collateralWalletAddress)
+                    } else {
+                        "Rain collateral contract"
+                    },
                 )
             }
+            RainBadge("Rain API")
         }
 
-        // The wallet's own holdings, read on-chain: the native token plus every discovered token.
-        RainCard {
-            RainRow {
-                Column(modifier = Modifier.weight(1f)) {
-                    RainStrong("Wallet")
-                    RainMuted(
-                        if (state.internalWalletAddress.isNotEmpty()) {
-                            shortAddress(state.internalWalletAddress)
-                        } else {
-                            "Connected wallet"
-                        },
+        if (collateral.isNotEmpty()) {
+            val primary = collateral.first()
+            RainAmount(value = formatMoney(primary.balance), unit = primary.symbol)
+            RainDivider()
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                collateral.forEach { token ->
+                    val name = token.name.takeIf { it.isNotBlank() && it != token.symbol }
+                    BalanceRow(
+                        title = token.symbol,
+                        subtitle = listOfNotNull(name, shortAddress(token.address)).joinToString(" · "),
+                        value = formatMoney(token.balance),
                     )
                 }
-                RainBadge("Onchain")
-            }
-
-            val native = state.nativeBalance
-            if (native != null) {
-                // Stored as "0.4821 ETH": split the figure from its unit for the headline.
-                val nativeValue = native.substringBeforeLast(' ')
-                val nativeUnit = native.substringAfterLast(' ', missingDelimiterValue = selectedChain.nativeSymbol)
-                RainAmount(value = nativeValue, unit = nativeUnit)
-                RainDivider()
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    BalanceRow(title = nativeUnit, subtitle = "Native", value = nativeValue)
-                    state.walletTokenBalances.forEach { token ->
-                        // The unit is always stated: an SPL mint has no on-chain symbol, so an
-                        // unregistered token is named by its mint rather than a bare number.
-                        BalanceRow(
-                            title = token.displayUnit,
-                            subtitle = shortAddress(token.address),
-                            value = token.formattedBalance,
-                        )
-                    }
-                }
-                if (state.walletTokenBalances.isEmpty()) {
-                    RainMuted("No ${selectedChain.tokenStandard} tokens with a balance above zero.")
-                }
-            }
-
-            RainMuted("Every ${selectedChain.tokenStandard} token with a balance above zero is discovered automatically.")
-
-            state.errorMessage?.let { RainErrorPanel(it) }
-
-            if (native == null) {
-                RainButton(
-                    text = "Fetch balances",
-                    onClick = { viewModel.fetchBalances(selectedChain) },
-                    modifier = Modifier.fillMaxWidth(),
-                    style = RainButtonStyle.Secondary,
-                    enabled = !state.isLoading,
-                    loading = state.isLoading,
-                )
             }
         }
+        RainMuted("Every token held in the collateral contract, read from the Rain API.")
 
-        val busy = state.isLoading || state.isCollateralLoading
+        state.collateralError?.let { RainErrorPanel(it) }
+
         RainButton(
-            text = "Refresh",
-            onClick = {
-                viewModel.fetchCollateralBalances(selectedChain)
-                viewModel.fetchBalances(selectedChain)
-            },
+            text = if (collateral.isEmpty()) "Fetch" else "Refresh",
+            onClick = onFetch,
             modifier = Modifier.fillMaxWidth(),
             style = RainButtonStyle.Secondary,
-            enabled = !busy,
-            loading = busy,
+            enabled = !state.isCollateralLoading,
+            loading = state.isCollateralLoading,
+        )
+    }
+}
+
+/** The wallet's own holdings, read on-chain: the native token plus every discovered token. */
+@Composable
+private fun WalletCard(state: BalancesUiState, chain: WalletChain, onFetch: () -> Unit) {
+    val native = state.nativeBalance
+    RainCard {
+        RainRow {
+            Column(modifier = Modifier.weight(1f)) {
+                RainStrong("Wallet")
+                RainMuted(
+                    if (state.internalWalletAddress.isNotEmpty()) {
+                        shortAddress(state.internalWalletAddress)
+                    } else {
+                        "Connected wallet"
+                    },
+                )
+            }
+            RainBadge("Onchain")
+        }
+
+        if (native != null) {
+            // Stored as "0.4821 ETH": split the figure from its unit for the headline.
+            val nativeValue = native.substringBeforeLast(' ')
+            val nativeUnit = native.substringAfterLast(' ', missingDelimiterValue = chain.nativeSymbol)
+            RainAmount(value = nativeValue, unit = nativeUnit)
+            RainDivider()
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                BalanceRow(title = nativeUnit, subtitle = "Native", value = nativeValue)
+                state.walletTokenBalances.forEach { token ->
+                    // The unit is always stated: an SPL mint has no on-chain symbol, so an
+                    // unregistered token is named by its mint rather than a bare number.
+                    val name = token.name?.takeIf { it.isNotBlank() && it != token.symbol }
+                    BalanceRow(
+                        title = token.displayUnit,
+                        subtitle = listOfNotNull(name, shortAddress(token.address)).joinToString(" · "),
+                        value = token.formattedBalance,
+                    )
+                }
+            }
+            if (state.walletTokenBalances.isEmpty()) {
+                RainMuted("No ${chain.tokenStandard} tokens with a balance above zero.")
+            }
+        }
+
+        RainMuted(
+            "Native ${chain.nativeSymbol} plus every ${chain.tokenStandard} token with a balance above zero, " +
+                "discovered automatically.",
+        )
+
+        state.errorMessage?.let { RainErrorPanel(it) }
+
+        RainButton(
+            text = if (native == null) "Fetch" else "Refresh",
+            onClick = onFetch,
+            modifier = Modifier.fillMaxWidth(),
+            style = RainButtonStyle.Secondary,
+            enabled = !state.isLoading,
+            loading = state.isLoading,
         )
     }
 }

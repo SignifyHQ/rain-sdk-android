@@ -4,7 +4,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import com.rain.sdk.sample.R
 import com.rain.sdk.sample.ui.RainBadge
 import com.rain.sdk.sample.ui.RainBadgeTone
@@ -35,13 +35,20 @@ import java.util.Locale
  * Formatting and small building blocks shared by the feature screens.
  */
 
+private const val ADDRESS_HEAD = 6
+private const val ADDRESS_TAIL = 4
+private const val HASH_HEAD = 8
+private const val HASH_TAIL = 6
+
 /** `0x3cA8…C0Ff` — six leading and four trailing characters, as the design shows addresses. */
-fun shortAddress(address: String): String =
-    if (address.length <= 12) address else "${address.take(6)}…${address.takeLast(4)}"
+fun shortAddress(address: String): String = elide(address, ADDRESS_HEAD, ADDRESS_TAIL)
 
 /** `0x7d2f9b…a41c3e` — eight leading and six trailing characters. */
-fun shortHash(hash: String): String =
-    if (hash.length <= 16) hash else "${hash.take(8)}…${hash.takeLast(6)}"
+fun shortHash(hash: String): String = elide(hash, HASH_HEAD, HASH_TAIL)
+
+/** Keeps [head] and [tail] characters around an ellipsis; strings that would not shrink stay whole. */
+private fun elide(value: String, head: Int, tail: Int): String =
+    if (value.length <= head + tail + 2) value else "${value.take(head)}…${value.takeLast(tail)}"
 
 private val moneyFormat = DecimalFormat("#,##0.00", DecimalFormatSymbols(Locale.US))
 
@@ -65,7 +72,7 @@ fun formatPlain(value: BigDecimal): String =
     if (value.signum() == 0) "0" else value.stripTrailingZeros().toPlainString()
 
 fun openUrl(context: Context, url: String) {
-    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
 }
 
 fun copyToClipboard(context: Context, label: String, text: String, toast: String) {
@@ -78,6 +85,7 @@ fun copyToClipboard(context: Context, label: String, text: String, toast: String
  * Outcome card for a broadcast transaction: status, the hash as an explorer link (or plain text
  * where the chain has no resolvable explorer entry), a copy affordance, and an explorer button.
  */
+@Suppress("LongParameterList") // Slot-style Compose API: every extra parameter is an optional knob.
 @Composable
 fun TransactionResultCard(
     title: String,
@@ -92,14 +100,19 @@ fun TransactionResultCard(
     RainCard {
         RainRow {
             RainStrong(title, Modifier.weight(1f))
-            RainBadge(badge, badgeTone)
+            RainBadge(badge, tone = badgeTone)
         }
         if (note != null) RainMuted(note)
         Column {
             RainLabel("Transaction hash")
             RainRow {
                 if (explorerUrl != null) {
-                    RainLink(shortHash(hash), onClick = { openUrl(context, explorerUrl) }, modifier = Modifier.weight(1f), maxLines = 1)
+                    RainLink(
+                        shortHash(hash),
+                        onClick = { openUrl(context, explorerUrl) },
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1
+                    )
                 } else {
                     Text(shortHash(hash), style = RainType.Body, modifier = Modifier.weight(1f), maxLines = 1)
                 }
@@ -107,7 +120,6 @@ fun TransactionResultCard(
                     icon = R.drawable.ic_copy,
                     contentDescription = "Copy transaction hash",
                     onClick = { copyToClipboard(context, "Transaction hash", hash, "Transaction hash copied") },
-                    size = 32.dp,
                     iconSize = 20.dp,
                 )
             }

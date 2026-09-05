@@ -98,6 +98,7 @@ fun WalletInfoScreen(
     }
 }
 
+@Suppress("LongParameterList") // Slot-style Compose API: every extra parameter is an optional knob.
 @Composable
 private fun AddressCard(
     title: String,
