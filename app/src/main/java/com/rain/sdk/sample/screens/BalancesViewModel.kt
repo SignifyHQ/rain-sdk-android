@@ -89,7 +89,7 @@ class BalancesViewModel(
         }
         if (!rainSdk.isRainApiConfigured) {
             SampleLog.w("Balances.collateral", "Rain API not configured")
-            _state.update { it.copy(collateralError = "Rain Api-Key and User ID required") }
+            _state.update { it.copy(collateralError = "Rain Api-Key and user ID required") }
             return
         }
 
@@ -166,11 +166,6 @@ class BalancesViewModel(
             }
         }
     }
-}
-
-fun formatAddress(address: String): String {
-    if (address.length <= 10) return address
-    return "${address.take(6)}...${address.takeLast(4)}"
 }
 
 data class CollateralTokenBalance(

@@ -3,29 +3,17 @@ package com.rain.sdk.sample
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -38,12 +26,16 @@ import com.rain.sdk.sample.screens.HomeScreen
 import com.rain.sdk.sample.screens.SendTokensScreen
 import com.rain.sdk.sample.screens.TransactionHistoryScreen
 import com.rain.sdk.sample.screens.WalletInfoScreen
+import com.rain.sdk.sample.ui.theme.RainColors
+import com.rain.sdk.sample.ui.theme.RainTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        // White canvas runs under the system bars; their icons follow the light theme.
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            RainTheme {
                 SampleApp()
             }
         }
@@ -53,11 +45,12 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun SampleApp() {
     val navController = rememberNavController()
-    var selectedChain by remember { mutableStateOf(WalletChain.EVM) }
+    var selectedChain by remember { mutableStateOf(WalletChain.BASE_SEPOLIA) }
     val session = (LocalContext.current.applicationContext as RainSampleApp).session
 
     Scaffold(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
+        containerColor = RainColors.Canvas,
     ) { innerPadding ->
         NavHost(
             navController = navController,
@@ -159,39 +152,5 @@ private fun WithClient(
         LaunchedEffect(Unit) { navController.popBackStack() }
     } else {
         content(sdk, client)
-    }
-}
-
-@Composable
-fun PlaceholderScreen(title: String, innerPadding: PaddingValues, onBack: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding)
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TextButton(onClick = onBack) {
-                Text("← Back")
-            }
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.weight(1f),
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.size(48.dp))
-        }
-        Spacer(modifier = Modifier.weight(1f))
-        Text(
-            text = "Coming soon...",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.weight(1f))
     }
 }

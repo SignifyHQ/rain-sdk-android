@@ -1,29 +1,13 @@
 package com.rain.sdk.sample.screens
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.widget.Toast
+import android.graphics.Bitmap
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -32,14 +16,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.sample.R
 import com.rain.sdk.sample.WalletChain
+import com.rain.sdk.sample.ui.RainBackHeader
+import com.rain.sdk.sample.ui.RainBadge
+import com.rain.sdk.sample.ui.RainBadgeTone
+import com.rain.sdk.sample.ui.RainButton
+import com.rain.sdk.sample.ui.RainButtonStyle
+import com.rain.sdk.sample.ui.RainCard
+import com.rain.sdk.sample.ui.RainErrorPanel
+import com.rain.sdk.sample.ui.RainMuted
+import com.rain.sdk.sample.ui.RainPanel
+import com.rain.sdk.sample.ui.RainRow
+import com.rain.sdk.sample.ui.RainScreen
+import com.rain.sdk.sample.ui.RainStrong
+import com.rain.sdk.sample.ui.RainTitleBlock
 
 @Composable
 fun WalletInfoScreen(
@@ -58,90 +54,45 @@ fun WalletInfoScreen(
         viewModel.fetchWalletInfo(selectedChain)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding)
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-    ) {
-        // Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TextButton(onClick = onBack) {
-                Text("← Back")
-            }
-            Text(
-                text = "Wallet & QR",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.size(48.dp))
-        }
+    RainScreen(innerPadding) {
+        RainBackHeader(onBack = onBack)
+        RainTitleBlock(title = "Wallet & QR", subtitle = selectedChain.displayName)
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Loading
         if (state.isLoading) {
-            Text(
-                text = "Loading wallet info...",
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(16.dp))
+            RainPanel { RainMuted("Loading wallet info…") }
         }
 
-        // Error
         state.errorText?.let { error ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer
-                )
-            ) {
-                Text(
-                    text = "Error: $error",
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Button(
+            RainErrorPanel(error)
+            RainButton(
+                text = "Retry",
                 onClick = { viewModel.fetchWalletInfo(selectedChain) },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Retry")
-            }
-            Spacer(modifier = Modifier.height(16.dp))
+                modifier = Modifier.fillMaxWidth(),
+                style = RainButtonStyle.Secondary,
+            )
         }
 
-        // User wallet address (provider-agnostic — Portal or Turnkey)
+        // User wallet address (provider-agnostic: Portal, Turnkey or Privy).
         if (state.portalAddress.isNotEmpty()) {
             AddressCard(
-                title = "${selectedChain.nativeSymbol} Wallet Address",
+                title = "Wallet address",
+                subtitle = null,
                 address = state.portalAddress,
                 isValid = selectedChain.isValidAddress(state.portalAddress),
                 qrBitmap = state.portalQrBitmap,
-                onCopy = { copyToClipboard(context, state.portalAddress) }
+                onCopy = { copyToClipboard(context, "Wallet address", state.portalAddress, "Address copied") },
             )
-            Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // Collateral Address (Deposit) — EVM only
+        // Where deposits go: the collateral contract (or its dedicated deposit address).
         if (state.collateralAddress.isNotEmpty()) {
             AddressCard(
-                title = "Deposit Address (Collateral)",
+                title = "Deposit address",
+                subtitle = "Collateral contract",
                 address = state.collateralAddress,
                 isValid = selectedChain.isValidAddress(state.collateralAddress),
                 qrBitmap = state.collateralQrBitmap,
-                onCopy = { copyToClipboard(context, state.collateralAddress) }
+                onCopy = { copyToClipboard(context, "Deposit address", state.collateralAddress, "Address copied") },
             )
         }
     }
@@ -150,79 +101,49 @@ fun WalletInfoScreen(
 @Composable
 private fun AddressCard(
     title: String,
+    subtitle: String?,
     address: String,
     isValid: Boolean,
-    qrBitmap: android.graphics.Bitmap?,
-    onCopy: () -> Unit
+    qrBitmap: Bitmap?,
+    onCopy: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Title + validation badge
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = if (isValid) "✅ Valid" else "❌ Invalid",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (isValid)
-                        MaterialTheme.colorScheme.primary
-                    else
-                        MaterialTheme.colorScheme.error
-                )
+    RainCard {
+        RainRow {
+            Column(modifier = Modifier.weight(1f)) {
+                RainStrong(title)
+                if (subtitle != null) RainMuted(subtitle)
             }
+            RainBadge(
+                text = if (isValid) "Valid" else "Invalid",
+                tone = if (isValid) RainBadgeTone.Success else RainBadgeTone.Danger,
+            )
+        }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // QR Code
-            qrBitmap?.let { bitmap ->
+        qrBitmap?.let { bitmap ->
+            Box(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
                 Image(
                     bitmap = bitmap.asImageBitmap(),
-                    contentDescription = "$title QR Code",
-                    modifier = Modifier.size(200.dp)
+                    contentDescription = "$title QR code",
+                    modifier = Modifier.size(200.dp),
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            // Address text
-            Text(
-                text = address,
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Copy button
-            OutlinedButton(
-                onClick = onCopy,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("📋 Copy Address")
             }
         }
-    }
-}
 
-private fun copyToClipboard(context: Context, text: String) {
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText("address", text))
-    Toast.makeText(context, "Address copied!", Toast.LENGTH_SHORT).show()
+        RainMuted(
+            text = address,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = if (qrBitmap != null) TextAlign.Center else TextAlign.Start,
+        )
+
+        RainButton(
+            text = "Copy address",
+            onClick = onCopy,
+            modifier = Modifier.fillMaxWidth(),
+            style = RainButtonStyle.Secondary,
+            icon = R.drawable.ic_copy,
+        )
+    }
 }
