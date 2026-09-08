@@ -23,12 +23,13 @@ connect a wallet, read balances, send tokens, withdraw collateral, and list tran
 
 | Screen | What it exercises |
 |---|---|
-| **Home** | Provider choice (Portal / Turnkey / Privy), Rain API credentials, auth, `RainSdk` build, active-chain dropdown, feature grid |
+| **Home** | Provider choice (Portal MPC / Turnkey / Privy), Rain API credentials, auth, `RainSdk` build, session card, active-wallet dropdown, feature grid |
 | **Wallet & QR** | `getWalletAddress(chainId)` and the collateral deposit address from `fetchCollateralContracts()`, each with a QR bitmap from `generateAddressQRCode(address)` |
 | **Balances** | Collateral balances (Rain API) plus the wallet's own native and token balances (`getBalance`, `getTokenBalances`) |
-| **Send Tokens** | `sendNative` and `sendToken` (ERC-20 on EVM, SPL on Solana) |
-| **Collateral Withdraw** | `fetchAdminSignature` + `withdrawCollateral`, on both EVM and Solana collateral |
-| **Transaction History** | `getTransactions(chainId, limit, offset, order)`, newest-first |
+| **Send tokens** | `sendNative` and `sendToken` (ERC-20 on EVM, SPL on Solana) |
+| **Withdraw collateral** | `fetchAdminSignature` + `withdrawCollateral`, with `estimateWithdrawalFee` and `prepareWithdrawal` dry runs, on both EVM and Solana collateral |
+| **Auth pull** | `getTokenAllowance`, `estimateApprovalFee`, `approveTokenAllowance` + `confirmTokenAllowance`, and revocation |
+| **History** | `getTransactions(chainId, limit, offset, order)`, newest-first |
 
 Every feature screen reads the chain picked in the **Active wallet** dropdown on Home, so switching
 networks needs no re-initialization: the SDK is built with all chains' RPC endpoints at once (see
@@ -46,7 +47,7 @@ chains.
 Auth is the host app's responsibility; the SDK only wants an authenticated provider handle. Both
 sample auth drivers are reference code you would write yourself:
 
-- **Portal** — paste a Portal session token on Home and tap *Initialize SDK*.
+- **Portal MPC** — paste a Portal session token on Home and tap *Initialize SDK*.
 - **Turnkey** (`TurnkeyAuthSample`) — parent organization ID + auth proxy config ID + email OTP.
   Sign-up and login share one `completeOtp` path; an EVM and a Solana wallet are provisioned if the
   sub-org lacks them.
@@ -74,23 +75,50 @@ mainnet-only, so naming the testnet tokens keeps the balance screen readable.
 
 ```
 app/src/main/java/com/rain/sdk/sample/
-├── MainActivity.kt          # App entry + Compose navigation host
-├── Screen.kt                # Route definitions for the six screens
+├── MainActivity.kt          # App entry + Compose navigation host (wrapped in RainTheme)
+├── Screen.kt                # Route definitions for the seven screens
 ├── RainSession.kt           # Holds the built RainSdk + resolved RainClient
 ├── WalletChain.kt           # Demo networks, explorer links, address validation
+├── SampleEnvironment.kt     # Sandbox vs production: Rain API host, Auth pull operator
 ├── SampleLog.kt             # Logging helper
 ├── TurnkeyAuthSample.kt     # Turnkey email-OTP + wallet provisioning
 ├── PrivyAuthSample.kt       # Privy email-OTP + embedded wallets
-└── screens/                 # One Screen + ViewModel pair per feature
+├── ui/                      # Rain design system port (see Design below)
+│   ├── theme/               # RainColors, RainType, RainTheme
+│   └── RainComponents.kt    # Cards, pill buttons, inputs, badges, icon tiles, toggle
+└── screens/                 # One Screen + ViewModel pair per feature, plus shared helpers
+    ├── Common.kt            # Address/hash/money formatting, TransactionResultCard
     ├── HomeScreen / HomeViewModel
     ├── WalletInfoScreen / WalletInfoViewModel
     ├── BalancesScreen / BalancesViewModel
     ├── SendTokensScreen / SendTokensViewModel
     ├── CollateralWithdrawScreen / CollateralWithdrawViewModel
+    ├── AuthPullScreen / AuthPullViewModel
     └── TransactionHistoryScreen / TransactionHistoryViewModel
+app/src/main/res/drawable/   # Rain wordmark and Phosphor line icons as vector drawables
 ```
 
----
+## Design
+
+The screens follow the Rain brand system rather than stock Material: a white canvas, one typeface
+in two weights (Light for body, Semibold for headings and labels), two type sizes (16 and 32, plus
+12 for badges), hairline neutral borders on all four sides, 20dp cards, 4dp inputs, pill buttons
+that settle to pink while pressed, sentence case throughout, and no emoji. Pink is reserved for the
+wordmark, the icon tiles, and interaction states. The tokens live in `ui/theme` and the components
+in `ui/RainComponents.kt`; the design canvas the port was built from is the Claude Design project
+"Rain SDK Sample App".
+
+Two things are stand-ins until the brand assets are dropped in:
+
+- **Typeface.** Rain's Antique Legacy is licensed and not checked in, so text renders on the
+  platform sans at the same two weights. `RainType.fontFamily` documents the one-line swap once the
+  OTFs are placed in `app/src/main/res/font/`.
+- **Icon tiles.** The home grid's wallet / coin / transaction / bank / secure / time glyphs are
+  hand-drawn line icons in the Phosphor idiom inside the brand's pink container
+  (`RainIconTile`). The design canvas uses the brand's "settle" (handshake) tile for Withdraw; a
+  legible handshake needs the real asset, so the port uses the set's "bank" glyph until the PNGs
+  (or Phosphor's SVGs) replace the `ic_tile_*` drawables. Chrome icons (back, caret, copy, external
+  link, check) are Phosphor's own paths.
 
 ## Key code
 
