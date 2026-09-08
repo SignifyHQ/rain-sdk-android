@@ -287,7 +287,7 @@ class HomeViewModel(
                     it.copy(
                         isLoading = false,
                         isInitialized = session.isInitialized,
-                        statusText = "SDK Initialized Successfully!",
+                        statusText = "SDK initialized",
                         isRecovered = true
                     )
                 }
@@ -671,7 +671,7 @@ class HomeViewModel(
             // Real logout so the next run requires fresh auth (and resume detects no session).
             TurnkeyAuthSample.logout()
             PrivyAuthSample.logout()
-            _state.update { seededState(it.mode).copy(statusText = "Session Cleared") }
+            _state.update { seededState(it.mode).copy(statusText = "Session cleared") }
         }
     }
 }

@@ -1,53 +1,52 @@
 package com.rain.sdk.sample.screens
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.widget.Toast
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.models.RainTransaction
+import com.rain.sdk.sample.R
 import com.rain.sdk.sample.WalletChain
-import java.math.BigDecimal
+import com.rain.sdk.sample.ui.RainBackHeader
+import com.rain.sdk.sample.ui.RainBadge
+import com.rain.sdk.sample.ui.RainBadgeTone
+import com.rain.sdk.sample.ui.RainButton
+import com.rain.sdk.sample.ui.RainButtonStyle
+import com.rain.sdk.sample.ui.RainCard
+import com.rain.sdk.sample.ui.RainDivider
+import com.rain.sdk.sample.ui.RainErrorPanel
+import com.rain.sdk.sample.ui.RainIconButton
+import com.rain.sdk.sample.ui.RainLink
+import com.rain.sdk.sample.ui.RainMuted
+import com.rain.sdk.sample.ui.RainNote
+import com.rain.sdk.sample.ui.RainPanel
+import com.rain.sdk.sample.ui.RainRow
+import com.rain.sdk.sample.ui.RainScreen
+import com.rain.sdk.sample.ui.RainSpinner
+import com.rain.sdk.sample.ui.RainStrong
+import com.rain.sdk.sample.ui.RainTextAction
+import com.rain.sdk.sample.ui.RainTitleBlock
+import com.rain.sdk.sample.ui.theme.RainColors
+import com.rain.sdk.sample.ui.theme.RainType
 
 @Composable
 fun TransactionHistoryScreen(
@@ -55,296 +54,176 @@ fun TransactionHistoryScreen(
     rainClient: RainClient,
     selectedChain: WalletChain,
     onBack: () -> Unit,
-    viewModel: TransactionHistoryViewModel = viewModel(factory = TransactionHistoryViewModelFactory(rainClient))
+    viewModel: TransactionHistoryViewModel = viewModel(factory = TransactionHistoryViewModelFactory(rainClient)),
 ) {
     val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
 
     // Re-fetch whenever the active chain changes.
     LaunchedEffect(selectedChain) {
         viewModel.fetchTransactions(selectedChain)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding)
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-    ) {
-        // Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TextButton(onClick = onBack) {
-                Text("← Back")
+    RainScreen(innerPadding) {
+        RainBackHeader(onBack = onBack)
+        RainTitleBlock(title = "History", subtitle = "Sent from this wallet on ${selectedChain.displayName}")
+
+        state.errorText?.let { RainErrorPanel(it) }
+
+        if (state.isLoading && state.transactions.isEmpty()) {
+            RainPanel {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RainSpinner()
+                    RainMuted("Loading transactions…")
+                }
             }
-            Text(
-                text = "Transaction History",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.size(48.dp))
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Refresh button
-        Button(
-            onClick = { viewModel.fetchTransactions(selectedChain) },
-            enabled = !state.isLoading,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (state.isLoading) "Loading..." else "🔄 Refresh (${selectedChain.nativeSymbol})")
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Error
-        state.errorText?.let { error ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer
-                )
-            ) {
-                Text(
-                    text = "Error: $error",
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        // Empty state. The Turnkey-backed history is sourced from this wallet's Turnkey
-        // send-activities filtered to the selected chain — so it shows only transactions sent
-        // through this wallet on this network (no receives, nothing sent outside Turnkey).
-        // An empty list here is expected for a fresh wallet, not a failure.
+        // Empty state. The history is sourced from this wallet's send activities filtered to the
+        // selected chain, so it shows only transactions sent through this wallet on this network
+        // (no receives, nothing sent outside the provider). Empty is expected for a fresh wallet.
         if (!state.isLoading && state.transactions.isEmpty() && state.errorText == null) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "No transactions found on ${selectedChain.displayName}.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "History lists transactions sent from this wallet on the selected " +
-                        "network. Sends on other chains, or transfers received from someone " +
-                        "else, won't appear here.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center
-                )
+            RainNote(
+                title = "No transactions on ${selectedChain.displayName}",
+                body = "History lists transactions sent from this wallet on the selected network. Sends on " +
+                    "other chains, or transfers received from someone else, won't appear here.",
+            )
+        }
+
+        if (state.transactions.isNotEmpty()) {
+            RainCard(gap = 0.dp, contentPadding = PaddingValues(horizontal = 24.dp)) {
+                state.transactions.forEach { tx ->
+                    TransactionRow(tx = tx, walletAddress = state.walletAddress, chain = selectedChain)
+                    RainDivider()
+                }
+                val walletAddress = state.walletAddress
+                if (walletAddress != null) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        RainTextAction(
+                            text = "View all on ${selectedChain.explorerName}",
+                            onClick = { openUrl(context, selectedChain.explorerAddressUrl(walletAddress)) },
+                            icon = R.drawable.ic_arrow_up_right,
+                        )
+                    }
+                }
             }
         }
 
-        // Transaction list
-        state.transactions.forEach { tx ->
-            TransactionCard(tx, state.walletAddress, selectedChain)
-            Spacer(modifier = Modifier.height(8.dp))
-        }
+        RainButton(
+            text = "Refresh",
+            onClick = { viewModel.fetchTransactions(selectedChain) },
+            modifier = Modifier.fillMaxWidth(),
+            style = RainButtonStyle.Secondary,
+            enabled = !state.isLoading,
+            loading = state.isLoading,
+        )
     }
 }
 
-@Composable
-private fun TransactionCard(tx: RainTransaction, walletAddress: String?, selectedChain: WalletChain) {
-    val context = LocalContext.current
-
+/** Sent / Received / Self relative to the connected wallet, or null when the wallet is unknown. */
+private fun transactionKind(tx: RainTransaction, walletAddress: String?): Pair<String, RainBadgeTone>? {
     val isSend = walletAddress?.let { tx.from.equals(it, ignoreCase = true) } ?: false
     val isReceive = walletAddress?.let { tx.to?.equals(it, ignoreCase = true) == true } ?: false
-    val badgeStr = when {
-        isSend && isReceive -> "SELF"
-        isSend -> "SEND"
-        isReceive -> "RECEIVE"
-        else -> ""
-    }
-    val badgeColor = when {
-        isSend && isReceive -> Color.Gray
-        isSend -> Color(0xFFE57373)
-        isReceive -> Color(0xFF81C784)
-        else -> Color.Transparent
-    }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            // Hash and Badge
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Tx Hash",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (badgeStr.isNotEmpty()) {
-                        Spacer(modifier = Modifier.size(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(badgeColor)
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = badgeStr,
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color.White
-                            )
-                        }
-                    }
-                }
-            }
-            // Solana history rows carry the Turnkey status id, not an explorer-resolvable
-            // signature, so the hash is shown plainly (no link) on Solana.
-            val explorerLinkable = !selectedChain.isSolana
-            Text(
-                text = truncateHash(tx.hash),
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Medium,
-                color = if (explorerLinkable) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-                textDecoration = if (explorerLinkable) TextDecoration.Underline else null,
-                maxLines = 1,
-                modifier = if (explorerLinkable) {
-                    Modifier.clickable {
-                        context.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(selectedChain.explorerTxUrl(tx.hash)))
-                        )
-                    }
-                } else {
-                    Modifier
-                }
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // From → To
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "From",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = truncateAddress(tx.from),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                Text("→", style = MaterialTheme.typography.bodyMedium)
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "To",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = truncateAddress(tx.to ?: "—"),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-
-            // Value — formatted like the Balances screen (clean decimal, no trailing zeros /
-            // scientific notation) with the native symbol falling back to the active chain's.
-            val formattedValue = tx.value?.let { formatAmount(it) }
-            if (formattedValue != null && formattedValue != "0") {
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Only a transfer with no token address is denominated in the native symbol.
-                    // A token transfer whose symbol is unknown (SPL names live in off-chain
-                    // metadata) shows the bare amount, identified by the mint shown beside it —
-                    // labelling it "SOL" would name the wrong asset entirely.
-                    val unit = tx.asset ?: selectedChain.nativeSymbol.takeIf { tx.tokenAddress == null }
-                    Text(
-                        text = listOfNotNull("Value: $formattedValue", unit).joinToString(" "),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-
-                    tx.tokenAddress?.let { tokenAddr ->
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "(${truncateAddress(tokenAddr)})",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "⧉",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .clickable {
-                                    val clipboard = context.getSystemService(
-                                        Context.CLIPBOARD_SERVICE
-                                    ) as ClipboardManager
-                                    val clip = ClipData.newPlainText("Contract Address", tokenAddr)
-                                    clipboard.setPrimaryClip(clip)
-                                    Toast.makeText(context, "Copied Contract Address", Toast.LENGTH_SHORT).show()
-                                }
-                        )
-                    }
-                }
-            }
-
-            // Explorer link only where the hash is a real on-chain signature — hidden on Solana,
-            // whose history row carries the Turnkey status id rather than a tx signature.
-            if (explorerLinkable) {
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = {
-                        context.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(selectedChain.explorerTxUrl(tx.hash)))
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("🔎 View on ${selectedChain.explorerName}")
-                }
-            }
-        }
+    return when {
+        isSend && isReceive -> "Self" to RainBadgeTone.Outline
+        isSend -> "Sent" to RainBadgeTone.Neutral
+        isReceive -> "Received" to RainBadgeTone.Success
+        else -> null
     }
 }
 
 /**
- * Formats a transaction's value the same way the Balances screen formats balances: a clean
- * decimal with trailing zeros stripped and no scientific notation.
+ * Value formatted like the Balances screen (clean decimal, no trailing zeros), or null for zero.
+ * Only a transfer with no token address is denominated in the native symbol; a token transfer whose
+ * symbol is unknown shows the bare amount, identified by the mint shown on the row.
  */
-private fun formatAmount(value: BigDecimal): String {
-    return if (value.signum() == 0) "0" else value.stripTrailingZeros().toPlainString()
+private fun formattedValue(tx: RainTransaction, chain: WalletChain): String? {
+    val amount = tx.value?.let { formatPlain(it) }?.takeIf { it != "0" } ?: return null
+    val unit = tx.asset ?: chain.nativeSymbol.takeIf { tx.tokenAddress == null }
+    return listOfNotNull(amount, unit).joinToString(" ")
 }
 
-private fun truncateHash(hash: String): String {
-    return if (hash.length > 20) "${hash.take(12)}...${hash.takeLast(6)}" else hash
+@Composable
+private fun TransactionRow(tx: RainTransaction, walletAddress: String?, chain: WalletChain) {
+    val context = LocalContext.current
+    val kind = transactionKind(tx, walletAddress)
+    val value = formattedValue(tx, chain)
+    // Solana history rows carry the provider's status id, not an explorer-resolvable signature,
+    // so the hash is shown plainly (no link, no explorer action) on Solana.
+    val explorerLinkable = !chain.isSolana
+
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        RainRow {
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (kind != null) RainBadge(kind.first, tone = kind.second)
+                if (explorerLinkable) {
+                    RainLink(
+                        text = shortHash(tx.hash),
+                        onClick = { openUrl(context, chain.explorerTxUrl(tx.hash)) },
+                        maxLines = 1,
+                    )
+                } else {
+                    Text(shortHash(tx.hash), style = RainType.Body, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (value != null) RainStrong(value)
+        }
+
+        TransactionAddresses(tx)
+
+        if (explorerLinkable) {
+            RainTextAction(
+                text = "View on ${chain.explorerName}",
+                onClick = { openUrl(context, chain.explorerTxUrl(tx.hash)) },
+                icon = R.drawable.ic_arrow_up_right,
+            )
+        }
+    }
 }
 
-private fun truncateAddress(address: String): String {
-    return if (address.length > 14) "${address.take(6)}...${address.takeLast(6)}" else address
+/** From → to, plus the token contract (copyable) for token transfers. */
+@Composable
+private fun TransactionAddresses(tx: RainTransaction) {
+    val context = LocalContext.current
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RainMuted(shortAddress(tx.from))
+        Icon(
+            painter = painterResource(R.drawable.ic_arrow_right),
+            contentDescription = "to",
+            tint = RainColors.TextMuted,
+            modifier = Modifier.size(16.dp),
+        )
+        RainMuted(shortAddress(tx.to ?: "—"))
+    }
+
+    tx.tokenAddress?.let { tokenAddress ->
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RainMuted("Token ${shortAddress(tokenAddress)}")
+            RainIconButton(
+                icon = R.drawable.ic_copy,
+                contentDescription = "Copy token address",
+                onClick = { copyToClipboard(context, "Token address", tokenAddress, "Token address copied") },
+                iconSize = 16.dp,
+            )
+        }
+    }
 }

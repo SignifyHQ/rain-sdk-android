@@ -114,7 +114,11 @@ sealed class RainError(
     class InsufficientFunds : RainError(RainErrorCode.INSUFFICIENT_FUNDS)
 
     class TransactionSimulationFailed(cause: Throwable?) :
-        RainError(RainErrorCode.TRANSACTION_SIMULATION_FAILED, "Transaction simulation failed: ${cause?.message}", cause)
+        RainError(
+            RainErrorCode.TRANSACTION_SIMULATION_FAILED,
+            "Transaction simulation failed: ${cause?.message}",
+            cause
+        )
 
     /**
      * The active wallet provider returned no usable wallet address — e.g. the user has not
@@ -127,7 +131,10 @@ sealed class RainError(
      * Withdrawal transaction reverted on-chain (e.g. duplicate withdrawal in a short window,
      * already-used signature, contract guard tripped).
      */
-    class WithdrawalRevertedByNetwork(details: String = "Withdrawal reverted by the network", cause: Throwable? = null) :
+    class WithdrawalRevertedByNetwork(
+        details: String = "Withdrawal reverted by the network",
+        cause: Throwable? = null
+    ) :
         RainError(RainErrorCode.WITHDRAWAL_REVERTED_BY_NETWORK, details, cause)
 
     /**

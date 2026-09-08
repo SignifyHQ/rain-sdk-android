@@ -1,43 +1,24 @@
 package com.rain.sdk.sample.screens
 
-import android.content.Intent
-import android.net.Uri
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.WalletChain
+import com.rain.sdk.sample.ui.RainBackHeader
+import com.rain.sdk.sample.ui.RainButton
+import com.rain.sdk.sample.ui.RainCard
+import com.rain.sdk.sample.ui.RainErrorPanel
+import com.rain.sdk.sample.ui.RainField
+import com.rain.sdk.sample.ui.RainScreen
+import com.rain.sdk.sample.ui.RainSegmentedControl
+import com.rain.sdk.sample.ui.RainTitleBlock
 
 @Composable
 fun SendTokensScreen(
@@ -48,150 +29,62 @@ fun SendTokensScreen(
     viewModel: SendTokensViewModel = viewModel(factory = SendTokensViewModelFactory(rainClient))
 ) {
     val state by viewModel.state.collectAsState()
-    val context = LocalContext.current
     val isTokenSend = state.isTokenMode
 
     // Address defaults differ per chain (contract vs mint), so re-seed the form on a switch;
     // the ViewModel no-ops when the chain is unchanged.
     LaunchedEffect(selectedChain) { viewModel.onChainChanged(selectedChain) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding)
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-    ) {
-        // Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TextButton(onClick = onBack) {
-                Text("← Back")
-            }
-            Text(
-                text = "Send Tokens",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.size(48.dp))
-        }
+    RainScreen(innerPadding) {
+        RainBackHeader(onBack = onBack)
+        RainTitleBlock(title = "Send tokens", subtitle = selectedChain.displayName)
 
-        Spacer(modifier = Modifier.height(16.dp))
+        // Every chain supports both a native and a token transfer.
+        RainSegmentedControl(
+            options = listOf("Native (${selectedChain.nativeSymbol})", "${selectedChain.tokenStandard} token"),
+            selectedIndex = if (isTokenSend) 1 else 0,
+            onSelected = { viewModel.onSendModeChanged(it == 1) },
+            enabled = !state.isSending,
+        )
 
-        // Mode toggle — every chain supports both a native and a token transfer.
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
-        ) {
-            FilterChip(
-                selected = !state.isTokenMode,
-                onClick = { viewModel.onSendModeChanged(false) },
-                label = { Text("Native (${selectedChain.nativeSymbol})") }
-            )
-            FilterChip(
-                selected = state.isTokenMode,
-                onClick = { viewModel.onSendModeChanged(true) },
-                label = { Text("${selectedChain.tokenStandard} Token") }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Form Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-            )
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = if (isTokenSend) {
-                        "Send ${selectedChain.tokenStandard} Token"
+        RainCard {
+            if (isTokenSend) {
+                RainField(
+                    label = selectedChain.tokenAddressLabel,
+                    value = state.contractAddress,
+                    onValueChange = { viewModel.onContractAddressChanged(it) },
+                    enabled = !state.isSending,
+                    helper = if (selectedChain.isSolana) {
+                        "Decimals come from the mint. If the recipient has no account for this token, " +
+                            "one is created and you pay about 0.002 SOL in rent."
                     } else {
-                        "Send Native ${selectedChain.nativeSymbol}"
+                        "Decimals are resolved automatically by the SDK."
                     },
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-
-                // Token-transfer specific fields
-                if (isTokenSend) {
-                    OutlinedTextField(
-                        value = state.contractAddress,
-                        onValueChange = { viewModel.onContractAddressChanged(it) },
-                        label = { Text(selectedChain.tokenAddressLabel) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        supportingText = {
-                            Text(
-                                if (selectedChain.isSolana) {
-                                    "Decimals come from the mint. If the recipient has no account " +
-                                        "for this token, one is created and you pay ~0.002 SOL rent."
-                                } else {
-                                    "Decimals are resolved automatically by the SDK"
-                                }
-                            )
-                        }
-                    )
-                }
-
-                // Common fields
-                OutlinedTextField(
-                    value = state.recipientAddress,
-                    onValueChange = { viewModel.onRecipientChanged(it) },
-                    label = { Text("Recipient Address") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    value = state.amount,
-                    onValueChange = { viewModel.onAmountChanged(it) },
-                    label = {
-                        Text(
-                            if (isTokenSend) {
-                                "Amount (Token Units)"
-                            } else {
-                                "Amount (${selectedChain.nativeSymbol})"
-                            }
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
                 )
             }
+            RainField(
+                label = "Recipient address",
+                value = state.recipientAddress,
+                onValueChange = { viewModel.onRecipientChanged(it) },
+                enabled = !state.isSending,
+            )
+            RainField(
+                label = if (isTokenSend) "Amount (token units)" else "Amount (${selectedChain.nativeSymbol})",
+                value = state.amount,
+                onValueChange = { viewModel.onAmountChanged(it) },
+                enabled = !state.isSending,
+                keyboardType = KeyboardType.Decimal,
+            )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        state.errorText?.let { RainErrorPanel(it) }
 
-        // Error
-        state.errorText?.let { error ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer
-                )
-            ) {
-                Text(
-                    text = error,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        // Send Button
-        Button(
+        RainButton(
+            text = when {
+                state.isSending -> "Sending"
+                isTokenSend -> "Send ${selectedChain.tokenStandard}"
+                else -> "Send ${selectedChain.nativeSymbol}"
+            },
             onClick = {
                 if (isTokenSend) {
                     viewModel.sendTokenTransfer(selectedChain)
@@ -199,57 +92,18 @@ fun SendTokensScreen(
                     viewModel.sendNative(selectedChain)
                 }
             },
+            modifier = Modifier.fillMaxWidth(),
             enabled = !state.isSending,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                if (state.isSending) {
-                    "Sending..."
-                } else if (isTokenSend) {
-                    "🔗 Send ${selectedChain.tokenStandard}"
-                } else {
-                    "💎 Send ${selectedChain.nativeSymbol}"
-                }
-            )
-        }
+            loading = state.isSending,
+        )
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Success Result
         state.txHash?.let { txHash ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "✅ Transaction Sent",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Tx Hash:",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = txHash,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary,
-                        textDecoration = TextDecoration.Underline,
-                        modifier = Modifier.clickable {
-                            val url = selectedChain.explorerTxUrl(txHash)
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                        }
-                    )
-                }
-            }
+            TransactionResultCard(
+                title = "Transaction sent",
+                hash = txHash,
+                explorerUrl = selectedChain.explorerTxUrl(txHash),
+                explorerName = selectedChain.explorerName,
+            )
         }
     }
 }

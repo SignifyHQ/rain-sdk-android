@@ -174,8 +174,8 @@ internal object SolanaTransactionDecoder {
         reader.skip(signatureCount * SIGNATURE_LENGTH)
 
         // Message header (3 bytes), unused here.
-        reader.readByte();
-        reader.readByte();
+        reader.readByte()
+        reader.readByte()
         reader.readByte()
 
         // Account keys.

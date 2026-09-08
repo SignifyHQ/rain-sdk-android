@@ -259,7 +259,7 @@ class AuthPullViewModel(
                 _state.update {
                     it.copy(
                         isApproving = false,
-                        approvalStatus = "Confirmed on-chain",
+                        approvalStatus = "Confirmed onchain",
                         allowanceText = if (confirmed.isUnlimited) {
                             "Unlimited"
                         } else {

@@ -141,7 +141,7 @@ enum class WalletChain(
         get() = chainId in ALL_AUTH_PULL_CHAIN_IDS && !supportsAuthPull
 
     /** What the token-address field holds on this chain: a contract on EVM, a mint on Solana. */
-    val tokenAddressLabel: String get() = if (isSolana) "Token Mint Address" else "Token Contract Address"
+    val tokenAddressLabel: String get() = if (isSolana) "Token mint address" else "Token contract address"
 
     // Naming for [defaultTokenAddress], registered with the SDK at build time. An SPL mint has
     // no on-chain symbol and the built-in EVM registry is mainnet-only.

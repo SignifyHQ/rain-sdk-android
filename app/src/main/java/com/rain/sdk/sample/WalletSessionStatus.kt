@@ -7,10 +7,13 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-/** Coarse health of the wallet session, for colouring the Home screen's session card. */
+/** Coarse health of the wallet session, for the status dot on the Home screen's session card. */
 enum class SessionHealth { Healthy, Transitional, Dead, Unknown }
 
-/** Provider-agnostic view of the wallet session; each provider's state type maps to it below. */
+/**
+ * Provider-agnostic view of the wallet session; each provider's state type maps to it below.
+ * [label] is the sentence-case headline the session card shows, [detail] its descriptor.
+ */
 data class WalletSessionStatus(
     val label: String,
     val health: SessionHealth,
@@ -23,14 +26,14 @@ fun TurnkeySessionState.toStatus(): WalletSessionStatus = when (this) {
         WalletSessionStatus("Restoring session", SessionHealth.Transitional)
     is TurnkeySessionState.Active ->
         WalletSessionStatus(
-            label = "Active",
+            label = "Session healthy",
             health = SessionHealth.Healthy,
-            detail = "JWT expires at ${formatClock(expiresAtEpochSeconds)} (auto-refreshed by the SDK)"
+            detail = "Expires at ${formatClock(expiresAtEpochSeconds)}, refreshed by the SDK"
         )
     is TurnkeySessionState.Expired ->
-        WalletSessionStatus("Expired", SessionHealth.Dead, "Log in again")
+        WalletSessionStatus("Session expired", SessionHealth.Dead, "Log in again")
     is TurnkeySessionState.Unauthenticated ->
-        WalletSessionStatus("Unauthenticated", SessionHealth.Dead, "Log in again")
+        WalletSessionStatus("Not signed in", SessionHealth.Dead, "Log in again")
 }
 
 /** Privy: self-refreshing with no expiry; `Unverified` = restored offline, recoverable. */
@@ -38,30 +41,30 @@ fun PrivySessionState.toStatus(): WalletSessionStatus = when (this) {
     is PrivySessionState.Loading ->
         WalletSessionStatus("Restoring session", SessionHealth.Transitional)
     is PrivySessionState.Active ->
-        WalletSessionStatus("Active", SessionHealth.Healthy, "Privy refreshes the session itself")
+        WalletSessionStatus("Session healthy", SessionHealth.Healthy, "Privy refreshes the session itself")
     is PrivySessionState.Unverified ->
         WalletSessionStatus(
-            label = "Unverified",
+            label = "Session unverified",
             health = SessionHealth.Transitional,
             detail = "Restored offline; re-verified when connectivity returns"
         )
     is PrivySessionState.Unauthenticated ->
-        WalletSessionStatus("Unauthenticated", SessionHealth.Dead, "Log in again")
+        WalletSessionStatus("Not signed in", SessionHealth.Dead, "Log in again")
 }
 
 /** Portal: derived from call outcomes — the vendor exposes no auth state. */
 fun PortalSessionState.toStatus(): WalletSessionStatus = when (this) {
     is PortalSessionState.Unknown ->
-        WalletSessionStatus("Unknown", SessionHealth.Unknown, "No Portal call has completed yet")
+        WalletSessionStatus("Session unknown", SessionHealth.Unknown, "No Portal call has completed yet")
     is PortalSessionState.Active ->
-        WalletSessionStatus("Active", SessionHealth.Healthy, "Last Portal call succeeded")
+        WalletSessionStatus("Session healthy", SessionHealth.Healthy, "Last Portal call succeeded")
     is PortalSessionState.Refreshing ->
-        WalletSessionStatus("Refreshing", SessionHealth.Transitional, "Installing a re-minted session token")
+        WalletSessionStatus("Refreshing session", SessionHealth.Transitional, "Installing a re-minted session token")
     is PortalSessionState.Expired ->
         WalletSessionStatus(
-            label = "Expired",
+            label = "Session expired",
             health = SessionHealth.Dead,
-            detail = "Portal rejected the session token; provide a new one"
+            detail = "Portal rejected the session token. Provide a new one"
         )
 }
 

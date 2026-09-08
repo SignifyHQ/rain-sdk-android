@@ -24,63 +24,63 @@ import java.io.IOException
  */
 internal object PortalErrorMapping {
 
-  /** Legacy MPC error id Portal's backend returns for an invalid API key. */
-  private const val MPC_INVALID_API_KEY_LEGACY_CODE = 320
+    /** Legacy MPC error id Portal's backend returns for an invalid API key. */
+    private const val MPC_INVALID_API_KEY_LEGACY_CODE = 320
 
-  /** JSON-RPC error code nodes return for "execution reverted". */
-  private const val RPC_EXECUTION_REVERTED_CODE = 3
+    /** JSON-RPC error code nodes return for "execution reverted". */
+    private const val RPC_EXECUTION_REVERTED_CODE = 3
 
-  /** Execution failures some nodes report under a generic code (-32000) rather than code 3. */
-  private val SIMULATION_FAILURE_PHRASES = listOf("execution reverted", "out of gas", "invalid opcode")
+    /** Execution failures some nodes report under a generic code (-32000) rather than code 3. */
+    private val SIMULATION_FAILURE_PHRASES = listOf("execution reverted", "out of gas", "invalid opcode")
 
-  /** Auth-only mapping (401 / invalid API key to TokenExpired). Applies at every call site. */
-  fun mapAuthOrNull(e: Throwable): RainError? = when (e) {
-    is PortalException.Api.HttpUnauthorized -> RainError.TokenExpired()
-    is PortalException.Mpc.MpcResultError -> mapMpcResultError(e)
-    else -> null
-  }
-
-  /**
-   * Auth mapping plus JSON-RPC code 3 to [RainError.TransactionSimulationFailed]. Applies only
-   * where a revert means a failed simulation: `sendTransaction` and `estimateTransactionFee`.
-   */
-  fun mapSimulationOrNull(e: Throwable): RainError? =
-    mapAuthOrNull(e) ?: (e as? PortalException.Api.RpcError)?.let { mapRpcError(it) }
-
-  private fun mapMpcResultError(e: PortalException.Mpc.MpcResultError): RainError? {
-    val code = e.id.toIntOrNull() ?: e.error.rawCode
-    return if (
-      code == MPC_INVALID_API_KEY_LEGACY_CODE ||
-      code == PortalErrorCodes.INVALID_API_KEY.code ||
-      e.id == PortalErrorCodes.INVALID_API_KEY.name
-    ) {
-      RainError.TokenExpired()
-    } else {
-      null
+    /** Auth-only mapping (401 / invalid API key to TokenExpired). Applies at every call site. */
+    fun mapAuthOrNull(e: Throwable): RainError? = when (e) {
+        is PortalException.Api.HttpUnauthorized -> RainError.TokenExpired()
+        is PortalException.Mpc.MpcResultError -> mapMpcResultError(e)
+        else -> null
     }
-  }
 
-  private fun mapRpcError(e: PortalException.Api.RpcError): RainError? {
-    val message = e.message.orEmpty()
-    val executionFailed = e.code == RPC_EXECUTION_REVERTED_CODE ||
-      SIMULATION_FAILURE_PHRASES.any { message.contains(it, ignoreCase = true) }
-    return if (executionFailed) RainError.TransactionSimulationFailed(e) else null
-  }
+    /**
+     * Auth mapping plus JSON-RPC code 3 to [RainError.TransactionSimulationFailed]. Applies only
+     * where a revert means a failed simulation: `sendTransaction` and `estimateTransactionFee`.
+     */
+    fun mapSimulationOrNull(e: Throwable): RainError? =
+        mapAuthOrNull(e) ?: (e as? PortalException.Api.RpcError)?.let { mapRpcError(it) }
 
-  /** Network I/O or HTTP 408/429/5xx; Portal only carries the status as a `"<status> - …"` prefix. */
-  fun isTransient(e: Throwable): Boolean = when (e) {
-    is IOException, is RainError.NetworkError -> true
-    is PortalException.Api.HttpRequestFailed ->
-      httpStatusOrNull(e)?.let(::isTransientStatus) == true ||
-        e.message.orEmpty().contains(NO_HTTP_RESPONSE_MARKER)
-    else -> false
-  }
+    private fun mapMpcResultError(e: PortalException.Mpc.MpcResultError): RainError? {
+        val code = e.id.toIntOrNull() ?: e.error.rawCode
+        return if (
+            code == MPC_INVALID_API_KEY_LEGACY_CODE ||
+            code == PortalErrorCodes.INVALID_API_KEY.code ||
+            e.id == PortalErrorCodes.INVALID_API_KEY.name
+        ) {
+            RainError.TokenExpired()
+        } else {
+            null
+        }
+    }
 
-  fun httpStatusOrNull(e: PortalException.Api.HttpRequestFailed): Int? =
-    e.message?.substringBefore(" - ", missingDelimiterValue = "")?.trim()?.toIntOrNull()
+    private fun mapRpcError(e: PortalException.Api.RpcError): RainError? {
+        val message = e.message.orEmpty()
+        val executionFailed = e.code == RPC_EXECUTION_REVERTED_CODE ||
+            SIMULATION_FAILURE_PHRASES.any { message.contains(it, ignoreCase = true) }
+        return if (executionFailed) RainError.TransactionSimulationFailed(e) else null
+    }
 
-  private fun isTransientStatus(status: Int): Boolean =
-    status == 408 || status == 429 || status in 500..599
+    /** Network I/O or HTTP 408/429/5xx; Portal only carries the status as a `"<status> - …"` prefix. */
+    fun isTransient(e: Throwable): Boolean = when (e) {
+        is IOException, is RainError.NetworkError -> true
+        is PortalException.Api.HttpRequestFailed ->
+            httpStatusOrNull(e)?.let(::isTransientStatus) == true ||
+                e.message.orEmpty().contains(NO_HTTP_RESPONSE_MARKER)
+        else -> false
+    }
 
-  private const val NO_HTTP_RESPONSE_MARKER = "unable to receive a valid HTTP response"
+    fun httpStatusOrNull(e: PortalException.Api.HttpRequestFailed): Int? =
+        e.message?.substringBefore(" - ", missingDelimiterValue = "")?.trim()?.toIntOrNull()
+
+    private fun isTransientStatus(status: Int): Boolean =
+        status == 408 || status == 429 || status in 500..599
+
+    private const val NO_HTTP_RESPONSE_MARKER = "unable to receive a valid HTTP response"
 }

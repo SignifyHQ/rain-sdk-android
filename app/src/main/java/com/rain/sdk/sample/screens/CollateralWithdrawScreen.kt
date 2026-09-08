@@ -1,45 +1,40 @@
 package com.rain.sdk.sample.screens
 
-import android.content.Intent
-import android.net.Uri
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.WalletChain
+import com.rain.sdk.sample.ui.RainBackHeader
+import com.rain.sdk.sample.ui.RainBadge
+import com.rain.sdk.sample.ui.RainButton
+import com.rain.sdk.sample.ui.RainButtonStyle
+import com.rain.sdk.sample.ui.RainCard
+import com.rain.sdk.sample.ui.RainErrorPanel
+import com.rain.sdk.sample.ui.RainField
+import com.rain.sdk.sample.ui.RainLabel
+import com.rain.sdk.sample.ui.RainMuted
+import com.rain.sdk.sample.ui.RainNote
+import com.rain.sdk.sample.ui.RainOptionRow
+import com.rain.sdk.sample.ui.RainPanel
+import com.rain.sdk.sample.ui.RainRow
+import com.rain.sdk.sample.ui.RainScreen
+import com.rain.sdk.sample.ui.RainSpinner
+import com.rain.sdk.sample.ui.RainStrong
+import com.rain.sdk.sample.ui.RainTitleBlock
+import com.rain.sdk.sample.ui.theme.RainType
 
 @Composable
 fun CollateralWithdrawScreen(
@@ -53,320 +48,166 @@ fun CollateralWithdrawScreen(
     )
 ) {
     val state by viewModel.state.collectAsState()
-    val context = LocalContext.current
 
     // Re-load whenever the active chain changes so the screen shows that chain's contract.
     LaunchedEffect(selectedChain) {
         viewModel.loadContractInfo(selectedChain)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding)
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-    ) {
-        // Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TextButton(onClick = onBack) {
-                Text("← Back")
-            }
-            Text(
-                text = "Collateral Withdraw",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.size(48.dp))
-        }
+    // The contract lives on its own chain (Base Sepolia for EVM), which may differ from the
+    // selected one; explorer links and the descriptor follow the contract.
+    val contractChain = WalletChain.entries.firstOrNull { it.chainId == state.chainId }
+    val token = state.selectedToken
 
-        Spacer(modifier = Modifier.height(16.dp))
+    RainScreen(innerPadding) {
+        RainBackHeader(onBack = onBack)
+        RainTitleBlock(
+            title = "Withdraw collateral",
+            subtitle = contractChain?.let { "Contract on ${it.displayName}" } ?: selectedChain.displayName,
+        )
 
-        // Loading contract
         if (state.isLoadingContract) {
-            Text(
-                text = "Loading contract info...",
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(16.dp))
+            RainPanel { RainMuted("Loading contract…") }
         }
 
-        // Error
-        state.errorText?.let { error ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer
-                )
-            ) {
-                Text(
-                    text = "Error: $error",
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
+        state.errorText?.let { RainErrorPanel(it) }
 
-        // Token Selection
         if (state.availableTokens.isNotEmpty()) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Select Token",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-
-                    state.availableTokens.forEachIndexed { index, token ->
-                        val isSelected = index == state.selectedTokenIndex
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clickable { viewModel.onTokenSelected(index) },
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surface
-                                }
-                            ),
-                            border = if (isSelected) {
-                                BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-                            } else {
-                                BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-                            }
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(
-                                        text = token.displayName,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Text(
-                                        text = "Balance: ${token.balanceDisplay}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                if (isSelected) {
-                                    Text("✅", style = MaterialTheme.typography.titleMedium)
-                                }
-                            }
-                        }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                RainLabel("Token")
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    state.availableTokens.forEachIndexed { index, option ->
+                        // Symbol leads; the token's name stays in the descriptor when it adds
+                        // information ("USD Coin"), as the previous layout showed both.
+                        val name = option.name.takeIf { it.isNotBlank() && it != option.symbol && option.symbol.isNotBlank() }
+                        RainOptionRow(
+                            title = option.symbol.ifBlank { option.name },
+                            subtitle = listOfNotNull(name, "Balance ${option.balanceDisplay}").joinToString(" · "),
+                            selected = index == state.selectedTokenIndex,
+                            onClick = { viewModel.onTokenSelected(index) },
+                            enabled = !state.isWithdrawing,
+                        )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Recipient Address
-            OutlinedTextField(
+            RainField(
+                label = "Recipient address",
                 value = state.recipientAddress,
                 onValueChange = { viewModel.onRecipientChanged(it) },
-                label = { Text("Recipient Address") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                enabled = !state.isWithdrawing,
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Amount Input
-            OutlinedTextField(
+            RainField(
+                label = "Amount to withdraw",
                 value = state.amount,
                 onValueChange = { viewModel.onAmountChanged(it) },
-                label = { Text("Amount to Withdraw") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                isError = state.isAmountOverBalance,
-                supportingText = {
-                    val token = state.selectedToken
-                    if (token != null) {
-                        if (state.isAmountOverBalance) {
-                            Text(
-                                "Amount exceeds available balance " +
-                                    "(${token.balanceDisplay} ${token.symbol})",
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        } else {
-                            Text("Available: ${token.balanceDisplay} ${token.symbol}")
-                        }
+                placeholder = "0.00",
+                enabled = !state.isWithdrawing,
+                keyboardType = KeyboardType.Decimal,
+                helper = token?.let {
+                    if (state.isAmountOverBalance) {
+                        "Amount exceeds the available balance (${it.balanceDisplay} ${it.symbol})"
+                    } else {
+                        "Available: ${it.balanceDisplay} ${it.symbol}"
                     }
-                }
+                },
+                helperIsError = state.isAmountOverBalance,
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Dry-run actions: both build the withdrawal exactly as "Withdraw" would — signing
-            // EIP-712 and reading the collateral's admin set — but broadcast nothing.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = { viewModel.estimateFee() },
-                    // EVM only: the SDK rejects a Solana chain id for fee estimation.
-                    enabled = state.isAmountValid && !state.isWithdrawing && !state.isSolanaContract,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Estimate Fee")
-                }
-
-                OutlinedButton(
-                    onClick = { viewModel.prepareWithdrawal() },
-                    enabled = state.isAmountValid && !state.isWithdrawing,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Prepare Only")
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Action Buttons. Gas estimation also happens in the background as part of the
-            // withdraw itself, so "Estimate Fee" above is optional.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Withdraw Maximum — withdraws the full available balance of the selected token.
-                OutlinedButton(
-                    onClick = { viewModel.withdrawMaximum() },
-                    enabled = !state.isWithdrawing &&
-                        (state.selectedToken?.balance?.signum() ?: 0) > 0,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Withdraw Maximum")
-                }
-
-                // Withdraw the typed amount — disabled unless the amount is valid and within balance.
-                Button(
-                    onClick = { viewModel.executeWithdraw() },
-                    enabled = state.isAmountValid && !state.isWithdrawing,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Dry-run actions: both build the withdrawal exactly as "Withdraw" would, signing
+                // EIP-712 and reading the collateral's admin set, but broadcast nothing.
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    RainButton(
+                        text = "Estimate fee",
+                        onClick = { viewModel.estimateFee() },
+                        modifier = Modifier.weight(1f),
+                        style = RainButtonStyle.Secondary,
+                        // EVM only: the SDK rejects a Solana chain id for fee estimation.
+                        enabled = state.isAmountValid && !state.isWithdrawing && !state.isSolanaContract,
                     )
-                ) {
-                    Text(if (state.isWithdrawing) "Withdrawing..." else "🔓 Withdraw")
+                    RainButton(
+                        text = "Prepare only",
+                        onClick = { viewModel.prepareWithdrawal() },
+                        modifier = Modifier.weight(1f),
+                        style = RainButtonStyle.Secondary,
+                        enabled = state.isAmountValid && !state.isWithdrawing,
+                    )
+                }
+                // Gas estimation also happens as part of the withdraw itself, so "Estimate fee"
+                // above is optional.
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    RainButton(
+                        text = "Withdraw maximum",
+                        onClick = { viewModel.withdrawMaximum() },
+                        modifier = Modifier.weight(1f),
+                        style = RainButtonStyle.Secondary,
+                        height = 48.dp,
+                        enabled = !state.isWithdrawing && (token?.balance?.signum() ?: 0) > 0,
+                    )
+                    RainButton(
+                        text = "Withdraw",
+                        onClick = { viewModel.executeWithdraw() },
+                        modifier = Modifier.weight(1f),
+                        enabled = state.isAmountValid && !state.isWithdrawing,
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            if (state.isWithdrawing) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RainSpinner()
+                    RainMuted("Fetching the admin signature and building the withdrawal…")
+                }
+            }
 
-            // Dry-run results — neither of these broadcast anything.
+            // Dry-run results: neither of these broadcast anything.
             state.estimatedFee?.let { fee ->
-                DryRunCard(title = "⛽ Estimated Fee", body = fee)
-                Spacer(modifier = Modifier.height(8.dp))
+                RainCard(gap = 8.dp) {
+                    RainRow {
+                        RainStrong("Estimated fee", Modifier.weight(1f))
+                        RainStrong(fee)
+                    }
+                    RainMuted("Dry run. Nothing was broadcast.")
+                }
             }
 
             state.preparedWithdrawal?.let { summary ->
-                DryRunCard(
-                    title = "📝 Prepared (not broadcast)",
-                    body = summary,
-                    footnote = "A Solana blockhash is valid ~60-90s — submit promptly or re-prepare."
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            // Withdrawal Result
-            state.withdrawResult?.let { txHash ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                    ),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "✅ Withdrawal Successful",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Tx Hash:",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = txHash,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.primary,
-                            textDecoration = TextDecoration.Underline,
-                            modifier = Modifier.clickable {
-                                // Link to the explorer for the contract's actual chain (Base
-                                // Sepolia → Basescan), not a hardcoded one.
-                                val chain = WalletChain.entries
-                                    .firstOrNull { it.chainId == state.chainId.toInt() }
-                                    ?: WalletChain.BASE_SEPOLIA
-                                val url = chain.explorerTxUrl(txHash)
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                            }
-                        )
+                RainCard(gap = 8.dp) {
+                    RainRow {
+                        RainStrong("Prepared withdrawal", Modifier.weight(1f))
+                        RainBadge("Not broadcast")
                     }
+                    Text(summary, style = RainType.Body)
+                    RainMuted(
+                        if (state.isSolanaContract) {
+                            "A Solana blockhash is valid for about 60 to 90 seconds. Submit promptly or prepare again."
+                        } else {
+                            "Submit this transaction yourself, or tap Withdraw to let the SDK broadcast it."
+                        },
+                    )
                 }
             }
-        }
-    }
-}
 
-/** Result card for the two dry-run actions (estimate / prepare). Neither broadcasts. */
-@Composable
-private fun DryRunCard(title: String, body: String, footnote: String? = null) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.secondary
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = body,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            footnote?.let {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            state.withdrawResult?.let { txHash ->
+                val chain = contractChain ?: WalletChain.BASE_SEPOLIA
+                TransactionResultCard(
+                    title = "Withdrawal sent",
+                    hash = txHash,
+                    explorerUrl = chain.explorerTxUrl(txHash),
+                    explorerName = chain.explorerName,
                 )
             }
+        } else if (!state.isLoadingContract && state.errorText == null && state.proxyAddress.isNotEmpty()) {
+            RainNote(
+                title = "No collateral tokens",
+                body = "The collateral contract on ${contractChain?.displayName ?: selectedChain.displayName} " +
+                    "holds no tokens to withdraw.",
+            )
         }
     }
 }

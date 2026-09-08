@@ -1,32 +1,13 @@
 package com.rain.sdk.sample.screens
 
-import android.content.Intent
-import android.net.Uri
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -34,21 +15,39 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.SampleEnvironment
 import com.rain.sdk.sample.WalletChain
+import com.rain.sdk.sample.ui.RainAmount
+import com.rain.sdk.sample.ui.RainBackHeader
+import com.rain.sdk.sample.ui.RainBadgeTone
+import com.rain.sdk.sample.ui.RainButton
+import com.rain.sdk.sample.ui.RainButtonStyle
+import com.rain.sdk.sample.ui.RainCard
+import com.rain.sdk.sample.ui.RainDivider
+import com.rain.sdk.sample.ui.RainErrorPanel
+import com.rain.sdk.sample.ui.RainField
+import com.rain.sdk.sample.ui.RainKeyValue
+import com.rain.sdk.sample.ui.RainMuted
+import com.rain.sdk.sample.ui.RainNote
+import com.rain.sdk.sample.ui.RainRow
+import com.rain.sdk.sample.ui.RainScreen
+import com.rain.sdk.sample.ui.RainSpinner
+import com.rain.sdk.sample.ui.RainStrong
+import com.rain.sdk.sample.ui.RainTextAction
+import com.rain.sdk.sample.ui.RainTitleBlock
+import com.rain.sdk.sample.ui.RainToggle
+import com.rain.sdk.sample.ui.theme.RainColors
+import com.rain.sdk.sample.ui.theme.RainRadius
+import com.rain.sdk.sample.ui.theme.RainType
 
 /**
- * Approves Rain's operator to spend USDC from this wallet — the wallet-side prerequisite for
- * Auth Pull — and shows the resulting allowance.
+ * Approves Rain's operator to spend USDC from this wallet, the wallet-side prerequisite for
+ * Auth pull, and shows the resulting allowance.
  */
 @Composable
 fun AuthPullScreen(
@@ -59,364 +58,195 @@ fun AuthPullScreen(
     viewModel: AuthPullViewModel = viewModel(factory = AuthPullViewModelFactory(rainClient))
 ) {
     val state by viewModel.state.collectAsState()
-    val context = LocalContext.current
     var pendingAction by remember { mutableStateOf<AuthPullAction?>(null) }
 
     // Operator and token are per-environment, so re-seed on a chain switch; the ViewModel
     // no-ops when the chain is unchanged.
     LaunchedEffect(selectedChain) { viewModel.onChainChanged(selectedChain) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding)
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TextButton(onClick = onBack) { Text("← Back") }
-            Text(
-                text = "Auth Pull",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.size(48.dp))
-        }
+    val isProduction = SampleEnvironment.isProduction
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = if (SampleEnvironment.isProduction) {
-                    MaterialTheme.colorScheme.errorContainer
-                } else {
-                    MaterialTheme.colorScheme.secondaryContainer
-                }
-            )
-        ) {
-            Text(
-                text = if (SampleEnvironment.isProduction) {
-                    "Production: this approval uses real USDC and real gas."
-                } else {
-                    "Sandbox: approvals use testnet USDC and testnet gas."
-                },
-                modifier = Modifier.padding(16.dp),
-                fontWeight = FontWeight.Bold,
-                color = if (SampleEnvironment.isProduction) {
-                    MaterialTheme.colorScheme.onErrorContainer
-                } else {
-                    MaterialTheme.colorScheme.onSecondaryContainer
-                }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
+    RainScreen(innerPadding) {
+        RainBackHeader(onBack = onBack)
+        RainTitleBlock(
+            title = "Auth pull",
+            subtitle = if (isProduction) {
+                "Production. Approvals use real USDC and real gas."
+            } else {
+                "Sandbox. Approvals use testnet USDC and testnet gas."
+            },
+        )
 
         if (!viewModel.supportsAuthPull(selectedChain)) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Auth Pull is not available on ${selectedChain.displayName}",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = if (SampleEnvironment.isProduction) {
-                            "Production Auth Pull runs on Base and Arbitrum. Switch chains on " +
-                                "the home screen."
-                        } else {
-                            "Sandbox Auth Pull runs on Base Sepolia and Arbitrum Sepolia. " +
-                                "Switch chains on the home screen."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            return@Column
+            RainNote(
+                title = "Auth pull is not available on ${selectedChain.displayName}",
+                body = if (isProduction) {
+                    "Production Auth pull runs on Base and Arbitrum. Switch chains on the home screen."
+                } else {
+                    "Sandbox Auth pull runs on Base Sepolia and Arbitrum Sepolia. Switch chains on the home screen."
+                },
+            )
+            return@RainScreen
         }
 
         // Current allowance
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-            )
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Current Allowance",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f)
-                    )
-                    TextButton(
-                        onClick = { viewModel.refreshAllowance(selectedChain) },
-                        enabled = !state.isLoadingAllowance && !state.isApproving
-                    ) { Text("Refresh") }
-                }
-
-                if (state.isLoadingAllowance) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                } else {
-                    Text(
-                        text = state.allowanceText?.let {
-                            if (state.isUnlimitedAllowance) it else "$it USDC"
-                        } ?: "—",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (state.isUnlimitedAllowance) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = when {
-                        state.allowanceText == null -> "What Rain's operator may pull from this wallet."
-                        state.isRevokedAllowance ->
-                            "Revoked. Rain's operator cannot pull from this wallet."
-                        state.isUnlimitedAllowance ->
-                            "Rain's operator may pull any amount from this wallet."
-                        else -> "What Rain's operator may still pull from this wallet."
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+        RainCard {
+            RainRow {
+                RainStrong("Current allowance", Modifier.weight(1f))
+                RainTextAction(
+                    text = "Refresh",
+                    onClick = { viewModel.refreshAllowance(selectedChain) },
+                    enabled = !state.isLoadingAllowance && !state.isApproving,
                 )
             }
+            if (state.isLoadingAllowance) {
+                RainSpinner(size = 24.dp)
+            } else {
+                val allowance = state.allowanceText
+                if (allowance == null) {
+                    Text("—", style = RainType.Title)
+                } else {
+                    RainAmount(value = allowance, unit = "USDC")
+                }
+            }
+            RainMuted(
+                when {
+                    state.allowanceText == null -> "What Rain's operator may pull from this wallet."
+                    state.isRevokedAllowance -> "Revoked. Rain's operator cannot pull from this wallet."
+                    state.isUnlimitedAllowance -> "Rain's operator may pull any amount from this wallet."
+                    else -> "What Rain's operator may still pull from this wallet."
+                },
+            )
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
 
         // Approval form
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-            )
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = "Approve Rain Operator",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
+        RainCard {
+            RainStrong("Approve Rain operator")
+            RainKeyValue(label = "USDC contract", value = state.tokenAddress)
+            RainKeyValue(label = "Trusted Rain operator", value = state.operatorAddress)
+            RainDivider()
+            RainRow {
+                Text("Unlimited approval", style = RainType.Body, modifier = Modifier.weight(1f))
+                RainToggle(
+                    checked = state.isUnlimited,
+                    onCheckedChange = { viewModel.onUnlimitedChanged(it) },
+                    enabled = !state.isApproving,
                 )
-
-                Text("USDC contract", style = MaterialTheme.typography.labelSmall)
-                Text(state.tokenAddress, style = MaterialTheme.typography.bodySmall)
-                Text("Trusted Rain operator", style = MaterialTheme.typography.labelSmall)
-                Text(state.operatorAddress, style = MaterialTheme.typography.bodySmall)
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Unlimited approval",
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Switch(
-                        checked = state.isUnlimited,
-                        onCheckedChange = { viewModel.onUnlimitedChanged(it) },
-                        enabled = !state.isApproving
-                    )
-                }
-
-                if (!state.isUnlimited) {
-                    OutlinedTextField(
-                        value = state.amount,
-                        onValueChange = { viewModel.onAmountChanged(it) },
-                        label = { Text("Amount (USDC)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        supportingText = { Text("Zero revokes the approval.") },
-                        enabled = !state.isApproving
-                    )
-                }
-
-                state.estimatedFee?.let { fee ->
-                    Text(
-                        text = "Estimated network fee: $fee",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+            }
+            if (!state.isUnlimited) {
+                RainField(
+                    label = "Amount (USDC)",
+                    value = state.amount,
+                    onValueChange = { viewModel.onAmountChanged(it) },
+                    enabled = !state.isApproving,
+                    helper = "Zero revokes the approval.",
+                    keyboardType = KeyboardType.Decimal,
+                )
+            }
+            state.estimatedFee?.let { fee ->
+                RainMuted("Estimated network fee: $fee")
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        state.errorText?.let { RainErrorPanel(it) }
 
-        state.errorText?.let { error ->
-            Card(
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            RainButton(
+                text = if (state.isApproving) "Approving" else "Approve operator",
+                onClick = { pendingAction = AuthPullAction.Approve },
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer
+                enabled = !state.isApproving,
+                loading = state.isApproving,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                RainButton(
+                    text = "Estimate fee",
+                    onClick = { viewModel.estimateFee(selectedChain) },
+                    modifier = Modifier.weight(1f),
+                    style = RainButtonStyle.Secondary,
+                    enabled = !state.isApproving,
                 )
-            ) {
-                Text(
-                    text = error,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(16.dp)
+                RainButton(
+                    text = "Revoke",
+                    onClick = { pendingAction = AuthPullAction.Revoke },
+                    modifier = Modifier.weight(1f),
+                    style = RainButtonStyle.Secondary,
+                    enabled = !state.isApproving,
                 )
             }
-            Spacer(modifier = Modifier.height(16.dp))
         }
-
-        Button(
-            onClick = { pendingAction = AuthPullAction.Approve },
-            enabled = !state.isApproving,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (state.isApproving) "Approving..." else "🔐 Approve Operator")
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedButton(
-                onClick = { viewModel.estimateFee(selectedChain) },
-                enabled = !state.isApproving,
-                modifier = Modifier.weight(1f)
-            ) { Text("Estimate Fee") }
-
-            OutlinedButton(
-                onClick = { pendingAction = AuthPullAction.Revoke },
-                enabled = !state.isApproving,
-                modifier = Modifier.weight(1f)
-            ) { Text("Revoke") }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
 
         state.txHash?.let { txHash ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = state.approvalStatus ?: "Approval submitted",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = if (state.isApproving) {
-                            "Waiting for a successful receipt and the exact on-chain allowance."
-                        } else {
-                            "The receipt and resulting allowance were verified on-chain."
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = txHash,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary,
-                        textDecoration = TextDecoration.Underline,
-                        modifier = Modifier.clickable {
-                            val url = selectedChain.explorerTxUrl(txHash)
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                        }
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
+            TransactionResultCard(
+                title = state.approvalStatus ?: "Approval submitted",
+                hash = txHash,
+                explorerUrl = selectedChain.explorerTxUrl(txHash),
+                explorerName = selectedChain.explorerName,
+                badge = if (state.isApproving) "Pending" else "Submitted",
+                badgeTone = if (state.isApproving) RainBadgeTone.Neutral else RainBadgeTone.Success,
+                note = if (state.isApproving) {
+                    "Waiting for a successful receipt and the exact onchain allowance."
+                } else {
+                    "The receipt and resulting allowance were verified onchain."
+                },
+            )
         }
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-            )
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "How Auth Pull works",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                val fundingAsset = if (SampleEnvironment.isProduction) "USDC" else "testnet USDC"
-                Text(
-                    text = "Fund this wallet with $fundingAsset and a little " +
-                        "${selectedChain.nativeSymbol} for gas, then approve the operator. When a " +
-                        "card authorization arrives, Rain pulls the full amount into the user's " +
-                        "collateral contract — the app does nothing further.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
+        val fundingAsset = if (isProduction) "USDC" else "testnet USDC"
+        RainNote(
+            title = "How Auth pull works",
+            body = "Fund this wallet with $fundingAsset and a little ${selectedChain.nativeSymbol} for gas, " +
+                "then approve the operator. When a card authorization arrives, Rain pulls the full amount " +
+                "into the user's collateral contract. The app does nothing further.",
+        )
     }
 
     pendingAction?.let { action ->
         val isRevoke = action == AuthPullAction.Revoke
         val amountLabel = when {
             isRevoke -> "zero (revoke)"
-            state.isUnlimited -> "UNLIMITED: all current and future USDC until revoked"
+            state.isUnlimited -> "unlimited, all current and future USDC until revoked"
             else -> "${state.amount} USDC"
         }
         AlertDialog(
             onDismissRequest = { pendingAction = null },
-            title = { Text(if (isRevoke) "Confirm revocation" else "Confirm Auth Pull approval") },
+            containerColor = RainColors.Surface,
+            shape = RoundedCornerShape(RainRadius.Card),
+            titleContentColor = RainColors.Ink,
+            textContentColor = RainColors.TextMuted,
+            title = {
+                Text(
+                    if (isRevoke) "Confirm revocation" else "Confirm Auth pull approval",
+                    style = RainType.Strong,
+                )
+            },
             text = {
                 Text(
                     "Environment: ${SampleEnvironment.displayName}\n" +
                         "Chain: ${selectedChain.displayName} (${selectedChain.chainId})\n" +
                         "Token: ${state.tokenAddress}\n" +
                         "Operator: ${state.operatorAddress}\n" +
-                        "Allowance: $amountLabel"
+                        "Allowance: $amountLabel",
+                    style = RainType.BodyMuted,
                 )
             },
             confirmButton = {
-                Button(
+                RainButton(
+                    text = if (isRevoke) "Revoke" else "Approve",
                     onClick = {
                         pendingAction = null
-                        if (isRevoke) {
-                            viewModel.revoke(selectedChain)
-                        } else {
-                            viewModel.approve(selectedChain)
-                        }
-                    }
-                ) { Text(if (isRevoke) "Revoke" else "Approve") }
+                        if (isRevoke) viewModel.revoke(selectedChain) else viewModel.approve(selectedChain)
+                    },
+                    height = 44.dp,
+                )
             },
             dismissButton = {
-                TextButton(onClick = { pendingAction = null }) { Text("Cancel") }
-            }
+                RainButton(
+                    text = "Cancel",
+                    onClick = { pendingAction = null },
+                    style = RainButtonStyle.Ghost,
+                )
+            },
         )
     }
 }
