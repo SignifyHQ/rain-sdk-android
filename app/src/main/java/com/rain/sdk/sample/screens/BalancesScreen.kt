@@ -1,55 +1,34 @@
 package com.rain.sdk.sample.screens
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.outlined.Star
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalTextStyle
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.WalletChain
+import com.rain.sdk.sample.ui.RainAmount
+import com.rain.sdk.sample.ui.RainBackHeader
+import com.rain.sdk.sample.ui.RainBadge
+import com.rain.sdk.sample.ui.RainButton
+import com.rain.sdk.sample.ui.RainButtonStyle
+import com.rain.sdk.sample.ui.RainCard
+import com.rain.sdk.sample.ui.RainDivider
+import com.rain.sdk.sample.ui.RainErrorPanel
+import com.rain.sdk.sample.ui.RainMuted
+import com.rain.sdk.sample.ui.RainRow
+import com.rain.sdk.sample.ui.RainScreen
+import com.rain.sdk.sample.ui.RainStrong
+import com.rain.sdk.sample.ui.RainTitleBlock
 
-@OptIn(ExperimentalMaterial3Api::class)
+@Suppress("LongParameterList") // Navigation entry point: the NavHost injects the session, chain, and callbacks.
 @Composable
 fun BalancesScreen(
     innerPadding: PaddingValues,
@@ -57,7 +36,7 @@ fun BalancesScreen(
     rainClient: RainClient,
     selectedChain: WalletChain,
     onBack: () -> Unit,
-    viewModel: BalancesViewModel = viewModel(factory = BalancesViewModelFactory(rainSdk, rainClient))
+    viewModel: BalancesViewModel = viewModel(factory = BalancesViewModelFactory(rainSdk, rainClient)),
 ) {
     val state by viewModel.state.collectAsState()
 
@@ -65,380 +44,134 @@ fun BalancesScreen(
         viewModel.loadWalletAddresses(selectedChain)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding)
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) {
-                Text("‹ Back", fontSize = 16.sp, color = Color(0xFF6B4EFF))
+    RainScreen(innerPadding) {
+        RainBackHeader(onBack = onBack)
+        RainTitleBlock(title = "Balances", subtitle = selectedChain.displayName)
+        CollateralCard(state = state, onFetch = { viewModel.fetchCollateralBalances(selectedChain) })
+        WalletCard(state = state, chain = selectedChain, onFetch = { viewModel.fetchBalances(selectedChain) })
+    }
+}
+
+/**
+ * Collateral balances come from the Rain API, not on-chain: tokens are deposited into the user's
+ * collateral contract, so the wallet itself won't hold them.
+ */
+@Composable
+private fun CollateralCard(state: BalancesUiState, onFetch: () -> Unit) {
+    val collateral = state.collateralBalances
+    RainCard {
+        RainRow {
+            Column(modifier = Modifier.weight(1f)) {
+                RainStrong("Collateral")
+                RainMuted(
+                    if (state.collateralWalletAddress.isNotEmpty()) {
+                        shortAddress(state.collateralWalletAddress)
+                    } else {
+                        "Rain collateral contract"
+                    },
+                )
             }
-            Text(
-                text = "Balances",
-                style = MaterialTheme.typography.titleLarge.copy(fontSize = 24.sp),
-                fontWeight = FontWeight.Bold,
-                color = Color.Black,
-                modifier = Modifier.weight(1f),
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.width(64.dp))
+            RainBadge("Rain API")
         }
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .background(Color(0xFFF5F3FF), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Info,
-                            contentDescription = null,
-                            tint = Color(0xFF6B4EFF),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Collateral wallet",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = Color.Black
-                        )
-                        Text(
-                            text = state.collateralWalletAddress.ifEmpty { "—" }.let { if (it != "—") formatAddress(it) else it },
-                            fontSize = 14.sp,
-                            color = Color.Gray
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .background(Color(0xFFF5F3FF), RoundedCornerShape(16.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = "Collateral",
-                            color = Color(0xFF6B4EFF),
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 12.sp
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFFF8F8F8), RoundedCornerShape(12.dp))
-                        .padding(16.dp)
-                ) {
-                    Column {
-                        Text(
-                            text = "Will fetch",
-                            color = Color.Gray,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .background(Color(0xFF6B4EFF), CircleShape)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "All token balances in this wallet",
-                                fontSize = 14.sp,
-                                color = Color.DarkGray,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                OutlinedButton(
-                    onClick = { viewModel.fetchCollateralBalances(selectedChain) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Black),
-                    border = BorderStroke(1.dp, Color.Gray)
-                ) {
-                    if (state.isCollateralLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
-                    } else {
-                        Text("Fetch", fontWeight = FontWeight.Bold)
-                    }
-                }
-            
-                // Collateral error and results
-                if (state.collateralError != null) {
-                    Text(
-                        text = "Error: ${state.collateralError}",
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(top = 16.dp)
+        if (collateral.isNotEmpty()) {
+            val primary = collateral.first()
+            RainAmount(value = formatMoney(primary.balance), unit = primary.symbol)
+            RainDivider()
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                collateral.forEach { token ->
+                    val name = token.name.takeIf { it.isNotBlank() && it != token.symbol }
+                    BalanceRow(
+                        title = token.symbol,
+                        subtitle = listOfNotNull(name, shortAddress(token.address)).joinToString(" · "),
+                        value = formatMoney(token.balance),
                     )
                 }
-                if (state.collateralBalances.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(text = "Results:", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
-                    state.collateralBalances.forEach { token ->
-                        BalanceCard(
-                            emoji = "🪙",
-                            label = token.symbol,
-                            value = "%.2f".format(token.balance),
-                            subtitle = token.displayAddress
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-                }
             }
         }
+        RainMuted("Every token held in the collateral contract, read from the Rain API.")
 
-        Spacer(modifier = Modifier.height(16.dp))
+        state.collateralError?.let { RainErrorPanel(it) }
 
-        // --- Internal Wallet Card ---
-        Card(
+        RainButton(
+            text = if (collateral.isEmpty()) "Fetch" else "Refresh",
+            onClick = onFetch,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .background(Color(0xFFEAF5FE), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Star,
-                            contentDescription = null,
-                            tint = Color(0xFF1D8EE6),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Internal wallet",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = Color.Black
-                        )
-                        Text(
-                            text = state.internalWalletAddress.ifEmpty { "—" }.let { if (it != "—") formatAddress(it) else it },
-                            fontSize = 14.sp,
-                            color = Color.Gray
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .background(Color(0xFFEAF5FE), RoundedCornerShape(16.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = "Internal",
-                            color = Color(0xFF1D8EE6),
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 12.sp
-                        )
-                    }
-                }
+            style = RainButtonStyle.Secondary,
+            enabled = !state.isCollateralLoading,
+            loading = state.isCollateralLoading,
+        )
+    }
+}
 
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Token discovery works on every chain: ERC-20s on EVM, SPL tokens on Solana.
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFFEAF5FE), RoundedCornerShape(12.dp))
-                        .padding(16.dp)
-                ) {
-                    Column {
-                        Text(
-                            text = "Will fetch",
-                            color = Color(0xFF1D8EE6),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .background(Color(0xFFE53935), CircleShape)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "${selectedChain.nativeSymbol} — native token",
-                                fontSize = 14.sp,
-                                color = Color(0xFF1D8EE6),
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .background(Color(0xFF1D8EE6), CircleShape)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Every ${selectedChain.tokenStandard} token with a balance > 0 (auto-discovered)",
-                                fontSize = 14.sp,
-                                color = Color(0xFF1D8EE6),
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                OutlinedButton(
-                    onClick = { viewModel.fetchBalances(selectedChain) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Black),
-                    border = BorderStroke(1.dp, Color.Gray)
-                ) {
-                    if (state.isLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
+/** The wallet's own holdings, read on-chain: the native token plus every discovered token. */
+@Composable
+private fun WalletCard(state: BalancesUiState, chain: WalletChain, onFetch: () -> Unit) {
+    val native = state.nativeBalance
+    RainCard {
+        RainRow {
+            Column(modifier = Modifier.weight(1f)) {
+                RainStrong("Wallet")
+                RainMuted(
+                    if (state.internalWalletAddress.isNotEmpty()) {
+                        shortAddress(state.internalWalletAddress)
                     } else {
-                        Text("Fetch", fontWeight = FontWeight.Bold)
-                    }
-                }
-                
-                // Results and Error
-                if (state.errorMessage != null) {
-                    Text(
-                        text = "Error: ${state.errorMessage}",
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(top = 16.dp)
+                        "Connected wallet"
+                    },
+                )
+            }
+            RainBadge("Onchain")
+        }
+
+        if (native != null) {
+            // Stored as "0.4821 ETH": split the figure from its unit for the headline.
+            val nativeValue = native.substringBeforeLast(' ')
+            val nativeUnit = native.substringAfterLast(' ', missingDelimiterValue = chain.nativeSymbol)
+            RainAmount(value = nativeValue, unit = nativeUnit)
+            RainDivider()
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                BalanceRow(title = nativeUnit, subtitle = "Native", value = nativeValue)
+                state.walletTokenBalances.forEach { token ->
+                    // The unit is always stated: an SPL mint has no on-chain symbol, so an
+                    // unregistered token is named by its mint rather than a bare number.
+                    val name = token.name?.takeIf { it.isNotBlank() && it != token.symbol }
+                    BalanceRow(
+                        title = token.displayUnit,
+                        subtitle = listOfNotNull(name, shortAddress(token.address)).joinToString(" · "),
+                        value = token.formattedBalance,
                     )
                 }
-                
-                if (state.nativeBalance != null || state.walletTokenBalances.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(text = "Results:", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
-        
-                    state.nativeBalance?.let { balance ->
-                        BalanceCard(
-                            emoji = "⛰️",
-                            label = "Native (${selectedChain.nativeSymbol})",
-                            value = balance
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-
-                    if (state.walletTokenBalances.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Tokens with a balance:",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            color = Color.DarkGray,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-
-                        state.walletTokenBalances.forEach { token ->
-                            BalanceCard(
-                                emoji = "🪙",
-                                label = token.displayName,
-                                // The unit is always stated: an SPL mint has no on-chain symbol,
-                                // so an unregistered token is named by its mint rather than
-                                // showing a bare number.
-                                value = "${token.formattedBalance} ${token.displayUnit}",
-                                subtitle = "${selectedChain.tokenAddressLabel}: ${token.address}"
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-                    } else {
-                        Text(
-                            text = "No ${selectedChain.tokenStandard} tokens with a balance > 0.",
-                            fontSize = 14.sp,
-                            color = Color.Gray
-                        )
-                    }
-                }
+            }
+            if (state.walletTokenBalances.isEmpty()) {
+                RainMuted("No ${chain.tokenStandard} tokens with a balance above zero.")
             }
         }
+
+        RainMuted(
+            "Native ${chain.nativeSymbol} plus every ${chain.tokenStandard} token with a balance above zero, " +
+                "discovered automatically.",
+        )
+
+        state.errorMessage?.let { RainErrorPanel(it) }
+
+        RainButton(
+            text = if (native == null) "Fetch" else "Refresh",
+            onClick = onFetch,
+            modifier = Modifier.fillMaxWidth(),
+            style = RainButtonStyle.Secondary,
+            enabled = !state.isLoading,
+            loading = state.isLoading,
+        )
     }
 }
 
 @Composable
-private fun BalanceCard(
-    emoji: String,
-    label: String,
-    value: String,
-    subtitle: String? = null
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = Color(0xFFF8F8F8)
-        ),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(text = emoji, fontSize = 28.sp)
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = Color.Black
-                )
-                subtitle?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.Gray
-                    )
-                }
-            }
-            Text(
-                text = value,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = Color.Black
-            )
+private fun BalanceRow(title: String, subtitle: String?, value: String) {
+    RainRow {
+        Column(modifier = Modifier.weight(1f)) {
+            RainStrong(title)
+            if (subtitle != null) RainMuted(subtitle)
         }
+        RainStrong(value)
     }
 }
