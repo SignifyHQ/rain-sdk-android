@@ -1,0 +1,209 @@
+package com.rain.sdk.sample.screens
+
+import android.app.Application
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import com.rain.sdk.sample.ui.RainButton
+import com.rain.sdk.sample.ui.RainCard
+import com.rain.sdk.sample.ui.RainField
+import com.rain.sdk.sample.ui.RainLabel
+import com.rain.sdk.sample.ui.RainStrong
+
+/*
+ * Home's provider configuration cards: Portal MPC (session token) and the two email one-time-code
+ * providers, Turnkey and Privy. Shown while connecting and again, locked, once connected.
+ */
+
+/** The configuration card for the selected provider. */
+@Composable
+internal fun ProviderCard(state: HomeUiState, viewModel: HomeViewModel, application: Application) {
+    when (state.mode) {
+        WalletMode.Portal -> PortalCard(state, viewModel)
+        WalletMode.Turnkey -> TurnkeyCard(state, viewModel, application)
+        WalletMode.Privy -> PrivyCard(state, viewModel, application)
+    }
+}
+
+@Composable
+private fun PortalCard(state: HomeUiState, viewModel: HomeViewModel) {
+    RainCard {
+        CardTitle("Portal MPC configuration", "Session token")
+        RainField(
+            label = "Portal session token",
+            value = state.sessionToken,
+            onValueChange = viewModel::onSessionTokenChanged,
+            placeholder = "Paste a Portal session token",
+            enabled = !state.isInitialized,
+        )
+        RainButton(
+            text = if (state.isInitialized) "SDK initialized" else "Initialize SDK",
+            onClick = viewModel::initializeSdk,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = state.sessionToken.isNotBlank() && !state.isInitialized && !state.isLoading,
+            loading = state.isLoading && !state.isInitialized,
+        )
+    }
+}
+
+@Composable
+private fun TurnkeyCard(state: HomeUiState, viewModel: HomeViewModel, application: Application) {
+    // The ids are frozen once a code is out; a relaunch is the only way to change them.
+    val codeSent = state.turnkeyOtpId != null
+    RainCard {
+        CardTitle("Turnkey configuration", "Email one-time code")
+        RainField(
+            label = "Parent organization ID",
+            value = state.turnkeyOrgId,
+            onValueChange = viewModel::onTurnkeyOrgIdChanged,
+            placeholder = "Organization ID",
+            enabled = !codeSent,
+        )
+        RainField(
+            label = "Auth proxy config ID",
+            value = state.turnkeyAuthProxyConfigId,
+            onValueChange = viewModel::onTurnkeyAuthProxyConfigIdChanged,
+            placeholder = "Config ID",
+            enabled = !codeSent,
+        )
+        RainField(
+            label = "Email",
+            value = state.turnkeyEmail,
+            onValueChange = viewModel::onTurnkeyEmailChanged,
+            placeholder = "you@example.com",
+            enabled = !codeSent,
+            keyboardType = KeyboardType.Email,
+        )
+        RainButton(
+            text = if (codeSent) "Code sent" else "Send code",
+            onClick = { viewModel.sendTurnkeyOtp(application) },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = state.turnkeyOrgId.isNotBlank() &&
+                state.turnkeyAuthProxyConfigId.isNotBlank() &&
+                state.turnkeyEmail.isNotBlank() &&
+                !state.isLoading &&
+                !codeSent,
+            loading = state.isLoading && !codeSent && !state.turnkeySessionActive,
+        )
+        if (codeSent) {
+            OneTimeCodeStep(
+                code = state.turnkeyOtpCode,
+                onCodeChanged = viewModel::onTurnkeyOtpCodeChanged,
+                sessionActive = state.turnkeySessionActive,
+                isLoading = state.isLoading,
+                onVerify = viewModel::verifyTurnkeyOtp,
+            )
+        }
+        if (state.turnkeySessionActive) {
+            InitializeRainButton(
+                isInitialized = state.isInitialized,
+                isLoading = state.isLoading,
+                onClick = viewModel::initializeRainWithTurnkey,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PrivyCard(state: HomeUiState, viewModel: HomeViewModel, application: Application) {
+    val idsLocked = state.privyOtpSent || state.privySessionActive
+    RainCard {
+        CardTitle("Privy configuration", "Email one-time code")
+        RainField(
+            label = "App ID",
+            value = state.privyAppId,
+            onValueChange = viewModel::onPrivyAppIdChanged,
+            placeholder = "Privy app ID",
+            enabled = !idsLocked,
+        )
+        RainField(
+            label = "App client ID",
+            value = state.privyAppClientId,
+            onValueChange = viewModel::onPrivyAppClientIdChanged,
+            placeholder = "Privy app client ID",
+            enabled = !idsLocked,
+        )
+        RainField(
+            label = "Email",
+            value = state.privyEmail,
+            onValueChange = viewModel::onPrivyEmailChanged,
+            placeholder = "you@example.com",
+            enabled = !idsLocked,
+            keyboardType = KeyboardType.Email,
+        )
+        RainButton(
+            text = if (state.privyOtpSent) "Code sent" else "Send code",
+            onClick = { viewModel.sendPrivyOtp(application) },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = state.privyAppId.isNotBlank() &&
+                state.privyAppClientId.isNotBlank() &&
+                state.privyEmail.isNotBlank() &&
+                !state.isLoading &&
+                !idsLocked,
+            loading = state.isLoading && !idsLocked,
+        )
+        if (state.privyOtpSent && !state.privySessionActive) {
+            OneTimeCodeStep(
+                code = state.privyOtpCode,
+                onCodeChanged = viewModel::onPrivyOtpCodeChanged,
+                sessionActive = false,
+                isLoading = state.isLoading,
+                onVerify = viewModel::verifyPrivyOtp,
+            )
+        }
+        if (state.privySessionActive) {
+            InitializeRainButton(
+                isInitialized = state.isInitialized,
+                isLoading = state.isLoading,
+                onClick = viewModel::initializeRainWithPrivy,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CardTitle(title: String, subtitle: String) {
+    Column {
+        RainStrong(title)
+        RainLabel(subtitle)
+    }
+}
+
+/** Code entry plus "Verify and log in"; both lock once the provider session is active. */
+@Composable
+private fun OneTimeCodeStep(
+    code: String,
+    onCodeChanged: (String) -> Unit,
+    sessionActive: Boolean,
+    isLoading: Boolean,
+    onVerify: () -> Unit,
+) {
+    RainField(
+        label = "One-time code",
+        value = code,
+        onValueChange = onCodeChanged,
+        placeholder = "Code from your email",
+        enabled = !sessionActive,
+        keyboardType = KeyboardType.Number,
+    )
+    RainButton(
+        text = if (sessionActive) "Session active" else "Verify and log in",
+        onClick = onVerify,
+        modifier = Modifier.fillMaxWidth(),
+        enabled = code.isNotBlank() && !isLoading && !sessionActive,
+        loading = isLoading && !sessionActive,
+    )
+}
+
+@Composable
+private fun InitializeRainButton(isInitialized: Boolean, isLoading: Boolean, onClick: () -> Unit) {
+    RainButton(
+        text = if (isInitialized) "Rain initialized" else "Initialize Rain",
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        enabled = !isLoading && !isInitialized,
+        loading = isLoading && !isInitialized,
+    )
+}
