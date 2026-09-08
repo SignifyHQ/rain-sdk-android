@@ -84,9 +84,18 @@ internal class TurnkeyWalletProvider(
 
     override val id: ProviderId get() = ProviderId.TURNKEY
 
-    /** Turnkey holds EVM + Solana accounts (multi-chain) and gates signing behind passkeys/biometrics. */
+    /**
+     * Turnkey holds EVM + Solana accounts (multi-chain) and gates signing behind passkeys/biometrics.
+     * With [sponsorGas] on it also advertises [Capability.GAS_SPONSORSHIP], which tells core to
+     * skip the self-paid preflights that would charge the fee to the wallet (the Solana
+     * collateral-withdrawal dry run) when composing transactions this provider will sign.
+     */
     override val capabilities: Set<Capability>
-        get() = setOf(Capability.MULTI_CHAIN, Capability.BIOMETRIC_GATE)
+        get() = buildSet {
+            add(Capability.MULTI_CHAIN)
+            add(Capability.BIOMETRIC_GATE)
+            if (sponsorGas) add(Capability.GAS_SPONSORSHIP)
+        }
 
     private val jsonRpcClient: JsonRpcClient = jsonRpcClient
     private val chainReader: ChainReader = chainReader
@@ -1297,7 +1306,10 @@ internal class TurnkeyWalletProvider(
     /**
      * Signs and broadcasts a core-composed Solana transaction (e.g. a collateral withdrawal)
      * with the Turnkey Solana account. Follows [sponsorGas] like every other send: with it on,
-     * Turnkey covers the fee; the composed message is submitted as-is either way.
+     * Turnkey covers the fee, and because this provider then advertises
+     * [Capability.GAS_SPONSORSHIP], core composes the withdrawal without its self-paid dry run
+     * (which would charge the fee to a wallet that pays none). The composed message is submitted
+     * as-is either way.
      */
     override suspend fun sendSolanaTransaction(
         chainId: Int,

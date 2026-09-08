@@ -12,10 +12,14 @@ package com.rain.sdk.provider
  * - [RECOVERY]      — the wallet supports a recovery ceremony.
  * - [MULTI_CHAIN]   — the provider holds accounts across multiple chain families (e.g. EVM + Solana).
  * - [BIOMETRIC_GATE]— signing is gated behind a device biometric / passkey prompt.
+ * - [GAS_SPONSORSHIP] — the provider's sends are fee-sponsored (a third party pays the network
+ *                      fee), so core skips the self-paid preflights that would charge the fee to
+ *                      the wallet, such as the Solana withdrawal dry run.
  */
 enum class Capability {
     EXPORT,
     RECOVERY,
     MULTI_CHAIN,
     BIOMETRIC_GATE,
+    GAS_SPONSORSHIP,
 }

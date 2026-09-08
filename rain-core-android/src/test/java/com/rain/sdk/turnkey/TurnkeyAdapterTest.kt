@@ -6,6 +6,7 @@ import com.rain.sdk.internal.helpers.MockRpcServer
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.models.Token
+import com.rain.sdk.provider.Capability
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.After
@@ -555,6 +556,14 @@ class TurnkeyAdapterTest {
         assertThat(body.nonce).isNull()
         assertThat(body.gasLimit).isNull()
         assertThat(body.gasStationNonce).isNotNull()
+    }
+
+    @Test
+    fun `advertises gas sponsorship as a capability only when sponsorGas is on`() {
+        // Core reads this to skip the self-paid Solana dry run when composing collateral
+        // withdrawals this provider will sign; a self-paid provider must not advertise it.
+        assertThat(makeProvider(sponsorGas = true).capabilities).contains(Capability.GAS_SPONSORSHIP)
+        assertThat(makeProvider(sponsorGas = false).capabilities).doesNotContain(Capability.GAS_SPONSORSHIP)
     }
 
     @Test

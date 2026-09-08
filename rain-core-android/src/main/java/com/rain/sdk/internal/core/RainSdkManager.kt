@@ -215,7 +215,10 @@ internal class RainSdkManager(
       mintAddress = addresses.tokenAddress,
       recipientAddress = addresses.recipientAddress,
       amountBaseUnits = amountBaseUnits,
-      adminSignature = adminSignature
+      adminSignature = adminSignature,
+      // A fee-sponsored provider (Turnkey with sponsorGas) pays the network fee, so the composer
+      // must not dry-run as if the owner paid: a zero-SOL wallet would false-fail before the send.
+      sponsoredFees = Capability.GAS_SPONSORSHIP in walletProvider.capabilities
     )
   }
 

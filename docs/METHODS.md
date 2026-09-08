@@ -173,7 +173,7 @@ Each adapter is a `RainProvider` descriptor that owns its vendor SDK as a privat
 | Adapter | Module | Config | Notes |
 |---------|--------|--------|-------|
 | `PortalProvider(PortalConfig(sessionToken, chainId?, sessionPolicy?, onSessionTokenNeeded?, onSessionExpired?, autoApprove?))` | `rain-portal-android` | `sessionToken: String`, `chainId: Int?`, `sessionPolicy: PortalSessionPolicy`, `onSessionTokenNeeded: (suspend () -> String?)?`, `onSessionExpired: (() -> Unit)?`, `autoApprove: Boolean = true` | Portal MPC signer (EVM). Advertises `EXPORT`, `RECOVERY`.|
-| `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?))` | `rain-core-android` | `turnkey: TurnkeyContext`, `walletAddress: String?`, `sessionPolicy: TurnkeySessionPolicy`, `onSessionExpired: (() -> Unit)?`, `sponsorGas: Boolean = true` | Turnkey P256 signer (EVM + Solana). Advertises `MULTI_CHAIN`, `BIOMETRIC_GATE`. Sends work only on Turnkey's managed-broadcast chains (others throw `RAIN_105`; reads unaffected). Sponsorship is on by default (`sponsorGas = true`): every send goes through Turnkey sponsored, all EVM sends (transfers, withdrawals, approvals, raw sends) via Gas Station and Solana network fees too (EVM fee estimates return 0; rent for a new recipient token account is a separate Turnkey toggle and stays with the sender). Requires sponsorship enabled on the Turnkey organization; pass `sponsorGas = false` on an organization without it, or to have users pay their own gas. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
+| `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?))` | `rain-core-android` | `turnkey: TurnkeyContext`, `walletAddress: String?`, `sessionPolicy: TurnkeySessionPolicy`, `onSessionExpired: (() -> Unit)?`, `sponsorGas: Boolean = true` | Turnkey P256 signer (EVM + Solana). Advertises `MULTI_CHAIN`, `BIOMETRIC_GATE`, and `GAS_SPONSORSHIP` while `sponsorGas` is on. Sends work only on Turnkey's managed-broadcast chains (others throw `RAIN_105`; reads unaffected). Sponsorship is on by default (`sponsorGas = true`): every send goes through Turnkey sponsored, all EVM sends (transfers, withdrawals, approvals, raw sends) via Gas Station and Solana network fees too (EVM fee estimates return 0; rent for a new recipient token account is a separate Turnkey toggle and stays with the sender). Requires sponsorship enabled on the Turnkey organization; pass `sponsorGas = false` on an organization without it, or to have users pay their own gas. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
 | `PrivyProvider(PrivyConfig(privy, walletAddress?, sessionPolicy?, onSessionExpired?))` | `rain-privy-android` | `privy: Privy`, `walletAddress: String?`, `sessionPolicy: PrivySessionPolicy`, `onSessionExpired: (() -> Unit)?` | Privy embedded-wallet signer (EVM + Solana). Advertises `EXPORT`, `RECOVERY`, `MULTI_CHAIN`.|
 
 #### Portal construction
@@ -720,8 +720,10 @@ a capability every provider has.
 | `RECOVERY` | The wallet supports a recovery ceremony. |
 | `MULTI_CHAIN` | The provider holds accounts across multiple chain families (e.g. EVM + Solana). |
 | `BIOMETRIC_GATE` | Signing is gated behind a device biometric / passkey prompt. |
+| `GAS_SPONSORSHIP` | The provider's sends are fee-sponsored (a third party pays the network fee), so core skips self-paid preflights such as the Solana withdrawal dry run. |
 
-Bundled providers: **Portal** → `EXPORT`, `RECOVERY`. **Turnkey** → `MULTI_CHAIN`, `BIOMETRIC_GATE`.
+Bundled providers: **Portal** → `EXPORT`, `RECOVERY`. **Turnkey** → `MULTI_CHAIN`, `BIOMETRIC_GATE`,
+plus `GAS_SPONSORSHIP` while `sponsorGas` is on (the default).
 **Privy** → `EXPORT`, `RECOVERY`, `MULTI_CHAIN`.
 
 ---

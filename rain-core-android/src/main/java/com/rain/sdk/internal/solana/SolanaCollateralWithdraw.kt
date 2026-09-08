@@ -26,12 +26,19 @@ import java.util.Base64
  * Everything the message and instruction need is read from the chain (collateral account,
  * coordinator executors, mint's token program) or derived locally (the collateral-authority PDA,
  * associated token accounts), so callers supply only the withdrawal parameters and the Rain
- * signature. The composed transaction is simulated before being handed to the wallet provider.
+ * signature. A self-paid transaction is simulated before being handed to the wallet provider; a
+ * fee-sponsored one skips the dry run (see [composeWithdraw]).
  */
 internal class SolanaCollateralWithdrawComposer(
     private val solanaRpcClient: SolanaRpcClient,
     private val rpcUrlResolver: (Int) -> String?
 ) {
+    /**
+     * @param sponsoredFees true when the signing provider's sends are fee-sponsored. The dry run
+     *   charges the fee to [ownerAddress], so for a sponsored withdrawal it would false-fail a
+     *   wallet holding no SOL even though the sponsor pays the real send; the sponsor's pipeline
+     *   simulates instead and reports failures through the send status.
+     */
     suspend fun composeWithdraw(
         chainId: Int,
         ownerAddress: String,
@@ -39,7 +46,8 @@ internal class SolanaCollateralWithdrawComposer(
         mintAddress: String,
         recipientAddress: String,
         amountBaseUnits: BigInteger,
-        adminSignature: RainAdminSignature
+        adminSignature: RainAdminSignature,
+        sponsoredFees: Boolean = false
     ): UnsignedSolanaTransfer {
         val rpcUrl = rpcUrlResolver(chainId)
             ?: throw RainError.InvalidConfig("No RPC endpoint configured for chainId=$chainId")
@@ -146,7 +154,10 @@ internal class SolanaCollateralWithdrawComposer(
             recentBlockhash = blockhash,
             instructions = instructions
         )
-        simulate(rpcUrl, transaction)
+        // The dry run charges the fee to the owner, so a sponsored withdrawal from a zero-SOL
+        // wallet would false-fail here even though the sponsor pays the real send. Sponsored
+        // sends are simulated by the sponsor's pipeline, which reports reverts via the status.
+        if (!sponsoredFees) simulate(rpcUrl, transaction)
 
         Timber.d(
             "Rain SDK: composed Solana collateral withdrawal of %s base units of %s to %s (chainId=%d)",

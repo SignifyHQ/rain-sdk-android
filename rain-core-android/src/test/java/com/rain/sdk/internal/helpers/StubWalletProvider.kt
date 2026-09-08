@@ -6,6 +6,7 @@ import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.Token
+import com.rain.sdk.provider.Capability
 import java.math.BigDecimal
 import java.math.BigInteger
 
@@ -79,6 +80,10 @@ internal open class StubWalletProvider : WalletProvider {
     var estimateTransactionFeeToReturn: BigDecimal = BigDecimal.ZERO
     var sendSolanaTransactionSignatureToReturn: String = "5" + "1".repeat(87)
 
+    /** What [capabilities] advertises; empty by default, like a minimal provider. */
+    var capabilitiesToReturn: Set<Capability> = emptySet()
+    override val capabilities: Set<Capability> get() = capabilitiesToReturn
+
     val sendNativeTokenCalls = mutableListOf<SendTokenCall>()
     val sendTokenCalls = mutableListOf<SendTokenCall>()
     val getBalanceCalls = mutableListOf<GetBalanceCall>()
@@ -88,6 +93,7 @@ internal open class StubWalletProvider : WalletProvider {
     val sendTransactionCalls = mutableListOf<SendTransactionCall>()
     val estimateTransactionFeeCalls = mutableListOf<EstimateTransactionFeeCall>()
     val sendSolanaTransactionCalls = mutableListOf<Int>()
+    val sendSolanaTransactionUnsigned = mutableListOf<UnsignedSolanaTransfer>()
 
     override suspend fun getWalletAddress(): String = addressToReturn
 
@@ -174,6 +180,7 @@ internal open class StubWalletProvider : WalletProvider {
         unsigned: UnsignedSolanaTransfer
     ): String {
         sendSolanaTransactionCalls += chainId
+        sendSolanaTransactionUnsigned += unsigned
         return sendSolanaTransactionSignatureToReturn
     }
 }
