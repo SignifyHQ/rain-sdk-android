@@ -41,6 +41,8 @@ internal object TurnkeyBroadcastChains {
     10143,      // Monad testnet
     4217,       // Tempo
     42431,      // Tempo Moderato (testnet)
+    4663,       // Robinhood Chain
+    46630,      // Robinhood Chain testnet
     8453,       // Base
     84532,      // Base Sepolia
     42161,      // Arbitrum One

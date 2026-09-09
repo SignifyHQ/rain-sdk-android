@@ -70,9 +70,14 @@ class TurnkeyProvider internal constructor(
 
     override val id: ProviderId get() = ProviderId.TURNKEY
 
-    /** Turnkey holds EVM + Solana accounts and gates signing behind passkeys/biometrics. */
+    /**
+     * Turnkey holds EVM + Solana accounts and gates signing behind passkeys/biometrics; with
+     * [TurnkeyConfig.sponsorGas] on it also advertises [Capability.GAS_SPONSORSHIP]. `RainSdk`
+     * copies this set onto the resolved client, so it comes from the same function as the wallet
+     * provider's own set and the two cannot drift.
+     */
     override val capabilities: Set<Capability> =
-        setOf(Capability.MULTI_CHAIN, Capability.BIOMETRIC_GATE)
+        TurnkeyWalletProvider.capabilitiesFor(config.sponsorGas)
 
     private val turnkeyContext: TurnkeyContextProtocol by lazy {
         contextOverride ?: TurnkeyContextAdapter(config.turnkey)

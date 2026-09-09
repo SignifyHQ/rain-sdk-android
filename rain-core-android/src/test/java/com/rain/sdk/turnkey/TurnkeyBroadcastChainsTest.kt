@@ -1,6 +1,7 @@
 package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import com.rain.sdk.RainChain
 import com.rain.sdk.internal.error.RainError
 import org.junit.Assert.assertThrows
@@ -94,6 +95,33 @@ class TurnkeyBroadcastChainsTest {
         readOnly.forEach { (name, ids) ->
             ids.forEach { id ->
                 assertThat(TurnkeyBroadcastChains.supportsSend(id)).isFalse()
+            }
+        }
+    }
+
+    @Test
+    fun `carries every network on Turnkey's transaction-management page`() {
+        // Transcribed from docs.turnkey.com/features/transaction-management on 2026-09-08: each
+        // mainnet Turnkey constructs, signs, broadcasts, and sponsors on, with its test network.
+        // A failure here means the registry dropped a documented network. This list cannot notice
+        // Turnkey adding one: re-check the page when they announce coverage changes, then update
+        // the registry, this list, and the iOS mirror together.
+        val documented = mapOf(
+            "Ethereum" to listOf(1, 11155111),
+            "Optimism" to listOf(10, 11155420),
+            "BNB Smart Chain" to listOf(56, 97),
+            "Polygon" to listOf(137, 80002),
+            "Monad" to listOf(143, 10143),
+            "Tempo" to listOf(4217, 42431),
+            "Robinhood Chain" to listOf(4663, 46630),
+            "Base" to listOf(8453, 84532),
+            "Arbitrum One" to listOf(42161, 421614),
+            "Solana" to listOf(RainChain.SOLANA_MAINNET, RainChain.SOLANA_DEVNET),
+        )
+        documented.forEach { (name, ids) ->
+            ids.forEach { id ->
+                assertWithMessage("%s (%s)", name, id)
+                    .that(TurnkeyBroadcastChains.supportsSend(id)).isTrue()
             }
         }
     }

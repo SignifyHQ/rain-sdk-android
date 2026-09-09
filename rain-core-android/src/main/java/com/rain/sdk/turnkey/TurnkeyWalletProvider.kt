@@ -89,13 +89,10 @@ internal class TurnkeyWalletProvider(
      * With [sponsorGas] on it also advertises [Capability.GAS_SPONSORSHIP], which tells core to
      * skip the self-paid preflights that would charge the fee to the wallet (the Solana
      * collateral-withdrawal dry run) when composing transactions this provider will sign.
+     * Shared with [TurnkeyProvider] through [capabilitiesFor]: `RainSdk` copies the descriptor's
+     * set onto the resolved client, so the two must never disagree.
      */
-    override val capabilities: Set<Capability>
-        get() = buildSet {
-            add(Capability.MULTI_CHAIN)
-            add(Capability.BIOMETRIC_GATE)
-            if (sponsorGas) add(Capability.GAS_SPONSORSHIP)
-        }
+    override val capabilities: Set<Capability> get() = capabilitiesFor(sponsorGas)
 
     private val jsonRpcClient: JsonRpcClient = jsonRpcClient
     private val chainReader: ChainReader = chainReader
@@ -148,7 +145,20 @@ internal class TurnkeyWalletProvider(
         }
     }
 
-    private companion object {
+    internal companion object {
+        /**
+         * The capabilities a Turnkey provider advertises for a given [sponsorGas] setting. The one
+         * source for both the [TurnkeyProvider] descriptor (what hosts see through
+         * `client.capabilities` and `rain.first { }`) and the wallet provider it creates (what core
+         * reads when composing transactions), so a host and core can never disagree about
+         * whether this provider's sends are sponsored.
+         */
+        fun capabilitiesFor(sponsorGas: Boolean): Set<Capability> = buildSet {
+            add(Capability.MULTI_CHAIN)
+            add(Capability.BIOMETRIC_GATE)
+            if (sponsorGas) add(Capability.GAS_SPONSORSHIP)
+        }
+
         const val DEFAULT_NATIVE_DECIMALS = 18
         const val DEFAULT_POLLING_ATTEMPTS = 30
         const val POLLING_INTERVAL_MS = 1_000L
