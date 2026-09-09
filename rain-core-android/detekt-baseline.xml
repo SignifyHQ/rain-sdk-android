@@ -2,7 +2,6 @@
 <SmellBaseline>
   <ManuallySuppressedIssues />
   <CurrentIssues>
-    <ID>ArgumentListWrapping:RainError.kt$RainError.TransactionSimulationFailed$(RainErrorCode.TRANSACTION_SIMULATION_FAILED, "Transaction simulation failed: ${cause?.message}", cause)</ID>
     <ID>CyclomaticComplexMethod:RainSdk.kt$RainSdk.Builder$private fun validateAuthPullConfig()</ID>
     <ID>CyclomaticComplexMethod:RainSdkManager.kt$RainSdkManager$override suspend fun confirmTokenAllowance( transactionHash: String, chainId: Int, contractAddress: String, spender: String, amount: BigDecimal?, owner: String? ): RainTokenAllowance</ID>
     <ID>CyclomaticComplexMethod:SolanaTransactionDecoder.kt$SolanaTransactionDecoder$private fun decodeInstruction( programId: ByteArray, instruction: DecodedInstruction, message: DecodedMessage ): Transfer?</ID>
@@ -218,25 +217,9 @@
     <ID>MatchingDeclarationName:RainSdkManagerTest.kt$RainSdkBuilderTest</ID>
     <ID>MaxLineLength:EvmChainReader.kt$EvmChainReader$"Rain SDK: balanceOf reverted for token ${token.symbol ?: token.address} (${token.address}) on chain $chainId — omitting from result"</ID>
     <ID>MaxLineLength:EvmChainReader.kt$EvmChainReader$"Rain SDK: malformed balanceOf payload for token ${token.symbol ?: token.address} (${token.address}) on chain $chainId — omitting from result"</ID>
-    <ID>MaxLineLength:Multicall3.kt$Multicall3$// [target(32)][allowFailure(32)][callData_offset(=0x60)(32)][callData_length(32)][callData_padded(paddedBytes)]</ID>
-    <ID>MaxLineLength:Multicall3.kt$Multicall3.Call3$/** Target contract address (the token contract for `balanceOf`, or the chain's Multicall3 deployment for `getEthBalance`). */</ID>
-    <ID>MaxLineLength:RainApiServiceTest.kt$RainApiServiceTest$json("""{"status":"ready","signature":{"data":"0xsig","salt":"0xsalt"},"expiresAt":"2030-01-01T00:00:00Z"}""")</ID>
-    <ID>MaxLineLength:RainApiServiceTest.kt$RainApiServiceTest$listOf(TokenInfo(chainId = 999888, address = "0xTOKENUNKNOWN", symbol = "REG", decimals = 8, name = "Registered"))</ID>
-    <ID>MaxLineLength:RainSdkManagerSendTokenTest.kt$RainSdkManagerSendTokenTest$manager.sendToken(1, TestFixtures.TOKEN_ADDRESS, TestFixtures.RECIPIENT_ADDRESS, BigDecimal("1.0"), null)</ID>
-    <ID>MaxLineLength:SolanaChainReader.kt$SolanaChainReader$"Rain SDK: token-account enumeration failed for program $program — omitting its holdings"</ID>
-    <ID>MaxLineLength:TokenMetadataStore.kt$TokenMetadataStore$"Rain SDK: Ignoring registration of %s on chain %d: built-in token %s (%d decimals) cannot be overridden"</ID>
-    <ID>MaxLineLength:TokenMetadataStoreTest.kt$TokenMetadataStoreTest$assertThat(store.registeredTokens(chainId = 1).filter { it.address.lowercase() == unknown.lowercase() }).hasSize(1)</ID>
-    <ID>MaxLineLength:TokenMetadataStoreTest.kt$TokenMetadataStoreTest$store.register(listOf(TokenInfo(chainId = 1, address = unknown.uppercase(), symbol = "FOO", decimals = 8, name = "Foo")))</ID>
-    <ID>MaxLineLength:TokenMetadataStoreTest.kt$TokenMetadataStoreTest$store.register(listOf(TokenInfo(chainId = 1, address = usdcEthereum, symbol = "USDX", decimals = 18, name = "Not USDC")))</ID>
-    <ID>MaxLineLength:TurnkeySolanaProviderTest.kt$TurnkeySolanaProviderTest$.</ID>
-    <ID>MaxLineLength:TurnkeySolanaProviderTest.kt$TurnkeySolanaProviderTest$fun</ID>
-    <ID>MaxLineLength:TurnkeySolanaProviderTest.kt$TurnkeySolanaProviderTest$runBlocking { makeProvider(client = client).sendToken(devnet, mint, recipient, BigDecimal("1"), decimals = 6) }</ID>
-    <ID>MaxLineLength:TurnkeyWalletProviderHistoryTest.kt$TurnkeyWalletProviderHistoryTest$asset = TurnkeyHistoryAsset(caip19 = "$caip2Devnet/slip44:501", symbol = "SOL", decimals = 9)</ID>
     <ID>NestedBlockDepth:QRGenerator.kt$QRGenerator$fun generateQRCode( text: String, width: Int = 500, height: Int = 500 ): Bitmap</ID>
     <ID>NestedBlockDepth:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator$private suspend fun &lt;T&gt; execute( idempotent: Boolean, block: suspend (Session, TurnkeyClientProtocol) -&gt; T ): T</ID>
     <ID>NoNameShadowing:TurnkeyWalletProvider.kt$TurnkeyWalletProvider${ registeredSplToken(chainId, it.address) }</ID>
-    <ID>NoSemicolons:SolanaTransactionDecoder.kt$SolanaTransactionDecoder$;</ID>
-    <ID>ParameterListWrapping:RainError.kt$RainError.WithdrawalRevertedByNetwork$(details: String = "Withdrawal reverted by the network", cause: Throwable? = null)</ID>
     <ID>RedundantSuspendModifier:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$suspend</ID>
     <ID>ReturnCount:ErrorMapper.kt$ErrorMapper$fun mapTurnkeyError(e: TurnkeyKotlinError): RainError</ID>
     <ID>ReturnCount:ErrorMapper.kt$ErrorMapper$private fun classify(e: Exception): RainError</ID>

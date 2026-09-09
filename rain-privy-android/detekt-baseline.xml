@@ -2,13 +2,6 @@
 <SmellBaseline>
   <ManuallySuppressedIssues />
   <CurrentIssues>
-    <ID>ArgumentListWrapping:PrivyWalletProvider.kt$PrivyWalletProvider$( chainId, getWalletAddress(chainId), tokenStore.registeredTokens(chainId) )</ID>
-    <ID>ArgumentListWrapping:PrivyWalletProvider.kt$PrivyWalletProvider$( rpcUrl, "eth_call", listOf(rpcTransactionObject(from, to, data, value), "latest"), purpose = RpcCallPurpose.SIMULATION )</ID>
-    <ID>ArgumentListWrapping:PrivyWalletProvider.kt$PrivyWalletProvider$( rpcUrl, "eth_estimateGas", listOf(rpcTransactionObject(from, to, data, value)), purpose = RpcCallPurpose.SIMULATION )</ID>
-    <ID>ArgumentListWrapping:PrivyWalletProvider.kt$PrivyWalletProvider$( unsigned.transaction, solanaCluster(chainId), rpcUrlFor(chainId) )</ID>
-    <ID>ArgumentListWrapping:PrivyWalletProvider.kt$PrivyWalletProvider$(e, "Rain SDK: Privy balance read failed for token=${info.address} chainId=$chainId; skipping")</ID>
-    <ID>ImportOrdering:PrivySessionCoordinator.kt$import com.rain.sdk.internal.error.RainError import io.privy.auth.AuthState import io.privy.network.NoNetworkException import io.privy.network.PrivyApiException import io.privy.sdk.Privy import java.io.IOException import java.util.concurrent.CopyOnWriteArrayList import java.util.concurrent.atomic.AtomicBoolean import kotlinx.coroutines.CancellationException import kotlinx.coroutines.CoroutineScope import kotlinx.coroutines.delay import kotlinx.coroutines.flow.Flow import kotlinx.coroutines.flow.distinctUntilChanged import kotlinx.coroutines.flow.first import kotlinx.coroutines.flow.map import kotlinx.coroutines.launch import kotlinx.coroutines.withTimeoutOrNull import timber.log.Timber</ID>
-    <ID>ImportOrdering:PrivyWalletProvider.kt$import com.rain.sdk.RainChain import com.rain.sdk.internal.abi.Erc20Abi import com.rain.sdk.internal.error.RainError import com.rain.sdk.internal.provider.WalletProvider import com.rain.sdk.internal.solana.SolanaSupport import com.rain.sdk.internal.solana.UnsignedSolanaTransfer import com.rain.sdk.internal.tokenstore.TokenMetadataStore import com.rain.sdk.models.Balance import com.rain.sdk.models.RainTransaction import com.rain.sdk.models.RainTransactionOrder import com.rain.sdk.models.RainTransactionCategory import com.rain.sdk.models.Token import com.rain.sdk.provider.Capability import com.rain.sdk.provider.ProviderId import com.rain.sdk.utils.EthereumConverter import io.privy.wallet.solana.SolanaCluster import io.privy.wallet.transactions.GetTransactionsParams import io.privy.wallet.transactions.Transaction as PrivyTransaction import io.privy.wallet.transactions.TransactionChain import io.privy.wallet.transactions.TransactionStatus import io.privy.wallet.transactions.TransactionType import io.privy.wallet.transactions.TransactionsPage import kotlinx.coroutines.CancellationException import kotlinx.coroutines.async import kotlinx.coroutines.awaitAll import kotlinx.coroutines.supervisorScope import java.util.concurrent.atomic.AtomicInteger import kotlinx.coroutines.sync.Mutex import kotlinx.coroutines.sync.Semaphore import kotlinx.coroutines.sync.withLock import kotlinx.coroutines.sync.withPermit import org.json.JSONObject import java.time.Instant import java.time.temporal.ChronoUnit import timber.log.Timber import org.web3j.abi.FunctionEncoder import org.web3j.abi.TypeReference import org.web3j.abi.datatypes.Address import org.web3j.abi.datatypes.Function as Web3jFunction import org.web3j.abi.datatypes.generated.Uint256 import java.math.BigDecimal import java.math.BigInteger</ID>
     <ID>InjectDispatcher:PrivyProvider.kt$PrivyProvider$Default</ID>
     <ID>InjectDispatcher:PrivyProvider.kt$PrivyProvider$IO</ID>
     <ID>InjectDispatcher:PrivyRpcClient.kt$PrivyRpcClient$IO</ID>
@@ -31,14 +24,9 @@
     <ID>MagicNumber:PrivyWalletProvider.kt$PrivyWalletProvider$59144</ID>
     <ID>MagicNumber:PrivyWalletProvider.kt$PrivyWalletProvider$8453</ID>
     <ID>MagicNumber:PrivyWalletProvider.kt$PrivyWalletProvider$84532</ID>
-    <ID>MultiLineIfElse:PrivyWalletProvider.kt$PrivyWalletProvider$asset.length &gt;= SOLANA_MIN_ADDRESS_LENGTH</ID>
-    <ID>MultiLineIfElse:PrivyWalletProvider.kt$PrivyWalletProvider$asset.startsWith("0x")</ID>
-    <ID>MultiLineIfElse:PrivyWalletProvider.kt$PrivyWalletProvider$collectEvmHistory(chainId, needed)</ID>
-    <ID>MultiLineIfElse:PrivyWalletProvider.kt$PrivyWalletProvider$collectSolanaHistory(chainId, needed)</ID>
     <ID>ReturnCount:PrivySessionCoordinator.kt$PrivySessionCoordinator$private fun notifyDeath()</ID>
     <ID>ReturnCount:PrivyWalletProvider.kt$PrivyWalletProvider$override suspend fun getWalletAddress(): String</ID>
     <ID>ReturnCount:PrivyWalletProvider.kt$PrivyWalletProvider$override suspend fun getWalletAddress(chainId: Int): String</ID>
-    <ID>SpacingBetweenDeclarationsWithAnnotations:PrivyWalletProvider.kt$PrivyWalletProvider$@Volatile private var cachedSolanaAddress: String? = null</ID>
     <ID>ThrowsCount:PrivyManager.kt$PrivyManager$private suspend fun request( wallet: EmbeddedEthereumWallet, rpcRequest: EthereumRpcRequest, ): String</ID>
     <ID>ThrowsCount:PrivyManager.kt$PrivyManager$suspend fun resolveWallet(addressOverride: String?): EmbeddedEthereumWallet</ID>
     <ID>ThrowsCount:PrivyRpcClient.kt$PrivyRpcClient$suspend fun callForHexResult( rpcUrl: String, method: String, params: List&lt;Any&gt;, purpose: RpcCallPurpose = RpcCallPurpose.READ ): String</ID>

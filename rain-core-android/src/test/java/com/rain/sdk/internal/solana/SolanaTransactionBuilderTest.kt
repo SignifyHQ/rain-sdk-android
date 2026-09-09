@@ -262,7 +262,10 @@ class SolanaTransactionBuilderTest {
     fun `no extra keys leaves the serialization untouched`() {
         val plain = SolanaTransactionBuilder.buildUnsignedTransaction(fromBytes, blockhash, listOf(splTransfer()))
         val explicit = SolanaTransactionBuilder.buildUnsignedTransaction(
-            fromBytes, blockhash, listOf(splTransfer()), extraReadonlyKeys = emptyList()
+            fromBytes,
+            blockhash,
+            listOf(splTransfer()),
+            extraReadonlyKeys = emptyList()
         )
 
         assertThat(explicit).isEqualTo(plain)

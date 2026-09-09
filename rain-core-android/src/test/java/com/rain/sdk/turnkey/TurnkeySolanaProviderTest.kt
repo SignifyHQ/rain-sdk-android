@@ -12,9 +12,9 @@ import com.rain.sdk.internal.solana.Base58
 import com.rain.sdk.internal.solana.SolanaAddresses
 import com.rain.sdk.internal.solana.SolanaInstructions
 import com.rain.sdk.internal.solana.SolanaLamportPreflight
-import com.rain.sdk.internal.constants.SolanaPrograms
 import com.rain.sdk.internal.solana.SolanaTransactionBuilder
 import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
+import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransactionCategory
 import com.rain.sdk.models.RainTransactionOrder
@@ -152,7 +152,7 @@ class TurnkeySolanaProviderTest {
     }
 
     @Test
-    fun `getBalance for an spl mint Turnkey lists uses Turnkeys amount and metadata`() = runBlocking {
+    fun `getBalance for an spl mint Turnkey lists uses Turnkey's amount and metadata`() = runBlocking {
         val mint = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
         val client = MockTurnkeyClient(
             mockBalances = listOf(
@@ -214,7 +214,7 @@ class TurnkeySolanaProviderTest {
     }
 
     @Test
-    fun `getBalances on solana uses Turnkeys SPL list when it indexes the cluster`() = runBlocking {
+    fun `getBalances on solana uses Turnkey's SPL list when it indexes the cluster`() = runBlocking {
         val usdcMint = MockTurnkey.DEFAULT_SOLANA_RECIPIENT // valid 32-byte base58 stand-in for a mint
         val client = MockTurnkeyClient(
             mockBalances = listOf(
@@ -1107,7 +1107,7 @@ class TurnkeySolanaProviderTest {
     }
 
     @Test
-    fun `sendToken on solana rejects an amount finer than the mints decimals`(): Unit = runBlocking {
+    fun `sendToken on solana rejects an amount finer than the mint's decimals`(): Unit = runBlocking {
         splFixture(recipientAccountExists = true)
 
         // The mint has 6 decimals; 7 would be silently truncated by a naive conversion.

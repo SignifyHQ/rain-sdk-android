@@ -7,10 +7,10 @@ import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers
 import com.rain.sdk.models.RainWithdrawAddresses
-import java.math.BigDecimal
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import java.math.BigDecimal
 
 /**
  * Core asks the provider whether it can broadcast on the chain before a withdrawal or approval
@@ -68,7 +68,11 @@ class RainSdkManagerSendGateTest {
         assertThrows(RainError.ChainNotSupported::class.java) {
             runBlocking {
                 manager.withdrawCollateral(
-                    RainChain.SOLANA_DEVNET, addresses, BigDecimal("1"), 6, TestFixtures.adminSignature()
+                    RainChain.SOLANA_DEVNET,
+                    addresses,
+                    BigDecimal("1"),
+                    6,
+                    TestFixtures.adminSignature()
                 )
             }
         }

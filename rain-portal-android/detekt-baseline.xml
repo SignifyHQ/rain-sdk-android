@@ -2,18 +2,8 @@
 <SmellBaseline>
   <ManuallySuppressedIssues />
   <CurrentIssues>
-    <ID>ArgumentListWrapping:PortalManager.kt$PortalManager$("symbol", emptyList(), listOf(object : TypeReference&lt;org.web3j.abi.datatypes.Utf8String&gt;() {}))</ID>
-    <ID>ArgumentListWrapping:PortalManager.kt$PortalManager$(object : TypeReference&lt;org.web3j.abi.datatypes.Utf8String&gt;() {})</ID>
     <ID>CyclomaticComplexMethod:PortalSessionCoordinator.kt$PortalSessionCoordinator$private suspend fun &lt;T&gt; execute(idempotent: Boolean, block: suspend () -&gt; T): T</ID>
     <ID>Filename:PortalTestFixtures.kt$com.rain.sdk.portal.PortalTestFixtures.kt</ID>
-    <ID>ImportOrdering:PortalManager.kt$import com.rain.sdk.internal.error.RainError import com.rain.sdk.internal.tokenstore.TokenMetadataStore import io.portalhq.android.Portal import io.portalhq.android.api.data.ntfassetsbychain.TokenBalance import io.portalhq.android.mpc.data.FeatureFlags import io.portalhq.android.provider.data.EthTransactionParam import io.portalhq.android.utils.events.PortalEvents import com.rain.sdk.utils.EthereumConverter import com.rain.sdk.models.Balance import com.rain.sdk.models.RainTransaction import com.rain.sdk.models.RainTransactionOrder import com.rain.sdk.models.RainTransactionCategory import com.rain.sdk.models.Token import java.math.BigInteger import io.portalhq.android.api.data.GetTransactionsOrder import io.portalhq.android.api.data.Transaction import io.portalhq.android.storage.mobile.PortalNamespace import io.portalhq.android.provider.data.PortalProviderResult import io.portalhq.android.provider.data.PortalProviderRpcResponse import io.portalhq.android.provider.data.PortalRequestMethod import org.web3j.abi.FunctionEncoder import org.web3j.abi.TypeReference import org.web3j.abi.datatypes.Address import org.web3j.abi.datatypes.Function import org.web3j.abi.datatypes.generated.Uint256 import timber.log.Timber import kotlinx.coroutines.CancellationException import kotlinx.coroutines.CoroutineScope import kotlinx.coroutines.Dispatchers import kotlinx.coroutines.SupervisorJob import kotlinx.coroutines.async import kotlinx.coroutines.awaitAll import kotlinx.coroutines.cancel import kotlinx.coroutines.coroutineScope import kotlinx.coroutines.delay import kotlinx.coroutines.isActive import kotlinx.coroutines.launch import java.math.BigDecimal</ID>
-    <ID>ImportOrdering:PortalSessionCoordinator.kt$import com.rain.sdk.internal.error.RainError import java.util.concurrent.CopyOnWriteArrayList import java.util.concurrent.atomic.AtomicBoolean import java.util.concurrent.atomic.AtomicInteger import kotlinx.coroutines.CancellationException import kotlinx.coroutines.delay import kotlinx.coroutines.flow.MutableStateFlow import kotlinx.coroutines.flow.StateFlow import kotlinx.coroutines.flow.asStateFlow import kotlinx.coroutines.sync.Mutex import kotlinx.coroutines.sync.withLock import timber.log.Timber</ID>
-    <ID>ImportOrdering:PortalWalletProvider.kt$import com.rain.sdk.RainChain import com.rain.sdk.internal.abi.Erc20Abi import com.rain.sdk.internal.error.RainError import com.rain.sdk.internal.provider.WalletProvider import com.rain.sdk.provider.Capability import com.rain.sdk.provider.ProviderId import com.rain.sdk.internal.tokenstore.TokenMetadataStore import com.rain.sdk.models.Balance import com.rain.sdk.models.RainTransactionOrder import com.rain.sdk.models.RainTransaction import com.rain.sdk.models.Token import com.rain.sdk.utils.EthereumConverter import java.math.BigDecimal</ID>
-    <ID>Indentation:PortalErrorMapping.kt$PortalErrorMapping$ </ID>
-    <ID>Indentation:PortalManager.kt$PortalManager$ </ID>
-    <ID>Indentation:PortalManager.kt$PortalManager.Erc20Metadata$ </ID>
-    <ID>Indentation:PortalManager.kt$UserOperationLookup$ </ID>
-    <ID>Indentation:PortalWalletProvider.kt$PortalWalletProvider$ </ID>
     <ID>InstanceOfCheckForException:PortalManager.kt$PortalManager$e is CancellationException</ID>
     <ID>InstanceOfCheckForException:PortalManager.kt$PortalManager$e is RainError</ID>
     <ID>InstanceOfCheckForException:PortalProvider.kt$PortalProvider$e is CancellationException</ID>
@@ -28,9 +18,7 @@
     <ID>MagicNumber:PortalManager.kt$PortalManager$16</ID>
     <ID>MagicNumber:PortalManager.kt$PortalManager$64</ID>
     <ID>MatchingDeclarationName:PortalTestFixtures.kt$TestFixtures</ID>
-    <ID>MultiLineIfElse:PortalManager.kt$PortalManager$null</ID>
     <ID>NestedBlockDepth:PortalSessionCoordinator.kt$PortalSessionCoordinator$private suspend fun &lt;T&gt; execute(idempotent: Boolean, block: suspend () -&gt; T): T</ID>
-    <ID>PropertyWrapping:PortalManager.kt$PortalManager$val function = Function("symbol", emptyList(), listOf(object : TypeReference&lt;org.web3j.abi.datatypes.Utf8String&gt;() {}))</ID>
     <ID>ReturnCount:PortalManager.kt$PortalManager$private fun resolveTransactionValue(tx: Transaction, resolvedDecimals: Int?): BigDecimal?</ID>
     <ID>ReturnCount:PortalManager.kt$PortalManager$private fun userOperationSucceeded(data: String?): Boolean</ID>
     <ID>ReturnCount:PortalManager.kt$PortalManager$private suspend fun currentBlockNumber(portal: Portal, chainId: String): BigInteger?</ID>

@@ -827,11 +827,8 @@ internal class PortalManager(
         contractAddress: String
     ): String? {
         return try {
-            val function = Function(
-                "symbol",
-                emptyList(),
-                listOf(object : TypeReference<org.web3j.abi.datatypes.Utf8String>() {})
-            )
+            val function =
+                Function("symbol", emptyList(), listOf(object : TypeReference<org.web3j.abi.datatypes.Utf8String>() {}))
             val encodedFunction = FunctionEncoder.encode(function)
             val callParams = mapOf("to" to contractAddress, "data" to encodedFunction)
             val result = portal.request(

@@ -20,14 +20,14 @@ class TurnkeyBroadcastChainsTest {
     @Test
     fun `pilot and mainnet chains are sendable`() {
         val sendable = listOf(
-            1,        // Ethereum
-            10,       // Optimism
-            137,      // Polygon
-            8453,     // Base
-            42161,    // Arbitrum One
-            84532,    // Base Sepolia — the sandbox demo chain
-            421614,   // Arbitrum Sepolia
-            4217,     // Tempo
+            1, // Ethereum
+            10, // Optimism
+            137, // Polygon
+            8453, // Base
+            42161, // Arbitrum One
+            84532, // Base Sepolia — the sandbox demo chain
+            421614, // Arbitrum Sepolia
+            4217, // Tempo
             RainChain.SOLANA_MAINNET,
             RainChain.SOLANA_DEVNET,
         )
@@ -41,10 +41,10 @@ class TurnkeyBroadcastChainsTest {
         val readOnly = listOf(
             RainChain.AVALANCHE_MAINNET,
             RainChain.AVALANCHE_TESTNET,
-            42220,    // Celo
-            324,      // ZKsync
+            42220, // Celo
+            324, // ZKsync
             RainChain.SOLANA_TESTNET, // Turnkey broadcasts mainnet + devnet only
-            999_999,  // unknown chain
+            999_999, // unknown chain
         )
         readOnly.forEach { chainId ->
             assertThat(TurnkeyBroadcastChains.supportsSend(chainId)).isFalse()

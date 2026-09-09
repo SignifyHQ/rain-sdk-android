@@ -39,11 +39,6 @@
     <ID>MagicNumber:WalletChain.kt$WalletChain$6</ID>
     <ID>MagicNumber:WalletInfoViewModel.kt$WalletInfoUiState$42</ID>
     <ID>MatchingDeclarationName:HomeScreen.kt$FeatureAction</ID>
-    <ID>MaxLineLength:CollateralWithdrawScreen.kt$val name = option.name.takeIf { it.isNotBlank() &amp;&amp; it != option.symbol &amp;&amp; option.symbol.isNotBlank() }</ID>
-    <ID>MaxLineLength:HomeViewModel.kt$HomeViewModel$SampleLog.i("Portal.init", "calling initializePortal sessionToken=$tokenMask chainId=${RainChain.AVALANCHE_TESTNET}")</ID>
-    <ID>MaxLineLength:HomeViewModel.kt$HomeViewModel$sessionToken = if (consumedReplacement) current.replacementPortalToken.trim() else current.sessionToken</ID>
-    <ID>MaxLineLength:HomeViewModel.kt$HomeViewModel$val solAddress = runCatching { session.client?.getWalletAddress(WalletChain.SOLANA.chainId) }.getOrNull()</ID>
-    <ID>MaxLineLength:RainSampleApp.kt$RainSampleApp$TurnkeyAuthSample.init(this@RainSampleApp, store.turnkeyOrgId, store.turnkeyAuthProxyConfigId)</ID>
     <ID>NoNameShadowing:MainActivity.kt${ selectedChain = it }</ID>
     <ID>ReturnCount:AuthPullViewModel.kt$AuthPullViewModel$private fun resolvedAmount(current: AuthPullUiState): AmountSelection</ID>
     <ID>ReturnCount:AuthPullViewModel.kt$AuthPullViewModel$private fun validate(chain: WalletChain, current: AuthPullUiState): Boolean</ID>

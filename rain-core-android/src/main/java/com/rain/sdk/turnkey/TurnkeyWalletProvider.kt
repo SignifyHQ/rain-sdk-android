@@ -1330,7 +1330,12 @@ internal class TurnkeyWalletProvider(
     ): String {
         val from = getWalletAddress(chainId)
         val unsigned = solanaTransferComposer.composeSplToken(
-            chainId, from, mintAddress, toAddress, amount, sponsoredFees = sponsorGas
+            chainId,
+            from,
+            mintAddress,
+            toAddress,
+            amount,
+            sponsoredFees = sponsorGas
         )
         return submitSolanaTransaction(chainId, from, unsigned)
     }
