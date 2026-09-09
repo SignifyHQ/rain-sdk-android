@@ -1,0 +1,51 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues />
+  <CurrentIssues>
+    <ID>InjectDispatcher:PrivyProvider.kt$PrivyProvider$Default</ID>
+    <ID>InjectDispatcher:PrivyProvider.kt$PrivyProvider$IO</ID>
+    <ID>InjectDispatcher:PrivyRpcClient.kt$PrivyRpcClient$IO</ID>
+    <ID>InstanceOfCheckForException:PrivyWalletProvider.kt$PrivyWalletProvider$e is CancellationException</ID>
+    <ID>InstanceOfCheckForException:PrivyWalletProvider.kt$PrivyWalletProvider$e is RainError</ID>
+    <ID>LongParameterList:PrivyWalletProvider.kt$PrivyWalletProvider$( private val manager: PrivyManager, private val rpcEndpoints: Map&lt;Int, String&gt;, private val tokenStore: TokenMetadataStore, private val walletAddressOverride: String? = null, private val rpcClient: PrivyRpcClient = PrivyRpcClient(), private val solanaSupport: SolanaSupport = SolanaSupport(rpcEndpoints), sessionCoordinator: PrivySessionCoordinator? = null, )</ID>
+    <ID>MagicNumber:PrivyErrorMapping.kt$PrivyErrorMapping$401</ID>
+    <ID>MagicNumber:PrivyErrorMapping.kt$PrivyErrorMapping$403</ID>
+    <ID>MagicNumber:PrivySessionCoordinator.kt$PrivySessionCoordinator$408</ID>
+    <ID>MagicNumber:PrivySessionCoordinator.kt$PrivySessionCoordinator$429</ID>
+    <ID>MagicNumber:PrivySessionCoordinator.kt$PrivySessionCoordinator$500</ID>
+    <ID>MagicNumber:PrivySessionCoordinator.kt$PrivySessionCoordinator$599</ID>
+    <ID>MagicNumber:PrivyWalletProvider.kt$PrivyWalletProvider$10</ID>
+    <ID>MagicNumber:PrivyWalletProvider.kt$PrivyWalletProvider$11155111</ID>
+    <ID>MagicNumber:PrivyWalletProvider.kt$PrivyWalletProvider$137</ID>
+    <ID>MagicNumber:PrivyWalletProvider.kt$PrivyWalletProvider$16</ID>
+    <ID>MagicNumber:PrivyWalletProvider.kt$PrivyWalletProvider$42161</ID>
+    <ID>MagicNumber:PrivyWalletProvider.kt$PrivyWalletProvider$43114</ID>
+    <ID>MagicNumber:PrivyWalletProvider.kt$PrivyWalletProvider$56</ID>
+    <ID>MagicNumber:PrivyWalletProvider.kt$PrivyWalletProvider$59144</ID>
+    <ID>MagicNumber:PrivyWalletProvider.kt$PrivyWalletProvider$8453</ID>
+    <ID>MagicNumber:PrivyWalletProvider.kt$PrivyWalletProvider$84532</ID>
+    <ID>MaxLineLength:PrivyRpcClientTest.kt$PrivyRpcClientTest$"""{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"insufficient funds for gas * price + value"}}"""</ID>
+    <ID>MaxLineLength:PrivySolanaProviderTest.kt$PrivySolanaProviderTest$transactions = listOf(solanaTransaction(asset = "sol"), solanaTransaction(hash = "sig2", asset = MINT))</ID>
+    <ID>MaxLineLength:PrivyWalletProvider.kt$PrivyWalletProvider$Timber.w(e, "Rain SDK: Privy balance read failed for token=${info.address} chainId=$chainId; skipping")</ID>
+    <ID>MaxLineLength:PrivyWalletProviderTest.kt$PrivyWalletProviderTest$coEvery { rpc.callForHexResult(RPC, "eth_estimateGas", any(), RpcCallPurpose.SIMULATION) } returns "0x5208"</ID>
+    <ID>MaxLineLength:PrivyWalletProviderTest.kt$PrivyWalletProviderTest$for</ID>
+    <ID>MaxLineLength:PrivyWalletProviderTest.kt$PrivyWalletProviderTest$fun</ID>
+    <ID>ReturnCount:PrivySessionCoordinator.kt$PrivySessionCoordinator$private fun notifyDeath()</ID>
+    <ID>ReturnCount:PrivyWalletProvider.kt$PrivyWalletProvider$override suspend fun getWalletAddress(): String</ID>
+    <ID>ReturnCount:PrivyWalletProvider.kt$PrivyWalletProvider$override suspend fun getWalletAddress(chainId: Int): String</ID>
+    <ID>ThrowsCount:PrivyManager.kt$PrivyManager$private suspend fun request( wallet: EmbeddedEthereumWallet, rpcRequest: EthereumRpcRequest, ): String</ID>
+    <ID>ThrowsCount:PrivyManager.kt$PrivyManager$suspend fun resolveWallet(addressOverride: String?): EmbeddedEthereumWallet</ID>
+    <ID>ThrowsCount:PrivyRpcClient.kt$PrivyRpcClient$suspend fun callForHexResult( rpcUrl: String, method: String, params: List&lt;Any&gt;, purpose: RpcCallPurpose = RpcCallPurpose.READ ): String</ID>
+    <ID>TooGenericExceptionCaught:PrivyManager.kt$PrivyManager$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:PrivySessionCoordinator.kt$PrivySessionCoordinator$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:PrivyWalletProvider.kt$PrivyWalletProvider$e: Exception</ID>
+    <ID>TooManyFunctions:PrivyManager.kt$PrivyManager</ID>
+    <ID>TooManyFunctions:PrivySessionCoordinator.kt$PrivySessionCoordinator</ID>
+    <ID>TooManyFunctions:PrivyWalletProvider.kt$PrivyWalletProvider : WalletProvider</ID>
+    <ID>UnnecessarySafeCall:PrivyRpcClient.kt$PrivyRpcClient$it.body?.string()</ID>
+    <ID>UnreachableCode:PrivyRpcClient.kt$PrivyRpcClient$it.body?.string() ?: "{}"</ID>
+    <ID>UseCheckOrError:PrivySessionCoordinatorTest.kt$PrivySessionCoordinatorTest$throw IllegalStateException("bad request shape")</ID>
+    <ID>UseOrEmpty:PrivyWalletProvider.kt$PrivyWalletProvider$details?.sender ?: ""</ID>
+    <ID>UseOrEmpty:PrivyWalletProvider.kt$PrivyWalletProvider$transaction.transactionHash ?: transaction.userOperationHash ?: transaction.privyTransactionId ?: ""</ID>
+  </CurrentIssues>
+</SmellBaseline>

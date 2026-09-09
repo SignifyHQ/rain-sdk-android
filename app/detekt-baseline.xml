@@ -1,0 +1,75 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues />
+  <CurrentIssues>
+    <ID>CyclomaticComplexMethod:AuthPullScreen.kt$@Composable fun AuthPullScreen( innerPadding: PaddingValues, rainClient: RainClient, selectedChain: WalletChain, onBack: () -&gt; Unit, viewModel: AuthPullViewModel = viewModel(factory = AuthPullViewModelFactory(rainClient)) )</ID>
+    <ID>CyclomaticComplexMethod:AuthPullViewModel.kt$AuthPullViewModel$fun approve(chain: WalletChain)</ID>
+    <ID>CyclomaticComplexMethod:CollateralWithdrawScreen.kt$@Composable fun CollateralWithdrawScreen( innerPadding: PaddingValues, rainSdk: RainSdk, rainClient: RainClient, selectedChain: WalletChain, onBack: () -&gt; Unit, viewModel: CollateralWithdrawViewModel = viewModel( factory = CollateralWithdrawViewModelFactory(rainSdk, rainClient) ) )</ID>
+    <ID>LongMethod:AuthPullScreen.kt$@Composable fun AuthPullScreen( innerPadding: PaddingValues, rainClient: RainClient, selectedChain: WalletChain, onBack: () -&gt; Unit, viewModel: AuthPullViewModel = viewModel(factory = AuthPullViewModelFactory(rainClient)) )</ID>
+    <ID>LongMethod:AuthPullViewModel.kt$AuthPullViewModel$fun approve(chain: WalletChain)</ID>
+    <ID>LongMethod:BalancesViewModel.kt$BalancesViewModel$fun fetchCollateralBalances(chain: WalletChain = WalletChain.EVM)</ID>
+    <ID>LongMethod:CollateralWithdrawScreen.kt$@Composable fun CollateralWithdrawScreen( innerPadding: PaddingValues, rainSdk: RainSdk, rainClient: RainClient, selectedChain: WalletChain, onBack: () -&gt; Unit, viewModel: CollateralWithdrawViewModel = viewModel( factory = CollateralWithdrawViewModelFactory(rainSdk, rainClient) ) )</ID>
+    <ID>LongMethod:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel$fun loadContractInfo(chain: WalletChain = WalletChain.EVM)</ID>
+    <ID>LongMethod:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel$private fun runWithdrawFlow( amountOverride: BigDecimal?, tag: String, action: suspend ( addresses: RainWithdrawAddresses, amountBd: BigDecimal, token: WithdrawTokenOption, adminSig: RainAdminSignature ) -&gt; Unit )</ID>
+    <ID>LongMethod:HomeViewModel.kt$HomeViewModel$fun initializeRainWithPrivy()</ID>
+    <ID>LongMethod:HomeViewModel.kt$HomeViewModel$fun initializeRainWithTurnkey()</ID>
+    <ID>LongMethod:HomeViewModel.kt$HomeViewModel$fun initializeSdk()</ID>
+    <ID>LongMethod:HomeViewModel.kt$HomeViewModel$fun sendTurnkeyOtp(app: Application)</ID>
+    <ID>LongMethod:MainActivity.kt$@Composable fun SampleApp()</ID>
+    <ID>LongMethod:SendTokensScreen.kt$@Composable fun SendTokensScreen( innerPadding: PaddingValues, rainClient: RainClient, selectedChain: WalletChain, onBack: () -&gt; Unit, viewModel: SendTokensViewModel = viewModel(factory = SendTokensViewModelFactory(rainClient)) )</ID>
+    <ID>LongMethod:SendTokensViewModel.kt$SendTokensViewModel$fun sendTokenTransfer(chain: WalletChain = WalletChain.EVM)</ID>
+    <ID>LongParameterList:CollateralWithdrawScreen.kt$( innerPadding: PaddingValues, rainSdk: RainSdk, rainClient: RainClient, selectedChain: WalletChain, onBack: () -&gt; Unit, viewModel: CollateralWithdrawViewModel = viewModel( factory = CollateralWithdrawViewModelFactory(rainSdk, rainClient) ) )</ID>
+    <ID>LongParameterList:WalletChain.kt$WalletChain$( val displayName: String, val chainId: Int, val rpcUrl: String, val nativeSymbol: String, val isSolana: Boolean, /** Block-explorer name, e.g. for a "View on Snowtrace" button. */ val explorerName: String, /** What this chain calls a fungible token — used for labels on the send screen. */ val tokenStandard: String, /** A token this chain is likely to have on testnet, pre-filled on the send screen. */ val defaultTokenAddress: String, /** A sample recipient. Blank where there is no obvious throwaway address to suggest. */ val defaultRecipient: String, private val explorerTxPrefix: String, private val explorerAddressPrefix: String, private val explorerSuffix: String = "" )</ID>
+    <ID>LongParameterList:WalletInfoScreen.kt$( innerPadding: PaddingValues, rainSdk: RainSdk, rainClient: RainClient, selectedChain: WalletChain, onBack: () -&gt; Unit, viewModel: WalletInfoViewModel = viewModel(factory = WalletInfoViewModelFactory(rainSdk, rainClient)) )</ID>
+    <ID>MagicNumber:BalancesViewModel.kt$CollateralTokenBalance$12</ID>
+    <ID>MagicNumber:BalancesViewModel.kt$CollateralTokenBalance$4</ID>
+    <ID>MagicNumber:BalancesViewModel.kt$CollateralTokenBalance$6</ID>
+    <ID>MagicNumber:BalancesViewModel.kt$WalletTokenBalance$12</ID>
+    <ID>MagicNumber:BalancesViewModel.kt$WalletTokenBalance$4</ID>
+    <ID>MagicNumber:BalancesViewModel.kt$WalletTokenBalance$6</ID>
+    <ID>MagicNumber:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel$12</ID>
+    <ID>MagicNumber:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel$24</ID>
+    <ID>MagicNumber:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel$40</ID>
+    <ID>MagicNumber:SampleLog.kt$SampleLog$4</ID>
+    <ID>MagicNumber:SampleLog.kt$SampleLog$8</ID>
+    <ID>MagicNumber:TurnkeyAuthSample.kt$TurnkeyAuthSample$1000.0</ID>
+    <ID>MagicNumber:WalletChain.kt$WalletChain$32</ID>
+    <ID>MagicNumber:WalletChain.kt$WalletChain$42</ID>
+    <ID>MagicNumber:WalletChain.kt$WalletChain$44</ID>
+    <ID>MagicNumber:WalletChain.kt$WalletChain$6</ID>
+    <ID>MagicNumber:WalletInfoViewModel.kt$WalletInfoUiState$42</ID>
+    <ID>MatchingDeclarationName:HomeScreen.kt$FeatureAction</ID>
+    <ID>MaxLineLength:CollateralWithdrawScreen.kt$val name = option.name.takeIf { it.isNotBlank() &amp;&amp; it != option.symbol &amp;&amp; option.symbol.isNotBlank() }</ID>
+    <ID>MaxLineLength:HomeViewModel.kt$HomeViewModel$SampleLog.i("Portal.init", "calling initializePortal sessionToken=$tokenMask chainId=${RainChain.AVALANCHE_TESTNET}")</ID>
+    <ID>MaxLineLength:HomeViewModel.kt$HomeViewModel$sessionToken = if (consumedReplacement) current.replacementPortalToken.trim() else current.sessionToken</ID>
+    <ID>MaxLineLength:HomeViewModel.kt$HomeViewModel$val solAddress = runCatching { session.client?.getWalletAddress(WalletChain.SOLANA.chainId) }.getOrNull()</ID>
+    <ID>MaxLineLength:RainSampleApp.kt$RainSampleApp$TurnkeyAuthSample.init(this@RainSampleApp, store.turnkeyOrgId, store.turnkeyAuthProxyConfigId)</ID>
+    <ID>NoNameShadowing:MainActivity.kt${ selectedChain = it }</ID>
+    <ID>ReturnCount:AuthPullViewModel.kt$AuthPullViewModel$private fun resolvedAmount(current: AuthPullUiState): AmountSelection</ID>
+    <ID>ReturnCount:AuthPullViewModel.kt$AuthPullViewModel$private fun validate(chain: WalletChain, current: AuthPullUiState): Boolean</ID>
+    <ID>ReturnCount:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel$private fun runWithdrawFlow( amountOverride: BigDecimal?, tag: String, action: suspend ( addresses: RainWithdrawAddresses, amountBd: BigDecimal, token: WithdrawTokenOption, adminSig: RainAdminSignature ) -&gt; Unit )</ID>
+    <ID>ReturnCount:SampleLog.kt$SampleLog$fun maskEmail(value: String?): String</ID>
+    <ID>ReturnCount:SampleLog.kt$SampleLog$fun maskToken(value: String?): String</ID>
+    <ID>ReturnCount:SendTokensViewModel.kt$SendTokensViewModel$fun sendNative(chain: WalletChain = WalletChain.EVM)</ID>
+    <ID>ReturnCount:SendTokensViewModel.kt$SendTokensViewModel$fun sendTokenTransfer(chain: WalletChain = WalletChain.EVM)</ID>
+    <ID>TooGenericExceptionCaught:AuthPullViewModel.kt$AuthPullViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:BalancesViewModel.kt$BalancesViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:HomeViewModel.kt$HomeViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:SendTokensViewModel.kt$SendTokensViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:TransactionHistoryViewModel.kt$TransactionHistoryViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:WalletInfoViewModel.kt$WalletInfoViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionThrown:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel$throw Exception(friendlySignatureError(e))</ID>
+    <ID>TooManyFunctions:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel : ViewModel</ID>
+    <ID>TooManyFunctions:HomeViewModel.kt$HomeViewModel : ViewModel</ID>
+    <ID>UnusedParameter:HomeScreen.kt$session: RainSession</ID>
+    <ID>UnusedParameter:RainSession.kt$RainSession$chainId: Int? = null</ID>
+    <ID>UseOrEmpty:AuthPullViewModel.kt$AuthPullUiState$WalletChain.firstAuthPullChain?.defaultTokenAddress ?: ""</ID>
+    <ID>UseOrEmpty:BalancesViewModel.kt$BalancesViewModel$token.name ?: ""</ID>
+    <ID>UseOrEmpty:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel$WalletChain.entries.firstOrNull { it.chainId == _state.value.chainId }?.nativeSymbol ?: ""</ID>
+    <ID>UseOrEmpty:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel$contract.adminAddresses.firstOrNull() ?: ""</ID>
+    <ID>UseOrEmpty:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel$error.retryAfter?.let { " — retry in ${it}s" } ?: ""</ID>
+    <ID>UseOrEmpty:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel$token.symbol ?: ""</ID>
+    <ID>UseOrEmpty:SessionStore.kt$SessionStore.&lt;no name provided&gt;$prefs?.getString(key, "") ?: ""</ID>
+  </CurrentIssues>
+</SmellBaseline>
