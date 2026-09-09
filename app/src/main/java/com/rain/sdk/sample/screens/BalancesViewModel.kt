@@ -23,7 +23,7 @@ class BalancesViewModel(
     private val _state = MutableStateFlow(BalancesUiState())
     val state: StateFlow<BalancesUiState> = _state.asStateFlow()
 
-    fun fetchBalances(chain: WalletChain = WalletChain.EVM) {
+    fun fetchBalances(chain: WalletChain = WalletChain.BASE_SEPOLIA) {
         if (!rainClient.isInitialized) {
             SampleLog.w("Balances.fetch", "SDK not initialized")
             _state.update { it.copy(errorMessage = "SDK not initialized") }
@@ -81,7 +81,7 @@ class BalancesViewModel(
         }
     }
 
-    fun fetchCollateralBalances(chain: WalletChain = WalletChain.EVM) {
+    fun fetchCollateralBalances(chain: WalletChain = WalletChain.BASE_SEPOLIA) {
         if (!rainClient.isInitialized) {
             SampleLog.w("Balances.collateral", "SDK not initialized")
             _state.update { it.copy(collateralError = "SDK not initialized") }
@@ -153,7 +153,7 @@ class BalancesViewModel(
         }
     }
 
-    fun loadWalletAddresses(chain: WalletChain = WalletChain.EVM) {
+    fun loadWalletAddresses(chain: WalletChain = WalletChain.BASE_SEPOLIA) {
         if (rainClient.isInitialized) {
             viewModelScope.launch {
                 try {

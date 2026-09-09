@@ -217,6 +217,51 @@ class SolanaTransactionBuilderTest {
     }
 
     @Test
+    fun `extra readonly keys are appended after the programs and never repeated`() {
+        // Turnkey's sponsored-flow rules want the System Program in the static keys even when no
+        // instruction references it; a transfer into an existing token account is exactly that.
+        val tx = SolanaTransactionBuilder.buildUnsignedTransaction(
+            feePayer = fromBytes,
+            recentBlockhash = blockhash,
+            instructions = listOf(splTransfer()),
+            extraReadonlyKeys = listOf(SolanaPrograms.SYSTEM, SolanaPrograms.TOKEN)
+        )
+
+        var i = 1 + 64
+        val requiredSignatures = tx[i++].toInt()
+        val readonlySigned = tx[i++].toInt()
+        val readonlyUnsigned = tx[i++].toInt()
+        val accountCount = tx[i++].toInt()
+        val accounts = (0 until accountCount).map {
+            Base58.encode(tx.copyOfRange(i + it * 32, i + it * 32 + 32))
+        }
+
+        // The token program is already in the table, so only the System Program is appended,
+        // last, as a readonly non-signer the header counts.
+        assertThat(accounts).containsExactly(
+            from,
+            Base58.encode(sourceAta()),
+            Base58.encode(destinationAta()),
+            Base58.encode(mintBytes),
+            SolanaPrograms.TOKEN_ADDRESS,
+            SolanaPrograms.SYSTEM_ADDRESS
+        ).inOrder()
+        assertThat(requiredSignatures).isEqualTo(1)
+        assertThat(readonlySigned).isEqualTo(0)
+        assertThat(readonlyUnsigned).isEqualTo(3)
+    }
+
+    @Test
+    fun `no extra keys leaves the serialization untouched`() {
+        val plain = SolanaTransactionBuilder.buildUnsignedTransaction(fromBytes, blockhash, listOf(splTransfer()))
+        val explicit = SolanaTransactionBuilder.buildUnsignedTransaction(
+            fromBytes, blockhash, listOf(splTransfer()), extraReadonlyKeys = emptyList()
+        )
+
+        assertThat(explicit).isEqualTo(plain)
+    }
+
+    @Test
     fun `rejects a transaction needing a signer other than the fee payer`() {
         val other = ByteArray(32) { (it + 129).toByte() }
         val instruction = Instruction(

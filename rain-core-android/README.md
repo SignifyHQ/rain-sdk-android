@@ -19,7 +19,7 @@ Turnkey.
 
 ```kotlin
 val rain = RainSdk.builder()
-    .rpcEndpoints(mapOf(43114 to "https://avalanche-c-chain-rpc.publicnode.com"))
+    .rpcEndpoints(mapOf(8453 to "https://mainnet.base.org"))
     .register(TurnkeyProvider(TurnkeyConfig(turnkey = turnkeyContext)))
     .build()
 
@@ -79,7 +79,7 @@ chain-ID constants, including the Solana sentinels (`SOLANA_MAINNET` 900, `SOLAN
 RainSdk.builder()
     .rpcEndpoints(
         mapOf(
-            RainChain.AVALANCHE_TESTNET to "https://api.avax-test.network/ext/bc/C/rpc",
+            RainChain.BASE_SEPOLIA to "https://sepolia.base.org",
             RainChain.SOLANA_DEVNET to "https://api.devnet.solana.com"
         )
     )

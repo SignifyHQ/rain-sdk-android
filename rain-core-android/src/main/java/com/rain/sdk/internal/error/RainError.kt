@@ -8,6 +8,7 @@ enum class RainErrorCode(val code: String) {
   INVALID_CONFIG("RAIN_102"),
   INVALID_RPC_URL("RAIN_103"),
   API_NOT_CONFIGURED("RAIN_104"),
+  CHAIN_NOT_SUPPORTED("RAIN_105"),
 
   TOKEN_EXPIRED("RAIN_201"),
   UNAUTHORIZED("RAIN_202"),
@@ -62,6 +63,14 @@ sealed class RainError(
       RainErrorCode.API_NOT_CONFIGURED,
       "Rain API is not configured — call configureRainApi(apiKey, userId) first"
     )
+
+  /**
+   * The active wallet provider cannot broadcast transactions on this chain, so the send was
+   * refused up front instead of failing opaquely mid-flight (e.g. Turnkey-managed broadcast
+   * does not cover Avalanche). Reads — balances, history, fee estimates — are not gated.
+   */
+  class ChainNotSupported(val chainId: Int, details: String) :
+    RainError(RainErrorCode.CHAIN_NOT_SUPPORTED, "Sends not supported on chain $chainId: $details")
 
   // --- 2xx Authentication ---
   class TokenExpired : RainError(RainErrorCode.TOKEN_EXPIRED)

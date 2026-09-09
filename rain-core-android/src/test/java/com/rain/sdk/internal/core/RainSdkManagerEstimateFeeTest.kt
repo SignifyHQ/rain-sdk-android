@@ -221,6 +221,27 @@ class RainSdkManagerEstimateFeeTest {
         }
 
     @Test
+    fun `estimateWithdrawalFee is zero and signs nothing when the provider sponsors the fee`(): Unit =
+        runBlocking {
+            // The user pays no fee, so zero is the honest quote; building the withdrawal just to
+            // price it would prompt for a signature the estimate then discards.
+            val (manager, stub) = TestManagers.stubProviderManager(transactionBuilder = builder)
+            stub.sponsorsFeesToReturn = true
+
+            val fee = manager.estimateWithdrawalFee(
+                chainId = 1,
+                addresses = addresses,
+                amount = BigDecimal("100.0"),
+                decimals = 6,
+                adminSignature = TestFixtures.adminSignature()
+            )
+
+            assertThat(fee.compareTo(BigDecimal.ZERO)).isEqualTo(0)
+            assertThat(stub.signTypedDataCalls).isEmpty()
+            assertThat(stub.estimateTransactionFeeCalls).isEmpty()
+        }
+
+    @Test
     fun `estimateWithdrawalFee rejects a Solana chain id instead of taking the EVM path`(): Unit =
         runBlocking {
             val (manager, stub) = TestManagers.stubProviderManager(transactionBuilder = builder)

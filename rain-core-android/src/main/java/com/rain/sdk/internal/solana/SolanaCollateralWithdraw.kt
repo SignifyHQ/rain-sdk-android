@@ -26,12 +26,19 @@ import java.util.Base64
  * Everything the message and instruction need is read from the chain (collateral account,
  * coordinator executors, mint's token program) or derived locally (the collateral-authority PDA,
  * associated token accounts), so callers supply only the withdrawal parameters and the Rain
- * signature. The composed transaction is simulated before being handed to the wallet provider.
+ * signature. A self-paid transaction is simulated before being handed to the wallet provider; a
+ * fee-sponsored one skips the dry run (see [composeWithdraw]).
  */
 internal class SolanaCollateralWithdrawComposer(
     private val solanaRpcClient: SolanaRpcClient,
     private val rpcUrlResolver: (Int) -> String?
 ) {
+    /**
+     * @param sponsoredFees true when the signing provider's sends are fee-sponsored. The dry run
+     *   charges the fee to [ownerAddress], so for a sponsored withdrawal it would false-fail a
+     *   wallet holding no SOL even though the sponsor pays the real send; a failure then
+     *   surfaces through the provider's send status instead of as a typed preflight error.
+     */
     suspend fun composeWithdraw(
         chainId: Int,
         ownerAddress: String,
@@ -39,7 +46,8 @@ internal class SolanaCollateralWithdrawComposer(
         mintAddress: String,
         recipientAddress: String,
         amountBaseUnits: BigInteger,
-        adminSignature: RainAdminSignature
+        adminSignature: RainAdminSignature,
+        sponsoredFees: Boolean = false
     ): UnsignedSolanaTransfer {
         val rpcUrl = rpcUrlResolver(chainId)
             ?: throw RainError.InvalidConfig("No RPC endpoint configured for chainId=$chainId")
@@ -91,6 +99,16 @@ internal class SolanaCollateralWithdrawComposer(
         val destinationAta =
             SolanaAddresses.associatedTokenAddress(recipientKey, mintKey, tokenProgramKey)
         val createDestination = !solanaRpcClient.accountExists(rpcUrl, Base58.encode(destinationAta))
+        // The owner pays rent for a recipient token account this withdrawal creates, and the fee
+        // unless the provider sponsors it. Checked up front so a short wallet gets a typed error
+        // before anything is signed, the same gate the transfer composer applies.
+        SolanaLamportPreflight.require(
+            solanaRpcClient,
+            rpcUrl,
+            ownerAddress,
+            includeAccountRent = createDestination,
+            feesSponsored = sponsoredFees
+        )
 
         // Reconstruct the exact message the executor signed; the program re-derives it on chain
         // and requires the ed25519 instruction to have verified precisely these bytes.
@@ -146,7 +164,10 @@ internal class SolanaCollateralWithdrawComposer(
             recentBlockhash = blockhash,
             instructions = instructions
         )
-        simulate(rpcUrl, transaction)
+        // The dry run charges the fee to the owner, so a sponsored withdrawal from a zero-SOL
+        // wallet would false-fail here even though the sponsor pays the real send. A sponsored
+        // send's failures then surface through the provider's send status instead.
+        if (!sponsoredFees) simulate(rpcUrl, transaction)
 
         Timber.d(
             "Rain SDK: composed Solana collateral withdrawal of %s base units of %s to %s (chainId=%d)",

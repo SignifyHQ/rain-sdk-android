@@ -94,8 +94,8 @@ import com.turnkey.core.TurnkeyContext
 val rain = RainSdk.builder()
     .rpcEndpoints(
         mapOf(
-            43114 to "https://avalanche-c-chain-rpc.publicnode.com",
-            43113 to "https://avalanche-fuji-c-chain-rpc.publicnode.com"
+            8453 to "https://mainnet.base.org",
+            84532 to "https://sepolia.base.org"
         )
     )
     .register(
@@ -103,6 +103,8 @@ val rain = RainSdk.builder()
             TurnkeyConfig(
                 turnkey = TurnkeyContext,
                 walletAddress = null // omit to use the first Ethereum account from TurnkeyContext.wallets
+                // sponsorGas defaults to true: sends are gas-sponsored, which needs sponsorship enabled
+                // on the Turnkey organization. Pass sponsorGas = false to have users pay their own gas.
             )
         )
     )
@@ -173,9 +175,11 @@ import java.math.BigDecimal
 
 // `client` is the RainClient resolved in Quick Start (rain.provider(...))
 
-// Send native token (AVAX)
+// Send native token (ETH on Base). Turnkey sends work only on Turnkey's
+// managed-broadcast chains; other configured chains (e.g. Avalanche) stay
+// read-only and sends there fail fast with RAIN_105.
 val result = client.sendNative(
-    chainId = 43114,
+    chainId = 8453,
     to = "0x...",
     amount = BigDecimal("0.1")
 )
@@ -183,7 +187,7 @@ println("Tx Hash: ${result.transactionHash}")
 
 // Send ERC-20 token (e.g. USDC). Omit decimals to let the SDK resolve them.
 val result = client.sendToken(
-    chainId = 43114,
+    chainId = 8453,
     contractAddress = "0x...",
     to = "0x...",
     amount = BigDecimal("100.0")
@@ -254,7 +258,7 @@ val adminSignature = RainAdminSignature(
 // Sign and submit via the backing provider, returns the tx hash.
 // Always broadcasts: the 1.0.x `autoSend = false` prepare-only default is gone (see prepareWithdrawal).
 val txHash = client.withdrawCollateral(
-    chainId = 43114,
+    chainId = 8453,
     addresses = addresses,
     amount = BigDecimal("100.0"),
     decimals = 6,
@@ -264,7 +268,7 @@ println("Tx Hash: $txHash")
 
 // Or build it without broadcasting, for custom submission
 val prepared = client.prepareWithdrawal(
-    chainId = 43114,
+    chainId = 8453,
     addresses = addresses,
     amount = BigDecimal("100.0"),
     decimals = 6,
@@ -293,8 +297,8 @@ client.sendToken(chainId, mintAddress, recipientBase58, BigDecimal("1.5"))
 
 `withdrawCollateral` works unchanged, with `proxyAddress` as the collateral account and
 `tokenAddress` as the SPL mint. Under the hood the withdrawal is authorized by Rain's coordinator
-signing a message off chain rather than by EVM calldata, so the SDK composes and simulates a
-collateral-program transaction and the provider signs it; `prepareWithdrawal` returns those prepared
+signing a message off chain rather than by EVM calldata, so the SDK composes (and, when the provider
+pays its own fee, simulates) a collateral-program transaction and the provider signs it; `prepareWithdrawal` returns those prepared
 bytes along with their `recentBlockhash`. See [TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md#solana-notes) for the details.
 
 On `sendToken`, an SPL mint's decimals are read from the chain, so the `decimals` argument does not
