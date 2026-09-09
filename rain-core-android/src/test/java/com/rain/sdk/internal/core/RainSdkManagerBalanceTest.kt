@@ -10,9 +10,7 @@ import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
 import kotlinx.coroutines.runBlocking
-import org.junit.After
 import org.junit.Assert.assertThrows
-import org.junit.Before
 import org.junit.Test
 import java.math.BigInteger
 
@@ -44,14 +42,6 @@ class RainSdkManagerBalanceTest {
         symbol = "ETH",
         name = "Ether"
     )
-
-    @Before
-    fun setUp() {
-    }
-
-    @After
-    fun tearDown() {
-    }
 
 
 

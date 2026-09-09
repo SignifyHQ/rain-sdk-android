@@ -5,6 +5,8 @@ plugins {
     alias(libs.plugins.kotlin.android) apply false
     alias(libs.plugins.kotlin.serialization) apply false
     alias(libs.plugins.compose.compiler) apply false
+    alias(libs.plugins.detekt) apply false
+    alias(libs.plugins.dokka) apply false
 }
 
 // Turnkey (com.turnkey:crypto, com.turnkey:encoding) depends on Bouncy Castle's
@@ -38,6 +40,34 @@ val allowedSkippedTests = setOf(
         ".getLatestNonce uses real network and returns nonce gt 0"
 )
 val sdkTestModules = listOf("rain-core-android", "rain-portal-android", "rain-privy-android")
+
+// detekt: static analysis on all modules, defaults + config/detekt/detekt.yml overrides.
+// CI runs the type-resolving tasks (`detektMain detektTest`) — the bare `detekt` task has
+// no classpath and silently skips the type-resolution rules (UnsafeCallOnNullableType etc.).
+// Pre-existing findings live in each module's detekt-baseline.xml, shared across variants.
+// Regenerate only when adopting a module: `./gradlew detektBaselineMain detektBaselineTest`,
+// then fold the emitted detekt-baseline-<variant>.xml files back into detekt-baseline.xml
+// (variant-suffixed files take precedence over the base file if left behind — don't keep them).
+// Baselines should only shrink (CI enforces this); fix new findings or @Suppress at the
+// smallest scope. NOTE: a baseline entry waives its whole (rule, class, expression) triple,
+// not one occurrence — a new identical catch in a baselined class would pass silently.
+subprojects {
+    apply(plugin = "io.gitlab.arturbosch.detekt")
+    extensions.configure<io.gitlab.arturbosch.detekt.extensions.DetektExtension> {
+        buildUponDefaultConfig = true
+        config.setFrom(rootProject.files("config/detekt/detekt.yml"))
+        baseline = file("detekt-baseline.xml")
+        parallel = true
+    }
+
+    // Dokka is a CI check (dokkaHtml leg): with the 1.9.20 defaults it can only fail on a
+    // total generation error, never on a broken KDoc link — failOnWarning gives it teeth.
+    plugins.withId("org.jetbrains.dokka") {
+        tasks.withType<org.jetbrains.dokka.gradle.AbstractDokkaTask>().configureEach {
+            failOnWarning.set(true)
+        }
+    }
+}
 
 // Fails the build if any unit test skipped, so JDK-gated Turnkey suites can't pass by not running.
 tasks.register("checkNoSkippedUnitTests") {

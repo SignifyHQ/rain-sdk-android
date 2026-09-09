@@ -78,3 +78,96 @@ jobs:
           require_tests: true
           detailed_summary: true
           include_passed: false
+
+  # Static analysis and consumer checks. Each matrix leg is one named PR check; none of these
+  # run unit tests, so they stay on the plain JDK 21 toolchain (no JDK 24 launcher needed).
+  checks:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: detekt
+            # Type-resolving tasks (not the bare `detekt` task, which runs without a
+            # classpath and silently skips the type-resolution rule set: UnsafeCallOnNullableType etc.)
+            task: detektMain detektTest
+          - name: Android Lint
+            task: lint
+          - name: Dokka (API docs)
+            task: dokkaHtml
+          - name: Sample app (R8 release)
+            # Build-time consumer check: proves R8 completes against the SDK modules and
+            # exercises their consumer-rules.pro keep rules. The shrunk app is not RUN in
+            # CI — runtime behavior under R8 stays unverified here.
+            task: :app:assembleRelease
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          log-accepted-android-sdk-licenses: false
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Run ${{ matrix.task }}
+        run: ./gradlew ${{ matrix.task }} --stacktrace --no-daemon
+
+      # detekt baseline signatures are positionless (a baselined rule+class+expression
+      # triple also waives FUTURE identical findings in that class), so growth must be
+      # caught in review: baselines may only shrink. Missing on main = newly adopted, allowed.
+      - name: Baselines may only shrink
+        if: matrix.name == 'detekt'
+        run: |
+          git fetch --quiet --depth=1 origin main
+          fail=0
+          for f in $(git ls-files '*detekt-baseline.xml'); do
+            # Baseline absent on main = newly adopted module; allowed.
+            git cat-file -e "FETCH_HEAD:$f" 2>/dev/null || continue
+            new=$(grep -c '<ID>' "$f" || true)
+            old=$(git show "FETCH_HEAD:$f" | grep -c '<ID>' || true)
+            if [ "${new:-0}" -gt "${old:-0}" ]; then
+              echo "::error file=$f::detekt baseline grew from $old to $new entries — fix the finding or @Suppress at the smallest scope instead"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      # R8's exit code is not trustworthy here: the portal-android AAR ships a global
+      # -ignorewarnings in its consumer rules, which can demote missing-class errors to
+      # warnings. Assert the postcondition directly.
+      - name: R8 postcondition (no missing classes)
+        if: matrix.name == 'Sample app (R8 release)'
+        run: |
+          f=app/build/outputs/mapping/release/missing_rules.txt
+          if [ -s "$f" ]; then
+            echo "::error::R8 reported missing classes; rules needed:"
+            cat "$f"
+            exit 1
+          fi
+          if grep -q -- '-ignorewarnings' app/build/outputs/mapping/release/configuration.txt 2>/dev/null; then
+            echo "::warning::A dependency injects -ignorewarnings into the R8 config (known: portal-android AAR). Missing-class errors may be demoted to warnings; this step is the backstop."
+          fi
+
+      - name: Upload reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-${{ matrix.name }}
+          path: |
+            **/build/reports/detekt/**
+            **/build/reports/lint-results-*.*
+            **/build/outputs/mapping/**
+            **/build/intermediates/lint_vital_intermediate_text_report/**
+          if-no-files-found: warn
