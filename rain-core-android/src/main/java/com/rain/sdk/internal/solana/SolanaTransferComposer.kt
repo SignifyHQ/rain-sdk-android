@@ -79,7 +79,10 @@ internal class SolanaTransferComposer(
      * typed error rather than as a broadcast that quietly fails on chain. With [sponsoredFees]
      * the dry run is skipped (it would charge the fee to a sender who pays none), so a failure
      * surfaces through the provider's send status instead.
+     *
+     * Six parameters: the transfer's five identities plus the sponsorship flag, each load-bearing.
      */
+    @Suppress("LongParameterList")
     suspend fun composeSplToken(
         chainId: Int,
         fromAddress: String,

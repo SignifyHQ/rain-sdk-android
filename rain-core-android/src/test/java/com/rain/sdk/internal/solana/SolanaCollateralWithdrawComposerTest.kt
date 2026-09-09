@@ -24,7 +24,6 @@ class SolanaCollateralWithdrawComposerTest {
     private val devnet = SolanaWithdrawFixtures.DEVNET
     private val owner = SolanaWithdrawFixtures.OWNER
     private val collateral = SolanaWithdrawFixtures.COLLATERAL
-    private val coordinator = SolanaWithdrawFixtures.COORDINATOR
     private val programId = SolanaWithdrawFixtures.PROGRAM_ID
     private val mint = SolanaWithdrawFixtures.MINT
     private val executor = SolanaWithdrawFixtures.EXECUTOR

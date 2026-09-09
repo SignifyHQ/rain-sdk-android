@@ -292,8 +292,7 @@ internal class TurnkeyWalletProvider(
             from = from,
             to = toAddress,
             data = "0x",
-            value = valueHex,
-            sponsored = sponsorGas
+            value = valueHex
         )
     }
 
@@ -317,8 +316,7 @@ internal class TurnkeyWalletProvider(
             from = from,
             to = contractAddress,
             data = data,
-            value = "0x0",
-            sponsored = sponsorGas
+            value = "0x0"
         )
     }
 
@@ -338,15 +336,15 @@ internal class TurnkeyWalletProvider(
         to: String,
         data: String,
         value: String
-    ): String = sendEvmTransaction(chainId, from, to, data, value, sponsored = sponsorGas)
+    ): String = sendEvmTransaction(chainId, from, to, data, value)
 
+    /** Every EVM send, transfer or raw, follows [sponsorGas]; there is no per-call override. */
     private suspend fun sendEvmTransaction(
         chainId: Int,
         from: String,
         to: String,
         data: String,
-        value: String,
-        sponsored: Boolean
+        value: String
     ): String {
         // Every EVM broadcast funnels through here, so this gate also covers the paths the
         // public transfer entries never see: withdrawals, approvals, and raw sends.
@@ -362,8 +360,7 @@ internal class TurnkeyWalletProvider(
                     from = from,
                     to = to,
                     data = data,
-                    value = value,
-                    sponsored = sponsored
+                    value = value
                 )
                 client.ethSendTransaction(sendBody).result.sendTransactionStatusId
             }
@@ -1154,10 +1151,9 @@ internal class TurnkeyWalletProvider(
         from: String,
         to: String,
         data: String,
-        value: String,
-        sponsored: Boolean
+        value: String
     ): TEthSendTransactionBody {
-        if (sponsored) {
+        if (sponsorGas) {
             // Sponsored sends are minimal payloads. Turnkey's Gas Station builds and fee-covers
             // the outer EIP-7702 transaction, so this wallet's account nonce and self-estimated
             // fees are the wrong values to pin (the outer tx is not this account's). Estimating

@@ -30,6 +30,7 @@ import com.rain.sdk.internal.error.RainError
 internal object TurnkeyBroadcastChains {
 
   /** EVM chains with Turnkey-managed broadcast, mainnets and their test networks. */
+  @Suppress("MagicNumber") // the chain ids are the registry's data; each line names its network
   private val EVM_CHAIN_IDS = setOf(
     1,          // Ethereum
     11155111,   // Ethereum Sepolia

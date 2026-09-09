@@ -146,23 +146,32 @@ internal object SolanaTransactionBuilder {
         )
 
         // Unreferenced keys the caller wants carried anyway, after the programs, once each.
-        val extras = LinkedHashMap<List<Byte>, ByteArray>()
-        for (key in extraReadonlyKeys) {
-            require(key.size == PUBLIC_KEY_LENGTH) {
-                "Invalid extra account key (expected 32 bytes, got ${key.size})"
-            }
-            val k = key.toList()
-            if (k != feePayerKey && !merged.containsKey(k) && !programIds.containsKey(k)) {
-                extras.putIfAbsent(k, key)
-            }
+        val extras = unreferencedKeys(extraReadonlyKeys) { key ->
+            key == feePayerKey || merged.containsKey(key) || programIds.containsKey(key)
         }
 
         return buildList {
             add(AccountMeta.signerAndWritable(feePayer))
             addAll(ordered)
             programIds.values.forEach { add(AccountMeta.readonly(it)) }
-            extras.values.forEach { add(AccountMeta.readonly(it)) }
+            extras.forEach { add(AccountMeta.readonly(it)) }
         }
+    }
+
+    /** [keys] that are valid public keys and not [alreadyPresent] in the table, first-seen order, once each. */
+    private fun unreferencedKeys(
+        keys: List<ByteArray>,
+        alreadyPresent: (List<Byte>) -> Boolean
+    ): Collection<ByteArray> {
+        val extras = LinkedHashMap<List<Byte>, ByteArray>()
+        for (key in keys) {
+            require(key.size == PUBLIC_KEY_LENGTH) {
+                "Invalid extra account key (expected 32 bytes, got ${key.size})"
+            }
+            val k = key.toList()
+            if (!alreadyPresent(k)) extras.putIfAbsent(k, key)
+        }
+        return extras.values
     }
 
     private fun serializeMessage(

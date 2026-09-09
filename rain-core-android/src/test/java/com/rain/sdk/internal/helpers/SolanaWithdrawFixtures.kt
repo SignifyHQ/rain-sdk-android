@@ -26,11 +26,11 @@ internal object SolanaWithdrawFixtures {
     // Raw devnet account data (base64), captured at nonce 0 — the state the golden signature
     // was issued against (each withdrawal increments the nonce). The coordinator account is
     // trimmed after its executors vec — the tail is zero padding the parser never reads.
-    val COLLATERAL_DATA =
+    const val COLLATERAL_DATA =
         "Ey1jHcQy5HWnOHdO2T7CRNZhoZwZh0GwPo0mfagjVsGsGY2fH2KNQdOdA0tPmQtwpGjhDAwipRkO8lD4NVfOJV" +
             "/RXV0o8Rpe/xAAAABDb2xsYXRlcmFsU29sYW5hAAAAACkqW0Gb6ozWxe84Me0JM3doSAivumoFOfoMu8/P1wIJ" +
             "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-    val COORDINATOR_DATA =
+    const val COORDINATOR_DATA =
         "6oU9jK0DCrzAoMFbwn0Q6d70hJIK+xVVS4OxJMbo8DRXrUOATrTXxfui23QolaNZqiC5e3ewk/8MoAZzSNsL9t" +
             "bAQuHebigSnnRMcds6qirVTZcs6HKcRHzH1X4n9VGUYjoe3yFFLRzbsSbOmUylDJFRAmO2VHDQYCYlBDbv92RQ" +
             "WtrjlmDjgMgBAAAAdExx2zqqKtVNlyzocpxEfMfVfif1UZRiOh7fIUUtHNsBAAAAdExx2zqqKtVNlyzocpxEfM" +
