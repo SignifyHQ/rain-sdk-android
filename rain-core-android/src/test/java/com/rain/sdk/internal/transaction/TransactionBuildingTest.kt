@@ -123,14 +123,20 @@ class TransactionBuildingTest {
     @Test
     fun `buildEIP712Message generates a different salt on each call`() = runBlocking {
         val first = builder.buildEIP712Message(
-            chainId = 1, walletAddress = TestFixtures.WALLET_ADDRESS,
+            chainId = 1,
+            walletAddress = TestFixtures.WALLET_ADDRESS,
             addresses = validAddresses,
-            amount = BigDecimal("100.0"), decimals = 18, nonce = BigInteger.ONE
+            amount = BigDecimal("100.0"),
+            decimals = 18,
+            nonce = BigInteger.ONE
         )
         val second = builder.buildEIP712Message(
-            chainId = 1, walletAddress = TestFixtures.WALLET_ADDRESS,
+            chainId = 1,
+            walletAddress = TestFixtures.WALLET_ADDRESS,
             addresses = validAddresses,
-            amount = BigDecimal("100.0"), decimals = 18, nonce = BigInteger.ONE
+            amount = BigDecimal("100.0"),
+            decimals = 18,
+            nonce = BigInteger.ONE
         )
 
         assertThat(first.salt).isNotEqualTo(second.salt)
@@ -140,14 +146,20 @@ class TransactionBuildingTest {
     @Test
     fun `buildEIP712Message respects different chain IDs`() = runBlocking {
         val mainnet = builder.buildEIP712Message(
-            chainId = 1, walletAddress = TestFixtures.WALLET_ADDRESS,
+            chainId = 1,
+            walletAddress = TestFixtures.WALLET_ADDRESS,
             addresses = validAddresses,
-            amount = BigDecimal("100.0"), decimals = 18, nonce = BigInteger.ONE
+            amount = BigDecimal("100.0"),
+            decimals = 18,
+            nonce = BigInteger.ONE
         ).message
         val polygon = builder.buildEIP712Message(
-            chainId = 137, walletAddress = TestFixtures.WALLET_ADDRESS,
+            chainId = 137,
+            walletAddress = TestFixtures.WALLET_ADDRESS,
             addresses = validAddresses,
-            amount = BigDecimal("100.0"), decimals = 18, nonce = BigInteger.ONE
+            amount = BigDecimal("100.0"),
+            decimals = 18,
+            nonce = BigInteger.ONE
         ).message
 
         assertThat(mainnet).contains("\"chainId\": 1")
@@ -158,7 +170,6 @@ class TransactionBuildingTest {
 
     @Test
     fun `buildEIP712Message reads nonce from RPC when nonce param is null`() = runBlocking {
-
         val mockEthCall = mockk<Request<*, EthCall>>()
         val response = EthCall().apply {
             // BigInteger.TEN encoded as a uint256
@@ -216,9 +227,12 @@ class TransactionBuildingTest {
         assertThrows(RainError.InvalidConfig::class.java) {
             runBlocking {
                 builder.buildEIP712Message(
-                    chainId = 1, addresses = bad,
+                    chainId = 1,
+                    addresses = bad,
                     walletAddress = TestFixtures.WALLET_ADDRESS,
-                    amount = BigDecimal("100.0"), decimals = 18, nonce = BigInteger.ONE
+                    amount = BigDecimal("100.0"),
+                    decimals = 18,
+                    nonce = BigInteger.ONE
                 )
             }
         }
@@ -230,9 +244,12 @@ class TransactionBuildingTest {
         assertThrows(RainError.InvalidConfig::class.java) {
             runBlocking {
                 builder.buildEIP712Message(
-                    chainId = 1, addresses = bad,
+                    chainId = 1,
+                    addresses = bad,
                     walletAddress = TestFixtures.WALLET_ADDRESS,
-                    amount = BigDecimal("100.0"), decimals = 18, nonce = BigInteger.ONE
+                    amount = BigDecimal("100.0"),
+                    decimals = 18,
+                    nonce = BigInteger.ONE
                 )
             }
         }
@@ -243,9 +260,12 @@ class TransactionBuildingTest {
         assertThrows(RainError.InvalidConfig::class.java) {
             runBlocking {
                 builder.buildEIP712Message(
-                    chainId = 1, addresses = validAddresses,
+                    chainId = 1,
+                    addresses = validAddresses,
                     walletAddress = "0xnope",
-                    amount = BigDecimal("100.0"), decimals = 18, nonce = BigInteger.ONE
+                    amount = BigDecimal("100.0"),
+                    decimals = 18,
+                    nonce = BigInteger.ONE
                 )
             }
         }

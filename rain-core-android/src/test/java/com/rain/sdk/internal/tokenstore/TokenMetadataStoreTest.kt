@@ -142,7 +142,9 @@ class TokenMetadataStoreTest {
         val reader = MockChainReader(decimals = 99, symbol = "WRONG")
         val store = TokenMetadataStore(reader)
 
-        store.register(listOf(TokenInfo(chainId = 1, address = usdcEthereum, symbol = "USDX", decimals = 18, name = "Not USDC")))
+        store.register(
+            listOf(TokenInfo(chainId = 1, address = usdcEthereum, symbol = "USDX", decimals = 18, name = "Not USDC"))
+        )
 
         val info = store.tokenInfo(chainId = 1, address = usdcEthereum)
         assertThat(info.symbol).isEqualTo("USDC")
@@ -169,12 +171,16 @@ class TokenMetadataStoreTest {
         val store = TokenMetadataStore(MockChainReader())
 
         store.register(listOf(TokenInfo(chainId = 1, address = unknown, symbol = "FOO", decimals = 12)))
-        store.register(listOf(TokenInfo(chainId = 1, address = unknown.uppercase(), symbol = "FOO", decimals = 8, name = "Foo")))
+        store.register(
+            listOf(TokenInfo(chainId = 1, address = unknown.uppercase(), symbol = "FOO", decimals = 8, name = "Foo"))
+        )
 
         val info = store.tokenInfo(chainId = 1, address = unknown)
         assertThat(info.decimals).isEqualTo(8)
         assertThat(info.name).isEqualTo("Foo")
-        assertThat(store.registeredTokens(chainId = 1).filter { it.address.lowercase() == unknown.lowercase() }).hasSize(1)
+        assertThat(
+            store.registeredTokens(chainId = 1).filter { it.address.lowercase() == unknown.lowercase() }
+        ).hasSize(1)
     }
 
     @Test

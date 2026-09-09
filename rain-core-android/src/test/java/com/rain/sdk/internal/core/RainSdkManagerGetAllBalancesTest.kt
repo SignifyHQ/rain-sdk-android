@@ -36,7 +36,6 @@ class RainSdkManagerGetAllBalancesTest {
         name = "USDC"
     )
 
-
     @Test
     fun `getAllBalances returns empty list when no chains were configured`(): Unit = runBlocking {
         // No rpcEndpoints → configuredChainIds is empty, so getAllBalances short-circuits.
@@ -108,5 +107,4 @@ class RainSdkManagerGetAllBalancesTest {
         assertThat(manager.getWalletAddress()).isEqualTo(stub.addressToReturn)
         assertThat(manager.getAllBalances().map { it.chainId }.toSet()).containsExactly(1, 137)
     }
-
 }

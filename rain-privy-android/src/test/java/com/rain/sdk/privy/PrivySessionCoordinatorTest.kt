@@ -11,7 +11,6 @@ import io.privy.auth.PrivyUser
 import io.privy.network.NoNetworkException
 import io.privy.network.PrivyApiException
 import io.privy.sdk.Privy
-import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -23,6 +22,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import java.io.IOException
 
 class PrivySessionCoordinatorTest {
 

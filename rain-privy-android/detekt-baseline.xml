@@ -24,12 +24,6 @@
     <ID>MagicNumber:PrivyWalletProvider.kt$PrivyWalletProvider$59144</ID>
     <ID>MagicNumber:PrivyWalletProvider.kt$PrivyWalletProvider$8453</ID>
     <ID>MagicNumber:PrivyWalletProvider.kt$PrivyWalletProvider$84532</ID>
-    <ID>MaxLineLength:PrivyRpcClientTest.kt$PrivyRpcClientTest$"""{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"insufficient funds for gas * price + value"}}"""</ID>
-    <ID>MaxLineLength:PrivySolanaProviderTest.kt$PrivySolanaProviderTest$transactions = listOf(solanaTransaction(asset = "sol"), solanaTransaction(hash = "sig2", asset = MINT))</ID>
-    <ID>MaxLineLength:PrivyWalletProvider.kt$PrivyWalletProvider$Timber.w(e, "Rain SDK: Privy balance read failed for token=${info.address} chainId=$chainId; skipping")</ID>
-    <ID>MaxLineLength:PrivyWalletProviderTest.kt$PrivyWalletProviderTest$coEvery { rpc.callForHexResult(RPC, "eth_estimateGas", any(), RpcCallPurpose.SIMULATION) } returns "0x5208"</ID>
-    <ID>MaxLineLength:PrivyWalletProviderTest.kt$PrivyWalletProviderTest$for</ID>
-    <ID>MaxLineLength:PrivyWalletProviderTest.kt$PrivyWalletProviderTest$fun</ID>
     <ID>ReturnCount:PrivySessionCoordinator.kt$PrivySessionCoordinator$private fun notifyDeath()</ID>
     <ID>ReturnCount:PrivyWalletProvider.kt$PrivyWalletProvider$override suspend fun getWalletAddress(): String</ID>
     <ID>ReturnCount:PrivyWalletProvider.kt$PrivyWalletProvider$override suspend fun getWalletAddress(chainId: Int): String</ID>

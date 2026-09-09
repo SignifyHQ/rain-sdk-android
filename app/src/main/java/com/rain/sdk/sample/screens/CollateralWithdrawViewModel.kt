@@ -11,13 +11,13 @@ import com.rain.sdk.models.RainPreparedWithdrawal
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain
-import java.math.BigDecimal
-import java.math.RoundingMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.math.BigDecimal
+import java.math.RoundingMode
 
 class CollateralWithdrawViewModel(
     private val rainSdk: RainSdk,

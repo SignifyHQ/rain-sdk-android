@@ -2,9 +2,9 @@ package com.rain.sdk.internal.core
 
 import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.models.RainPreparedWithdrawal
 import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.internal.network.Web3jProvider
+import com.rain.sdk.models.RainPreparedWithdrawal
 import io.mockk.every
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll

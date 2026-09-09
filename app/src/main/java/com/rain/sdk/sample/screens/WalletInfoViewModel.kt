@@ -100,9 +100,9 @@ data class WalletInfoUiState(
 ) {
     fun isAddressValid(address: String): Boolean {
         if (address.isBlank()) return false
-        return address.startsWith("0x")
-                && address.length == 42
-                && address.substring(2).all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
+        return address.startsWith("0x") &&
+            address.length == 42 &&
+            address.substring(2).all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
     }
 }
 

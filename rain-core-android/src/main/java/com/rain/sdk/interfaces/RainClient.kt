@@ -1,21 +1,21 @@
 package com.rain.sdk.interfaces
 
+import android.graphics.Bitmap
+import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.RainPreparedWithdrawal
 import com.rain.sdk.models.RainTokenAllowance
 import com.rain.sdk.models.RainTokenApprovalResult
 import com.rain.sdk.models.RainTokenTransferResult
+import com.rain.sdk.models.RainTransaction
+import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionParameters
 import com.rain.sdk.models.RainWithdrawAddresses
-import com.rain.sdk.models.RainPreparedWithdrawal
-import com.rain.sdk.models.RainTransactionOrder
-import com.rain.sdk.models.RainTransaction
-import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderId
-import android.graphics.Bitmap
 import java.math.BigDecimal
 import java.math.BigInteger
 

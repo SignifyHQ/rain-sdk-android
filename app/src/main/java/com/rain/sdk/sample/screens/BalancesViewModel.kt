@@ -8,12 +8,12 @@ import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.models.Token
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain
-import java.math.BigDecimal
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.math.BigDecimal
 
 class BalancesViewModel(
     private val rainSdk: RainSdk,

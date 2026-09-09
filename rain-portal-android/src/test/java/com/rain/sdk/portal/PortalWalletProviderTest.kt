@@ -4,9 +4,9 @@ import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.Balance
+import com.rain.sdk.models.NativeCurrency
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
-import com.rain.sdk.models.NativeCurrency
 import com.rain.sdk.models.Token
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -54,7 +54,7 @@ class PortalWalletProviderTest {
         val expectedTxHash = "0xHash"
 
         coEvery { portalManager.getAddress() } returns fromAddress
-        coEvery { 
+        coEvery {
             portalManager.sendTransaction(
                 chainId = chainId,
                 from = fromAddress,
@@ -69,7 +69,7 @@ class PortalWalletProviderTest {
 
         // Then
         assertEquals(expectedTxHash, result)
-        coVerify { 
+        coVerify {
             portalManager.sendTransaction(
                 chainId = chainId,
                 from = fromAddress,
@@ -79,7 +79,6 @@ class PortalWalletProviderTest {
             )
         }
     }
-
 
     @Test
     fun `sendNativeToken scales the value by the registry's native decimals, not a fixed 18`() = runBlocking {
@@ -117,7 +116,7 @@ class PortalWalletProviderTest {
         val expectedData = FunctionEncoder.encode(function)
 
         coEvery { portalManager.getAddress() } returns fromAddress
-        coEvery { 
+        coEvery {
             portalManager.sendTransaction(
                 chainId = chainId,
                 from = fromAddress,
@@ -249,13 +248,13 @@ class PortalWalletProviderTest {
     @Test
     fun `getTransactions forwards pagination + order to PortalManager`() = runBlocking {
         val expected = listOf(
-                RainTransaction(
-                    hash = "0xabc",
-                    blockNumber = "100",
-                    from = "0xfrom",
-                    to = "0xto",
-                    value = BigDecimal("1.0"),
-                    chainId = 43114
+            RainTransaction(
+                hash = "0xabc",
+                blockNumber = "100",
+                from = "0xfrom",
+                to = "0xto",
+                value = BigDecimal("1.0"),
+                chainId = 43114
             )
         )
         coEvery {

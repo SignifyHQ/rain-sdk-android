@@ -29,51 +29,54 @@ import com.rain.sdk.internal.error.RainError
  */
 internal object TurnkeyBroadcastChains {
 
-  /** EVM chains with Turnkey-managed broadcast, mainnets and their test networks. */
-  @Suppress("MagicNumber") // the chain ids are the registry's data; each line names its network
-  private val EVM_CHAIN_IDS = setOf(
-    1,          // Ethereum
-    11155111,   // Ethereum Sepolia
-    10,         // Optimism
-    11155420,   // Optimism Sepolia
-    56,         // BNB Smart Chain
-    97,         // BNB testnet
-    137,        // Polygon
-    80002,      // Polygon Amoy
-    143,        // Monad (sponsored sends that leave a delegated account under 10 MON revert; see docs)
-    10143,      // Monad testnet
-    4217,       // Tempo
-    42431,      // Tempo Moderato (testnet)
-    4663,       // Robinhood Chain
-    46630,      // Robinhood Chain testnet
-    8453,       // Base
-    84532,      // Base Sepolia
-    42161,      // Arbitrum One
-    421614,     // Arbitrum Sepolia
-  )
+    /** EVM chains with Turnkey-managed broadcast, mainnets and their test networks. */
+    @Suppress("MagicNumber") // the chain ids are the registry's data; each line names its network
+    private val EVM_CHAIN_IDS = setOf(
+        1, // Ethereum
+        11155111, // Ethereum Sepolia
+        10, // Optimism
+        11155420, // Optimism Sepolia
+        56, // BNB Smart Chain
+        97, // BNB testnet
+        137, // Polygon
+        80002, // Polygon Amoy
+        143, // Monad (sponsored sends that leave a delegated account under 10 MON revert; see docs)
+        10143, // Monad testnet
+        4217, // Tempo
+        42431, // Tempo Moderato (testnet)
+        4663, // Robinhood Chain
+        46630, // Robinhood Chain testnet
+        8453, // Base
+        84532, // Base Sepolia
+        42161, // Arbitrum One
+        421614, // Arbitrum Sepolia
+    )
 
-  /** Turnkey broadcasts Solana on mainnet and devnet only — not the testnet cluster. */
-  private val SOLANA_CHAIN_IDS = setOf(
-    RainChain.SOLANA_MAINNET,
-    RainChain.SOLANA_DEVNET,
-  )
+    /** Turnkey broadcasts Solana on mainnet and devnet only — not the testnet cluster. */
+    private val SOLANA_CHAIN_IDS = setOf(
+        RainChain.SOLANA_MAINNET,
+        RainChain.SOLANA_DEVNET,
+    )
 
-  fun supportsSend(chainId: Int): Boolean =
-    if (SolanaChains.isSolanaChain(chainId)) chainId in SOLANA_CHAIN_IDS
-    else chainId in EVM_CHAIN_IDS
+    fun supportsSend(chainId: Int): Boolean =
+        if (SolanaChains.isSolanaChain(chainId)) {
+            chainId in SOLANA_CHAIN_IDS
+        } else {
+            chainId in EVM_CHAIN_IDS
+        }
 
-  /**
-   * Throws [RainError.ChainNotSupported] when [chainId] has no Turnkey-managed broadcast.
-   * Call at the top of every send entry point, before any wallet or network work.
-   */
-  fun requireSendSupport(chainId: Int) {
-    if (!supportsSend(chainId)) {
-      throw RainError.ChainNotSupported(
-        chainId = chainId,
-        details = "Turnkey-managed broadcast does not cover this chain; " +
-          "this wallet can read balances and history on it, but cannot send. " +
-          "See docs.turnkey.com/features/transaction-management for covered networks."
-      )
+    /**
+     * Throws [RainError.ChainNotSupported] when [chainId] has no Turnkey-managed broadcast.
+     * Call at the top of every send entry point, before any wallet or network work.
+     */
+    fun requireSendSupport(chainId: Int) {
+        if (!supportsSend(chainId)) {
+            throw RainError.ChainNotSupported(
+                chainId = chainId,
+                details = "Turnkey-managed broadcast does not cover this chain; " +
+                    "this wallet can read balances and history on it, but cannot send. " +
+                    "See docs.turnkey.com/features/transaction-management for covered networks."
+            )
+        }
     }
-  }
 }

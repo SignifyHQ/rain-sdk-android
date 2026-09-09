@@ -83,8 +83,11 @@ internal class MockRpcServer {
                 val payload = JSONObject().apply {
                     put("jsonrpc", "2.0")
                     put("id", 1)
-                    if (stub.result is Map<*, *> || stub.result is JSONObject) put("result", stub.result)
-                    else put("result", stub.result ?: JSONObject.NULL)
+                    if (stub.result is Map<*, *> || stub.result is JSONObject) {
+                        put("result", stub.result)
+                    } else {
+                        put("result", stub.result ?: JSONObject.NULL)
+                    }
                 }
                 return MockResponse()
                     .setHeader("Content-Type", "application/json")

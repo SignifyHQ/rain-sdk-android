@@ -3,6 +3,7 @@
   <ManuallySuppressedIssues />
   <CurrentIssues>
     <ID>CyclomaticComplexMethod:PortalSessionCoordinator.kt$PortalSessionCoordinator$private suspend fun &lt;T&gt; execute(idempotent: Boolean, block: suspend () -&gt; T): T</ID>
+    <ID>Filename:PortalTestFixtures.kt$com.rain.sdk.portal.PortalTestFixtures.kt</ID>
     <ID>InstanceOfCheckForException:PortalManager.kt$PortalManager$e is CancellationException</ID>
     <ID>InstanceOfCheckForException:PortalManager.kt$PortalManager$e is RainError</ID>
     <ID>InstanceOfCheckForException:PortalProvider.kt$PortalProvider$e is CancellationException</ID>
@@ -17,11 +18,6 @@
     <ID>MagicNumber:PortalManager.kt$PortalManager$16</ID>
     <ID>MagicNumber:PortalManager.kt$PortalManager$64</ID>
     <ID>MatchingDeclarationName:PortalTestFixtures.kt$TestFixtures</ID>
-    <ID>MaxLineLength:PortalManager.kt$PortalManager$val function = Function("symbol", emptyList(), listOf(object : TypeReference&lt;org.web3j.abi.datatypes.Utf8String&gt;() {}))</ID>
-    <ID>MaxLineLength:PortalProviderSessionTest.kt$PortalProviderSessionTest$coEvery { fresh.request(any(), any(), any(), null as io.portalhq.android.provider.data.RequestOptions?) }</ID>
-    <ID>MaxLineLength:PortalProviderSessionTest.kt$PortalProviderSessionTest$fresh.request(any(), PortalRequestMethod.eth_getTransactionByHash, any(), null as io.portalhq.android.provider.data.RequestOptions?)</ID>
-    <ID>MaxLineLength:PortalProviderSessionTest.kt$PortalProviderSessionTest$result = io.portalhq.android.provider.data.PortalProviderRpcResponse(jsonrpc = "2.0", result = mapOf("hash" to "0xhash"))</ID>
-    <ID>MaxLineLength:PortalWalletProviderTest.kt$PortalWalletProviderTest$portalManager.estimateTransactionFee(1, TestFixtures.WALLET_ADDRESS, TestFixtures.CONTRACT_ADDRESS, "0x", "0x0")</ID>
     <ID>NestedBlockDepth:PortalSessionCoordinator.kt$PortalSessionCoordinator$private suspend fun &lt;T&gt; execute(idempotent: Boolean, block: suspend () -&gt; T): T</ID>
     <ID>ReturnCount:PortalManager.kt$PortalManager$private fun resolveTransactionValue(tx: Transaction, resolvedDecimals: Int?): BigDecimal?</ID>
     <ID>ReturnCount:PortalManager.kt$PortalManager$private fun userOperationSucceeded(data: String?): Boolean</ID>

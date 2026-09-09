@@ -9,15 +9,14 @@ import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransaction
-import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionCategory
+import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.utils.EthereumConverter
 import io.privy.wallet.solana.SolanaCluster
 import io.privy.wallet.transactions.GetTransactionsParams
-import io.privy.wallet.transactions.Transaction as PrivyTransaction
 import io.privy.wallet.transactions.TransactionChain
 import io.privy.wallet.transactions.TransactionStatus
 import io.privy.wallet.transactions.TransactionType
@@ -26,22 +25,23 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.supervisorScope
-import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import org.json.JSONObject
-import java.time.Instant
-import java.time.temporal.ChronoUnit
-import timber.log.Timber
 import org.web3j.abi.FunctionEncoder
 import org.web3j.abi.TypeReference
 import org.web3j.abi.datatypes.Address
-import org.web3j.abi.datatypes.Function as Web3jFunction
 import org.web3j.abi.datatypes.generated.Uint256
+import timber.log.Timber
 import java.math.BigDecimal
 import java.math.BigInteger
+import java.time.Instant
+import java.time.temporal.ChronoUnit
+import java.util.concurrent.atomic.AtomicInteger
+import io.privy.wallet.transactions.Transaction as PrivyTransaction
+import org.web3j.abi.datatypes.Function as Web3jFunction
 
 /**
  * Privy-backed [WalletProvider].
@@ -72,6 +72,7 @@ internal class PrivyWalletProvider(
 
     @Volatile
     private var cachedAddress: String? = null
+
     @Volatile
     private var cachedSolanaAddress: String? = null
     private val cachedAddressLock = Mutex()
@@ -132,7 +133,9 @@ internal class PrivyWalletProvider(
             val unsigned =
                 solanaSupport.composeNativeTransfer(chainId, from, toAddress, amountInEth)
             return manager.signAndSendSolanaTransaction(
-                unsigned.transaction, solanaCluster(chainId), rpcUrlFor(chainId)
+                unsigned.transaction,
+                solanaCluster(chainId),
+                rpcUrlFor(chainId)
             )
         }
         val from = getWalletAddress()
@@ -157,7 +160,9 @@ internal class PrivyWalletProvider(
             val unsigned =
                 solanaSupport.composeSplTransfer(chainId, from, contractAddress, toAddress, amount)
             return manager.signAndSendSolanaTransaction(
-                unsigned.transaction, solanaCluster(chainId), rpcUrlFor(chainId)
+                unsigned.transaction,
+                solanaCluster(chainId),
+                rpcUrlFor(chainId)
             )
         }
         val from = getWalletAddress()
@@ -177,7 +182,9 @@ internal class PrivyWalletProvider(
         chainId: Int,
         unsigned: UnsignedSolanaTransfer
     ): String = manager.signAndSendSolanaTransaction(
-        unsigned.transaction, solanaCluster(chainId), rpcUrlFor(chainId)
+        unsigned.transaction,
+        solanaCluster(chainId),
+        rpcUrlFor(chainId)
     )
 
     override suspend fun sendTransaction(
@@ -195,7 +202,9 @@ internal class PrivyWalletProvider(
         // the node validates it for free. Mirrors the Portal adapter.
         try {
             rpcClient.callForHexResult(
-                rpcUrl, "eth_call", listOf(rpcTransactionObject(from, to, data, value), "latest"),
+                rpcUrl,
+                "eth_call",
+                listOf(rpcTransactionObject(from, to, data, value), "latest"),
                 purpose = RpcCallPurpose.SIMULATION
             )
         } catch (e: Exception) {
@@ -237,7 +246,9 @@ internal class PrivyWalletProvider(
         requireEvmChain(chainId, "estimateTransactionFee")
         val rpcUrl = rpcUrlFor(chainId)
         val gasLimitHex = rpcClient.callForHexResult(
-            rpcUrl, "eth_estimateGas", listOf(rpcTransactionObject(from, to, data, value)),
+            rpcUrl,
+            "eth_estimateGas",
+            listOf(rpcTransactionObject(from, to, data, value)),
             purpose = RpcCallPurpose.SIMULATION
         )
         val gasPriceHex = rpcClient.callForHexResult(rpcUrl, "eth_gasPrice", emptyList())
@@ -268,7 +279,9 @@ internal class PrivyWalletProvider(
     override suspend fun getBalances(chainId: Int): List<Balance> {
         if (solanaSupport.isSolanaChain(chainId)) {
             return solanaSupport.getBalances(
-                chainId, getWalletAddress(chainId), tokenStore.registeredTokens(chainId)
+                chainId,
+                getWalletAddress(chainId),
+                tokenStore.registeredTokens(chainId)
             )
         }
         return evmBalances(chainId)
@@ -286,7 +299,10 @@ internal class PrivyWalletProvider(
             async {
                 runCatching { gate.withPermit { fetchContractBalance(chainId, walletAddress, info.address) } }
                     .onFailure { e ->
-                        Timber.w(e, "Rain SDK: Privy balance read failed for token=${info.address} chainId=$chainId; skipping")
+                        Timber.w(
+                            e,
+                            "Rain SDK: Privy balance read failed for token=${info.address} chainId=$chainId; skipping"
+                        )
                     }
                     .getOrNull()
             }
@@ -359,8 +375,11 @@ internal class PrivyWalletProvider(
     ): List<RainTransaction> {
         val needed = maxOf((limit ?: DEFAULT_TRANSACTION_LIMIT) + (offset ?: 0), 1)
         val collected = (
-            if (solanaSupport.isSolanaChain(chainId)) collectSolanaHistory(chainId, needed)
-            else collectEvmHistory(chainId, needed)
+            if (solanaSupport.isSolanaChain(chainId)) {
+                collectSolanaHistory(chainId, needed)
+            } else {
+                collectEvmHistory(chainId, needed)
+            }
             ) ?: return emptyList()
 
         val deduped = collected.distinctBy { it.privyTransactionId ?: it.transactionHash ?: it }
@@ -463,8 +482,11 @@ internal class PrivyWalletProvider(
         // the field that matches its shape. Solana token addresses are base58, not 0x-prefixed —
         // a base58 mint is at least 32 chars, so length separates it from any named asset.
         val assetIsAddress = details?.asset?.let { asset ->
-            if (solanaSupport.isSolanaChain(chainId)) asset.length >= SOLANA_MIN_ADDRESS_LENGTH
-            else asset.startsWith("0x")
+            if (solanaSupport.isSolanaChain(chainId)) {
+                asset.length >= SOLANA_MIN_ADDRESS_LENGTH
+            } else {
+                asset.startsWith("0x")
+            }
         } == true
         return RainTransaction(
             hash = transaction.transactionHash

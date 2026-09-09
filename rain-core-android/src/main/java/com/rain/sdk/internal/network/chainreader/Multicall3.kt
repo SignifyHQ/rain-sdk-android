@@ -27,7 +27,7 @@ internal object Multicall3 {
 
     // Multicall3-specific function selectors (first 4 bytes of keccak256(signature)).
     // ERC-20 selectors live in `ERC20Selectors`.
-    private const val AGGREGATE3_SELECTOR = "82ad56cb"     // aggregate3((address,bool,bytes)[])
+    private const val AGGREGATE3_SELECTOR = "82ad56cb" // aggregate3((address,bool,bytes)[])
     private const val GET_ETH_BALANCE_SELECTOR = "4d2301cc" // getEthBalance(address)
 
     /** One entry in an `aggregate3` batch. */

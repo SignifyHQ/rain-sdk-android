@@ -6,10 +6,10 @@ import com.rain.sdk.internal.utils.RainHexUtils
 import org.web3j.abi.FunctionEncoder
 import org.web3j.abi.TypeReference
 import org.web3j.abi.datatypes.Address
-import org.web3j.abi.datatypes.Function as Web3jFunction
 import org.web3j.abi.datatypes.generated.Uint256
 import java.math.BigDecimal
 import java.math.BigInteger
+import org.web3j.abi.datatypes.Function as Web3jFunction
 
 /**
  * Canonical ABI encoding for the ERC-20 write calls the SDK sends. Calldata is

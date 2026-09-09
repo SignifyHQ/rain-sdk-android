@@ -1,7 +1,7 @@
 package com.rain.sdk.sample
 
-import com.rain.sdk.models.RainApiEnvironment
 import com.rain.sdk.RainAuthPullConfig
+import com.rain.sdk.models.RainApiEnvironment
 
 /**
  * Which Rain environment this build of the sample talks to.

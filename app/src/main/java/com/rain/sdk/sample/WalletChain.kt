@@ -185,7 +185,9 @@ enum class WalletChain(
 
         /** Rain's Solana chain IDs, for classifying a collateral contract's chain family. */
         val SOLANA_CHAIN_IDS = setOf(
-            RainChain.SOLANA_MAINNET, RainChain.SOLANA_TESTNET, RainChain.SOLANA_DEVNET
+            RainChain.SOLANA_MAINNET,
+            RainChain.SOLANA_TESTNET,
+            RainChain.SOLANA_DEVNET
         )
 
         /** Auth Pull chains across both environments, for spotting the other environment's set. */

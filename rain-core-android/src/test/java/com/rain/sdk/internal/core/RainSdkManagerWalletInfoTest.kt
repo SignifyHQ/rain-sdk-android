@@ -8,10 +8,10 @@ import com.rain.sdk.internal.helpers.TestManagers
 import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
-import java.math.BigDecimal
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import java.math.BigDecimal
 
 /**
  * Manager-contract tests for wallet-info APIs — covers `getAddress` and `getTransactions`.
@@ -21,7 +21,6 @@ import org.junit.Test
 class RainSdkManagerWalletInfoTest {
 
     // ---- getAddress --------------------------------------------------------------
-
 
     @Test
     fun `getAddress returns address from active provider`(): Unit = runBlocking {
@@ -56,7 +55,6 @@ class RainSdkManagerWalletInfoTest {
     }
 
     // ---- getTransactions ---------------------------------------------------------
-
 
     @Test
     fun `getTransactions returns empty result when provider has none`(): Unit = runBlocking {

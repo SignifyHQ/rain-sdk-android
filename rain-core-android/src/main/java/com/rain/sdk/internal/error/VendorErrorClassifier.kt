@@ -21,7 +21,9 @@ object VendorErrorClassifier {
     )
 
     val INSUFFICIENT_FUNDS_PHRASES = listOf(
-        "insufficient funds", "insufficient balance", "insufficient lamports",
+        "insufficient funds",
+        "insufficient balance",
+        "insufficient lamports",
         // Solana: "Attempt to debit an account but found no record of a prior credit".
         "found no record of a prior credit"
     )

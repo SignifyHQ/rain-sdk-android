@@ -6,17 +6,16 @@ import com.rain.sdk.internal.helpers.MockChainReader
 import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
-import com.turnkey.core.models.Wallet
 import com.turnkey.types.V1AssetBalance
 import com.turnkey.types.V1HashFunction
 import com.turnkey.types.V1PayloadEncoding
 import com.turnkey.types.V1SignRawPayloadResult
-import java.math.BigDecimal
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
+import java.math.BigDecimal
 
 class TurnkeyWalletProviderTest {
 
@@ -177,19 +176,25 @@ class TurnkeyWalletProviderTest {
                     balance = "1500000000000000000",
                     caip19 = "eip155:1/slip44:60",
                     decimals = 18L,
-                    display = null, name = null, symbol = null
+                    display = null,
+                    name = null,
+                    symbol = null
                 ),
                 V1AssetBalance(
                     balance = "100500000",
                     caip19 = "eip155:1/erc20:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
                     decimals = 6L,
-                    display = null, name = null, symbol = null
+                    display = null,
+                    name = null,
+                    symbol = null
                 ),
                 V1AssetBalance(
                     balance = "2000000000000000000",
                     caip19 = "eip155:1/erc20:0x6b175474e89094c44da98b954eedeac495271d0f",
                     decimals = 18L,
-                    display = null, name = null, symbol = null
+                    display = null,
+                    name = null,
+                    symbol = null
                 )
             )
         )

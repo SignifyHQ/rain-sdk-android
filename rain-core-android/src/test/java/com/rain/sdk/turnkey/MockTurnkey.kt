@@ -1,11 +1,8 @@
 package com.rain.sdk.turnkey
 
-import com.turnkey.core.TurnkeyContext
 import com.turnkey.core.models.AuthState
 import com.turnkey.core.models.Session
 import com.turnkey.core.models.Wallet
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import com.turnkey.types.Externaldatav1Timestamp
 import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TEthSendTransactionResponse
@@ -28,7 +25,6 @@ import com.turnkey.types.V1Curve
 import com.turnkey.types.V1EthSendTransactionIntent
 import com.turnkey.types.V1EthSendTransactionResult
 import com.turnkey.types.V1EthSendTransactionStatus
-import com.turnkey.types.V1SolanaSendTransactionStatus
 import com.turnkey.types.V1HashFunction
 import com.turnkey.types.V1Intent
 import com.turnkey.types.V1PathFormat
@@ -37,7 +33,10 @@ import com.turnkey.types.V1Result
 import com.turnkey.types.V1SignRawPayloadResult
 import com.turnkey.types.V1SolSendTransactionIntent
 import com.turnkey.types.V1SolSendTransactionResult
+import com.turnkey.types.V1SolanaSendTransactionStatus
 import com.turnkey.types.V1WalletAccount
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import java.util.UUID
 
 internal class MockTurnkeyClient(
@@ -289,6 +288,7 @@ internal class MockTurnkey(
 
     companion object {
         const val DEFAULT_WALLET_ADDRESS = "0x1234567890123456789012345678901234567890"
+
         // Valid 32-byte base58 pubkeys (wrapped-SOL mint and USDC mint) reused as test addresses.
         const val DEFAULT_SOLANA_ADDRESS = "So11111111111111111111111111111111111111112"
         const val DEFAULT_SOLANA_RECIPIENT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"

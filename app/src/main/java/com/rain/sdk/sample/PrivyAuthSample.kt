@@ -3,9 +3,9 @@ package com.rain.sdk.sample
 import android.app.Application
 import io.privy.auth.AuthState
 import io.privy.auth.LinkedAccount
+import io.privy.logging.PrivyLogLevel
 import io.privy.sdk.Privy
 import io.privy.sdk.PrivyConfig
-import io.privy.logging.PrivyLogLevel
 
 /**
  * Sample-app glue that drives Privy's Android SDK end-to-end (init, email OTP, embedded-wallet

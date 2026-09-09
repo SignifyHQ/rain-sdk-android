@@ -7,9 +7,7 @@ import com.rain.sdk.internal.helpers.TestManagers
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import kotlinx.coroutines.runBlocking
-import org.junit.After
 import org.junit.Assert.assertThrows
-import org.junit.Before
 import org.junit.Test
 import java.math.BigInteger
 
@@ -52,8 +50,6 @@ class RainSdkManagerDeprecatedApiTest {
         name = "Dai"
     )
 
-
-
     @Test
     fun `deprecated getBalances keys native under empty string and contracts by provider address verbatim`(): Unit =
         runBlocking {
@@ -63,8 +59,8 @@ class RainSdkManagerDeprecatedApiTest {
             val map = manager.getBalances(chainId = 1)
 
             assertThat(map[""]).isEqualTo(1.5)
-            assertThat(map[daiChecksummed]).isEqualTo(2.0)         // exact case preserved
-            assertThat(map[daiChecksummed.lowercase()]).isNull()   // NOT lowercased — matches main
+            assertThat(map[daiChecksummed]).isEqualTo(2.0) // exact case preserved
+            assertThat(map[daiChecksummed.lowercase()]).isNull() // NOT lowercased — matches main
             assertThat(map).hasSize(2)
         }
 

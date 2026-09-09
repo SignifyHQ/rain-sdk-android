@@ -5,7 +5,6 @@ import com.rain.sdk.internal.constants.SolanaPrograms
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.MockRpcServer
 import com.rain.sdk.internal.helpers.SolanaWithdrawFixtures
-import java.math.BigInteger
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -13,6 +12,7 @@ import org.junit.After
 import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
+import java.math.BigInteger
 
 /**
  * End-to-end composition test against real devnet fixtures: the account data, addresses,

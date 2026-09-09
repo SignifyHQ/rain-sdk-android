@@ -1,8 +1,8 @@
 package com.rain.sdk.internal.network.rainapi
 
-import java.time.Instant
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.time.Instant
 
 /** A minted client session token plus its parsed expiry (null when unparseable). */
 internal data class RainSession(val token: String, val expiresAt: Instant?)

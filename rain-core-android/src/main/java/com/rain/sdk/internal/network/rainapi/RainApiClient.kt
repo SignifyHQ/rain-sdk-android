@@ -142,7 +142,9 @@ internal class RainApiClient(
                 status = status.ifBlank { "unknown" },
                 retryAfter = if (json.has("retryAfter") && !json.isNull("retryAfter")) {
                     json.optInt("retryAfter")
-                } else null,
+                } else {
+                    null
+                },
             )
         }
         return RainAdminSignature(
@@ -217,7 +219,9 @@ internal class RainApiClient(
             },
             contractVersion = if (json.has("contractVersion") && !json.isNull("contractVersion")) {
                 json.optInt("contractVersion")
-            } else null,
+            } else {
+                null
+            },
             tokens = tokens,
         )
     }

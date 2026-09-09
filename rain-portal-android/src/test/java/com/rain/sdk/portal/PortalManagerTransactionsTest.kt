@@ -11,8 +11,8 @@ import io.mockk.mockk
 import io.mockk.spyk
 import io.mockk.unmockkAll
 import io.portalhq.android.Portal
-import io.portalhq.android.exceptions.PortalException
 import io.portalhq.android.api.data.Transaction
+import io.portalhq.android.exceptions.PortalException
 import io.portalhq.android.mpc.data.FeatureFlags
 import io.portalhq.android.provider.data.RequestOptions
 import kotlinx.coroutines.runBlocking

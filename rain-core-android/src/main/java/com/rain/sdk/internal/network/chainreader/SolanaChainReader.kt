@@ -1,10 +1,10 @@
 package com.rain.sdk.internal.network.chainreader
 
 import com.rain.sdk.internal.constants.SolanaChains
+import com.rain.sdk.internal.constants.SolanaPrograms
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.solana.Base58
 import com.rain.sdk.internal.solana.SolanaAddresses
-import com.rain.sdk.internal.constants.SolanaPrograms
 import com.rain.sdk.internal.solana.SolanaRpcClient
 import com.rain.sdk.internal.solana.SolanaTokenAccount
 import com.rain.sdk.models.Balance

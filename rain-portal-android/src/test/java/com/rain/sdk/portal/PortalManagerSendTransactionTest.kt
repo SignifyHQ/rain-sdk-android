@@ -15,7 +15,6 @@ import io.portalhq.android.provider.data.PortalProviderResult
 import io.portalhq.android.provider.data.PortalProviderRpcResponse
 import io.portalhq.android.provider.data.PortalRequestMethod
 import io.portalhq.android.provider.data.RequestOptions
-import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
@@ -23,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Test
+import java.io.IOException
 
 /**
  * Hash resolution inside [PortalManager.sendTransaction]: a hash the chain can answer for is

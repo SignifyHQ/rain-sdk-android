@@ -228,7 +228,10 @@ class HomeViewModel(
         if (_state.value.sessionToken.isBlank()) return
 
         val tokenMask = SampleLog.maskToken(_state.value.sessionToken)
-        SampleLog.i("Portal.init", "calling initializePortal sessionToken=$tokenMask chainId=${RainChain.AVALANCHE_TESTNET}")
+        SampleLog.i(
+            "Portal.init",
+            "calling initializePortal sessionToken=$tokenMask chainId=${RainChain.AVALANCHE_TESTNET}"
+        )
         _state.update { it.copy(isLoading = true, statusText = "Initializing Portal...") }
 
         // Hooks outlive this call: capture the state holder, not the ViewModel.
@@ -455,7 +458,11 @@ class HomeViewModel(
                     }
                 )
                 val evmAddress = runCatching { session.client?.getWalletAddress(WalletChain.EVM.chainId) }.getOrNull()
-                val solAddress = runCatching { session.client?.getWalletAddress(WalletChain.SOLANA.chainId) }.getOrNull()
+                val solAddress = runCatching {
+                    session.client?.getWalletAddress(
+                        WalletChain.SOLANA.chainId
+                    )
+                }.getOrNull()
                 SampleLog.i(
                     "Turnkey.rainInit",
                     "success — isInitialized=${session.isInitialized} evm=$evmAddress sol=$solAddress"
@@ -616,7 +623,11 @@ class HomeViewModel(
                     }
                 )
                 val evmAddress = runCatching { session.client?.getWalletAddress(WalletChain.EVM.chainId) }.getOrNull()
-                val solAddress = runCatching { session.client?.getWalletAddress(WalletChain.SOLANA.chainId) }.getOrNull()
+                val solAddress = runCatching {
+                    session.client?.getWalletAddress(
+                        WalletChain.SOLANA.chainId
+                    )
+                }.getOrNull()
                 SampleLog.i(
                     "Privy.rainInit",
                     "success — isInitialized=${session.isInitialized} evm=$evmAddress sol=$solAddress"
