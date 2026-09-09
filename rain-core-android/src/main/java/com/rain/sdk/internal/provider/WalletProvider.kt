@@ -36,6 +36,26 @@ interface WalletProvider {
     val capabilities: Set<Capability> get() = emptySet()
 
     /**
+     * Refuses a send on [chainId] before any work starts. Core calls this at the top of every
+     * flow that signs and broadcasts (withdrawals, Auth Pull approvals), so a chain the provider
+     * cannot broadcast on fails closed before the contract reads and the signing prompt rather
+     * than after them. A provider that can broadcast on every configured chain keeps the no-op
+     * default; the bundled Turnkey adapter consults its broadcast-chain registry.
+     *
+     * @throws RainError.ChainNotSupported when this provider cannot broadcast on [chainId].
+     */
+    fun requireSendSupport(chainId: Int) {}
+
+    /**
+     * True when this provider pays the network fee for sends on [chainId], so core skips the
+     * self-paid preflights that would charge the fee to the wallet: the Solana withdrawal dry run,
+     * and the withdrawal fee estimate that would sign only to quote a fee the user never pays.
+     * The per-chain refinement of [Capability.GAS_SPONSORSHIP]: a provider may sponsor only where
+     * it can broadcast. Defaults to advertising the capability.
+     */
+    fun sponsorsFees(chainId: Int): Boolean = Capability.GAS_SPONSORSHIP in capabilities
+
+    /**
      * Gets the current wallet address.
      */
     suspend fun getWalletAddress(): String

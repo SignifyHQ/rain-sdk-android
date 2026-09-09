@@ -64,7 +64,7 @@ class SendTokensViewModel(
         }
     }
 
-    fun sendNative(chain: WalletChain = WalletChain.EVM) {
+    fun sendNative(chain: WalletChain = WalletChain.BASE_SEPOLIA) {
         val current = _state.value
         val amount = current.amount.toBigDecimalOrNull()
         if (amount == null || amount <= BigDecimal.ZERO) {
@@ -116,7 +116,7 @@ class SendTokensViewModel(
      * the same [RainClient.sendToken] call — the SDK routes on the chain id, resolves the token's
      * decimals itself, and on Solana creates the recipient's token account if they lack one.
      */
-    fun sendTokenTransfer(chain: WalletChain = WalletChain.EVM) {
+    fun sendTokenTransfer(chain: WalletChain = WalletChain.BASE_SEPOLIA) {
         val current = _state.value
         val logTag = if (chain.isSolana) "Send.spl" else "Send.erc20"
         val amount = current.amount.toBigDecimalOrNull()
@@ -190,9 +190,9 @@ class SendTokensViewModel(
  */
 data class SendTokensUiState(
     val isTokenMode: Boolean = false,
-    val recipientAddress: String = WalletChain.EVM.defaultRecipient,
+    val recipientAddress: String = WalletChain.BASE_SEPOLIA.defaultRecipient,
     val amount: String = "0.001",
-    val contractAddress: String = WalletChain.EVM.defaultTokenAddress,
+    val contractAddress: String = WalletChain.BASE_SEPOLIA.defaultTokenAddress,
     val isSending: Boolean = false,
     val txHash: String? = null,
     val errorText: String? = null

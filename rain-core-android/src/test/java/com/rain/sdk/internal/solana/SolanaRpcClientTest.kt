@@ -319,6 +319,35 @@ class SolanaRpcClientTest {
     }
 
     @Test
+    fun `getTransaction lists every required signer with the fee payer first`(): Unit = runBlocking {
+        // A sponsored send: the sponsor's key pays, the wallet is the second required signer,
+        // and the token account is a plain (non-signing) account.
+        val sponsor = "SponsorFeePayer1111111111111111111111111111"
+        val value = transactionValue(feePayer = sponsor, err = JSONObject.NULL)
+        value.getJSONObject("transaction").getJSONObject("message")
+            .put("header", JSONObject().put("numRequiredSignatures", 2))
+            .put("accountKeys", JSONArray().put(sponsor).put(wallet).put(tokenAccount))
+        rpc.stubObject("getTransaction", value)
+
+        val record = client().getTransaction(url(), "sig")!!
+
+        assertThat(record.signers).containsExactly(sponsor, wallet).inOrder()
+        assertThat(record.feePayer).isEqualTo(sponsor)
+        assertThat(record.signedBy(wallet)).isTrue()
+        assertThat(record.signedBy(tokenAccount)).isFalse()
+    }
+
+    @Test
+    fun `getTransaction treats a missing header as a single-signer transaction`(): Unit = runBlocking {
+        rpc.stubObject("getTransaction", transactionValue(feePayer = wallet, err = JSONObject.NULL))
+
+        val record = client().getTransaction(url(), "sig")!!
+
+        assertThat(record.signers).containsExactly(wallet)
+        assertThat(record.signedBy(tokenAccount)).isFalse()
+    }
+
+    @Test
     fun `getTransaction returns null for a signature the cluster does not know`(): Unit = runBlocking {
         rpc.stubObject("getTransaction", JSONObject.NULL)
 

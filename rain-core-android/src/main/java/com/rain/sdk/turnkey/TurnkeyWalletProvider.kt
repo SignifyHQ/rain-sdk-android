@@ -29,7 +29,9 @@ import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.utils.EthereumConverter
 import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TGetActivitiesBody
+import com.turnkey.types.TGetNoncesBody
 import com.turnkey.types.TGetSendTransactionStatusBody
+import com.turnkey.types.TGetSendTransactionStatusResponse
 import com.turnkey.types.TGetWalletAddressBalancesBody
 import com.turnkey.types.TSolSendTransactionBody
 import com.turnkey.types.V1ActivityType
@@ -77,14 +79,28 @@ internal class TurnkeyWalletProvider(
     solanaSupport: SolanaSupport? = null,
     tokenStore: TokenMetadataStore? = null,
     history: TurnkeyHistoryProtocol? = null,
-    sessionCoordinator: TurnkeySessionCoordinator? = null
+    sessionCoordinator: TurnkeySessionCoordinator? = null,
+    private val sponsorGas: Boolean = false
 ) : WalletProvider {
 
     override val id: ProviderId get() = ProviderId.TURNKEY
 
-    /** Turnkey holds EVM + Solana accounts (multi-chain) and gates signing behind passkeys/biometrics. */
-    override val capabilities: Set<Capability>
-        get() = setOf(Capability.MULTI_CHAIN, Capability.BIOMETRIC_GATE)
+    /**
+     * Turnkey holds EVM + Solana accounts (multi-chain) and gates signing behind passkeys/biometrics.
+     * With [sponsorGas] on it also advertises [Capability.GAS_SPONSORSHIP], which tells core to
+     * skip the self-paid preflights that would charge the fee to the wallet (the Solana
+     * collateral-withdrawal dry run) when composing transactions this provider will sign.
+     * Shared with [TurnkeyProvider] through [capabilitiesFor]: `RainSdk` copies the descriptor's
+     * set onto the resolved client, so the two must never disagree.
+     */
+    override val capabilities: Set<Capability> get() = capabilitiesFor(sponsorGas)
+
+    /** Core's up-front gate for withdrawals and approvals; the registry answers, as for transfers. */
+    override fun requireSendSupport(chainId: Int) = TurnkeyBroadcastChains.requireSendSupport(chainId)
+
+    /** Sponsorship applies exactly where Turnkey can broadcast; elsewhere the wallet pays. */
+    override fun sponsorsFees(chainId: Int): Boolean =
+        sponsorGas && TurnkeyBroadcastChains.supportsSend(chainId)
 
     private val jsonRpcClient: JsonRpcClient = jsonRpcClient
     private val chainReader: ChainReader = chainReader
@@ -140,7 +156,20 @@ internal class TurnkeyWalletProvider(
         }
     }
 
-    private companion object {
+    internal companion object {
+        /**
+         * The capabilities a Turnkey provider advertises for a given [sponsorGas] setting. The one
+         * source for both the [TurnkeyProvider] descriptor (what hosts see through
+         * `client.capabilities` and `rain.first { }`) and the wallet provider it creates (what core
+         * reads when composing transactions), so a host and core can never disagree about
+         * whether this provider's sends are sponsored.
+         */
+        fun capabilitiesFor(sponsorGas: Boolean): Set<Capability> = buildSet {
+            add(Capability.MULTI_CHAIN)
+            add(Capability.BIOMETRIC_GATE)
+            if (sponsorGas) add(Capability.GAS_SPONSORSHIP)
+        }
+
         const val DEFAULT_NATIVE_DECIMALS = 18
         const val DEFAULT_POLLING_ATTEMPTS = 30
         const val POLLING_INTERVAL_MS = 1_000L
@@ -254,13 +283,14 @@ internal class TurnkeyWalletProvider(
         toAddress: String,
         amountInEth: BigDecimal
     ): String {
+        TurnkeyBroadcastChains.requireSendSupport(chainId)
         if (SolanaChains.isSolanaChain(chainId)) {
             return sendSolanaNative(chainId, toAddress, amountInEth)
         }
         val from = getWalletAddress(chainId)
         val decimals = tokenStore.nativeCurrency(chainId).decimals
         val valueHex = EthereumConverter.convertEthToWeiHex(amountInEth, decimals)
-        return sendTransaction(
+        return sendEvmTransaction(
             chainId = chainId,
             from = from,
             to = toAddress,
@@ -276,6 +306,7 @@ internal class TurnkeyWalletProvider(
         amount: BigDecimal,
         decimals: Int
     ): String {
+        TurnkeyBroadcastChains.requireSendSupport(chainId)
         if (SolanaChains.isSolanaChain(chainId)) {
             // `decimals` is deliberately unread — it is not authoritative here. sendSolanaSplToken
             // reads the mint's own scale from the chain, which `TransferChecked` then enforces.
@@ -283,7 +314,7 @@ internal class TurnkeyWalletProvider(
         }
         val from = getWalletAddress(chainId)
         val data = Erc20Abi.encodeTransfer(toAddress, amount, decimals)
-        return sendTransaction(
+        return sendEvmTransaction(
             chainId = chainId,
             from = from,
             to = contractAddress,
@@ -294,27 +325,50 @@ internal class TurnkeyWalletProvider(
 
     // ---------- low-level send / sign / fee ----------
 
+    /**
+     * Raw sends follow [sponsorGas] exactly like the transfer entries. Withdrawals, Auth Pull
+     * approvals, and host-composed calldata arrive here, and Turnkey sponsors any
+     * `ethSendTransaction`, not just plain transfers. A zero-balance card user's first action
+     * is often the Auth Pull approval, so leaving these self-paid would defeat the feature and
+     * would make the zero fee estimate wrong for exactly these flows. Sponsorship cost passes
+     * through to the partner that turned the flag on.
+     */
     override suspend fun sendTransaction(
         chainId: Int,
         from: String,
         to: String,
         data: String,
         value: String
-    ): String = evmSendLock.withLock {
-        requireEvmChain(chainId, "sendTransaction")
-        // The body is rebuilt on a refresh-and-retry so the nonce and gas quotes stay fresh.
-        val statusId = sessions.executeWrite { session, client ->
-            val sendBody = buildSendTransactionBody(
-                session = session,
-                chainId = chainId,
-                from = from,
-                to = to,
-                data = data,
-                value = value
-            )
-            client.ethSendTransaction(sendBody).result.sendTransactionStatusId
+    ): String = sendEvmTransaction(chainId, from, to, data, value)
+
+    /** Every EVM send, transfer or raw, follows [sponsorGas]; there is no per-call override. */
+    private suspend fun sendEvmTransaction(
+        chainId: Int,
+        from: String,
+        to: String,
+        data: String,
+        value: String
+    ): String {
+        // Every EVM broadcast funnels through here, so this gate also covers the paths the
+        // public transfer entries never see: withdrawals, approvals, and raw sends.
+        TurnkeyBroadcastChains.requireSendSupport(chainId)
+        return evmSendLock.withLock {
+            requireEvmChain(chainId, "sendTransaction")
+            // The body is rebuilt on a refresh-and-retry so the nonce and gas quotes stay fresh.
+            val statusId = sessions.executeWrite { session, client ->
+                val sendBody = buildSendTransactionBody(
+                    session = session,
+                    client = client,
+                    chainId = chainId,
+                    from = from,
+                    to = to,
+                    data = data,
+                    value = value
+                )
+                client.ethSendTransaction(sendBody).result.sendTransactionStatusId
+            }
+            pollForTransactionHash(statusId)
         }
-        pollForTransactionHash(statusId)
     }
 
     override suspend fun signTypedData(
@@ -342,6 +396,13 @@ internal class TurnkeyWalletProvider(
         value: String
     ): BigDecimal {
         requireEvmChain(chainId, "estimateTransactionFee")
+        if (sponsorsFees(chainId)) {
+            // Every EVM send is sponsored under this flag, so zero is the honest quote for
+            // transfers, withdrawals, and approvals alike (product decision: pass through what
+            // Turnkey charges the sender, which is nothing). Estimating as if the sender paid
+            // would also reject the zero-balance wallets sponsorship serves.
+            return BigDecimal.ZERO
+        }
         val estimateHex = rpcCallForHex(
             chainId = chainId,
             method = "eth_estimateGas",
@@ -1090,12 +1151,46 @@ internal class TurnkeyWalletProvider(
 
     private suspend fun buildSendTransactionBody(
         session: com.turnkey.core.models.Session,
+        client: TurnkeyClientProtocol,
         chainId: Int,
         from: String,
         to: String,
         data: String,
         value: String
     ): TEthSendTransactionBody {
+        if (sponsorGas) {
+            // Sponsored sends are minimal payloads. Turnkey's Gas Station builds and fee-covers
+            // the outer EIP-7702 transaction, so this wallet's account nonce and self-estimated
+            // fees are the wrong values to pin (the outer tx is not this account's). Estimating
+            // gas as if the sender paid would also reject the zero-balance wallets sponsorship
+            // exists for. Null fields are omitted from the wire payload and auto-filled by
+            // Turnkey.
+            //
+            // Replay protection is the gas-station nonce, and Turnkey's one-transaction-per-
+            // request guarantee holds only when the request carries it. Turnkey's other SDKs
+            // attach it by default; the Kotlin client forwards what it is given, so it is
+            // fetched here with one Turnkey call (not a chain RPC, so zero-balance wallets are
+            // unaffected) and refetched on every refresh-and-retry rebuild. A null from Turnkey
+            // is omitted, which falls back to their server-side fetch.
+            val gasStationNonce = client.getNonces(
+                TGetNoncesBody(
+                    organizationId = session.organizationId,
+                    address = from,
+                    caip2 = ChainIdFormat.EIP155.format(chainId),
+                    gasStationNonce = true
+                )
+            ).gasStationNonce
+            return TEthSendTransactionBody(
+                organizationId = session.organizationId,
+                caip2 = ChainIdFormat.EIP155.format(chainId),
+                data = data.ifEmpty { "0x" },
+                from = from,
+                gasStationNonce = gasStationNonce,
+                sponsor = true,
+                to = to,
+                value = decimalStringFromHex(value)
+            )
+        }
         val nonceHex = rpcCallForHex(
             chainId = chainId,
             method = "eth_getTransactionCount",
@@ -1179,12 +1274,7 @@ internal class TurnkeyWalletProvider(
                 normalized.contains("REJECTED") ||
                 status.txError != null ||
                 status.error?.message != null
-            if (failed) {
-                val message = status.txError
-                    ?: status.error?.message
-                    ?: "Turnkey transaction submission failed"
-                throw RainError.ProviderError(IllegalStateException(message))
-            }
+            if (failed) throw statusFailure(status, "Turnkey transaction submission failed")
 
             if (attempt + 1 < DEFAULT_POLLING_ATTEMPTS) {
                 delay(pollingIntervalMs)
@@ -1195,6 +1285,24 @@ internal class TurnkeyWalletProvider(
         // may still confirm. Carrying the status id lets the host resume polling instead of
         // resending, which would risk a duplicate transfer.
         throw RainError.TransactionPending(sendTransactionStatusId)
+    }
+
+    /**
+     * The error for a terminal failed status. A decoded execution failure (Turnkey's `txError`,
+     * or per-chain revert details) is the chain rejecting the transaction, the same fact a
+     * self-paid preflight would have caught, so it is the simulation error and withdrawals map
+     * it to [RainError.WithdrawalRevertedByNetwork] on both the self-paid and sponsored paths.
+     * A failure without those details (a policy rejection, a submission that never reached the
+     * chain) stays a provider error.
+     */
+    private fun statusFailure(status: TGetSendTransactionStatusResponse, fallback: String): RainError {
+        val message = status.txError ?: status.error?.message ?: fallback
+        val reverted = status.txError != null || status.error?.eth != null || status.error?.solana != null
+        return if (reverted) {
+            RainError.TransactionSimulationFailed(IllegalStateException(message))
+        } else {
+            RainError.ProviderError(IllegalStateException(message))
+        }
     }
 
     // ---------- Solana send ----------
@@ -1221,19 +1329,27 @@ internal class TurnkeyWalletProvider(
         amount: BigDecimal
     ): String {
         val from = getWalletAddress(chainId)
-        val unsigned =
-            solanaTransferComposer.composeSplToken(chainId, from, mintAddress, toAddress, amount)
+        val unsigned = solanaTransferComposer.composeSplToken(
+            chainId, from, mintAddress, toAddress, amount, sponsoredFees = sponsorGas
+        )
         return submitSolanaTransaction(chainId, from, unsigned)
     }
 
     /**
      * Signs and broadcasts a core-composed Solana transaction (e.g. a collateral withdrawal)
-     * with the Turnkey Solana account. The fee payer is always this wallet.
+     * with the Turnkey Solana account. Follows [sponsorGas] like every other send: with it on,
+     * Turnkey covers the fee, and because this provider then advertises
+     * [Capability.GAS_SPONSORSHIP], core composes the withdrawal without its self-paid dry run
+     * (which would charge the fee to a wallet that pays none). The composed message is submitted
+     * as-is either way.
      */
     override suspend fun sendSolanaTransaction(
         chainId: Int,
         unsigned: UnsignedSolanaTransfer
-    ): String = submitSolanaTransaction(chainId, getWalletAddress(chainId), unsigned)
+    ): String {
+        TurnkeyBroadcastChains.requireSendSupport(chainId)
+        return submitSolanaTransaction(chainId, getWalletAddress(chainId), unsigned)
+    }
 
     /**
      * Signs and broadcasts a composed transfer through Turnkey, then resolves the signature:
@@ -1246,6 +1362,9 @@ internal class TurnkeyWalletProvider(
         from: String,
         unsigned: UnsignedSolanaTransfer
     ): String {
+        // Every Solana broadcast funnels through here; gate it like the EVM funnel so no
+        // future caller can reach solSendTransaction on an unsupported cluster.
+        TurnkeyBroadcastChains.requireSendSupport(chainId)
         val rpcUrl = rpcEndpoints[chainId]
             ?: throw RainError.InvalidConfig("No RPC endpoint configured for chainId=$chainId")
 
@@ -1259,7 +1378,13 @@ internal class TurnkeyWalletProvider(
                     organizationId = session.organizationId,
                     unsignedTransaction = unsigned.transactionHex,
                     signWith = from,
-                    sponsor = false,
+                    // Sponsored: Turnkey covers the fee. Turnkey documents the construction rules
+                    // for sponsored Solana sends (the System Program among the static keys, one
+                    // signer) but not whether its own key replaces the fee payer or it pre-funds
+                    // this wallet; signature recovery below matches on signers, so it holds
+                    // either way. The payer model still needs a devnet validation run before
+                    // sponsorship is relied on in sandbox.
+                    sponsor = sponsorGas,
                     caip2 = SolanaChains.caip2(chainId),
                     recentBlockhash = unsigned.recentBlockhash
                 )
@@ -1283,8 +1408,10 @@ internal class TurnkeyWalletProvider(
     }
 
     /**
-     * Newest post-baseline signature that is a confirmed transaction fee-paid by [from] with no
-     * on-chain error, or null when none of them is.
+     * Newest post-baseline signature that is a confirmed transaction signed by [from] with no
+     * on-chain error, or null when none of them is. Matching on the signers rather than the fee
+     * payer keeps sponsored sends recoverable: the sponsor may pay, but this wallet always signs
+     * its own send, and a deposit from elsewhere never carries its signature.
      */
     private suspend fun findOwnConfirmedSignature(
         rpcUrl: String,
@@ -1295,7 +1422,7 @@ internal class TurnkeyWalletProvider(
         for (signature in candidates) {
             if (signature == priorSignature) continue
             val record = solanaRpcClient.getTransaction(rpcUrl, signature) ?: continue
-            if (record.feePayer == from && record.succeeded) return signature
+            if (record.signedBy(from) && record.succeeded) return signature
         }
         return null
     }
@@ -1341,12 +1468,7 @@ internal class TurnkeyWalletProvider(
                 status.error?.message != null ||
                 normalized.contains("FAILED") ||
                 normalized.contains("REJECTED")
-            if (failed) {
-                val message = status.txError
-                    ?: status.error?.message
-                    ?: "Turnkey Solana transaction submission failed"
-                throw RainError.ProviderError(IllegalStateException(message))
-            }
+            if (failed) throw statusFailure(status, "Turnkey Solana transaction submission failed")
 
             // Turnkey SDK 2.0 populates solana.signature once the tx is Included.
             status.solana?.signature?.takeIf { it.isNotEmpty() }?.let { return it }

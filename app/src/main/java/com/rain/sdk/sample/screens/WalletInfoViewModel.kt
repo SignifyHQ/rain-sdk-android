@@ -22,7 +22,7 @@ class WalletInfoViewModel(
     private val _state = MutableStateFlow(WalletInfoUiState())
     val state: StateFlow<WalletInfoUiState> = _state.asStateFlow()
 
-    fun fetchWalletInfo(chain: WalletChain = WalletChain.EVM) {
+    fun fetchWalletInfo(chain: WalletChain = WalletChain.BASE_SEPOLIA) {
         SampleLog.i("WalletInfo", "fetching wallet info chain=${chain.displayName}")
         _state.update {
             it.copy(

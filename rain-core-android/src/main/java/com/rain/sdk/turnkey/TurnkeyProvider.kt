@@ -30,12 +30,27 @@ import kotlinx.coroutines.withContext
  *                         coroutine's thread or a watcher thread; hop to the main thread before
  *                         touching UI, and never call back into the SDK synchronously from it.
  *                         Restart authentication from here.
+ * @param sponsorGas When true, every EVM send on a Turnkey broadcast chain is sponsored —
+ *                   transfers, collateral withdrawals, Auth Pull approvals, and raw
+ *                   `sendTransaction` calls alike: Turnkey's Gas Station builds and pays the
+ *                   fee (gasless for the end user) and fee estimates return zero. Sponsorship
+ *                   cost passes through to the partner that turns this on. Solana sends are
+ *                   sponsored too (network fee only: rent for a first-time recipient's token
+ *                   account is a separate Turnkey toggle, off by default, so the sender must
+ *                   still hold it). Turnkey does not document its Solana payer model, so run
+ *                   the devnet validation before enabling this against Solana in sandbox.
+ *                   Defaults to true: sponsorship is the product, and Turnkey enables it at the
+ *                   parent-organization level. On an organization where it is not enabled,
+ *                   Turnkey rejects sponsored sends, so pass false there (Rain ops enables it
+ *                   per Turnkey organization). Sponsored sends have no client-side revert
+ *                   preflight; failures surface through Turnkey's decoded FAILED status.
  */
 class TurnkeyConfig(
     val turnkey: TurnkeyContext,
     val walletAddress: String? = null,
     val sessionPolicy: TurnkeySessionPolicy = TurnkeySessionPolicy(),
     val onSessionExpired: (() -> Unit)? = null,
+    val sponsorGas: Boolean = true,
 )
 
 /**
@@ -55,9 +70,14 @@ class TurnkeyProvider internal constructor(
 
     override val id: ProviderId get() = ProviderId.TURNKEY
 
-    /** Turnkey holds EVM + Solana accounts and gates signing behind passkeys/biometrics. */
+    /**
+     * Turnkey holds EVM + Solana accounts and gates signing behind passkeys/biometrics; with
+     * [TurnkeyConfig.sponsorGas] on it also advertises [Capability.GAS_SPONSORSHIP]. `RainSdk`
+     * copies this set onto the resolved client, so it comes from the same function as the wallet
+     * provider's own set and the two cannot drift.
+     */
     override val capabilities: Set<Capability> =
-        setOf(Capability.MULTI_CHAIN, Capability.BIOMETRIC_GATE)
+        TurnkeyWalletProvider.capabilitiesFor(config.sponsorGas)
 
     private val turnkeyContext: TurnkeyContextProtocol by lazy {
         contextOverride ?: TurnkeyContextAdapter(config.turnkey)
@@ -115,6 +135,7 @@ class TurnkeyProvider internal constructor(
             solanaSupport = context.solanaSupport,
             tokenStore = context.tokenStore,
             sessionCoordinator = coordinator,
+            sponsorGas = config.sponsorGas,
         )
 
         // Probe — ensures Turnkey has an EVM wallet available before the provider is handed out.
