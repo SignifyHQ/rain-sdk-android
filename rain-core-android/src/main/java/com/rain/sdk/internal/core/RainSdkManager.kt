@@ -148,11 +148,14 @@ internal class RainSdkManager(
     adminSignature: RainAdminSignature,
     nonce: BigInteger?
   ): String {
+    // Before the contract reads and the signing prompt: a chain the provider cannot broadcast
+    // on fails closed here, not after the user has authorised a withdrawal that cannot go out.
+    walletProvider.requireSendSupport(chainId)
     if (SolanaChains.isSolanaChain(chainId)) {
-      // Same error contract as the EVM path: a self-paid simulation revert ->
-      // WithdrawalRevertedByNetwork, and raw parsing/decoding exceptions never escape unmapped.
-      // A fee-sponsored provider skips that dry run (Capability.GAS_SPONSORSHIP), so a revert
-      // then surfaces from its send status as ProviderError.
+      // Same error contract as the EVM path: a simulation revert -> WithdrawalRevertedByNetwork,
+      // and raw parsing/decoding exceptions never escape unmapped. A fee-sponsored provider skips
+      // the self-paid dry run; a revert it reports after broadcast arrives as the same
+      // TransactionSimulationFailed, so the mapping holds on both paths.
       return transactionCoordinator.withWithdrawalErrors("Withdraw collateral") {
         val unsigned = composeSolanaWithdrawal(chainId, addresses, amount, decimals, adminSignature)
         walletProvider.sendSolanaTransaction(chainId, unsigned)
@@ -172,6 +175,8 @@ internal class RainSdkManager(
     adminSignature: RainAdminSignature,
     nonce: BigInteger?
   ): RainPreparedWithdrawal {
+    // Preparing signs too, so it is gated like the broadcast.
+    walletProvider.requireSendSupport(chainId)
     if (SolanaChains.isSolanaChain(chainId)) {
       return transactionCoordinator.withWithdrawalErrors("Prepare withdrawal") {
         RainPreparedWithdrawal.Solana(
@@ -220,7 +225,7 @@ internal class RainSdkManager(
       adminSignature = adminSignature,
       // A fee-sponsored provider (Turnkey with sponsorGas) pays the network fee, so the composer
       // must not dry-run as if the owner paid: a zero-SOL wallet would false-fail before the send.
-      sponsoredFees = Capability.GAS_SPONSORSHIP in walletProvider.capabilities
+      sponsoredFees = walletProvider.sponsorsFees(chainId)
     )
   }
 
@@ -268,6 +273,9 @@ internal class RainSdkManager(
     if (SolanaChains.isSolanaChain(chainId)) {
       throw RainError.InternalError("Withdrawal fee estimation is not supported on Solana")
     }
+    // A provider that sponsors the fee on this chain charges the user nothing, so zero is the
+    // honest quote, and building the withdrawal just to price it would sign for nothing.
+    if (walletProvider.sponsorsFees(chainId)) return BigDecimal.ZERO
 
     return transactionCoordinator.estimateWithdrawalFee(
       withdrawRequest(chainId, addresses, amount, decimals, adminSignature, nonce)
@@ -432,6 +440,10 @@ internal class RainSdkManager(
     amount: BigDecimal?
   ): RainTokenApprovalResult {
     return try {
+      // Configuration errors first (the documented contract), then the provider's chain gate,
+      // both before the wallet is touched.
+      validateApprovalRequest(chainId, contractAddress, spender)
+      walletProvider.requireSendSupport(chainId)
       val (from, data) = buildApproval(chainId, contractAddress, spender, amount)
       val txHash = executor.sendTransaction(
         chainId = chainId,

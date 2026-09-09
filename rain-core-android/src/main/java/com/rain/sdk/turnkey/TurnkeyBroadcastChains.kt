@@ -39,7 +39,7 @@ internal object TurnkeyBroadcastChains {
     97,         // BNB testnet
     137,        // Polygon
     80002,      // Polygon Amoy
-    143,        // Monad
+    143,        // Monad (sponsored sends that leave a delegated account under 10 MON revert; see docs)
     10143,      // Monad testnet
     4217,       // Tempo
     42431,      // Tempo Moderato (testnet)

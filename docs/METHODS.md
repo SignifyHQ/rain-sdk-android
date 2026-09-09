@@ -250,10 +250,10 @@ accounts are supported; the wallet must be the account's owner.
 
 - **Returns:** `String` — the transaction hash (EVM) or transaction signature (Solana).
 - **Throws:** `RainError` if construction, signing, or submission fails. On Turnkey, a chain outside
-  its managed-broadcast coverage throws `RainError.ChainNotSupported` (`RAIN_105`) at the broadcast
-  step, after the transaction has been built and signed. On a fee-sponsored Solana withdrawal the
-  dry run is skipped, so an on-chain revert surfaces from the provider's status as
-  `RainError.ProviderError` (`RAIN_501`) rather than `WithdrawalRevertedByNetwork`.
+  its managed-broadcast coverage throws `RainError.ChainNotSupported` (`RAIN_105`) before anything
+  is read or signed. A fee-sponsored withdrawal skips the self-paid dry run; a revert the provider
+  reports after broadcast still surfaces as `WithdrawalRevertedByNetwork`. On Solana, a recipient
+  without a token account costs the owner rent, checked up front (`InsufficientFunds`).
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
@@ -342,9 +342,9 @@ caller-supplied and embedded in the estimated calldata.
 Internally builds the EIP-712 payload, signs it with the wallet, then runs `eth_estimateGas`
 against the withdrawal controller. Nothing is broadcast.
 
-On Turnkey with `sponsorGas` enabled (the default), the result is `0` on Turnkey's broadcast chains,
-because the withdrawal will be sponsored. The EIP-712 signing step above still runs before the zero
-is returned.
+On a provider that sponsors the fee on that chain (Turnkey with `sponsorGas`, the default, on its
+broadcast chains) the result is `0` and nothing is signed or estimated: the withdrawal will be
+sponsored, so zero is the honest quote.
 
 > **Signing side effect.** The estimated calldata embeds a wallet signature the controller
 > verifies (a placeholder would revert the estimate), so estimate-then-withdraw signs twice.
@@ -373,6 +373,10 @@ Sends native tokens (e.g. ETH, AVAX, SOL) from the current wallet.
 On Turnkey, sends are refused with `RAIN_105` on chains outside Turnkey's managed-broadcast
 coverage (Avalanche, Celo, ZKsync, Plasma, and Ink are read-only there); this applies to
 `sendToken` and raw sends too. Balance and history reads are never gated.
+
+On Monad (`143`, `10143`) Turnkey's sponsorship runs through EIP-7702 delegation, and Monad reverts
+any delegated-account transaction that would leave the balance under 10 MON. A sponsored native MON
+send from a wallet below that quotes `0` and then fails on chain; token sends are unaffected.
 
 > `sendNativeToken(chainId, toAddress, amount)` is a deprecated alias that delegates to this method.
 
@@ -730,7 +734,7 @@ a capability every provider has.
 | `RECOVERY` | The wallet supports a recovery ceremony. |
 | `MULTI_CHAIN` | The provider holds accounts across multiple chain families (e.g. EVM + Solana). |
 | `BIOMETRIC_GATE` | Signing is gated behind a device biometric / passkey prompt. |
-| `GAS_SPONSORSHIP` | The provider's sends are fee-sponsored (a third party pays the network fee), so core skips self-paid preflights such as the Solana withdrawal dry run. |
+| `GAS_SPONSORSHIP` | The provider's sends are fee-sponsored (a third party pays the network fee), so core skips self-paid preflights such as the Solana withdrawal dry run and the signing step of a withdrawal fee estimate. Core's operative, per-chain check is `WalletProvider.sponsorsFees(chainId)`, which defaults to this capability. |
 
 Bundled providers: **Portal** → `EXPORT`, `RECOVERY`. **Turnkey** → `MULTI_CHAIN`, `BIOMETRIC_GATE`,
 plus `GAS_SPONSORSHIP` while `sponsorGas` is on (the default).
@@ -870,7 +874,7 @@ Format: `"RainSDK Error [CODE]: message"`
 | `RAIN_102` | `RainError.InvalidConfig` / `RainError.ProviderNotRegistered` | Invalid RPC URL, chain ID, or address format; no provider registered for the requested id; or no provider matched a capability. |
 | `RAIN_103` | `RainError.InvalidRpcUrl` | RPC URL could not be parsed as a valid URL. |
 | `RAIN_104` | `RainError.ApiNotConfigured` | A Rain API call was made before `configureRainApi(apiKey, userId)`. |
-| `RAIN_105` | `RainError.ChainNotSupported` | The active wallet provider cannot broadcast transactions on this chain (e.g. Turnkey-managed sends do not cover Avalanche); carries `chainId`. Transfers throw it before any network or wallet work; withdrawals and approvals throw it at the broadcast step, after the transaction was built and signed. Reads — balances, history, estimates — are never gated. |
+| `RAIN_105` | `RainError.ChainNotSupported` | The active wallet provider cannot broadcast transactions on this chain (e.g. Turnkey-managed sends do not cover Avalanche); carries `chainId`. Thrown before any network or wallet work on every send, withdrawals and approvals included (core asks the provider first, and the provider's broadcast funnel checks again). Reads — balances, history, estimates — are never gated. |
 | `RAIN_201` | `RainError.TokenExpired` | Provider session token expired or invalid. |
 | `RAIN_202` | `RainError.Unauthorized` | Invalid or missing token / permissions. |
 | `RAIN_301` | `RainError.NetworkError` | Network/connectivity failure. |
@@ -879,9 +883,9 @@ Format: `"RainSDK Error [CODE]: message"`
 | `RAIN_304` | `RainError.NoCollateralContracts` | The Rain API returned no collateral contracts for the user. |
 | `RAIN_401` | `RainError.UserRejected` | User cancelled the signing request in the wallet. |
 | `RAIN_402` | `RainError.InsufficientFunds` | Balance too low for the requested amount or gas. |
-| `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight `eth_call` simulation failed (e.g. contract revert, insufficient funds). |
+| `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight `eth_call` simulation failed (e.g. contract revert, insufficient funds), or the provider reported that the broadcast transaction reverted (Turnkey's decoded failure status). |
 | `RAIN_404` | `RainError.WalletUnavailable` | The backing provider returned no usable wallet address (e.g. Turnkey context has no Ethereum account). |
-| `RAIN_405` | `RainError.WithdrawalRevertedByNetwork` | Withdrawal reverted on-chain (e.g. duplicate withdrawal, already-used signature). On a fee-sponsored Solana withdrawal the dry run is skipped, so the revert surfaces from the provider's status as `RAIN_501` instead. |
+| `RAIN_405` | `RainError.WithdrawalRevertedByNetwork` | Withdrawal reverted on-chain (e.g. duplicate withdrawal, already-used signature). A fee-sponsored withdrawal skips the dry run; a revert the provider reports after broadcast maps here too. |
 | `RAIN_406` | `RainError.InvalidAmount` | The amount is invalid for the token — negative, more decimal places than the token supports, or past `uint256` max. |
 | `RAIN_407` | `RainError.WalletNotAuthorized` | The wallet is not an admin of the collateral contract; checked before a withdrawal is signed. |
 | `RAIN_501` | `RainError.ProviderError` | Portal, Turnkey, or other provider error. |

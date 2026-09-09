@@ -31,6 +31,7 @@ import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TGetActivitiesBody
 import com.turnkey.types.TGetNoncesBody
 import com.turnkey.types.TGetSendTransactionStatusBody
+import com.turnkey.types.TGetSendTransactionStatusResponse
 import com.turnkey.types.TGetWalletAddressBalancesBody
 import com.turnkey.types.TSolSendTransactionBody
 import com.turnkey.types.V1ActivityType
@@ -93,6 +94,13 @@ internal class TurnkeyWalletProvider(
      * set onto the resolved client, so the two must never disagree.
      */
     override val capabilities: Set<Capability> get() = capabilitiesFor(sponsorGas)
+
+    /** Core's up-front gate for withdrawals and approvals; the registry answers, as for transfers. */
+    override fun requireSendSupport(chainId: Int) = TurnkeyBroadcastChains.requireSendSupport(chainId)
+
+    /** Sponsorship applies exactly where Turnkey can broadcast; elsewhere the wallet pays. */
+    override fun sponsorsFees(chainId: Int): Boolean =
+        sponsorGas && TurnkeyBroadcastChains.supportsSend(chainId)
 
     private val jsonRpcClient: JsonRpcClient = jsonRpcClient
     private val chainReader: ChainReader = chainReader
@@ -388,7 +396,7 @@ internal class TurnkeyWalletProvider(
         value: String
     ): BigDecimal {
         requireEvmChain(chainId, "estimateTransactionFee")
-        if (sponsorGas && TurnkeyBroadcastChains.supportsSend(chainId)) {
+        if (sponsorsFees(chainId)) {
             // Every EVM send is sponsored under this flag, so zero is the honest quote for
             // transfers, withdrawals, and approvals alike (product decision: pass through what
             // Turnkey charges the sender, which is nothing). Estimating as if the sender paid
@@ -1265,12 +1273,7 @@ internal class TurnkeyWalletProvider(
                 normalized.contains("REJECTED") ||
                 status.txError != null ||
                 status.error?.message != null
-            if (failed) {
-                val message = status.txError
-                    ?: status.error?.message
-                    ?: "Turnkey transaction submission failed"
-                throw RainError.ProviderError(IllegalStateException(message))
-            }
+            if (failed) throw statusFailure(status, "Turnkey transaction submission failed")
 
             if (attempt + 1 < DEFAULT_POLLING_ATTEMPTS) {
                 delay(pollingIntervalMs)
@@ -1281,6 +1284,24 @@ internal class TurnkeyWalletProvider(
         // may still confirm. Carrying the status id lets the host resume polling instead of
         // resending, which would risk a duplicate transfer.
         throw RainError.TransactionPending(sendTransactionStatusId)
+    }
+
+    /**
+     * The error for a terminal failed status. A decoded execution failure (Turnkey's `txError`,
+     * or per-chain revert details) is the chain rejecting the transaction, the same fact a
+     * self-paid preflight would have caught, so it is the simulation error and withdrawals map
+     * it to [RainError.WithdrawalRevertedByNetwork] on both the self-paid and sponsored paths.
+     * A failure without those details (a policy rejection, a submission that never reached the
+     * chain) stays a provider error.
+     */
+    private fun statusFailure(status: TGetSendTransactionStatusResponse, fallback: String): RainError {
+        val message = status.txError ?: status.error?.message ?: fallback
+        val reverted = status.txError != null || status.error?.eth != null || status.error?.solana != null
+        return if (reverted) {
+            RainError.TransactionSimulationFailed(IllegalStateException(message))
+        } else {
+            RainError.ProviderError(IllegalStateException(message))
+        }
     }
 
     // ---------- Solana send ----------
@@ -1446,12 +1467,7 @@ internal class TurnkeyWalletProvider(
                 status.error?.message != null ||
                 normalized.contains("FAILED") ||
                 normalized.contains("REJECTED")
-            if (failed) {
-                val message = status.txError
-                    ?: status.error?.message
-                    ?: "Turnkey Solana transaction submission failed"
-                throw RainError.ProviderError(IllegalStateException(message))
-            }
+            if (failed) throw statusFailure(status, "Turnkey Solana transaction submission failed")
 
             // Turnkey SDK 2.0 populates solana.signature once the tx is Included.
             status.solana?.signature?.takeIf { it.isNotEmpty() }?.let { return it }

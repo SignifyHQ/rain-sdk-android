@@ -214,7 +214,9 @@ class TurnkeyAdapterTest {
     // ---- Polling: failure status path -------------------------------------------
 
     @Test
-    fun `sendTransaction throws ProviderError when status reports failure`() {
+    fun `sendTransaction surfaces a failed status with revert details as TransactionSimulationFailed`() {
+        // Turnkey decoded the execution failure (txError): the chain rejected the transaction,
+        // the same fact a self-paid preflight catches, so withdrawals map it to RAIN_405.
         stubSendTransactionRPCs()
         val turnkey = MockTurnkey()
         (turnkey.turnkeyClient as MockTurnkeyClient).sendTransactionStatusQueue =
@@ -232,8 +234,31 @@ class TurnkeyAdapterTest {
                 )
             }
         }.exceptionOrNull()
-        assertThat(ex).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(ex).isInstanceOf(RainError.TransactionSimulationFailed::class.java)
         assertThat(ex?.cause?.message).contains("reverted")
+    }
+
+    @Test
+    fun `sendTransaction surfaces a failed status without details as ProviderError`() {
+        // A rejection with no decoded execution failure (policy, submission) is the provider's.
+        stubSendTransactionRPCs()
+        val turnkey = MockTurnkey()
+        (turnkey.turnkeyClient as MockTurnkeyClient).sendTransactionStatusQueue =
+            mutableListOf(MockTurnkeyClient.StatusFixture(txStatus = "TX_STATUS_REJECTED"))
+        val provider = makeProvider(turnkey)
+
+        val ex = runCatching {
+            runBlocking {
+                provider.sendTransaction(
+                    chainId = 1,
+                    from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
+                    to = TestFixtures.RECIPIENT_ADDRESS,
+                    data = "0x",
+                    value = "0x0"
+                )
+            }
+        }.exceptionOrNull()
+        assertThat(ex).isInstanceOf(RainError.ProviderError::class.java)
     }
 
     // ---- ethSendTransaction error propagation -----------------------------------
@@ -677,6 +702,22 @@ class TurnkeyAdapterTest {
         assertThat(body.sponsor).isEqualTo(true)
         assertThat(body.gasStationNonce).isNull()
         assertThat(client.getNoncesCalls).hasSize(1)
+    }
+
+    @Test
+    fun `send support and fee sponsorship follow the registry and the flag`() {
+        // The port hooks core calls before a withdrawal or approval: the registry decides where
+        // Turnkey can broadcast, and sponsorship applies exactly there while the flag is on.
+        val sponsored = makeProvider(sponsorGas = true)
+        assertThat(sponsored.sponsorsFees(1)).isTrue()
+        assertThat(sponsored.sponsorsFees(43114)).isFalse()
+        sponsored.requireSendSupport(8453)
+        val error = assertThrows(RainError.ChainNotSupported::class.java) {
+            sponsored.requireSendSupport(43114)
+        }
+        assertThat(error.chainId).isEqualTo(43114)
+
+        assertThat(makeProvider(sponsorGas = false).sponsorsFees(1)).isFalse()
     }
 
     // ---- helpers ----------------------------------------------------------------

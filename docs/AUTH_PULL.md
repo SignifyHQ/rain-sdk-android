@@ -264,7 +264,7 @@ token whose `decimals()` read fails — register it up front with `registerToken
 |---|---|---|
 | **Portal** | Supported | Broadcast goes through `WalletProvider.sendTransaction`, the same path withdrawals use; Portal's pre-simulation applies to approvals unchanged. On chains where the Portal environment uses account abstraction, see [Portal and account abstraction](#portal-and-account-abstraction). |
 | **Privy** | Supported | Same generic path, carrying the approve calldata unchanged. |
-| **Turnkey** | Supported | Approvals ride the same pipeline as any other Turnkey send: gas-sponsored while `sponsorGas` is on (the default), and refused with `RAIN_105` at the broadcast step on chains outside Turnkey's managed-broadcast coverage. |
+| **Turnkey** | Supported | Approvals ride the same pipeline as any other Turnkey send: gas-sponsored while `sponsorGas` is on (the default), and refused with `RAIN_105` before anything is signed on chains outside Turnkey's managed-broadcast coverage. |
 
 No provider needed a bespoke approval path, so no capability gate exists for this feature
 (Turnkey's broadcast-chain gate applies to approvals as it does to every send). The
@@ -279,7 +279,7 @@ provider is asked for one thing: the wallet address to read the allowance *for*,
 |---|---|---|
 | `RAIN_102` | `RainError.InvalidConfig` | Auth Pull is not configured, target differs from the trusted token/operator, malformed input, wrong chain/environment, or the token reports decimals outside `0..77`. Local configuration failures occur before wallet access. |
 | `RAIN_102` | `RainError.TokenNotFound` | The token's decimals could not be established (not in the registry and its `decimals()` read failed), so a capped amount cannot be scaled safely. Never raised for an unlimited approval. |
-| `RAIN_105` | `RainError.ChainNotSupported` | Turnkey only: the chain is outside Turnkey's managed-broadcast coverage. Thrown at the broadcast step. |
+| `RAIN_105` | `RainError.ChainNotSupported` | Turnkey only: the chain is outside Turnkey's managed-broadcast coverage. Thrown before any signature or network call. |
 | `RAIN_301` | `RainError.NetworkError` | A network failure on the RPC read or on a provider's pre-flight simulation. Retryable; nothing was signed or broadcast. |
 | `RAIN_303` | `RainError.TransactionPending` | Confirmation window (`statusId` = transaction hash) or Portal UserOperation scan (`statusId` = UserOperation hash) expired. Not confirmed yet — re-read the allowance, don't re-approve. |
 | `RAIN_401` | `RainError.UserRejected` | The user declined the signature in the wallet UI. |

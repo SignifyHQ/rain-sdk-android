@@ -105,6 +105,32 @@ class SolanaCollateralWithdrawComposerTest {
     }
 
     @Test
+    fun `demands rent up front when the recipient token account must be created`(): Unit = runBlocking {
+        // A withdrawal to a recipient without a token account creates it with the owner as payer.
+        // Fee sponsorship does not cover that rent, and without the dry run nothing else would
+        // catch a wallet that cannot pay it before Turnkey does, so it is checked up front.
+        stubHappyPath()
+        rpc.stubObjectFor("getAccountInfo", SolanaWithdrawFixtures.destinationAta(), contextual(JSONObject.NULL))
+        rpc.stubObject("getBalance", contextual(0L))
+
+        assertThrows(RainError.InsufficientFunds::class.java) {
+            runBlocking {
+                composer().composeWithdraw(
+                    chainId = devnet,
+                    ownerAddress = owner,
+                    collateralAddress = collateral,
+                    mintAddress = mint,
+                    recipientAddress = owner,
+                    amountBaseUnits = BigInteger.ONE,
+                    adminSignature = adminSignature,
+                    sponsoredFees = true
+                )
+            }
+        }
+        assertThat(rpc.recordedMethods).doesNotContain("simulateTransaction")
+    }
+
+    @Test
     fun `rejects a wallet that does not own the collateral`(): Unit = runBlocking {
         stubHappyPath()
 

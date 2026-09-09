@@ -14,7 +14,9 @@ package com.rain.sdk.provider
  * - [BIOMETRIC_GATE]— signing is gated behind a device biometric / passkey prompt.
  * - [GAS_SPONSORSHIP] — the provider's sends are fee-sponsored (a third party pays the network
  *                      fee), so core skips the self-paid preflights that would charge the fee to
- *                      the wallet, such as the Solana withdrawal dry run.
+ *                      the wallet, such as the Solana withdrawal dry run. Core's operative,
+ *                      per-chain check is `WalletProvider.sponsorsFees(chainId)`, which defaults
+ *                      to this capability.
  */
 enum class Capability {
     EXPORT,

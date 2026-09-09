@@ -10,6 +10,7 @@ import com.rain.sdk.internal.network.chainreader.SolanaChainReader
 import com.rain.sdk.internal.solana.Base58
 import com.rain.sdk.internal.solana.SolanaAddresses
 import com.rain.sdk.internal.solana.SolanaInstructions
+import com.rain.sdk.internal.solana.SolanaLamportPreflight
 import com.rain.sdk.internal.constants.SolanaPrograms
 import com.rain.sdk.internal.solana.SolanaTransactionBuilder
 import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
@@ -557,6 +558,25 @@ class TurnkeySolanaProviderTest {
         }
 
         assertThat(ex.statusId).isEqualTo("sol-send-status-id")
+    }
+
+    @Test
+    fun `sendNativeToken on solana surfaces a failed status with details as TransactionSimulationFailed`() {
+        // Turnkey decoded the execution failure into txError: the chain rejected the transaction,
+        // so it maps like a failed dry run (a withdrawal turns it into RAIN_405).
+        stubBlockhash()
+        val client = MockTurnkeyClient().apply {
+            sendTransactionStatusQueue = mutableListOf(
+                MockTurnkeyClient.StatusFixture.failed(message = "custom program error: 0x1")
+            )
+        }
+        val provider = makeProvider(client = client, sponsorGas = true)
+
+        val ex = assertThrows(RainError.TransactionSimulationFailed::class.java) {
+            runBlocking { provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5")) }
+        }
+
+        assertThat(ex.cause?.message).contains("custom program error")
     }
 
     @Test
@@ -1123,10 +1143,9 @@ class TurnkeySolanaProviderTest {
 
     @Test
     fun `sponsored sendToken needs only the rent when the recipient account must be created`(): Unit = runBlocking {
-        // Exactly the rent and not a lamport more: the fee is the sponsor's, the rent the sender's
-        // (SolanaTransferComposer.SOLANA_TOKEN_ACCOUNT_RENT_LAMPORTS). Self-paid, this balance
-        // fails the fee check.
-        splFixture(recipientAccountExists = false, lamports = 2_039_280L)
+        // Exactly the rent and not a lamport more: the fee is the sponsor's, the rent the sender's.
+        // Self-paid, this balance fails the fee check.
+        splFixture(recipientAccountExists = false, lamports = SolanaLamportPreflight.TOKEN_ACCOUNT_RENT_LAMPORTS)
         val client = includedStatusClient()
 
         val result = makeProvider(client = client, sponsorGas = true)

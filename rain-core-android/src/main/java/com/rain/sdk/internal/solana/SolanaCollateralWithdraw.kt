@@ -99,6 +99,16 @@ internal class SolanaCollateralWithdrawComposer(
         val destinationAta =
             SolanaAddresses.associatedTokenAddress(recipientKey, mintKey, tokenProgramKey)
         val createDestination = !solanaRpcClient.accountExists(rpcUrl, Base58.encode(destinationAta))
+        // The owner pays rent for a recipient token account this withdrawal creates, and the fee
+        // unless the provider sponsors it. Checked up front so a short wallet gets a typed error
+        // before anything is signed, the same gate the transfer composer applies.
+        SolanaLamportPreflight.require(
+            solanaRpcClient,
+            rpcUrl,
+            ownerAddress,
+            includeAccountRent = createDestination,
+            feesSponsored = sponsoredFees
+        )
 
         // Reconstruct the exact message the executor signed; the program re-derives it on chain
         // and requires the ed25519 instruction to have verified precisely these bytes.

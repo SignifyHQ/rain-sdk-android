@@ -101,6 +101,8 @@ internal object SolanaWithdrawFixtures {
             contextual(rawAccount(SolanaPrograms.TOKEN_ADDRESS, ""))
         )
         rpc.stubObject("getLatestBlockhash", contextual(JSONObject().put("blockhash", MINT)))
+        // The owner holds 1 SOL: enough for the fee and for rent, should a recipient account be needed.
+        rpc.stubObject("getBalance", contextual(1_000_000_000L))
         rpc.stubObject(
             "simulateTransaction",
             contextual(JSONObject().put("err", JSONObject.NULL).put("logs", JSONArray()))

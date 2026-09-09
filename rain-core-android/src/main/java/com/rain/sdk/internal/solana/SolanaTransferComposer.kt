@@ -228,23 +228,13 @@ internal class SolanaTransferComposer(
         address: String,
         includeAccountRent: Boolean,
         feesSponsored: Boolean
-    ) {
-        // Fee sponsorship covers the network fee only. Rent for a newly created token account is
-        // a separate Turnkey dashboard toggle (off by default), so the sender must still hold it.
-        val required = (if (feesSponsored) 0L else SOLANA_FEE_LAMPORTS) +
-            if (includeAccountRent) SOLANA_TOKEN_ACCOUNT_RENT_LAMPORTS else 0L
-        if (required == 0L) return
-        val lamports = solanaRpcClient.getBalanceLamports(rpcUrl, address)
-        if (lamports < BigInteger.valueOf(required)) {
-            Timber.w(
-                "Rain SDK: wallet %s holds %s lamports, needs %d for this transfer",
-                address,
-                lamports.toString(),
-                required
-            )
-            throw RainError.InsufficientFunds()
-        }
-    }
+    ) = SolanaLamportPreflight.require(
+        solanaRpcClient,
+        rpcUrl,
+        address,
+        includeAccountRent = includeAccountRent,
+        feesSponsored = feesSponsored
+    )
 
     /** Dry-runs the unsigned transaction, translating a simulation failure into a typed error. */
     private suspend fun simulate(rpcUrl: String, transaction: ByteArray) {
@@ -266,16 +256,5 @@ internal class SolanaTransferComposer(
 
     private companion object {
         const val SOLANA_PUBLIC_KEY_LENGTH = 32
-
-        /** Base fee for a single-signature Solana transaction. */
-        const val SOLANA_FEE_LAMPORTS = 5_000L
-
-        /**
-         * Rent-exempt minimum for a 165-byte SPL token account (~0.00204 SOL), paid by the sender
-         * when a transfer has to create the recipient's account. Read from the chain it would be
-         * `getMinimumBalanceForRentExemption(165)`; this constant only gates a friendlier
-         * up-front error; a self-paid transaction is simulated afterwards as well.
-         */
-        const val SOLANA_TOKEN_ACCOUNT_RENT_LAMPORTS = 2_039_280L
     }
 }

@@ -6,6 +6,7 @@ import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.Token
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.provider.Capability
 import java.math.BigDecimal
 import java.math.BigInteger
@@ -83,6 +84,16 @@ internal open class StubWalletProvider : WalletProvider {
     /** What [capabilities] advertises; empty by default, like a minimal provider. */
     var capabilitiesToReturn: Set<Capability> = emptySet()
     override val capabilities: Set<Capability> get() = capabilitiesToReturn
+
+    /** When set, [requireSendSupport] throws it, like a provider that cannot broadcast on the chain. */
+    var requireSendSupportError: RainError? = null
+    override fun requireSendSupport(chainId: Int) {
+        requireSendSupportError?.let { throw it }
+    }
+
+    /** Overrides [sponsorsFees]; null keeps the port default, which reads [capabilities]. */
+    var sponsorsFeesToReturn: Boolean? = null
+    override fun sponsorsFees(chainId: Int): Boolean = sponsorsFeesToReturn ?: super.sponsorsFees(chainId)
 
     val sendNativeTokenCalls = mutableListOf<SendTokenCall>()
     val sendTokenCalls = mutableListOf<SendTokenCall>()
