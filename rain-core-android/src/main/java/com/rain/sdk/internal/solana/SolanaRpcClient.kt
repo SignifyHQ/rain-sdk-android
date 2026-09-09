@@ -340,7 +340,7 @@ internal data class SolanaTransactionRecord(
     val signers: List<String>,
     val error: String?
 ) {
-    /** First signer: the account that paid the fee (a sponsor's key on a sponsored send). */
+    /** First signer: the account that paid the fee (possibly a sponsor's key on a sponsored send). */
     val feePayer: String? get() = signers.firstOrNull()
     val succeeded: Boolean get() = error == null
     /** True when [address] had to sign this transaction: its own send, sponsored or not. */

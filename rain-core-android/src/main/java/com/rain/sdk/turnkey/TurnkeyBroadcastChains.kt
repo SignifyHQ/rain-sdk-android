@@ -12,18 +12,20 @@ import com.rain.sdk.internal.error.RainError
  * fallback (v0 decision). A send on any other chain would fail opaquely deep in the vendor
  * call, so [requireSendSupport] refuses it up front with [RainError.ChainNotSupported].
  *
- * Reads (balances, history, fee estimation) go over Rain-configured RPC endpoints and are
- * deliberately NOT gated here: Avalanche, for example, is read-only but fully readable.
+ * Reads (balances, history, fee estimation) are deliberately NOT gated here; they need an RPC
+ * endpoint registered for the chain (some balances also come from Turnkey's own indexer).
+ * Avalanche, for example, is read-only but fully readable.
  *
  * Source of truth: Turnkey's transaction-management broadcasting documentation
  * (https://docs.turnkey.com/features/transaction-management). When Turnkey adds a network,
- * extend this list and mirror the change in the iOS SDK's equivalent table.
+ * extend this list and mirror the change in rain-sdk-ios.
  *
  * This list is the VENDOR's capability, not Rain's product offering — those are different
  * questions. Rain's supported chains and tokens live at
  * https://docs.rain.xyz (Supported Chains and Tokens); a send actually works only for chains
  * in BOTH lists that also have an RPC endpoint registered. Rain chains outside this list
- * (Avalanche, Celo, ZKsync, Plasma, Ink, Stellar) are read-only through this provider in v0.
+ * (Avalanche, Celo, ZKsync, Plasma, Ink) are read-only through this provider in v0; Stellar is
+ * outside the SDK entirely.
  */
 internal object TurnkeyBroadcastChains {
 

@@ -425,10 +425,7 @@ class TurnkeyAdapterTest {
         assertThat(ex?.message).contains("hardware key denied")
     }
 
-    // ---- helpers ----------------------------------------------------------------
-
-    /** Stubs the three JSON-RPC calls made when building a Turnkey send-transaction body. */
-    // ---- Broadcast-chain gate + gas sponsorship (WALL-31) ------------------------
+    // ---- Broadcast-chain gate + gas sponsorship ---------------------------------
 
     @Test
     fun `sendNativeToken on avalanche fails closed before contacting anything`() {
@@ -444,6 +441,7 @@ class TurnkeyAdapterTest {
         assertThat(error.chainId).isEqualTo(43114)
         assertThat(error.errorCode.code).isEqualTo("RAIN_105")
         assertThat(client.ethSendTransactionCalls).isEmpty()
+        assertThat(rpc.recordedMethods).isEmpty()
     }
 
     @Test
@@ -465,6 +463,7 @@ class TurnkeyAdapterTest {
         }
         assertThat(error.errorCode.code).isEqualTo("RAIN_105")
         assertThat(client.ethSendTransactionCalls).isEmpty()
+        assertThat(rpc.recordedMethods).isEmpty()
     }
 
     @Test
@@ -634,10 +633,55 @@ class TurnkeyAdapterTest {
             }
         }.exceptionOrNull()
 
-        assertThat(ex).isNotNull()
+        assertThat(ex).hasMessageThat().contains("nonce service unavailable")
         assertThat(client.ethSendTransactionCalls).isEmpty()
     }
 
+    @Test
+    fun `sponsored fee estimate keeps the real quote on a read-only chain`(): Unit = runBlocking {
+        // Sponsorship only applies where Turnkey can broadcast. A chain outside that list is
+        // read-only here, so its fee quote must stay honest: a real RPC estimate, not zero.
+        rpc.stub(method = "eth_estimateGas", result = "0x5208") // 21000
+        rpc.stub(method = "eth_gasPrice", result = "0x4a817c800") // 20 gwei
+        val provider = makeProvider(chainId = 43114, sponsorGas = true)
+
+        val fee = provider.estimateTransactionFee(
+            chainId = 43114,
+            from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
+            to = TestFixtures.RECIPIENT_ADDRESS,
+            data = "0x",
+            value = "0x0"
+        )
+
+        assertThat(fee.compareTo(java.math.BigDecimal.ZERO)).isGreaterThan(0)
+        assertThat(rpc.recordedMethods).containsAtLeast("eth_estimateGas", "eth_gasPrice")
+    }
+
+    @Test
+    fun `sponsored send still goes out when Turnkey returns no gas station nonce`(): Unit = runBlocking {
+        // Lenient by design: a null nonce is omitted from the body, which falls back to Turnkey's
+        // server-side fetch, rather than failing the send.
+        val turnkey = MockTurnkey()
+        val client = (turnkey.turnkeyClient as MockTurnkeyClient).apply {
+            mockGasStationNonce = null
+            sendTransactionStatusQueue = mutableListOf(
+                MockTurnkeyClient.StatusFixture.broadcasted("0x" + "c".repeat(64))
+            )
+        }
+        val provider = makeProvider(turnkey, sponsorGas = true)
+
+        val hash = provider.sendNativeToken(1, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
+
+        assertThat(hash).isEqualTo("0x" + "c".repeat(64))
+        val body = client.ethSendTransactionCalls.single()
+        assertThat(body.sponsor).isEqualTo(true)
+        assertThat(body.gasStationNonce).isNull()
+        assertThat(client.getNoncesCalls).hasSize(1)
+    }
+
+    // ---- helpers ----------------------------------------------------------------
+
+    /** Stubs the three JSON-RPC calls made when building a Turnkey send-transaction body. */
     private fun stubSendTransactionRPCs() {
         rpc.stub(method = "eth_getTransactionCount", result = "0x1")
         rpc.stub(method = "eth_estimateGas", result = "0x5208") // 21000

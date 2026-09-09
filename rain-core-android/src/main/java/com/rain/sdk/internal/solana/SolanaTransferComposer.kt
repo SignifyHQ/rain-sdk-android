@@ -77,8 +77,8 @@ internal class SolanaTransferComposer(
      * that owns it both receives the transfer and seeds the token-account derivation. A self-paid
      * transfer is simulated against the cluster while still unsigned, so a failure surfaces as a
      * typed error rather than as a broadcast that quietly fails on chain. With [sponsoredFees]
-     * the dry run is skipped (it would charge the fee to a sender who pays none) and the
-     * sponsor's pipeline simulates instead, reporting failures through the send status.
+     * the dry run is skipped (it would charge the fee to a sender who pays none), so a failure
+     * surfaces through the provider's send status instead.
      */
     suspend fun composeSplToken(
         chainId: Int,
@@ -165,12 +165,17 @@ internal class SolanaTransferComposer(
         val transaction = SolanaTransactionBuilder.buildUnsignedTransaction(
             feePayer = ownerKey,
             recentBlockhash = blockhash,
-            instructions = instructions
+            instructions = instructions,
+            // Turnkey's construction rules for sponsored Solana sends require the System Program
+            // among the static account keys. A transfer into an existing token account never
+            // references it (only the token program does), so it is carried explicitly; the
+            // self-paid message is unchanged.
+            extraReadonlyKeys = if (sponsoredFees) listOf(SolanaPrograms.SYSTEM) else emptyList()
         )
         // The dry run charges the fee to the sender, so for a sponsored transfer it would
-        // false-fail exactly the zero-SOL wallets sponsorship exists for. Sponsored sends are
-        // simulated by the sponsor's own pipeline, which reports decoded reverts via the
-        // transaction status instead.
+        // false-fail exactly the zero-SOL wallets sponsorship exists for. A sponsored send's
+        // failures then surface through the provider's send status instead of as a typed
+        // preflight error.
         if (!sponsoredFees) simulate(rpcUrl, transaction)
 
         Timber.d(

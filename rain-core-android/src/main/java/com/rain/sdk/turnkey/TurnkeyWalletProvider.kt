@@ -1356,10 +1356,12 @@ internal class TurnkeyWalletProvider(
                     organizationId = session.organizationId,
                     unsignedTransaction = unsigned.transactionHex,
                     signWith = from,
-                    // Sponsored: Turnkey covers the fee. Whether it swaps its own payer key into
-                    // the message or pre-funds this wallet is not documented; signature recovery
-                    // below matches on signers, so it holds either way. The payer model still
-                    // needs a devnet validation run before sponsorship is enabled in sandbox.
+                    // Sponsored: Turnkey covers the fee. Turnkey documents the construction rules
+                    // for sponsored Solana sends (the System Program among the static keys, one
+                    // signer) but not whether its own key replaces the fee payer or it pre-funds
+                    // this wallet; signature recovery below matches on signers, so it holds
+                    // either way. The payer model still needs a devnet validation run before
+                    // sponsorship is relied on in sandbox.
                     sponsor = sponsorGas,
                     caip2 = SolanaChains.caip2(chainId),
                     recentBlockhash = unsigned.recentBlockhash

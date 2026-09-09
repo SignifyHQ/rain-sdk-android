@@ -36,8 +36,8 @@ internal class SolanaCollateralWithdrawComposer(
     /**
      * @param sponsoredFees true when the signing provider's sends are fee-sponsored. The dry run
      *   charges the fee to [ownerAddress], so for a sponsored withdrawal it would false-fail a
-     *   wallet holding no SOL even though the sponsor pays the real send; the sponsor's pipeline
-     *   simulates instead and reports failures through the send status.
+     *   wallet holding no SOL even though the sponsor pays the real send; a failure then
+     *   surfaces through the provider's send status instead of as a typed preflight error.
      */
     suspend fun composeWithdraw(
         chainId: Int,
@@ -155,8 +155,8 @@ internal class SolanaCollateralWithdrawComposer(
             instructions = instructions
         )
         // The dry run charges the fee to the owner, so a sponsored withdrawal from a zero-SOL
-        // wallet would false-fail here even though the sponsor pays the real send. Sponsored
-        // sends are simulated by the sponsor's pipeline, which reports reverts via the status.
+        // wallet would false-fail here even though the sponsor pays the real send. A sponsored
+        // send's failures then surface through the provider's send status instead.
         if (!sponsoredFees) simulate(rpcUrl, transaction)
 
         Timber.d(

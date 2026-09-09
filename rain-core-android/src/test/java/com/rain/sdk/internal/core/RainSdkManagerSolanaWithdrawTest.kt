@@ -20,7 +20,7 @@ import java.math.BigDecimal
 /**
  * A Solana withdrawal composes in the manager rather than in `TransactionCoordinator`, so it has
  * to run the same parameter validation the EVM path gets. These pin that: unusable parameters are
- * rejected before any RPC or signing, on both chain families. The last two drive a real
+ * rejected before any RPC or signing, on both chain families. The first two drive a real
  * composition (devnet fixtures over a mock node) to pin how the provider's
  * [Capability.GAS_SPONSORSHIP] reaches the composer's self-paid dry run.
  */

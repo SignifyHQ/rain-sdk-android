@@ -56,8 +56,9 @@ internal object SolanaTransactionBuilder {
     fun buildUnsignedHex(
         feePayer: ByteArray,
         recentBlockhash: String,
-        instructions: List<Instruction>
-    ): String = hexEncode(buildUnsignedTransaction(feePayer, recentBlockhash, instructions))
+        instructions: List<Instruction>,
+        extraReadonlyKeys: List<ByteArray> = emptyList()
+    ): String = hexEncode(buildUnsignedTransaction(feePayer, recentBlockhash, instructions, extraReadonlyKeys))
 
     /**
      * Serializes [instructions] into an unsigned legacy transaction paid for by [feePayer].
@@ -65,11 +66,17 @@ internal object SolanaTransactionBuilder {
      * Only the fee payer signs: every flow here authorises with the wallet's own key, so a
      * required signer other than [feePayer] would produce a transaction Turnkey cannot complete.
      * That is rejected rather than silently emitted.
+     *
+     * @param extraReadonlyKeys accounts to carry in the static key table even though no
+     *   instruction references them, placed after the programs as read-only non-signers. A legacy
+     *   message may list accounts its instructions never touch, and Turnkey requires the System
+     *   Program there on a fee-sponsored transaction. Keys already in the table are not repeated.
      */
     fun buildUnsignedTransaction(
         feePayer: ByteArray,
         recentBlockhash: String,
-        instructions: List<Instruction>
+        instructions: List<Instruction>,
+        extraReadonlyKeys: List<ByteArray> = emptyList()
     ): ByteArray {
         require(instructions.isNotEmpty()) { "A transaction needs at least one instruction" }
         require(feePayer.size == PUBLIC_KEY_LENGTH) {
@@ -77,7 +84,7 @@ internal object SolanaTransactionBuilder {
         }
         val blockhash = decodeKey(recentBlockhash, "recentBlockhash")
 
-        val accounts = accountTable(feePayer, instructions)
+        val accounts = accountTable(feePayer, instructions, extraReadonlyKeys)
         val extraSigners = accounts.count { it.isSigner } - 1
         require(extraSigners == 0) {
             "Transaction requires $extraSigners signer(s) besides the fee payer"
@@ -102,7 +109,11 @@ internal object SolanaTransactionBuilder {
      * those instructions asked for (a create-then-transfer pair, for instance, needs the new token
      * account writable in both).
      */
-    private fun accountTable(feePayer: ByteArray, instructions: List<Instruction>): List<AccountMeta> {
+    private fun accountTable(
+        feePayer: ByteArray,
+        instructions: List<Instruction>,
+        extraReadonlyKeys: List<ByteArray>
+    ): List<AccountMeta> {
         val programIds = LinkedHashMap<List<Byte>, ByteArray>()
         instructions.forEach { programIds.putIfAbsent(it.programId.toList(), it.programId) }
 
@@ -134,10 +145,23 @@ internal object SolanaTransactionBuilder {
             compareBy({ !it.isSigner }, { !it.isWritable })
         )
 
+        // Unreferenced keys the caller wants carried anyway, after the programs, once each.
+        val extras = LinkedHashMap<List<Byte>, ByteArray>()
+        for (key in extraReadonlyKeys) {
+            require(key.size == PUBLIC_KEY_LENGTH) {
+                "Invalid extra account key (expected 32 bytes, got ${key.size})"
+            }
+            val k = key.toList()
+            if (k != feePayerKey && !merged.containsKey(k) && !programIds.containsKey(k)) {
+                extras.putIfAbsent(k, key)
+            }
+        }
+
         return buildList {
             add(AccountMeta.signerAndWritable(feePayer))
             addAll(ordered)
             programIds.values.forEach { add(AccountMeta.readonly(it)) }
+            extras.values.forEach { add(AccountMeta.readonly(it)) }
         }
     }
 

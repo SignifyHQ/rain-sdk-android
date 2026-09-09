@@ -149,8 +149,10 @@ internal class RainSdkManager(
     nonce: BigInteger?
   ): String {
     if (SolanaChains.isSolanaChain(chainId)) {
-      // Same error contract as the EVM path: simulation revert -> WithdrawalRevertedByNetwork,
-      // and raw parsing/decoding exceptions never escape unmapped.
+      // Same error contract as the EVM path: a self-paid simulation revert ->
+      // WithdrawalRevertedByNetwork, and raw parsing/decoding exceptions never escape unmapped.
+      // A fee-sponsored provider skips that dry run (Capability.GAS_SPONSORSHIP), so a revert
+      // then surfaces from its send status as ProviderError.
       return transactionCoordinator.withWithdrawalErrors("Withdraw collateral") {
         val unsigned = composeSolanaWithdrawal(chainId, addresses, amount, decimals, adminSignature)
         walletProvider.sendSolanaTransaction(chainId, unsigned)

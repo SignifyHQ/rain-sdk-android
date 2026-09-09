@@ -242,13 +242,18 @@ to build without broadcasting.
 On EVM chains this calls `withdrawAsset` on the Rain coordinator contract (EIP-712 admin
 signature + the Rain API signature). On Solana chains it drives Rain's on-chain collateral
 program instead: the SDK reads the collateral account (program id, coordinator, nonce) from the
-chain, verifies nothing is stale by simulating, and submits a transaction carrying an ed25519
+chain, verifies nothing is stale by simulating (skipped when the provider sponsors fees; see the
+Capabilities section), and submits a transaction carrying an ed25519
 verification of Rain's coordinator signature followed by the program's
 `withdraw_single_signer_collateral_asset` instruction. Only single-signer Solana collateral
 accounts are supported; the wallet must be the account's owner.
 
 - **Returns:** `String` — the transaction hash (EVM) or transaction signature (Solana).
-- **Throws:** `RainError` if construction, signing, or submission fails.
+- **Throws:** `RainError` if construction, signing, or submission fails. On Turnkey, a chain outside
+  its managed-broadcast coverage throws `RainError.ChainNotSupported` (`RAIN_105`) at the broadcast
+  step, after the transaction has been built and signed. On a fee-sponsored Solana withdrawal the
+  dry run is skipped, so an on-chain revert surfaces from the provider's status as
+  `RainError.ProviderError` (`RAIN_501`) rather than `WithdrawalRevertedByNetwork`.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
@@ -269,7 +274,7 @@ Builds a collateral withdrawal without broadcasting it. Takes the same parameter
 
 This is **not** an offline build: it still prompts the wallet to sign EIP-712 (EVM) and reads the
 collateral's admin set on chain. On Solana it additionally fetches a recent blockhash and simulates
-the transaction.
+the transaction (the simulation is skipped when the provider sponsors fees).
 
 - **Returns:** `RainPreparedWithdrawal` — `Evm(RainTransactionParameters)` carrying a complete,
   submittable transaction (`from` / `to` / `value` / `data`), or `Solana(UnsignedSolanaTransfer)`
@@ -336,6 +341,10 @@ caller-supplied and embedded in the estimated calldata.
 
 Internally builds the EIP-712 payload, signs it with the wallet, then runs `eth_estimateGas`
 against the withdrawal controller. Nothing is broadcast.
+
+On Turnkey with `sponsorGas` enabled (the default), the result is `0` on Turnkey's broadcast chains,
+because the withdrawal will be sponsored. The EIP-712 signing step above still runs before the zero
+is returned.
 
 > **Signing side effect.** The estimated calldata embeds a wallet signature the controller
 > verifies (a placeholder would revert the estimate), so estimate-then-withdraw signs twice.
@@ -490,7 +499,8 @@ approving (to skip a redundant transaction). To confirm an approval was mined, u
 
 Estimates the total fee (estimated gas x gas price) to submit the approval, in the chain's native
 token. Nothing is broadcast and no signature is requested; the fee is priced against the exact
-calldata `approveTokenAllowance` would send.
+calldata `approveTokenAllowance` would send. On Turnkey with `sponsorGas` enabled (the default) the
+result is `0` on Turnkey's broadcast chains, because the approval will be sponsored.
 
 - **Returns:** `BigDecimal` — fee in the chain's native currency (e.g. ETH).
 - **Throws:** `RainError`.
@@ -827,7 +837,7 @@ pre-set to `"0x0"`. Hosts can hand the result to any provider for signing / broa
 | Type | Description |
 |------|-------------|
 | **`ProviderId`** | Value class wrapping a provider id string. Well-known constants: `PORTAL`, `TURNKEY`, `PRIVY`. Host apps can ship a custom id. |
-| **`Capability`** | Enum: `EXPORT`, `RECOVERY`, `MULTI_CHAIN`, `BIOMETRIC_GATE`. |
+| **`Capability`** | Enum: `EXPORT`, `RECOVERY`, `MULTI_CHAIN`, `BIOMETRIC_GATE`, `GAS_SPONSORSHIP`. |
 | **`RainEIP712Message`** | `message`, `salt`, `saltHex`. Returned by `buildEIP712Message`. |
 | **`RainProvider`** | Registrable provider descriptor: `id`, `capabilities`, and a suspend `create(context)` that materializes the `WalletProvider`. Implemented by `PortalProvider`, `TurnkeyProvider`, and host-supplied providers. |
 | **`WalletProvider`** | The port each adapter implements. Public so hosts can ship their own wallet stack. |
@@ -859,17 +869,21 @@ Format: `"RainSDK Error [CODE]: message"`
 | `RAIN_101` | `RainError.SdkNotInitialized` | Operation called before the SDK's chain configuration was set up (i.e. before `build()`). |
 | `RAIN_102` | `RainError.InvalidConfig` / `RainError.ProviderNotRegistered` | Invalid RPC URL, chain ID, or address format; no provider registered for the requested id; or no provider matched a capability. |
 | `RAIN_103` | `RainError.InvalidRpcUrl` | RPC URL could not be parsed as a valid URL. |
-| `RAIN_105` | `RainError.ChainNotSupported` | The active wallet provider cannot broadcast transactions on this chain (e.g. Turnkey-managed sends do not cover Avalanche). Thrown before any network or wallet work; carries `chainId`. Reads — balances, history, estimates — are never gated. |
+| `RAIN_104` | `RainError.ApiNotConfigured` | A Rain API call was made before `configureRainApi(apiKey, userId)`. |
+| `RAIN_105` | `RainError.ChainNotSupported` | The active wallet provider cannot broadcast transactions on this chain (e.g. Turnkey-managed sends do not cover Avalanche); carries `chainId`. Transfers throw it before any network or wallet work; withdrawals and approvals throw it at the broadcast step, after the transaction was built and signed. Reads — balances, history, estimates — are never gated. |
 | `RAIN_201` | `RainError.TokenExpired` | Provider session token expired or invalid. |
 | `RAIN_202` | `RainError.Unauthorized` | Invalid or missing token / permissions. |
 | `RAIN_301` | `RainError.NetworkError` | Network/connectivity failure. |
+| `RAIN_302` | `RainError.ApiError` | The Rain API returned an error status; the message carries the status code and any details. |
 | `RAIN_303` | `RainError.TransactionPending` | Submitted, not yet confirmed. `statusId` is what to resume from (status id, UserOperation hash, or transaction hash). Do not resend. |
+| `RAIN_304` | `RainError.NoCollateralContracts` | The Rain API returned no collateral contracts for the user. |
 | `RAIN_401` | `RainError.UserRejected` | User cancelled the signing request in the wallet. |
 | `RAIN_402` | `RainError.InsufficientFunds` | Balance too low for the requested amount or gas. |
 | `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight `eth_call` simulation failed (e.g. contract revert, insufficient funds). |
 | `RAIN_404` | `RainError.WalletUnavailable` | The backing provider returned no usable wallet address (e.g. Turnkey context has no Ethereum account). |
-| `RAIN_405` | `RainError.WithdrawalRevertedByNetwork` | Withdrawal reverted on-chain (e.g. duplicate withdrawal, already-used signature). |
+| `RAIN_405` | `RainError.WithdrawalRevertedByNetwork` | Withdrawal reverted on-chain (e.g. duplicate withdrawal, already-used signature). On a fee-sponsored Solana withdrawal the dry run is skipped, so the revert surfaces from the provider's status as `RAIN_501` instead. |
 | `RAIN_406` | `RainError.InvalidAmount` | The amount is invalid for the token — negative, more decimal places than the token supports, or past `uint256` max. |
+| `RAIN_407` | `RainError.WalletNotAuthorized` | The wallet is not an admin of the collateral contract; checked before a withdrawal is signed. |
 | `RAIN_501` | `RainError.ProviderError` | Portal, Turnkey, or other provider error. |
 | `RAIN_502` | `RainError.InternalError` | EIP-712 encoding, ABI encoding, or internal processing error. |
 

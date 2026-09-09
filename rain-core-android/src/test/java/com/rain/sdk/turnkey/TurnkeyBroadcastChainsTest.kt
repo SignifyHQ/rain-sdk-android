@@ -3,12 +3,13 @@ package com.rain.sdk.turnkey
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
 import com.rain.sdk.RainChain
+import com.rain.sdk.internal.constants.TokenRegistry
 import com.rain.sdk.internal.error.RainError
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
 /**
- * Pins the Turnkey managed-broadcast chain list (WALL-31). Pure JVM — no Turnkey SDK types —
+ * Pins the Turnkey managed-broadcast chain list. Pure JVM — no Turnkey SDK types —
  * so unlike the adapter tests this runs on any JDK.
  *
  * A failure here after editing the list means the send gate's coverage changed: confirm the
@@ -72,6 +73,7 @@ class TurnkeyBroadcastChainsTest {
         // Rain chain that is neither sendable nor consciously read-only means someone added a
         // chain without deciding what Turnkey sends do there. Update BOTH sets on purpose.
         val sendable = mapOf(
+            "Ethereum" to listOf(1, 11155111),
             "Polygon" to listOf(137, 80002),
             "Base" to listOf(8453, 84532),
             "Optimism" to listOf(10, 11155420),
@@ -89,14 +91,19 @@ class TurnkeyBroadcastChainsTest {
         )
         sendable.forEach { (name, ids) ->
             ids.forEach { id ->
-                assertThat(TurnkeyBroadcastChains.supportsSend(id)).isTrue()
+                assertWithMessage("%s (%s)", name, id).that(TurnkeyBroadcastChains.supportsSend(id)).isTrue()
             }
         }
         readOnly.forEach { (name, ids) ->
             ids.forEach { id ->
-                assertThat(TurnkeyBroadcastChains.supportsSend(id)).isFalse()
+                assertWithMessage("%s (%s)", name, id).that(TurnkeyBroadcastChains.supportsSend(id)).isFalse()
             }
         }
+        // The code's own registry is where new chains arrive: every chain it knows must appear
+        // above, so adding one to TokenRegistry forces a conscious classification here.
+        val classified = (sendable.values + readOnly.values).flatten().toSet()
+        val known = TokenRegistry.tokensByChainId.keys + TokenRegistry.nativeCurrencyByChainId.keys
+        assertWithMessage("registry chains missing a classification").that(known - classified).isEmpty()
     }
 
     @Test

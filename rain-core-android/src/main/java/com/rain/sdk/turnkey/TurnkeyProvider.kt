@@ -41,8 +41,8 @@ import kotlinx.coroutines.withContext
  *                   the devnet validation before enabling this against Solana in sandbox.
  *                   Defaults to true: sponsorship is the product, and Turnkey enables it at the
  *                   parent-organization level. On an organization where it is not enabled,
- *                   Turnkey rejects sponsored sends, so pass false there (WALL-15 tracks
- *                   enablement per environment). Sponsored sends have no client-side revert
+ *                   Turnkey rejects sponsored sends, so pass false there (Rain ops enables it
+ *                   per Turnkey organization). Sponsored sends have no client-side revert
  *                   preflight; failures surface through Turnkey's decoded FAILED status.
  */
 class TurnkeyConfig(

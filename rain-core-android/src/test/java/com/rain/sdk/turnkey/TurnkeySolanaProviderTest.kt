@@ -12,6 +12,7 @@ import com.rain.sdk.internal.solana.SolanaAddresses
 import com.rain.sdk.internal.solana.SolanaInstructions
 import com.rain.sdk.internal.constants.SolanaPrograms
 import com.rain.sdk.internal.solana.SolanaTransactionBuilder
+import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainTransactionCategory
@@ -988,6 +989,8 @@ class TurnkeySolanaProviderTest {
             .isEqualTo(byteArrayOf(12, 0x60, 0xE3.toByte(), 0x16, 0, 0, 0, 0, 0, 6))
         // The transfer is dry-run before it is handed to Turnkey.
         assertThat(rpc.recordedMethods).contains("simulateTransaction")
+        // Self-paid, the message carries only what the transfer references: no System Program.
+        assertThat(decodeAccountKeys(body.unsignedTransaction)).doesNotContain(SolanaPrograms.SYSTEM_ADDRESS)
         assertThat(fixture).isTrue()
     }
 
@@ -1111,9 +1114,42 @@ class TurnkeySolanaProviderTest {
         assertThat(result).isEqualTo(SIGNATURE)
         val body = client.solSendTransactionCalls.single()
         assertThat(body.sponsor).isEqualTo(true)
-        // The self-paid dry run would false-fail a zero-SOL sponsored wallet; the sponsor's own
-        // pipeline simulates instead.
+        // The self-paid dry run would false-fail a zero-SOL sponsored wallet, so it is skipped.
         assertThat(rpc.recordedMethods).doesNotContain("simulateTransaction")
+        // Turnkey requires the System Program among a sponsored transaction's static keys; the
+        // transfer itself never references it, so the composer carries it explicitly.
+        assertThat(decodeAccountKeys(body.unsignedTransaction)).contains(SolanaPrograms.SYSTEM_ADDRESS)
+    }
+
+    @Test
+    fun `sponsored sendToken needs only the rent when the recipient account must be created`(): Unit = runBlocking {
+        // Exactly the rent and not a lamport more: the fee is the sponsor's, the rent the sender's
+        // (SolanaTransferComposer.SOLANA_TOKEN_ACCOUNT_RENT_LAMPORTS). Self-paid, this balance
+        // fails the fee check.
+        splFixture(recipientAccountExists = false, lamports = 2_039_280L)
+        val client = includedStatusClient()
+
+        val result = makeProvider(client = client, sponsorGas = true)
+            .sendToken(devnet, mint, recipient, BigDecimal("1"), decimals = 6)
+
+        assertThat(result).isEqualTo(SIGNATURE)
+        assertThat(client.solSendTransactionCalls.single().sponsor).isEqualTo(true)
+    }
+
+    @Test
+    fun `sendSolanaTransaction on the solana testnet cluster fails closed`() {
+        // The raw entry core uses for collateral withdrawals is gated like the transfer entries.
+        val client = includedStatusClient()
+        val provider = makeProvider(client = client)
+        val unsigned = UnsignedSolanaTransfer(ByteArray(8), recentBlockhash = mint)
+
+        val error = assertThrows(RainError.ChainNotSupported::class.java) {
+            runBlocking { provider.sendSolanaTransaction(RainChain.SOLANA_TESTNET, unsigned) }
+        }
+
+        assertThat(error.chainId).isEqualTo(RainChain.SOLANA_TESTNET)
+        assertThat(client.solSendTransactionCalls).isEmpty()
+        assertThat(rpc.recordedMethods).isEmpty()
     }
 
     @Test
@@ -1338,6 +1374,18 @@ class TurnkeySolanaProviderTest {
      * Pulls `(programId, data)` out of each instruction in a serialized unsigned transaction, so
      * tests can assert what was actually submitted without re-implementing the whole parser.
      */
+    /** The static account keys of a serialized unsigned transaction, in table order. */
+    private fun decodeAccountKeys(unsignedTransactionHex: String): List<String> {
+        val bytes = unsignedTransactionHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        var i = 0
+        val signatureCount = bytes[i++].toInt() and 0xFF
+        i += signatureCount * 64 + 3 // signatures + header
+        val accountCount = bytes[i++].toInt() and 0xFF
+        return (0 until accountCount).map {
+            Base58.encode(bytes.copyOfRange(i + it * 32, i + it * 32 + 32))
+        }
+    }
+
     private fun decodeInstructions(unsignedTransactionHex: String): List<Pair<String, ByteArray>> {
         val bytes = unsignedTransactionHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
         var i = 0
