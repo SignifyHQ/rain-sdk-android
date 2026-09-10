@@ -46,7 +46,9 @@ chains.
 
 Portal and Privy auth are the host app's responsibility; the SDK only wants an authenticated
 provider handle, and the Privy driver is reference code you would write yourself. Turnkey runs in the
-SDK's managed mode, so the sample calls the provider's own auth methods:
+SDK's managed mode — an internal API behind the `@InternalRainTurnkeyApi` opt-in marker, which the
+sample enables in its Gradle file the way the RainWallet provider will — so the sample calls the
+provider's own auth methods:
 
 - **Portal MPC** — paste a Portal session token on Home and tap *Initialize SDK*.
 - **Turnkey** (managed mode, `RainSession.prepareTurnkey`) — parent organization ID + auth proxy

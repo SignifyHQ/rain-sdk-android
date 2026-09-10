@@ -72,8 +72,10 @@ sealed class TurnkeySessionState {
  * A view over the same derivation as [TurnkeySessionState]: [TurnkeySessionState.Expired] and
  * [TurnkeySessionState.Unauthenticated] both read as [Unauthenticated] here, because a login
  * screen only needs to know whether a one-time code is required. Observable via
- * [TurnkeyProvider.authState]; snapshot via [TurnkeyProvider.currentAuthState].
+ * [TurnkeyProvider.authState]; snapshot via [TurnkeyProvider.currentAuthState]. Internal API
+ * ([InternalRainTurnkeyApi]): hosts see it through the RainWallet provider.
  */
+@InternalRainTurnkeyApi
 sealed class TurnkeyAuthState {
     /**
      * Turnkey is not configured yet (no auth call has run), or the SDK is still restoring a

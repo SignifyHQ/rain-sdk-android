@@ -17,18 +17,19 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 
 /**
- * Configuration for the Turnkey provider. Two modes:
+ * Configuration for the Turnkey provider.
  *
+ * - **Bring-your-own** — `TurnkeyConfig(turnkey)`, the public Turnkey integration: the host drives
+ *   Turnkey's Kotlin SDK itself (passkeys, auth proxy, OAuth, OTP), completes login, and hands the
+ *   authenticated [TurnkeyContext] singleton here. The SDK never touches authentication.
  * - **Managed** — `TurnkeyConfig(application, organizationId, authProxyConfigId)`: the SDK owns
- *   Turnkey authentication. It configures the Turnkey singleton itself and [TurnkeyProvider]
- *   exposes the email one-time-code flow ([TurnkeyProvider.sendLoginCode] /
- *   [TurnkeyProvider.confirmLoginCode] / [TurnkeyProvider.logout]) plus
- *   [TurnkeyProvider.authState]. Ethereum and Solana accounts are provisioned on first login.
- * - **Bring-your-own** — `TurnkeyConfig(turnkey)`: the host drives Turnkey's Kotlin SDK itself
- *   (passkeys, auth proxy, OAuth, OTP), completes login, and hands the authenticated
- *   [TurnkeyContext] singleton here. The SDK never touches authentication in this mode.
+ *   Turnkey authentication (email one-time code through Turnkey's auth proxy, Ethereum and Solana
+ *   accounts provisioned on first login). Internal API, marked [InternalRainTurnkeyApi]: the
+ *   building block of the RainWallet provider, not a host-facing mode.
  *
- * Shared parameters:
+ * @param turnkey The `TurnkeyContext` singleton every wallet call goes through — authenticated by
+ *                the host in bring-your-own mode, configured and authenticated by the SDK in
+ *                managed mode.
  * @param walletAddress Optional explicit EVM address override; when null Rain uses the first
  *                      available Ethereum account from the context.
  * @param sessionPolicy Expiry/refresh/retry behavior for the session guarding every wallet call.
@@ -55,27 +56,23 @@ import kotlinx.coroutines.withContext
  *                   preflight; failures surface through Turnkey's decoded FAILED status.
  */
 class TurnkeyConfig internal constructor(
-    internal val mode: Mode,
-    val walletAddress: String? = null,
-    val sessionPolicy: TurnkeySessionPolicy = TurnkeySessionPolicy(),
-    val onSessionExpired: (() -> Unit)? = null,
-    val sponsorGas: Boolean = true,
+    val turnkey: TurnkeyContext,
+    val walletAddress: String?,
+    val sessionPolicy: TurnkeySessionPolicy,
+    val onSessionExpired: (() -> Unit)?,
+    val sponsorGas: Boolean,
+    /** Managed-mode ids; null in bring-your-own mode, where the host owns authentication. */
+    internal val managed: ManagedIds?,
 ) {
-    /** Who owns authentication. */
-    internal sealed interface Mode {
-        /** Host-authenticated context; the SDK exposes no auth surface. */
-        class ByoContext(val turnkey: TurnkeyContext) : Mode
-
-        /** SDK-managed auth against the Turnkey organization + auth-proxy configuration. */
-        class Managed(
-            val application: Application,
-            val organizationId: String,
-            val authProxyConfigId: String,
-        ) : Mode
-    }
+    /** SDK-managed auth against the Turnkey organization + auth-proxy configuration. */
+    internal class ManagedIds(
+        val application: Application,
+        val organizationId: String,
+        val authProxyConfigId: String,
+    )
 
     /**
-     * Bring-your-own mode.
+     * Bring-your-own mode — the public Turnkey integration.
      *
      * @param turnkey The authenticated `TurnkeyContext` singleton.
      */
@@ -85,10 +82,10 @@ class TurnkeyConfig internal constructor(
         sessionPolicy: TurnkeySessionPolicy = TurnkeySessionPolicy(),
         onSessionExpired: (() -> Unit)? = null,
         sponsorGas: Boolean = true,
-    ) : this(Mode.ByoContext(turnkey), walletAddress, sessionPolicy, onSessionExpired, sponsorGas)
+    ) : this(turnkey, walletAddress, sessionPolicy, onSessionExpired, sponsorGas, managed = null)
 
     /**
-     * Managed mode.
+     * Managed mode — internal API reserved for the RainWallet provider, see [InternalRainTurnkeyApi].
      *
      * The Turnkey configuration is one-shot per app launch: the SDK applies it on the first
      * authentication call (or at provider resolution). Blank ids, a second managed provider with
@@ -104,6 +101,7 @@ class TurnkeyConfig internal constructor(
      * @param organizationId Your Turnkey parent organization id.
      * @param authProxyConfigId The auth-proxy configuration id from the Turnkey dashboard.
      */
+    @InternalRainTurnkeyApi
     @Suppress("LongParameterList") // the BYO constructor's parameters plus the two managed ids; four have defaults
     constructor(
         application: Application,
@@ -114,11 +112,14 @@ class TurnkeyConfig internal constructor(
         onSessionExpired: (() -> Unit)? = null,
         sponsorGas: Boolean = true,
     ) : this(
-        Mode.Managed(application, organizationId, authProxyConfigId),
+        // The vendor context is a process-wide object; managed mode configures it lazily, on the
+        // first authentication call, through the provider's controller.
+        TurnkeyContext,
         walletAddress,
         sessionPolicy,
         onSessionExpired,
         sponsorGas,
+        managed = ManagedIds(application, organizationId, authProxyConfigId),
     )
 }
 
@@ -154,12 +155,7 @@ class TurnkeyProvider internal constructor(
         TurnkeyWalletProvider.capabilitiesFor(config.sponsorGas)
 
     private val turnkeyContext: TurnkeyContextProtocol by lazy {
-        contextOverride ?: when (val mode = config.mode) {
-            is TurnkeyConfig.Mode.ByoContext -> TurnkeyContextAdapter(mode.turnkey)
-            // The vendor is a process-wide object; managed mode configures it lazily, on the
-            // first authentication call, through the controller below.
-            is TurnkeyConfig.Mode.Managed -> TurnkeyContextAdapter(TurnkeyContext)
-        }
+        contextOverride ?: TurnkeyContextAdapter(config.turnkey)
     }
 
     private val coordinator: TurnkeySessionCoordinator by lazy {
@@ -172,17 +168,12 @@ class TurnkeyProvider internal constructor(
 
     /** Present in managed mode only; owns the email one-time-code flow. */
     private val managedAuth: TurnkeyManagedAuthController? by lazy {
-        when (val mode = config.mode) {
-            is TurnkeyConfig.Mode.ByoContext -> null
-            is TurnkeyConfig.Mode.Managed -> TurnkeyManagedAuthController(
+        config.managed?.let { ids ->
+            TurnkeyManagedAuthController(
                 context = turnkeyContext,
                 coordinator = coordinator,
                 configure = {
-                    TurnkeyManagedConfigurator.configure(
-                        mode.application,
-                        mode.organizationId,
-                        mode.authProxyConfigId,
-                    )
+                    TurnkeyManagedConfigurator.configure(ids.application, ids.organizationId, ids.authProxyConfigId)
                 },
             )
         }
@@ -250,7 +241,7 @@ class TurnkeyProvider internal constructor(
         return provider
     }
 
-    // ---------- Managed authentication (email one-time code) ----------
+    // ---------- Managed authentication (email one-time code) — internal API, see InternalRainTurnkeyApi ----------
 
     /**
      * Where managed authentication stands, over time: [TurnkeyAuthState.Loading] until the first
@@ -259,10 +250,12 @@ class TurnkeyProvider internal constructor(
      * [TurnkeyAuthState.Unauthenticated] otherwise. Always `Unauthenticated` in bring-your-own
      * mode, where the host owns authentication.
      */
+    @InternalRainTurnkeyApi
     val authState: Flow<TurnkeyAuthState>
         get() = managedAuth?.authState ?: flowOf(TurnkeyAuthState.Unauthenticated)
 
     /** Snapshot of [authState] right now. */
+    @InternalRainTurnkeyApi
     fun currentAuthState(): TurnkeyAuthState =
         managedAuth?.currentAuthState() ?: TurnkeyAuthState.Unauthenticated
 
@@ -273,6 +266,7 @@ class TurnkeyProvider internal constructor(
      * first call fails. False until the first auth call has configured Turnkey, and always false
      * in bring-your-own mode.
      */
+    @InternalRainTurnkeyApi
     fun hasActiveSession(): Boolean = managedAuth?.hasActiveSession() ?: false
 
     /**
@@ -284,6 +278,7 @@ class TurnkeyProvider internal constructor(
      * process was configured with, or Turnkey was configured outside the SDK, and
      * `RainError.InternalError` when Turnkey's initialization failed.
      */
+    @InternalRainTurnkeyApi
     suspend fun awaitSessionRestore(
         timeoutMs: Long = TurnkeyManagedAuthController.DEFAULT_RESTORE_TIMEOUT_MS,
     ) {
@@ -297,6 +292,7 @@ class TurnkeyProvider internal constructor(
      * lock after 3 wrong attempts, and at most 3 can be active per user. Throws
      * `RainError.InvalidConfig` for a blank email. Managed mode only.
      */
+    @InternalRainTurnkeyApi
     suspend fun sendLoginCode(email: String) = requireManagedAuth().sendLoginCode(email)
 
     /**
@@ -309,6 +305,7 @@ class TurnkeyProvider internal constructor(
      * device (`invalidateExisting`); the signed-out device's `onSessionExpired` fires at its next
      * call. Managed mode only.
      */
+    @InternalRainTurnkeyApi
     suspend fun confirmLoginCode(code: String) = requireManagedAuth().confirmLoginCode(code)
 
     /**
@@ -317,6 +314,7 @@ class TurnkeyProvider internal constructor(
      * and a pending login code is dropped. A no-op when no session is selected. Managed mode only —
      * throws `RainError.InvalidConfig` in bring-your-own mode, where the host owns the session.
      */
+    @InternalRainTurnkeyApi
     suspend fun logout() = requireManagedAuth().logout()
 
     private fun requireManagedAuth(): TurnkeyManagedAuthController =

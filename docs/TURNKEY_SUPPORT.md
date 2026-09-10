@@ -22,59 +22,12 @@ com.turnkey:types:2.0.0
 
 | Mode | Who authenticates | Config | Auth surface |
 |---|---|---|---|
-| **Managed** (recommended) | Rain SDK, through Turnkey's auth proxy | `TurnkeyConfig(application, organizationId, authProxyConfigId)` | `TurnkeyProvider.sendLoginCode` / `confirmLoginCode` / `logout` / `authState` / `awaitSessionRestore` / `hasActiveSession` |
-| **Bring-your-own** | Your app, against Turnkey's Kotlin SDK | `TurnkeyConfig(turnkey = TurnkeyContext)` | None — `sendLoginCode` / `confirmLoginCode` / `logout` throw `RainError.InvalidConfig`; `awaitSessionRestore` is a no-op, `hasActiveSession()` is `false` and `authState` is `Unauthenticated` |
+| **Bring-your-own** (public) | Your app, against Turnkey's Kotlin SDK | `TurnkeyConfig(turnkey = TurnkeyContext)` | None — `sendLoginCode` / `confirmLoginCode` / `logout` throw `RainError.InvalidConfig`; `awaitSessionRestore` is a no-op, `hasActiveSession()` is `false` and `authState` is `Unauthenticated` |
+| **Managed** (internal API, `@InternalRainTurnkeyApi`) | Rain SDK, through Turnkey's auth proxy | `TurnkeyConfig(application, organizationId, authProxyConfigId)` | `TurnkeyProvider.sendLoginCode` / `confirmLoginCode` / `logout` / `authState` / `awaitSessionRestore` / `hasActiveSession` — compile only with the opt-in |
 
 In both modes the hand-off is the same boundary: register the `TurnkeyProvider` with the `RainSdk` builder, then resolve `rain.provider(ProviderId.TURNKEY)`. Everything after that — `getWalletAddress()`, balances, sends, `withdrawCollateral()` — is identical.
 
-## Managed mode (recommended)
-
-Before the first run, in the Turnkey dashboard: enable the **Auth Proxy** for your parent organization with **Email OTP** turned on, copy its auth-proxy config id (it identifies the configuration and is safe to ship in the app; the Turnkey SDK sends it as the `X-Auth-Proxy-Config-ID` header on every proxy call), and set the code format (6–9 characters, numeric or alphanumeric) and the session lifetime (900 seconds by default) there. The SDK reads none of these settings; it obeys them.
-
-The SDK configures Turnkey against your parent organization and auth-proxy configuration, runs the email one-time-code flow on the provider itself, and provisions one wallet holding an Ethereum and a Solana account on first login:
-
-```kotlin
-import com.rain.sdk.RainSdk
-import com.rain.sdk.provider.ProviderId
-import com.rain.sdk.turnkey.TurnkeyConfig
-import com.rain.sdk.turnkey.TurnkeyProvider
-
-val provider = TurnkeyProvider(
-    TurnkeyConfig(
-        application = application,
-        organizationId = "<your-parent-organization-id>",
-        authProxyConfigId = "<your-auth-proxy-config-id>",
-    )
-)
-
-// Reuse a restored session, or run the code flow:
-provider.awaitSessionRestore()
-if (!provider.hasActiveSession()) {
-    provider.sendLoginCode("user@example.com")
-    provider.confirmLoginCode(code) // sign-up or login + Ethereum/Solana account provisioning
-}
-
-val rain = RainSdk.builder()
-    .rpcEndpoints(mapOf(84532 to "https://sepolia.base.org"))
-    .register(provider)
-    .build()
-val client = rain.provider(ProviderId.TURNKEY)
-```
-
-- `authState` (a `Flow<TurnkeyAuthState>`, snapshot via `currentAuthState()`) reports `Loading` / `Authenticated` / `Unauthenticated`. It is a view over the same derivation as `sessionState`, collapsing an expired session into `Unauthenticated` — a login screen only needs to know whether a code is required. Until the first auth call (`awaitSessionRestore`, `sendLoginCode`, …) has configured Turnkey and its restore has settled, `authState` reads `Loading` and `hasActiveSession()` is `false` — call `awaitSessionRestore()` before reading either.
-- A rejected code throws `RainError.InvalidLoginCode` (`RAIN_203`) and keeps the challenge, so the user can retype it. Any other failure inside the code check itself also keeps the challenge — the auth proxy has been seen wrapping a rejection in an HTTP 500 whose body carries the real status, which the Kotlin SDK discards before Rain sees it, so that case surfaces as `RainError.ProviderError`; the user can retry the code or request a new one. A failure after the code was accepted drops the challenge. A rejected code never touches an existing session: each login stores its session under a fresh key and switches to it only on success.
-- Turnkey's limits on the code flow, which the SDK cannot see and your UI has to design around: a code is valid for 5 minutes by default (up to 10 in the dashboard), locks after 3 wrong attempts, and at most 3 codes can be active per user — an expired or locked code surfaces as the same `RAIN_203` (or `ProviderError`) as a typo. Request a new code by calling `sendLoginCode` again with the same email; it replaces the pending challenge. Codes may be alphanumeric, so never force a numeric keyboard.
-- A successful login revokes the user's other Turnkey sessions server-side (`invalidateExisting`), the same as the iOS provider, and clears the previous local session once the switch to the new one succeeded. The signed-out device's `onSessionExpired` fires at its next call. `hasActiveSession()` reflects the local expiry only — a session revoked from another device reads as active until its first call fails.
-- `logout()` clears the selected session — after waiting for a restore in flight to settle — and does **not** fire `onSessionExpired`; cached accounts are still evicted and a pending login code is dropped. With no session selected it is a no-op.
-- A first sign-up creates its wallet inside the signup request: one wallet named `Wallet`, 12-word mnemonic, Ethereum `m/44'/60'/0'/0/0` (secp256k1) and Solana `m/44'/501'/0'/0'` (ed25519) — the same values as the iOS SDK, so a user provisioned on one platform resolves identically on the other. Afterwards, missing accounts are added to the wallet Rain resolves (`createWalletAccounts`); only an organization with no wallet at all gets a new one, so the user has a single mnemonic to back up either way.
-- A sign-up creates one Turnkey **sub-organization** per end user under your parent organization. The user is its only root user, with the verified email as the credential (no passkey or API key at sign-up; those can be added later), so the root quorum is the user alone: the parent organization has read-only visibility and can neither reach the keys nor sign. The wallet above is created inside that same signup request, and every session and wallet call is scoped to the sub-organization. Deleting a sub-organization is a root-user activity that requires its wallets to have been exported first (or `deleteWithoutExport`) and is not exposed by this SDK.
-- The Turnkey configuration is one-shot per app launch and is applied by the first auth call (`awaitSessionRestore`, `sendLoginCode`, `confirmLoginCode`, `logout`) or by provider resolution, whichever comes first. Blank ids, a second managed provider with *different* ids, or a `TurnkeyContext` your app initialized itself make every auth call throw `RainError.InvalidConfig` — relaunch to change ids, or use bring-your-own mode. If Turnkey's own initialization fails or never finishes, every auth call throws `RainError.InternalError` until the app relaunches. Wrong but well-formed ids are not detected at configuration time: the first auth-proxy call fails instead (HTTP 400 on the code request, surfaced as `RainError.ProviderError`).
-- Resolving the provider before a session is live throws `RainError.TokenExpired`. Resolution also re-checks the account set, so a login whose provisioning failed heals itself without a new code.
-- Managed mode needs an `android.app.Application` because Turnkey's Kotlin SDK stores sessions and device keys through it.
-
-The sample app's `RainSession.prepareTurnkey` / `initializeTurnkey` and `HomeViewModel` drive exactly this flow.
-
-## Bring-your-own mode (manual / passkey / OAuth path)
+## Bring-your-own mode (the public Turnkey integration)
 
 If your app already drives Turnkey's Kotlin SDK — passkeys, OAuth, your own OTP UI — keep doing that and hand the authenticated context to Rain. Initialize Turnkey from your `Application.onCreate()`:
 
@@ -155,6 +108,55 @@ wallet list and throws `RainError.WalletUnavailable` if no usable Ethereum accou
 (in managed mode, resolving before a session is live throws `RainError.TokenExpired`).
 You can register other adapters (e.g. `PortalProvider`) on the same builder and resolve each
 independently; providers no longer replace one another.
+
+## Managed mode (internal API)
+
+Managed mode is not a host-facing mode. Every member of it — the `TurnkeyConfig(application, organizationId, authProxyConfigId)` constructor, `sendLoginCode` / `confirmLoginCode` / `logout` / `awaitSessionRestore` / `hasActiveSession` / `authState` / `currentAuthState`, and `TurnkeyAuthState` — is marked `@InternalRainTurnkeyApi`, a `@RequiresOptIn` annotation at error level: a host app that calls any of them gets a compile error naming the reason. It exists as the building block of the upcoming RainWallet provider, which will expose the same flow in Rain's own terms with no Turnkey types; Rain's modules and the sample app opt in module-wide with `-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi`. It is the Kotlin counterpart of the iOS SDK's `@_spi(RainWallet)`. The rest of this section documents the flow for those callers.
+
+Before the first run, in the Turnkey dashboard: enable the **Auth Proxy** for your parent organization with **Email OTP** turned on, copy its auth-proxy config id (it identifies the configuration and is safe to ship in the app; the Turnkey SDK sends it as the `X-Auth-Proxy-Config-ID` header on every proxy call), and set the code format (6–9 characters, numeric or alphanumeric) and the session lifetime (900 seconds by default) there. The SDK reads none of these settings; it obeys them.
+
+The SDK configures Turnkey against your parent organization and auth-proxy configuration, runs the email one-time-code flow on the provider itself, and provisions one wallet holding an Ethereum and a Solana account on first login:
+
+```kotlin
+import com.rain.sdk.RainSdk
+import com.rain.sdk.provider.ProviderId
+import com.rain.sdk.turnkey.TurnkeyConfig
+import com.rain.sdk.turnkey.TurnkeyProvider
+
+val provider = TurnkeyProvider(
+    TurnkeyConfig(
+        application = application,
+        organizationId = "<your-parent-organization-id>",
+        authProxyConfigId = "<your-auth-proxy-config-id>",
+    )
+)
+
+// Reuse a restored session, or run the code flow:
+provider.awaitSessionRestore()
+if (!provider.hasActiveSession()) {
+    provider.sendLoginCode("user@example.com")
+    provider.confirmLoginCode(code) // sign-up or login + Ethereum/Solana account provisioning
+}
+
+val rain = RainSdk.builder()
+    .rpcEndpoints(mapOf(84532 to "https://sepolia.base.org"))
+    .register(provider)
+    .build()
+val client = rain.provider(ProviderId.TURNKEY)
+```
+
+- `authState` (a `Flow<TurnkeyAuthState>`, snapshot via `currentAuthState()`) reports `Loading` / `Authenticated` / `Unauthenticated`. It is a view over the same derivation as `sessionState`, collapsing an expired session into `Unauthenticated` — a login screen only needs to know whether a code is required. Until the first auth call (`awaitSessionRestore`, `sendLoginCode`, …) has configured Turnkey and its restore has settled, `authState` reads `Loading` and `hasActiveSession()` is `false` — call `awaitSessionRestore()` before reading either.
+- A rejected code throws `RainError.InvalidLoginCode` (`RAIN_203`) and keeps the challenge, so the user can retype it. Any other failure inside the code check itself also keeps the challenge — the auth proxy has been seen wrapping a rejection in an HTTP 500 whose body carries the real status, which the Kotlin SDK discards before Rain sees it, so that case surfaces as `RainError.ProviderError`; the user can retry the code or request a new one. A failure after the code was accepted drops the challenge. A rejected code never touches an existing session: each login stores its session under a fresh key and switches to it only on success.
+- Turnkey's limits on the code flow, which the SDK cannot see and your UI has to design around: a code is valid for 5 minutes by default (up to 10 in the dashboard), locks after 3 wrong attempts, and at most 3 codes can be active per user — an expired or locked code surfaces as the same `RAIN_203` (or `ProviderError`) as a typo. Request a new code by calling `sendLoginCode` again with the same email; it replaces the pending challenge. Codes may be alphanumeric, so never force a numeric keyboard.
+- A successful login revokes the user's other Turnkey sessions server-side (`invalidateExisting`), the same as the iOS provider, and clears the previous local session once the switch to the new one succeeded. The signed-out device's `onSessionExpired` fires at its next call. `hasActiveSession()` reflects the local expiry only — a session revoked from another device reads as active until its first call fails.
+- `logout()` clears the selected session — after waiting for a restore in flight to settle — and does **not** fire `onSessionExpired`; cached accounts are still evicted and a pending login code is dropped. With no session selected it is a no-op.
+- A first sign-up creates its wallet inside the signup request: one wallet named `Wallet`, 12-word mnemonic, Ethereum `m/44'/60'/0'/0/0` (secp256k1) and Solana `m/44'/501'/0'/0'` (ed25519) — the same values as the iOS SDK, so a user provisioned on one platform resolves identically on the other. Afterwards, missing accounts are added to the wallet Rain resolves (`createWalletAccounts`); only an organization with no wallet at all gets a new one, so the user has a single mnemonic to back up either way.
+- A sign-up creates one Turnkey **sub-organization** per end user under your parent organization. The user is its only root user, with the verified email as the credential (no passkey or API key at sign-up; those can be added later), so the root quorum is the user alone: the parent organization has read-only visibility and can neither reach the keys nor sign. The wallet above is created inside that same signup request, and every session and wallet call is scoped to the sub-organization. Deleting a sub-organization is a root-user activity that requires its wallets to have been exported first (or `deleteWithoutExport`) and is not exposed by this SDK.
+- The Turnkey configuration is one-shot per app launch and is applied by the first auth call (`awaitSessionRestore`, `sendLoginCode`, `confirmLoginCode`, `logout`) or by provider resolution, whichever comes first. Blank ids, a second managed provider with *different* ids, or a `TurnkeyContext` your app initialized itself make every auth call throw `RainError.InvalidConfig` — relaunch to change ids, or use bring-your-own mode. If Turnkey's own initialization fails or never finishes, every auth call throws `RainError.InternalError` until the app relaunches. Wrong but well-formed ids are not detected at configuration time: the first auth-proxy call fails instead (HTTP 400 on the code request, surfaced as `RainError.ProviderError`).
+- Resolving the provider before a session is live throws `RainError.TokenExpired`. Resolution also re-checks the account set, so a login whose provisioning failed heals itself without a new code.
+- Managed mode needs an `android.app.Application` because Turnkey's Kotlin SDK stores sessions and device keys through it.
+
+The sample app's `RainSession.prepareTurnkey` / `initializeTurnkey` and `HomeViewModel` drive exactly this flow.
 
 ## What Rain uses Turnkey for
 
