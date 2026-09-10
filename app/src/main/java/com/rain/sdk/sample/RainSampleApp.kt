@@ -18,7 +18,7 @@ class RainSampleApp : Application() {
     /** Lives here (not in a composable) so it survives Activity recreation. */
     val session = RainSession()
 
-    /** Launch-time Turnkey/Privy init from the saved ids; resume joins it before checking the session. */
+    /** Launch-time Privy init from the saved ids; resume joins it before checking the session. */
     var vendorInit: Job? = null
         private set
 
@@ -34,10 +34,9 @@ class RainSampleApp : Application() {
         vendorInit = scope.launch {
             runCatching {
                 when (store.provider) {
-                    SessionStore.Provider.Turnkey ->
-                        if (store.turnkeyOrgId.isNotBlank() && store.turnkeyAuthProxyConfigId.isNotBlank()) {
-                            TurnkeyAuthSample.init(this@RainSampleApp, store.turnkeyOrgId, store.turnkeyAuthProxyConfigId)
-                        }
+                    // Turnkey needs nothing here: the SDK's managed mode configures itself when the
+                    // provider is prepared during resume.
+                    SessionStore.Provider.Turnkey -> Unit
                     SessionStore.Provider.Privy ->
                         if (store.privyAppId.isNotBlank() && store.privyAppClientId.isNotBlank()) {
                             PrivyAuthSample.init(this@RainSampleApp, store.privyAppId, store.privyAppClientId)

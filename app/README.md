@@ -44,19 +44,25 @@ chains.
 
 ## Providers
 
-Auth is the host app's responsibility; the SDK only wants an authenticated provider handle. Both
-sample auth drivers are reference code you would write yourself:
+Portal and Privy auth are the host app's responsibility; the SDK only wants an authenticated
+provider handle, and the Privy driver is reference code you would write yourself. Turnkey runs in the
+SDK's managed mode, so the sample calls the provider's own auth methods:
 
 - **Portal MPC** — paste a Portal session token on Home and tap *Initialize SDK*.
-- **Turnkey** (`TurnkeyAuthSample`) — parent organization ID + auth proxy config ID + email OTP.
-  Sign-up and login share one `completeOtp` path; an EVM and a Solana wallet are provisioned if the
-  sub-org lacks them.
+- **Turnkey** (managed mode, `RainSession.prepareTurnkey`) — parent organization ID + auth proxy
+  config ID + email; the SDK sends and confirms the one-time code, signs up (creating one wallet with
+  the Ethereum and Solana accounts) or logs in, and backfills a missing account. A rejected code keeps
+  the challenge for a retry. If the login itself succeeded but a later step failed, the sample carries
+  on signed in (Rain's initialization finishes the wallet setup); any other failure restarts from
+  *Send code*.
 - **Privy** (`PrivyAuthSample`) — app ID + app client ID + email OTP; embedded Ethereum and Solana
   wallets are created on first sign-in.
 
 Rain API credentials (program `Api-Key` + Rain `userId`) are separate from the wallet provider: they
 authenticate the contract and withdrawal-signature calls, and are entered in their own card on Home.
-Nothing is persisted — the fields are re-entered each launch.
+The last working values — provider choice, Rain API credentials, and each provider's ids and email —
+are kept in an encrypted store (`SessionStore`) so the next launch pre-fills them and resumes the
+session; *Clear session* wipes them.
 
 `RainSession` also registers each demo chain's testnet token (`WalletChain.defaultTokenInfo`) via
 `registerTokens` on the builder, identically for all three providers. That is not a workaround the
@@ -76,18 +82,21 @@ mainnet-only, so naming the testnet tokens keeps the balance screen readable.
 ```
 app/src/main/java/com/rain/sdk/sample/
 ├── MainActivity.kt          # App entry + Compose navigation host (wrapped in RainTheme)
+├── RainSampleApp.kt         # Application: session store + vendor init at launch
 ├── Screen.kt                # Route definitions for the seven screens
-├── RainSession.kt           # Holds the built RainSdk + resolved RainClient
+├── RainSession.kt           # Holds the built RainSdk + resolved RainClient; prepares the Turnkey provider
+├── SessionStore.kt          # Encrypted store of the last working ids and credentials
+├── WalletSessionStatus.kt   # Provider session state as the Home screen shows it
 ├── WalletChain.kt           # Demo networks, explorer links, address validation
 ├── SampleEnvironment.kt     # Sandbox vs production: Rain API host, Auth pull operator
 ├── SampleLog.kt             # Logging helper
-├── TurnkeyAuthSample.kt     # Turnkey email-OTP + wallet provisioning
 ├── PrivyAuthSample.kt       # Privy email-OTP + embedded wallets
 ├── ui/                      # Rain design system port (see Design below)
-│   ├── theme/               # RainColors, RainType, RainTheme
-│   └── RainComponents.kt    # Cards, pill buttons, inputs, badges, icon tiles, toggle
+│   ├── theme/               # RainColors, RainType, RainRadius, RainTheme
+│   └── Rain*.kt             # Buttons, inputs, surfaces, text, scaffold, defaults
 └── screens/                 # One Screen + ViewModel pair per feature, plus shared helpers
     ├── Common.kt            # Address/hash/money formatting, TransactionResultCard
+    ├── HomeProviderCards.kt # Portal / Turnkey / Privy connection cards
     ├── HomeScreen / HomeViewModel
     ├── WalletInfoScreen / WalletInfoViewModel
     ├── BalancesScreen / BalancesViewModel
@@ -105,7 +114,7 @@ in two weights (Light for body, Semibold for headings and labels), two type size
 12 for badges), hairline neutral borders on all four sides, 20dp cards, 4dp inputs, pill buttons
 that settle to pink while pressed, sentence case throughout, and no emoji. Pink is reserved for the
 wordmark, the icon tiles, and interaction states. The tokens live in `ui/theme` and the components
-in `ui/RainComponents.kt`; the design canvas the port was built from is the Claude Design project
+in the `ui/Rain*.kt` files; the design canvas the port was built from is the Claude Design project
 "Rain SDK Sample App".
 
 Two things are stand-ins until the brand assets are dropped in:
@@ -130,7 +139,7 @@ provider and the `ProviderId` resolved:
 ```kotlin
 val sdk = RainSdk.builder()
     .rpcEndpoints(rpcEndpoints)                                   // Map<Int, String>
-    .register(TurnkeyProvider(TurnkeyConfig(turnkey = turnkey)))
+    .register(turnkeyProvider)                                    // prepared + authenticated first
     .registerTokens(WalletChain.entries.map { it.defaultTokenInfo })
     .rainApiCredentials(apiKey, userId)                           // optional
     .build()

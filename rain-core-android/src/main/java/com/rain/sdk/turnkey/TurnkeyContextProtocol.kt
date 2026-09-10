@@ -2,9 +2,14 @@ package com.rain.sdk.turnkey
 
 import com.turnkey.core.TurnkeyContext
 import com.turnkey.core.models.AuthState
+import com.turnkey.core.models.CreateSubOrgParams
+import com.turnkey.core.models.CustomWallet
+import com.turnkey.core.models.OtpType
 import com.turnkey.core.models.Session
 import com.turnkey.core.models.Wallet
+import com.turnkey.core.models.errors.TurnkeyKotlinError
 import com.turnkey.http.TurnkeyClient
+import com.turnkey.types.TCreateWalletAccountsBody
 import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TEthSendTransactionResponse
 import com.turnkey.types.TGetActivitiesBody
@@ -17,9 +22,13 @@ import com.turnkey.types.TGetWalletAddressBalancesBody
 import com.turnkey.types.TGetWalletAddressBalancesResponse
 import com.turnkey.types.TSolSendTransactionBody
 import com.turnkey.types.TSolSendTransactionResponse
+import com.turnkey.types.V1AddressFormat
+import com.turnkey.types.V1Curve
 import com.turnkey.types.V1HashFunction
+import com.turnkey.types.V1PathFormat
 import com.turnkey.types.V1PayloadEncoding
 import com.turnkey.types.V1SignRawPayloadResult
+import com.turnkey.types.V1WalletAccountParams
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -54,6 +63,23 @@ internal interface TurnkeyClientProtocol {
     ): TGetNoncesResponse
 }
 
+/**
+ * An in-flight one-time code: the id and the TEE-signed encryption bundle from `initOtp`, both
+ * needed to complete the flow. Module-owned so test doubles never construct the vendor's result type.
+ */
+internal data class OtpChallenge(val otpId: String, val encryptionTargetBundle: String)
+
+/** One account to create on a wallet — the module-owned shape of `V1WalletAccountParams`. */
+internal data class TurnkeyAccountSpec(
+    val addressFormat: V1AddressFormat,
+    val curve: V1Curve,
+    val path: String,
+)
+
+/** One wallet with its accounts — the module-owned shape of the vendor's wallet parameters. */
+internal data class TurnkeyWalletSpec(val name: String, val accounts: List<TurnkeyAccountSpec>)
+
+@Suppress("TooManyFunctions") // vendor seam: one member per Turnkey call the SDK makes
 internal interface TurnkeyContextProtocol {
     val wallets: List<Wallet>
     val session: Session?
@@ -72,6 +98,47 @@ internal interface TurnkeyContextProtocol {
         encoding: V1PayloadEncoding,
         hashFunction: V1HashFunction
     ): V1SignRawPayloadResult
+
+    // ---- Managed authentication (email OTP through Turnkey's auth proxy) ----
+
+    /** Suspends until the vendor singleton has initialized and restored any persisted session. */
+    suspend fun awaitReady()
+
+    /** Starts an email one-time code for [contact]; the returned challenge completes it. */
+    suspend fun sendOtp(contact: String): OtpChallenge
+
+    /**
+     * Completes the [challenge] from [sendOtp] with the user's code (sign-up or login, the vendor
+     * decides) and stores the new session under [sessionKey]. On the sign-up path [signupWallet]
+     * is created inside the same request as the organization, so a new account never exists
+     * without its wallet; the login path ignores it. Fixed arity and a distinct name so it cannot
+     * collide with the vendor's defaulted overloads.
+     */
+    suspend fun completeOtp(
+        challenge: OtpChallenge,
+        otpCode: String,
+        contact: String,
+        sessionKey: String,
+        signupWallet: TurnkeyWalletSpec,
+    )
+
+    /** The key of the session the vendor currently treats as selected, or null when none is. */
+    val selectedSessionKey: String?
+
+    /** Makes the stored session under [sessionKey] the selected one. */
+    suspend fun selectSession(sessionKey: String)
+
+    /** Clears the selected session only — never every stored session. No-op when none is selected. */
+    suspend fun clearSelectedSession()
+
+    /** Removes the stored session under [sessionKey], selected or not. */
+    suspend fun clearSession(sessionKey: String)
+
+    /** Creates one wallet holding [accounts] on the authenticated organization. */
+    suspend fun createWallet(walletName: String, accounts: List<TurnkeyAccountSpec>)
+
+    /** Adds [accounts] to the existing wallet [walletId] — no new wallet, no new mnemonic. */
+    suspend fun createWalletAccounts(walletId: String, accounts: List<TurnkeyAccountSpec>)
 }
 
 /**
@@ -79,6 +146,7 @@ internal interface TurnkeyContextProtocol {
  * Production code holds the singleton via this wrapper so the wallet provider doesn't
  * depend on `TurnkeyContext` statics directly.
  */
+@Suppress("TooManyFunctions") // vendor seam: one member per Turnkey call the SDK makes
 internal class TurnkeyContextAdapter(
     private val context: TurnkeyContext = TurnkeyContext
 ) : TurnkeyContextProtocol {
@@ -122,6 +190,94 @@ internal class TurnkeyContextAdapter(
             encoding = encoding,
             hashFunction = hashFunction
         )
+    }
+
+    override suspend fun awaitReady() = context.awaitReady()
+
+    override suspend fun sendOtp(contact: String): OtpChallenge {
+        val result = context.initOtp(otpType = OtpType.OTP_TYPE_EMAIL, contact = contact)
+        return OtpChallenge(otpId = result.otpId, encryptionTargetBundle = result.otpEncryptionTargetBundle)
+    }
+
+    override suspend fun completeOtp(
+        challenge: OtpChallenge,
+        otpCode: String,
+        contact: String,
+        sessionKey: String,
+        signupWallet: TurnkeyWalletSpec,
+    ) {
+        context.loginOrSignUpWithOtp(
+            otpId = challenge.otpId,
+            otpCode = otpCode,
+            otpEncryptionTargetBundle = challenge.encryptionTargetBundle,
+            contact = contact,
+            otpType = OtpType.OTP_TYPE_EMAIL,
+            // Revokes this user's other Turnkey sessions server-side on a successful login, as the
+            // iOS provider does; a rejected code never reaches this point.
+            invalidateExisting = true,
+            sessionKey = sessionKey,
+            // Sign-up only (the vendor ignores it on login): the wallet is created inside the
+            // signup request, the same shape the iOS provider sends. The vendor fills in the
+            // contact and verification token. `CustomWallet` carries no mnemonic length, so the
+            // seed gets Turnkey's default of 12 words — the length the createWallet fallback pins.
+            createSubOrgParams = CreateSubOrgParams(
+                customWallet = CustomWallet(
+                    walletName = signupWallet.name,
+                    walletAccounts = signupWallet.accounts.toVendorParams(),
+                )
+            ),
+        )
+    }
+
+    override val selectedSessionKey: String?
+        get() = context.selectedSessionKey.value
+
+    override suspend fun selectSession(sessionKey: String) {
+        context.setSelectedSession(sessionKey)
+    }
+
+    override suspend fun clearSelectedSession() {
+        // clearSession(null) throws when nothing is selected; resolve the key first.
+        val key = context.selectedSessionKey.value ?: return
+        context.clearSession(key)
+    }
+
+    override suspend fun clearSession(sessionKey: String) {
+        context.clearSession(sessionKey)
+    }
+
+    override suspend fun createWallet(walletName: String, accounts: List<TurnkeyAccountSpec>) {
+        context.createWallet(
+            walletName = walletName,
+            accounts = accounts.toVendorParams(),
+            mnemonicLength = MANAGED_WALLET_MNEMONIC_LENGTH
+        )
+    }
+
+    override suspend fun createWalletAccounts(walletId: String, accounts: List<TurnkeyAccountSpec>) {
+        // The high-level context has no wrapper for this activity; the typed client submits it
+        // and polls it to completion like every other activity.
+        val organizationId = context.session.value?.organizationId ?: throw TurnkeyKotlinError.InvalidSession()
+        context.client.createWalletAccounts(
+            TCreateWalletAccountsBody(
+                organizationId = organizationId,
+                walletId = walletId,
+                accounts = accounts.toVendorParams()
+            )
+        )
+    }
+
+    private fun List<TurnkeyAccountSpec>.toVendorParams(): List<V1WalletAccountParams> = map {
+        V1WalletAccountParams(
+            addressFormat = it.addressFormat,
+            curve = it.curve,
+            path = it.path,
+            pathFormat = V1PathFormat.PATH_FORMAT_BIP32
+        )
+    }
+
+    private companion object {
+        const val MANAGED_WALLET_MNEMONIC_LENGTH = 12L
     }
 }
 

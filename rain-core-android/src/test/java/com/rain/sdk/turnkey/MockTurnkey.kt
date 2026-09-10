@@ -35,6 +35,7 @@ import com.turnkey.types.V1SolSendTransactionIntent
 import com.turnkey.types.V1SolSendTransactionResult
 import com.turnkey.types.V1SolanaSendTransactionStatus
 import com.turnkey.types.V1WalletAccount
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.UUID
@@ -243,6 +244,144 @@ internal class MockTurnkey(
     )
     override val authState: StateFlow<AuthState> get() = authStateFlow
 
+    // ---- managed auth seams (recorded like the wallet seams above) ----
+
+    data class CompleteOtpCall(
+        val otpId: String,
+        val otpCode: String,
+        val otpEncryptionTargetBundle: String,
+        val contact: String,
+        val sessionKey: String,
+        val signupWallet: TurnkeyWalletSpec
+    )
+
+    data class CreateWalletCall(val walletName: String, val accounts: List<TurnkeyAccountSpec>)
+
+    var awaitReadyCallCount: Int = 0
+    var awaitReadyError: Exception? = null
+
+    /** When set, [awaitReady] suspends on it — a vendor that never finishes initializing. */
+    var awaitReadyGate: CompletableDeferred<Unit>? = null
+
+    val sendOtpCalls = mutableListOf<String>()
+    var sendOtpError: Exception? = null
+    var stubbedOtpChallenge = OtpChallenge(otpId = "otp-id", encryptionTargetBundle = "bundle")
+
+    val completeOtpCalls = mutableListOf<CompleteOtpCall>()
+    var completeOtpError: Exception? = null
+
+    /** Runs after a recorded [completeOtp] with the new session key — install the session here. */
+    var onCompleteOtp: (suspend (sessionKey: String) -> Unit)? = null
+
+    /** Mirrors the vendor: a live session starts out under its default key. */
+    override var selectedSessionKey: String? = if (session != null) DEFAULT_SESSION_KEY else null
+
+    val selectSessionCalls = mutableListOf<String>()
+    var selectSessionError: Exception? = null
+
+    /**
+     * When true, [selectSession] records the selection and *then* throws [selectSessionError] —
+     * the vendor's shape: it persists the selection before its auto-refresh can fail.
+     */
+    var selectSessionAppliesBeforeThrowing = false
+
+    var clearSelectedSessionCallCount: Int = 0
+    var clearSelectedSessionError: Exception? = null
+
+    val clearSessionCalls = mutableListOf<String>()
+
+    val createWalletCalls = mutableListOf<CreateWalletCall>()
+    var createWalletError: Exception? = null
+
+    /** Runs after a recorded [createWallet] — install the created accounts here. */
+    var onCreateWallet: (suspend (CreateWalletCall) -> Unit)? = null
+
+    data class CreateWalletAccountsCall(val walletId: String, val accounts: List<TurnkeyAccountSpec>)
+
+    val createWalletAccountsCalls = mutableListOf<CreateWalletAccountsCall>()
+    var createWalletAccountsError: Exception? = null
+
+    /** Runs after a recorded [createWalletAccounts] — install the added accounts here. */
+    var onCreateWalletAccounts: (suspend (CreateWalletAccountsCall) -> Unit)? = null
+
+    override suspend fun awaitReady() {
+        awaitReadyCallCount++
+        awaitReadyError?.let { throw it }
+        awaitReadyGate?.await()
+    }
+
+    override suspend fun sendOtp(contact: String): OtpChallenge {
+        sendOtpCalls += contact
+        sendOtpError?.let { throw it }
+        return stubbedOtpChallenge
+    }
+
+    override suspend fun completeOtp(
+        challenge: OtpChallenge,
+        otpCode: String,
+        contact: String,
+        sessionKey: String,
+        signupWallet: TurnkeyWalletSpec
+    ) {
+        completeOtpCalls += CompleteOtpCall(
+            challenge.otpId,
+            otpCode,
+            challenge.encryptionTargetBundle,
+            contact,
+            sessionKey,
+            signupWallet
+        )
+        completeOtpError?.let { throw it }
+        // Like the vendor's createSession: a first login auto-selects; over a live session it only stores.
+        if (selectedSessionKey == null) selectedSessionKey = sessionKey
+        onCompleteOtp?.invoke(sessionKey)
+    }
+
+    override suspend fun selectSession(sessionKey: String) {
+        selectSessionCalls += sessionKey
+        if (selectSessionAppliesBeforeThrowing) selectedSessionKey = sessionKey
+        selectSessionError?.let { throw it }
+        selectedSessionKey = sessionKey
+    }
+
+    override suspend fun clearSelectedSession() {
+        clearSelectedSessionCallCount++
+        clearSelectedSessionError?.let { throw it }
+        if (selectedSessionKey == null) return
+        resetToUnauthenticated()
+    }
+
+    override suspend fun clearSession(sessionKey: String) {
+        clearSessionCalls += sessionKey
+        if (sessionKey == selectedSessionKey) resetToUnauthenticated()
+    }
+
+    override suspend fun createWallet(walletName: String, accounts: List<TurnkeyAccountSpec>) {
+        val call = CreateWalletCall(walletName, accounts)
+        createWalletCalls += call
+        createWalletError?.let { throw it }
+        onCreateWallet?.invoke(call)
+    }
+
+    override suspend fun createWalletAccounts(walletId: String, accounts: List<TurnkeyAccountSpec>) {
+        val call = CreateWalletAccountsCall(walletId, accounts)
+        createWalletAccountsCalls += call
+        createWalletAccountsError?.let { throw it }
+        onCreateWalletAccounts?.invoke(call)
+    }
+
+    /** Installs a live default session, the way a completed login leaves the vendor. */
+    fun authenticate() {
+        session = defaultSession()
+        authStateFlow.value = AuthState.authenticated
+    }
+
+    private fun resetToUnauthenticated() {
+        selectedSessionKey = null
+        session = null
+        authStateFlow.value = AuthState.unauthenticated
+    }
+
     var refreshWalletsCallCount: Int = 0
     val signRawPayloadCalls = mutableListOf<SignRawPayloadCall>()
 
@@ -293,6 +432,7 @@ internal class MockTurnkey(
         const val DEFAULT_SOLANA_ADDRESS = "So11111111111111111111111111111111111111112"
         const val DEFAULT_SOLANA_RECIPIENT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
         const val DEFAULT_ORG_ID = "org-id"
+        const val DEFAULT_SESSION_KEY = "com.turnkey.sdk.session"
 
         fun defaultSession(): Session = Session(
             userId = "user-id",

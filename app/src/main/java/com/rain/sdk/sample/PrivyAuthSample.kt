@@ -13,7 +13,7 @@ import io.privy.sdk.PrivyConfig
  * `RainSession.initializePrivy(privy = …)`.
  *
  * This file is NOT part of Rain SDK. It is reference code a host app would write itself — Rain SDK
- * intentionally does not own Privy auth (mirrors TurnkeyAuthSample). Copy/adapt for your own app.
+ * intentionally does not own Privy auth. Copy/adapt for your own app.
  */
 object PrivyAuthSample {
 

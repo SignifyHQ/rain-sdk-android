@@ -51,7 +51,7 @@ private fun PortalCard(state: HomeUiState, viewModel: HomeViewModel) {
 @Composable
 private fun TurnkeyCard(state: HomeUiState, viewModel: HomeViewModel, application: Application) {
     // The ids are frozen once a code is out; a relaunch is the only way to change them.
-    val codeSent = state.turnkeyOtpId != null
+    val codeSent = state.turnkeyOtpSent
     RainCard {
         CardTitle("Turnkey configuration", "Email one-time code")
         RainField(

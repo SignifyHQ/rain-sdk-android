@@ -5,15 +5,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.rain.sdk.RainChain
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.sample.PrivyAuthSample
 import com.rain.sdk.sample.RainSampleApp
 import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.SessionHealth
 import com.rain.sdk.sample.SessionStore
-import com.rain.sdk.sample.TurnkeyAuthSample
 import com.rain.sdk.sample.WalletChain
 import com.rain.sdk.sample.WalletSessionStatus
+import com.rain.sdk.turnkey.TurnkeyAuthState
+import com.rain.sdk.turnkey.TurnkeyProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,6 +24,7 @@ import kotlinx.coroutines.launch
 
 enum class WalletMode { Portal, Turnkey, Privy }
 
+@Suppress("LargeClass") // one sample ViewModel for three providers' flows; a split is a sample-only refactor
 class HomeViewModel(
     private val app: RainSampleApp
 ) : ViewModel() {
@@ -93,14 +96,11 @@ class HomeViewModel(
                 SessionStore.Provider.Portal ->
                     if (_state.value.sessionToken.isNotBlank()) initializeSdk() else resumeFallback("Ready")
                 SessionStore.Provider.Turnkey -> {
-                    app.vendorInit?.join()
-                    if (!TurnkeyAuthSample.hasActiveSession()) {
-                        resumeFallback("Saved Turnkey session expired — log in again")
-                    } else if (!TurnkeyAuthSample.activeSessionEmail().matches(_state.value.turnkeyEmail)) {
-                        resumeFallback("Saved Turnkey session belongs to another email — log in again")
+                    val s = _state.value
+                    if (s.turnkeyOrgId.isBlank() || s.turnkeyAuthProxyConfigId.isBlank()) {
+                        resumeFallback("Saved Turnkey ids missing — log in again")
                     } else {
-                        _state.update { it.copy(turnkeySessionActive = true) }
-                        initializeRainWithTurnkey()
+                        resumeTurnkey(s.turnkeyOrgId, s.turnkeyAuthProxyConfigId)
                     }
                 }
                 SessionStore.Provider.Privy -> {
@@ -115,6 +115,37 @@ class HomeViewModel(
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Managed mode configures Turnkey itself when the provider is prepared and restores any
+     * persisted session; nothing runs at process launch. The restore can throw — a configuration
+     * conflict, or Turnkey failing to initialize on this device — and an uncaught exception here
+     * would crash every launch, so it falls back to the manual screen instead. A live session with
+     * no recorded owner (a confirm that failed after the login itself went through) is not resumed
+     * either: logging in again replaces it safely.
+     */
+    private suspend fun resumeTurnkey(organizationId: String, authProxyConfigId: String) {
+        try {
+            val turnkey = session.prepareTurnkey(app, organizationId, authProxyConfigId, turnkeyExpiryHandler())
+            turnkey.awaitSessionRestore()
+            when {
+                // A restore that merely has not settled yet is not an expired session.
+                turnkey.currentAuthState() == TurnkeyAuthState.Loading ->
+                    resumeFallback("Still restoring the Turnkey session — try again in a moment")
+                !turnkey.hasActiveSession() ->
+                    resumeFallback("No active Turnkey session — log in again")
+                store.turnkeyEmail.isBlank() ->
+                    resumeFallback("Saved Turnkey session has no recorded owner — log in again")
+                else -> {
+                    _state.update { it.copy(turnkeySessionActive = true) }
+                    initializeRainWithTurnkey()
+                }
+            }
+        } catch (e: Exception) {
+            SampleLog.e("Resume", "Turnkey resume failed: ${e.message}", e)
+            resumeFallback("Turnkey resume failed — log in again: ${e.message}")
         }
     }
 
@@ -308,62 +339,80 @@ class HomeViewModel(
         }
     }
 
+    /**
+     * Expiry hook shared by the send and resume paths: restart the code flow. A fresh login revives
+     * the provider (it watches the process-wide session), so Rain is not re-initialized. A
+     * deliberate logout never fires it.
+     */
+    private fun turnkeyExpiryHandler(): () -> Unit {
+        // The provider keeps this for its lifetime, which can outlive the ViewModel: capture the
+        // state flow, not `this`.
+        val uiState = _state
+        return {
+            SampleLog.w("Turnkey.session", "Turnkey session expired, re-auth required")
+            uiState.update {
+                it.copy(
+                    turnkeySessionActive = false,
+                    turnkeyOtpSent = false,
+                    turnkeyOtpCode = "",
+                    statusText = "Turnkey session expired — log in again"
+                )
+            }
+        }
+    }
+
     fun sendTurnkeyOtp(app: Application) {
         val s = _state.value
         if (s.turnkeyOrgId.isBlank() || s.turnkeyAuthProxyConfigId.isBlank() || s.turnkeyEmail.isBlank()) {
             _state.update { it.copy(statusText = "Org ID, Auth Proxy Config ID, and Email are required") }
             return
         }
+        val organizationId = s.turnkeyOrgId.trim()
+        val authProxyConfigId = s.turnkeyAuthProxyConfigId.trim()
+        val email = s.turnkeyEmail.trim()
 
-        SampleLog.i(
-            "Turnkey.otpInit",
-            "starting email-OTP flow email=${SampleLog.maskEmail(s.turnkeyEmail)}"
-        )
-        // Saved before init so a relaunch (the only way to change ids) picks up the new values.
+        SampleLog.i("Turnkey.otpInit", "starting login-code flow email=${SampleLog.maskEmail(email)}")
+        // The ids are saved before the provider is prepared so a relaunch (the only way to change
+        // them) picks up the new values. The email is saved only after a successful confirm.
         store.provider = SessionStore.Provider.Turnkey
-        store.turnkeyOrgId = s.turnkeyOrgId.trim()
-        store.turnkeyAuthProxyConfigId = s.turnkeyAuthProxyConfigId.trim()
-        store.turnkeyEmail = s.turnkeyEmail.trim()
-        _state.update { it.copy(isLoading = true, statusText = "Initializing Turnkey...") }
+        store.turnkeyOrgId = organizationId
+        store.turnkeyAuthProxyConfigId = authProxyConfigId
+        _state.update { it.copy(isLoading = true, statusText = "Initializing wallet backend...") }
         viewModelScope.launch {
             try {
-                TurnkeyAuthSample.init(app, s.turnkeyOrgId, s.turnkeyAuthProxyConfigId)
+                val provider = session.prepareTurnkey(app, organizationId, authProxyConfigId, turnkeyExpiryHandler())
+                provider.awaitSessionRestore()
 
-                // Turnkey restores a valid session from secure storage during init. Only reuse
-                // it when it provably belongs to the email being logged in — otherwise entering
-                // a different email would silently continue as the previous user. On mismatch
-                // (or when the owner can't be determined) log out and run the full OTP flow.
-                if (TurnkeyAuthSample.hasActiveSession()) {
-                    val sessionEmail = TurnkeyAuthSample.activeSessionEmail()
-                    if (sessionEmail != null && sessionEmail.trim().equals(s.turnkeyEmail.trim(), ignoreCase = true)) {
-                        SampleLog.i("Turnkey.otpInit", "existing session restored for this email — skipping OTP")
-                        _state.update {
-                            it.copy(
-                                isLoading = false,
-                                turnkeySessionActive = true,
-                                statusText = "Existing Turnkey session restored — initialize Rain to continue"
-                            )
-                        }
-                        return@launch
+                // The SDK restores a valid session from secure storage. Reuse it only when it
+                // belongs to the email being logged in: the last successful login on this device
+                // wrote store.turnkeyEmail and logout clears it, so that is the session's owner.
+                // Any other email runs the full code flow, which logs in under a fresh session
+                // and leaves the current one untouched until the switch succeeds.
+                if (provider.hasActiveSession() && store.turnkeyEmail.equals(email, ignoreCase = true)) {
+                    SampleLog.i("Turnkey.otpInit", "existing session restored for this email — skipping the code")
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            turnkeySessionActive = true,
+                            statusText = "Existing session restored — initialize Rain to continue"
+                        )
                     }
-                    SampleLog.w(
-                        "Turnkey.otpInit",
-                        "restored session belongs to ${SampleLog.maskEmail(sessionEmail)}, " +
-                            "not ${SampleLog.maskEmail(s.turnkeyEmail)} — logging out"
-                    )
-                    TurnkeyAuthSample.logout()
+                    return@launch
                 }
 
-                _state.update { it.copy(statusText = "Sending OTP to ${s.turnkeyEmail}...") }
-                val otpResult = TurnkeyAuthSample.sendEmailOtp(s.turnkeyEmail)
-
-                SampleLog.i("Turnkey.otpInit", "OTP sent")
+                _state.update { it.copy(statusText = "Sending login code to $email...") }
+                provider.sendLoginCode(email)
+                SampleLog.i("Turnkey.otpInit", "login code sent")
                 _state.update {
                     it.copy(
                         isLoading = false,
-                        turnkeyOtpId = otpResult.otpId,
-                        turnkeyOtpEncryptionBundle = otpResult.otpEncryptionTargetBundle,
-                        statusText = "OTP sent — check your email"
+                        // The code went to this address: pin the field to it (it stays editable
+                        // while the send is in flight) and stop treating any live session as this
+                        // email's — the confirm decides whose session it is.
+                        turnkeyEmail = email,
+                        turnkeySessionActive = false,
+                        turnkeyOtpSent = true,
+                        statusText = "Login code sent — check your email"
                     )
                 }
             } catch (e: Exception) {
@@ -371,7 +420,7 @@ class HomeViewModel(
                 _state.update {
                     it.copy(
                         isLoading = false,
-                        statusText = "Turnkey OTP init failed: ${e.message}"
+                        statusText = "Turnkey login failed: ${e.message}"
                     )
                 }
             }
@@ -380,83 +429,100 @@ class HomeViewModel(
 
     fun verifyTurnkeyOtp() {
         val s = _state.value
-        val otpId = s.turnkeyOtpId
-        val otpEncryptionBundle = s.turnkeyOtpEncryptionBundle
-        if (otpId.isNullOrBlank() || otpEncryptionBundle.isNullOrBlank()) {
-            _state.update { it.copy(statusText = "Send OTP first") }
+        val provider = session.turnkeyProvider
+        if (!s.turnkeyOtpSent || provider == null) {
+            _state.update { it.copy(statusText = "Send a login code first") }
             return
         }
         if (s.turnkeyOtpCode.isBlank()) {
-            _state.update { it.copy(statusText = "OTP code required") }
+            _state.update { it.copy(statusText = "Login code required") }
             return
         }
 
-        SampleLog.i("Turnkey.otpVerify", "verifying OTP")
-        _state.update { it.copy(isLoading = true, statusText = "Verifying OTP...") }
+        SampleLog.i("Turnkey.otpVerify", "confirming login code")
+        _state.update { it.copy(isLoading = true, statusText = "Confirming login code...") }
         viewModelScope.launch {
+            val email = s.turnkeyEmail.trim()
+            val previousOwner = store.turnkeyEmail
+            val hadSession = provider.hasActiveSession()
             try {
-                TurnkeyAuthSample.verifyEmailOtp(otpId, s.turnkeyOtpCode, otpEncryptionBundle, s.turnkeyEmail)
-                SampleLog.i(
-                    "Turnkey.otpVerify",
-                    "session active subOrgId=${SampleLog.maskToken(TurnkeyAuthSample.subOrganizationId)}"
-                )
+                // A confirm may switch the device's session to this email and then fail before it
+                // returns, so the owner recorded for the previous session is forgotten first and
+                // the new one is written only on success: the restored-session checks trust it.
+                store.turnkeyEmail = ""
+                // Sign-up or login, plus EVM + Solana account provisioning — all inside the SDK.
+                provider.confirmLoginCode(s.turnkeyOtpCode.trim())
+                store.turnkeyEmail = email
+                SampleLog.i("Turnkey.otpVerify", "session active")
                 _state.update {
                     it.copy(
                         isLoading = false,
                         turnkeySessionActive = true,
-                        statusText = "Turnkey session active — initialize Rain to continue"
+                        statusText = "Session active — initialize Rain to continue"
                     )
                 }
-            } catch (e: Exception) {
-                SampleLog.e("Turnkey.otpVerify", "failed: ${e.message}", e)
+            } catch (e: RainError.InvalidLoginCode) {
+                SampleLog.w("Turnkey.otpVerify", "login code rejected", e)
+                // The SDK guarantees a rejected code leaves the live session untouched, so the
+                // previous owner is still the owner.
+                store.turnkeyEmail = previousOwner
                 _state.update {
                     it.copy(
                         isLoading = false,
-                        statusText = "OTP verification failed: ${e.message}"
+                        turnkeyOtpCode = "",
+                        statusText = "That code was not accepted — check it and try again"
                     )
                 }
+            } catch (e: Exception) {
+                onTurnkeyConfirmFailed(provider, email, hadSession, e)
+            }
+        }
+    }
+
+    /**
+     * A confirm failure other than a rejected code. When the login itself went through and a later
+     * step (account provisioning) failed, the session is live and resolving Rain re-runs
+     * provisioning, so the sample carries on signed in. Otherwise whose session is live is unknown
+     * (a switch may or may not have happened), so the owner stays unrecorded and the flow restarts
+     * from "Send code" — that path always works; a challenge the SDK kept is simply replaced.
+     */
+    private fun onTurnkeyConfirmFailed(provider: TurnkeyProvider, email: String, hadSession: Boolean, e: Exception) {
+        SampleLog.e("Turnkey.otpVerify", "failed: ${e.message}", e)
+        if (!hadSession && provider.hasActiveSession()) {
+            store.turnkeyEmail = email
+            _state.update {
+                it.copy(
+                    isLoading = false,
+                    turnkeySessionActive = true,
+                    statusText = "Signed in — wallet setup finishes when Rain initializes (${e.message})"
+                )
+            }
+        } else {
+            _state.update {
+                it.copy(
+                    isLoading = false,
+                    turnkeyOtpSent = false,
+                    turnkeyOtpCode = "",
+                    statusText = "Login failed — request a new code: ${e.message}"
+                )
             }
         }
     }
 
     fun initializeRainWithTurnkey() {
         if (!_state.value.turnkeySessionActive) {
-            _state.update { it.copy(statusText = "Verify OTP first") }
+            _state.update { it.copy(statusText = "Confirm the login code first") }
             return
         }
         SampleLog.i("Turnkey.rainInit", "initializing Rain w/ Turnkey (EVM + Solana)")
         _state.update { it.copy(isLoading = true, statusText = "Initializing Rain with Turnkey...") }
-        val uiState = _state
         viewModelScope.launch {
             try {
-                val createdEvm = TurnkeyAuthSample.ensureEthereumWallet()
-                val createdSolana = TurnkeyAuthSample.ensureSolanaWallet()
-                if (createdEvm || createdSolana) {
-                    _state.update { it.copy(statusText = "Provisioned Turnkey wallets, initializing Rain...") }
-                }
-
-                // Initialize with every supported chain's RPC so the dropdown can switch
-                // between the EVM and Solana wallets without re-initializing.
-                session.initializeTurnkey(
-                    turnkey = TurnkeyAuthSample.context,
-                    rpcEndpoints = WalletChain.rpcEndpoints,
-                    chainId = RainChain.AVALANCHE_TESTNET,
-                    walletAddress = null,
-                    // Restart the OTP flow; a fresh login revives the provider (it watches the
-                    // process-wide Turnkey singleton), so Rain is not re-initialized.
-                    onSessionExpired = {
-                        SampleLog.w("Turnkey.session", "Turnkey session expired, re-auth required")
-                        uiState.update {
-                            it.copy(
-                                turnkeySessionActive = false,
-                                turnkeyOtpId = null,
-                                turnkeyOtpEncryptionBundle = null,
-                                turnkeyOtpCode = "",
-                                statusText = "Turnkey session expired — log in again"
-                            )
-                        }
-                    }
-                )
+                // Accounts were provisioned inside confirmLoginCode (and are re-checked at
+                // resolution); the expiry handler was installed when the provider was prepared.
+                // Every supported chain's RPC goes in so the dropdown can switch between the EVM
+                // and Solana wallets without re-initializing.
+                session.initializeTurnkey(rpcEndpoints = WalletChain.rpcEndpoints)
                 val evmAddress = runCatching { session.client?.getWalletAddress(WalletChain.EVM.chainId) }.getOrNull()
                 val solAddress = runCatching {
                     session.client?.getWalletAddress(
@@ -478,12 +544,15 @@ class HomeViewModel(
                 }
             } catch (e: Exception) {
                 SampleLog.e("Turnkey.rainInit", "failed: ${e.message}", e)
+                // reset() closes the prepared provider, so the flow restarts from "Send code".
                 session.reset()
                 _state.update {
                     it.copy(
                         isLoading = false,
                         isInitialized = false,
                         sessionStatus = null,
+                        turnkeySessionActive = false,
+                        turnkeyOtpSent = false,
                         statusText = "Rain Turnkey init failed: ${e.message}"
                     )
                 }
@@ -665,11 +734,18 @@ class HomeViewModel(
     fun clearSession() {
         SampleLog.i("Home", "clearing session (provider logout + SDK reset + UI reset)")
         viewModelScope.launch {
-            // Close the provider first so its watcher does not report the logout as a death.
+            // Managed Turnkey logout runs first, while the provider is still open: it clears the
+            // stored session without firing the re-auth hook. A refused logout keeps everything —
+            // the session is still on this device, so the app must not forget whose it is.
+            if (!session.logoutTurnkey()) {
+                _state.update {
+                    it.copy(statusText = "Turnkey logout failed — the session is still on this device; try again")
+                }
+                return@launch
+            }
             session.reset()
             store.clear()
             // Real logout so the next run requires fresh auth (and resume detects no session).
-            TurnkeyAuthSample.logout()
             PrivyAuthSample.logout()
             _state.update { seededState(it.mode).copy(statusText = "Session cleared") }
         }
@@ -684,8 +760,7 @@ data class HomeUiState(
     val turnkeyOrgId: String = "",
     val turnkeyAuthProxyConfigId: String = "",
     val turnkeyEmail: String = "",
-    val turnkeyOtpId: String? = null,
-    val turnkeyOtpEncryptionBundle: String? = null,
+    val turnkeyOtpSent: Boolean = false,
     val turnkeyOtpCode: String = "",
     val turnkeySessionActive: Boolean = false,
     val privyAppId: String = "",

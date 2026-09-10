@@ -22,6 +22,7 @@ import timber.log.Timber
 import java.io.IOException
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Guards every Turnkey call behind session-expiry checks, proactive refresh, refresh-on-401
@@ -38,7 +39,7 @@ internal class TurnkeySessionCoordinator(
     private val policy: TurnkeySessionPolicy = TurnkeySessionPolicy(),
     private val onSessionExpired: (() -> Unit)? = null,
     private val nowEpochSeconds: () -> Double = { System.currentTimeMillis() / 1000.0 },
-    private val retryDelay: suspend (Long) -> Unit = { delay(it) },
+    private val retryDelay: suspend (Long) -> Unit = { delay(it.milliseconds) },
 ) {
     private val refreshLock = Mutex()
     private val expiryNotified = AtomicBoolean(false)
@@ -48,12 +49,41 @@ internal class TurnkeySessionCoordinator(
     /** Whether a session was ever observed — only an existing session can "die". */
     private val sawSession = AtomicBoolean(false)
 
+    /**
+     * Set by a deliberate logout so the Active→dead transition it causes does not fire the host's
+     * re-auth hook (whose contract forbids re-entering the SDK). Internal death callbacks still
+     * run — cached accounts must be evicted on logout too. Sticky until the watcher next sees an
+     * Active session, because the watcher observes the transition on its own coroutine after the
+     * clear call has already returned.
+     */
+    private val hostHookSuppressed = AtomicBoolean(false)
+
     /** Runs when an active session dies (before the host hook) — e.g. cached-account eviction. */
     private val deathCallbacks = CopyOnWriteArrayList<() -> Unit>()
 
     /** Registers a callback invoked once per session death, before the host hook. */
     fun onSessionDeath(callback: () -> Unit) {
         deathCallbacks += callback
+    }
+
+    /** Marks the next session death as intentional: the host hook stays silent for it. */
+    fun suppressNextHostHook() {
+        hostHookSuppressed.set(true)
+    }
+
+    /** Undoes [suppressNextHostHook] when the intentional death did not happen after all. */
+    fun releaseHostHookSuppression() {
+        hostHookSuppressed.set(false)
+    }
+
+    /**
+     * A login replaced the live session with another one (Active→Active, which the watcher does
+     * not treat as a death): runs the internal eviction callbacks — cached accounts belong to the
+     * previous user — without the host hook, and without arming the death latch.
+     */
+    fun notifySessionReplaced() {
+        if (stopped.get()) return
+        runDeathCallbacks()
     }
 
     /** Snapshot of the session state as seen right now. */
@@ -75,7 +105,7 @@ internal class TurnkeySessionCoordinator(
                 while (state is TurnkeySessionState.Active && session != null) {
                     val waitMs = ((session.expiry - nowEpochSeconds()) * 1000).toLong() +
                         EXPIRY_RECHECK_SLACK_MS
-                    delay(waitMs.coerceAtLeast(EXPIRY_RECHECK_SLACK_MS))
+                    delay(waitMs.coerceAtLeast(EXPIRY_RECHECK_SLACK_MS).milliseconds)
                     val next = deriveState(auth, session)
                     if (next != state) emit(next)
                     state = next
@@ -129,6 +159,7 @@ internal class TurnkeySessionCoordinator(
                     is TurnkeySessionState.Active -> {
                         sawSession.set(true)
                         expiryNotified.set(false)
+                        hostHookSuppressed.set(false)
                     }
                     is TurnkeySessionState.Expired,
                     is TurnkeySessionState.Unauthenticated ->
@@ -201,7 +232,7 @@ internal class TurnkeySessionCoordinator(
         // Turnkey restores persisted sessions asynchronously after launch; a call racing that
         // restore must wait it out rather than misreport a valid session as expired.
         if (turnkey.session == null && turnkey.authState.value == AuthState.loading) {
-            withTimeoutOrNull(AUTH_RESTORE_TIMEOUT_MS) {
+            withTimeoutOrNull(AUTH_RESTORE_TIMEOUT_MS.milliseconds) {
                 turnkey.authState.first { it != AuthState.loading }
             }
         }
@@ -267,13 +298,19 @@ internal class TurnkeySessionCoordinator(
         if (!sawSession.get()) return
         if (!expiryNotified.compareAndSet(false, true)) return
         // Internal listeners first: they evict state the host hook may immediately re-read.
-        deathCallbacks.forEach { callback ->
-            runCatching { callback() }
-                .onFailure { Timber.w(it, "Rain SDK: session-death callback threw") }
-        }
+        runDeathCallbacks()
+        // A deliberate logout is not a death the host has to recover from.
+        if (hostHookSuppressed.getAndSet(false)) return
         onSessionExpired?.let { hook ->
             runCatching { hook() }
                 .onFailure { Timber.w(it, "Rain SDK: onSessionExpired callback threw") }
+        }
+    }
+
+    private fun runDeathCallbacks() {
+        deathCallbacks.forEach { callback ->
+            runCatching { callback() }
+                .onFailure { Timber.w(it, "Rain SDK: session-death callback threw") }
         }
     }
 
