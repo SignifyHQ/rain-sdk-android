@@ -215,7 +215,7 @@ internal class TurnkeyManagedAuthController(
             // and the very same string is sent on confirm.
             val contact = email.trim()
             if (contact.isEmpty()) throw RainError.InvalidConfig("email must not be blank")
-            val challenge = guarded { context.sendOtp(contact) }
+            val challenge = guarded { context.sendOtp(contact, OtpChannel.EMAIL) }
             pendingLock.withJavaLock {
                 pendingOtp = PendingOtp(challenge, contact)
             }

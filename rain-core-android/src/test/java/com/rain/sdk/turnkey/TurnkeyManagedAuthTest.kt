@@ -6,6 +6,7 @@ import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.internal.helpers.expectThrows
 import com.turnkey.core.models.AuthState
+import com.turnkey.core.models.OtpType
 import com.turnkey.core.models.errors.TurnkeyKotlinError
 import com.turnkey.types.V1AddressFormat
 import com.turnkey.types.V1Curve
@@ -143,6 +144,16 @@ class TurnkeyManagedAuthTest {
         assertThat(attempts).isEqualTo(2)
     }
 
+    // ---------- one-time-code channel ----------
+
+    @Test
+    fun `OtpChannel mirrors the vendor's OtpType`() {
+        assertThat(OtpChannel.EMAIL.toVendorOtpType()).isEqualTo(OtpType.OTP_TYPE_EMAIL)
+        assertThat(OtpChannel.SMS.toVendorOtpType()).isEqualTo(OtpType.OTP_TYPE_SMS)
+        // A vendor enum addition must be mapped or refused here, never left unmapped.
+        assertThat(OtpChannel.entries).hasSize(OtpType.entries.size)
+    }
+
     // ---------- email OTP ----------
 
     @Test
@@ -152,7 +163,7 @@ class TurnkeyManagedAuthTest {
 
         controller.sendLoginCode("user@example.com")
 
-        assertThat(turnkey.sendOtpCalls).containsExactly("user@example.com")
+        assertThat(turnkey.sendOtpCalls).containsExactly(MockTurnkey.SendOtpCall("user@example.com", OtpChannel.EMAIL))
         assertThat(turnkey.awaitReadyCallCount).isEqualTo(1)
         assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
         assertThat(turnkey.clearSessionCalls).isEmpty()
@@ -170,7 +181,7 @@ class TurnkeyManagedAuthTest {
     @Test
     fun `first login completes with the stashed challenge under a fresh key and creates nothing when both accounts exist`() = runTest {
         val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), session = null)
-        turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-1", encryptionTargetBundle = "bundle-1")
+        turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-1", encryptionTargetBundle = "bundle-1", channel = OtpChannel.EMAIL)
         turnkey.onCompleteOtp = { turnkey.authenticate() }
         val controller = controller(turnkey)
 
@@ -383,7 +394,7 @@ class TurnkeyManagedAuthTest {
         expectThrows<RainError.InvalidConfig> { controller.confirmLoginCode("   ") }
 
         // The challenge survives, and the contact was normalized once for both steps.
-        assertThat(turnkey.sendOtpCalls).containsExactly("user@example.com")
+        assertThat(turnkey.sendOtpCalls).containsExactly(MockTurnkey.SendOtpCall("user@example.com", OtpChannel.EMAIL))
         assertThat(turnkey.completeOtpCalls).isEmpty()
     }
 

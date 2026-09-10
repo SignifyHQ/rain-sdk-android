@@ -112,7 +112,7 @@ class TurnkeyManagedProviderTest {
         provider.sendLoginCode("user@example.com")
 
         assertThat(configured).containsExactly("org-a" to "proxy-a")
-        assertThat(turnkey.sendOtpCalls).containsExactly("user@example.com")
+        assertThat(turnkey.sendOtpCalls).containsExactly(MockTurnkey.SendOtpCall("user@example.com", OtpChannel.EMAIL))
     }
 
     @Test
