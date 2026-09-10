@@ -588,6 +588,11 @@ class TurnkeyManagedAuthTest {
         controller.sendLoginCode("user@example.com")
 
         controller.logout()
+        // Read before the scheduler runs anything else. The vendor flips its auth state, selected
+        // key and session inline inside clearSession, and the coordinator derives these two answers
+        // on demand, so nothing may lag behind the return.
+        assertThat(controller.hasActiveSession()).isFalse()
+        assertThat(controller.currentAuthState()).isEqualTo(TurnkeyAuthState.Unauthenticated)
         runCurrent()
 
         assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(1)

@@ -314,7 +314,8 @@ class TurnkeyProvider internal constructor(
     /**
      * Clears the selected session (full logout) — after waiting for a restore in flight to
      * settle — without firing [TurnkeyConfig.onSessionExpired]; cached accounts are still evicted
-     * and a pending login code is dropped. A no-op when no session is selected. Managed mode only —
+     * and a pending login code is dropped. [hasActiveSession] and [currentAuthState] read
+     * unauthenticated as soon as it returns. A no-op when no session is selected. Managed mode only —
      * throws `RainError.InvalidConfig` in bring-your-own mode, where the host owns the session.
      */
     @InternalRainTurnkeyApi

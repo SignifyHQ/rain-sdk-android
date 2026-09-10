@@ -296,7 +296,10 @@ internal class TurnkeyManagedAuthController(
     /**
      * Clears the selected session. Deliberate, so the host's `onSessionExpired` re-auth hook stays
      * silent for the death this causes; cached accounts are still evicted. A pending code is
-     * dropped once the clear was attempted, whether or not it succeeded.
+     * dropped once the clear was attempted, whether or not it succeeded. Reads made right after
+     * this returns already see no session: the vendor flips its auth state, selected key and
+     * session inline inside `clearSession`, and [hasActiveSession] and [currentAuthState] derive
+     * from those values on demand, so no wait for the flip is needed here.
      */
     suspend fun logout() {
         flowMutex.withLock {
