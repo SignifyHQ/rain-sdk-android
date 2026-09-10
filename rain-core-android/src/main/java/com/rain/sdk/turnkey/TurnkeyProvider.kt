@@ -301,7 +301,10 @@ class TurnkeyProvider internal constructor(
      * backfills a missing account onto the existing wallet. A rejected code throws
      * `RainError.InvalidLoginCode` and keeps the challenge, so the user can retype it; any other
      * failure inside the code check itself also keeps it, while a failure after the code was
-     * accepted drops it. A successful login revokes the user's other Turnkey sessions on every
+     * accepted drops it. If that failure is the switch to the new session, the device is signed
+     * out as well — the login already revoked the previous session server-side — without firing
+     * [TurnkeyConfig.onSessionExpired]; a provisioning failure keeps the new session, which heals
+     * at resolution. A successful login revokes the user's other Turnkey sessions on every
      * device (`invalidateExisting`); the signed-out device's `onSessionExpired` fires at its next
      * call. Managed mode only.
      */

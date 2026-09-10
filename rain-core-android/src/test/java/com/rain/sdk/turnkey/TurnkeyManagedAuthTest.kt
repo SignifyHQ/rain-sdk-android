@@ -401,18 +401,61 @@ class TurnkeyManagedAuthTest {
     }
 
     @Test
-    fun `a select failure clears the fresh session key before rethrowing and leaves the old session selected`() = runTest {
+    fun `a select failure clears the fresh key and signs the device out without firing the re-auth hook`() = runTest {
         val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()))
         turnkey.selectSessionError = TurnkeyKotlinError.FailedToSetSelectedSession(RuntimeException("io"))
-        val controller = controller(turnkey)
+        val coordinator = coordinator(turnkey)
+        val controller = controller(turnkey, coordinator = coordinator)
+        coordinator.startMonitoring(backgroundScope)
+        runCurrent()
+        controller.sendLoginCode("other@example.com")
+
+        expectThrows<RainError> { controller.confirmLoginCode("123456") }
+        runCurrent()
+
+        // The fresh key never took effect and is dropped; the previous session was revoked by the
+        // login that just succeeded, so it is cleared too rather than left to fail at the next call.
+        val fresh = turnkey.completeOtpCalls.single().sessionKey
+        assertThat(turnkey.clearSessionCalls).containsExactly(fresh)
+        assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(1)
+        assertThat(turnkey.selectedSessionKey).isNull()
+        assertThat(turnkey.session).isNull()
+        assertThat(controller.currentAuthState()).isEqualTo(TurnkeyAuthState.Unauthenticated)
+        assertThat(controller.hasActiveSession()).isFalse()
+        assertThat(turnkey.createWalletCalls).isEmpty()
+        // The thrown error is the signal; the re-auth hook stays silent for this death.
+        assertThat(hookCalls).isEqualTo(0)
+
+        // A genuine death after a re-login still notifies the host.
+        turnkey.authenticate()
+        runCurrent()
+        turnkey.session = null
+        turnkey.authStateFlow.value = AuthState.unauthenticated
+        runCurrent()
+        assertThat(hookCalls).isEqualTo(1)
+    }
+
+    @Test
+    fun `a select failure whose sign-out also fails surfaces the select error and re-arms the re-auth hook`() = runTest {
+        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()))
+        turnkey.selectSessionError = TurnkeyKotlinError.FailedToSetSelectedSession(RuntimeException("io"))
+        turnkey.clearSelectedSessionError = TurnkeyKotlinError.FailedToClearSession(RuntimeException("boom"))
+        val coordinator = coordinator(turnkey)
+        val controller = controller(turnkey, coordinator = coordinator)
+        coordinator.startMonitoring(backgroundScope)
+        runCurrent()
         controller.sendLoginCode("other@example.com")
 
         expectThrows<RainError> { controller.confirmLoginCode("123456") }
 
-        val fresh = turnkey.completeOtpCalls.single().sessionKey
-        assertThat(turnkey.clearSessionCalls).containsExactly(fresh)
+        // The clear failure is logged; what surfaces is the select failure the caller rethrows.
+        assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(1)
         assertThat(turnkey.selectedSessionKey).isEqualTo(MockTurnkey.DEFAULT_SESSION_KEY)
-        assertThat(turnkey.createWalletCalls).isEmpty()
+        // The suppression armed for a sign-out that never happened must not swallow a real death.
+        turnkey.session = null
+        turnkey.authStateFlow.value = AuthState.unauthenticated
+        runCurrent()
+        assertThat(hookCalls).isEqualTo(1)
     }
 
     @Test

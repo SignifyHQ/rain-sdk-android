@@ -232,9 +232,12 @@ internal class TurnkeyManagedAuthController(
      * simply retype it. So does any other failure inside the verify step — the auth proxy has been
      * seen wrapping a rejection in an HTTP 500 whose body the Kotlin SDK discards, which surfaces
      * as [RainError.ProviderError] — so the user can retry or request a new code. A failure once
-     * the code was accepted (account lookup, login, session) drops the challenge. A failure once
-     * the session is live (selecting it, provisioning) throws with the session kept:
-     * [ensureAccounts] runs again at provider resolution, so it heals without a new code.
+     * the code was accepted (account lookup, login, session) drops the challenge. A failure while
+     * selecting the new session signs the device out: the login already revoked the previous
+     * session server-side, so keeping it selected would only fail at the next wallet call, and
+     * the host's re-auth hook stays silent because this exception is the signal. A provisioning
+     * failure once the new session is live throws with the session kept: [ensureAccounts] runs
+     * again at provider resolution, so it heals without a new code.
      */
     suspend fun confirmLoginCode(code: String) {
         flowMutex.withLock {
@@ -358,25 +361,50 @@ internal class TurnkeyManagedAuthController(
      * On a first login the vendor selects the new session itself; over a live session it only
      * stores it, so the switch has to be explicit. Afterwards the wallet provider's cached
      * addresses are evicted — an Active→Active transition is not a death the watcher notices — and
-     * the previous session, revoked server-side by the login, is cleared locally.
+     * the previous session, revoked server-side by the login, is cleared locally. A switch that
+     * fails is abandoned the same way on both exits: see [abandonSwitch].
      */
     private suspend fun switchToSession(sessionKey: String, previousKey: String?) {
         if (context.selectedSessionKey != sessionKey) {
             try {
                 guarded { context.selectSession(sessionKey) }
             } catch (e: CancellationException) {
-                // Cancelled mid-switch: never leave a stored session that nothing will ever select.
-                withContext(NonCancellable) { clearUnselected(sessionKey) }
+                withContext(NonCancellable) { abandonSwitch(sessionKey, previousKey) }
                 throw e
             } catch (e: RainError) {
-                // The vendor persists the selection before its auto-refresh can fail, so the fresh
-                // key is cleared only when the switch really did not take effect.
-                clearUnselected(sessionKey)
+                abandonSwitch(sessionKey, previousKey)
                 throw e
             }
         }
         coordinator.notifySessionReplaced()
         if (previousKey != null) clearUnselected(previousKey)
+    }
+
+    /**
+     * Cleans up after a switch that failed. The fresh key is cleared only when the selection
+     * really did not take effect — the vendor persists it before its auto-refresh can fail. When
+     * the previous session is still the selected one, the device is signed out: the login that
+     * just succeeded revoked that session server-side (`invalidateExisting`), so leaving it
+     * selected would only move the failure to the next wallet call, where it would read as an
+     * unexplained expiry. The caller rethrows, and that exception is the host's signal, so the
+     * re-auth hook stays silent as it does after [logout].
+     */
+    @Suppress(
+        "TooGenericExceptionCaught"
+    ) // best-effort cleanup: a clear that fails is logged, the select failure is what surfaces
+    private suspend fun abandonSwitch(sessionKey: String, previousKey: String?) {
+        clearUnselected(sessionKey)
+        if (previousKey == null || context.selectedSessionKey != previousKey) return
+        coordinator.suppressNextHostHook()
+        try {
+            context.clearSelectedSession()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // The death did not happen, so the host must still hear about a later one.
+            coordinator.releaseHostHookSuppression()
+            Timber.w(e, "Rain SDK: could not clear the superseded Turnkey session")
+        }
     }
 
     /** Best-effort removal of a stored session that is not the selected one. */
