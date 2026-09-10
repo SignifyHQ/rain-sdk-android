@@ -184,7 +184,7 @@ class TurnkeyManagedAuthTest {
         assertThat(call.contact).isEqualTo("user@example.com")
         assertThat(call.sessionKey).startsWith("rain-turnkey-")
         // A sign-up creates the wallet inside the signup request: one seed holding both accounts.
-        // Name, order, curves and paths are the cross-platform contract with the iOS SDK.
+        // Name, order, curves and paths are the cross-platform contract shared by Rain's SDKs.
         assertThat(call.signupWallet.name).isEqualTo("Wallet")
         assertThat(call.signupWallet.accounts.map { it.addressFormat }).containsExactly(
             V1AddressFormat.ADDRESS_FORMAT_ETHEREUM,

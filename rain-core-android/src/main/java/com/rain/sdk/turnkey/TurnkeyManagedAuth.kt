@@ -472,7 +472,7 @@ internal class TurnkeyManagedAuthController(
     internal companion object {
         private const val MILLIS_PER_SECOND = 1000.0
 
-        /** Host-facing default for [awaitSessionRestore]; matches the iOS provider. */
+        /** Host-facing default for [awaitSessionRestore]. */
         const val DEFAULT_RESTORE_TIMEOUT_MS = 5_000L
 
         /** Longest a call waits for the vendor's readiness signal before giving up on this launch. */
@@ -499,7 +499,7 @@ internal class TurnkeyManagedAuthController(
         /**
          * The wallet every managed sign-up creates, inside the signup request: one seed carrying both
          * accounts. Name, mnemonic length (Turnkey's default of 12) and derivation paths are a
-         * cross-platform contract with the iOS SDK — change both or neither.
+         * cross-platform contract shared by Rain's SDKs — change it everywhere or nowhere.
          */
         val MANAGED_WALLET = TurnkeyWalletSpec(MANAGED_WALLET_NAME, listOf(ETHEREUM_ACCOUNT, SOLANA_ACCOUNT))
     }

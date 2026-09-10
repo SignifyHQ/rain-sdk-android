@@ -112,8 +112,8 @@ internal class ErrorMapper {
             // A 401 is claimed here rather than left to the TokenExpired mapping: during code
             // verification there is no session yet, so it can only mean the code was refused.
             // Known gap: the proxy has also been seen wrapping a rejection in an HTTP 500 whose JSON
-            // body carries the real status (the iOS SDK reads it); the Kotlin SDK discards that body
-            // before Rain sees it, so a wrapped rejection stays a ProviderError here. The managed
+            // body carries the real status; the Kotlin SDK discards that body before Rain sees it, so
+            // a wrapped rejection stays a ProviderError here. The managed
             // controller keeps the challenge for every verify-step failure so the user can still
             // retype — see isLoginCodeVerifyFailure.
             is TurnkeyKotlinError.FailedToVerifyOtp ->

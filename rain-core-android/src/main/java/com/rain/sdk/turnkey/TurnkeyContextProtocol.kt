@@ -212,14 +212,14 @@ internal class TurnkeyContextAdapter(
             otpEncryptionTargetBundle = challenge.encryptionTargetBundle,
             contact = contact,
             otpType = OtpType.OTP_TYPE_EMAIL,
-            // Revokes this user's other Turnkey sessions server-side on a successful login, as the
-            // iOS provider does; a rejected code never reaches this point.
+            // Revokes this user's other Turnkey sessions server-side on a successful login; a
+            // rejected code never reaches this point.
             invalidateExisting = true,
             sessionKey = sessionKey,
             // Sign-up only (the vendor ignores it on login): the wallet is created inside the
-            // signup request, the same shape the iOS provider sends. The vendor fills in the
-            // contact and verification token. `CustomWallet` carries no mnemonic length, so the
-            // seed gets Turnkey's default of 12 words — the length the createWallet fallback pins.
+            // signup request; the vendor fills in the contact and verification token. `CustomWallet`
+            // carries no mnemonic length, so the seed gets Turnkey's default of 12 words — the
+            // length the createWallet fallback pins.
             createSubOrgParams = CreateSubOrgParams(
                 customWallet = CustomWallet(
                     walletName = signupWallet.name,

@@ -133,9 +133,9 @@ class ErrorMapperTurnkeyTest {
 
     @Test
     fun `a proxy 500 on verify is not a rejected code`() {
-        // The Kotlin SDK discards the response body, so unlike the iOS SDK no embedded upstream
-        // status can be recovered from a proxy-wrapped rejection: it stays a provider error and the
-        // controller keeps the challenge instead (see isLoginCodeVerifyFailure).
+        // The Kotlin SDK discards the response body, so no embedded upstream status can be
+        // recovered from a proxy-wrapped rejection: it stays a provider error and the controller
+        // keeps the challenge instead (see isLoginCodeVerifyFailure).
         val http = RuntimeException("HTTP error from /v1/otp_verify_v2: 500")
         val verify = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToVerifyOtp(http)
         assertThat(mapper.mapTurnkeyError(verify)).isInstanceOf(RainError.ProviderError::class.java)

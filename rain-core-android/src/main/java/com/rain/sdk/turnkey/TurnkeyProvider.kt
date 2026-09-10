@@ -95,7 +95,7 @@ class TurnkeyConfig internal constructor(
      *
      * A successful [TurnkeyProvider.confirmLoginCode] revokes the user's other Turnkey sessions on
      * every device (`invalidateExisting`): logging in on a second phone signs the first one out, and
-     * that device's [onSessionExpired] fires at its next call. The iOS SDK behaves the same way.
+     * that device's [onSessionExpired] fires at its next call.
      *
      * @param application The host application; Turnkey's Kotlin SDK needs it for secure storage.
      * @param organizationId Your Turnkey parent organization id.

@@ -7,8 +7,6 @@ package com.rain.sdk.turnkey
  * are allowed through — and the sample app — opt in module-wide with
  * `-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi`. No compatibility guarantees: it changes
  * whenever the RainWallet provider needs it to.
- *
- * The Kotlin counterpart of the iOS SDK's `@_spi(RainWallet)`.
  */
 @RequiresOptIn(
     level = RequiresOptIn.Level.ERROR,
