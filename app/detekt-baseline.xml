@@ -2,13 +2,13 @@
 <SmellBaseline>
   <ManuallySuppressedIssues />
   <CurrentIssues>
-    <ID>CyclomaticComplexMethod:AuthPullScreen.kt$@Composable fun AuthPullScreen( innerPadding: PaddingValues, rainClient: RainClient, selectedChain: WalletChain, onBack: () -&gt; Unit, viewModel: AuthPullViewModel = viewModel(factory = AuthPullViewModelFactory(rainClient)) )</ID>
+    <ID>CyclomaticComplexMethod:AuthPullScreen.kt$@Suppress("LongParameterList") // Slot-style Compose API: state, a support flag, and the callbacks. @Composable private fun AuthPullContent( innerPadding: PaddingValues, state: AuthPullUiState, selectedChain: WalletChain, isSupported: Boolean, onBack: () -&gt; Unit, actions: AuthPullActions, )</ID>
     <ID>CyclomaticComplexMethod:AuthPullViewModel.kt$AuthPullViewModel$fun approve(chain: WalletChain)</ID>
-    <ID>CyclomaticComplexMethod:CollateralWithdrawScreen.kt$@Composable fun CollateralWithdrawScreen( innerPadding: PaddingValues, rainSdk: RainSdk, rainClient: RainClient, selectedChain: WalletChain, onBack: () -&gt; Unit, viewModel: CollateralWithdrawViewModel = viewModel( factory = CollateralWithdrawViewModelFactory(rainSdk, rainClient) ) )</ID>
-    <ID>LongMethod:AuthPullScreen.kt$@Composable fun AuthPullScreen( innerPadding: PaddingValues, rainClient: RainClient, selectedChain: WalletChain, onBack: () -&gt; Unit, viewModel: AuthPullViewModel = viewModel(factory = AuthPullViewModelFactory(rainClient)) )</ID>
+    <ID>CyclomaticComplexMethod:CollateralWithdrawScreen.kt$@Composable private fun CollateralWithdrawContent( innerPadding: PaddingValues, state: CollateralWithdrawUiState, selectedChain: WalletChain, onBack: () -&gt; Unit, actions: CollateralWithdrawActions, )</ID>
+    <ID>LongMethod:AuthPullScreen.kt$@Suppress("LongParameterList") // Slot-style Compose API: state, a support flag, and the callbacks. @Composable private fun AuthPullContent( innerPadding: PaddingValues, state: AuthPullUiState, selectedChain: WalletChain, isSupported: Boolean, onBack: () -&gt; Unit, actions: AuthPullActions, )</ID>
     <ID>LongMethod:AuthPullViewModel.kt$AuthPullViewModel$fun approve(chain: WalletChain)</ID>
     <ID>LongMethod:BalancesViewModel.kt$BalancesViewModel$fun fetchCollateralBalances(chain: WalletChain = WalletChain.BASE_SEPOLIA)</ID>
-    <ID>LongMethod:CollateralWithdrawScreen.kt$@Composable fun CollateralWithdrawScreen( innerPadding: PaddingValues, rainSdk: RainSdk, rainClient: RainClient, selectedChain: WalletChain, onBack: () -&gt; Unit, viewModel: CollateralWithdrawViewModel = viewModel( factory = CollateralWithdrawViewModelFactory(rainSdk, rainClient) ) )</ID>
+    <ID>LongMethod:CollateralWithdrawScreen.kt$@Composable private fun CollateralWithdrawContent( innerPadding: PaddingValues, state: CollateralWithdrawUiState, selectedChain: WalletChain, onBack: () -&gt; Unit, actions: CollateralWithdrawActions, )</ID>
     <ID>LongMethod:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel$fun loadContractInfo(chain: WalletChain = WalletChain.EVM)</ID>
     <ID>LongMethod:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel$private fun runWithdrawFlow( amountOverride: BigDecimal?, tag: String, action: suspend ( addresses: RainWithdrawAddresses, amountBd: BigDecimal, token: WithdrawTokenOption, adminSig: RainAdminSignature ) -&gt; Unit )</ID>
     <ID>LongMethod:HomeViewModel.kt$HomeViewModel$fun initializeRainWithPrivy()</ID>
@@ -16,7 +16,7 @@
     <ID>LongMethod:HomeViewModel.kt$HomeViewModel$fun initializeSdk()</ID>
     <ID>LongMethod:HomeViewModel.kt$HomeViewModel$fun sendTurnkeyOtp(app: Application)</ID>
     <ID>LongMethod:MainActivity.kt$@Composable fun SampleApp()</ID>
-    <ID>LongMethod:SendTokensScreen.kt$@Composable fun SendTokensScreen( innerPadding: PaddingValues, rainClient: RainClient, selectedChain: WalletChain, onBack: () -&gt; Unit, viewModel: SendTokensViewModel = viewModel(factory = SendTokensViewModelFactory(rainClient)) )</ID>
+    <ID>LongMethod:SendTokensScreen.kt$@Composable private fun SendTokensContent( innerPadding: PaddingValues, state: SendTokensUiState, selectedChain: WalletChain, onBack: () -&gt; Unit, actions: SendTokensActions, )</ID>
     <ID>LongMethod:SendTokensViewModel.kt$SendTokensViewModel$fun sendTokenTransfer(chain: WalletChain = WalletChain.BASE_SEPOLIA)</ID>
     <ID>LongParameterList:CollateralWithdrawScreen.kt$( innerPadding: PaddingValues, rainSdk: RainSdk, rainClient: RainClient, selectedChain: WalletChain, onBack: () -&gt; Unit, viewModel: CollateralWithdrawViewModel = viewModel( factory = CollateralWithdrawViewModelFactory(rainSdk, rainClient) ) )</ID>
     <ID>LongParameterList:WalletChain.kt$WalletChain$( val displayName: String, val chainId: Int, val rpcUrl: String, val nativeSymbol: String, val isSolana: Boolean, /** Block-explorer name, e.g. for a "View on Snowtrace" button. */ val explorerName: String, /** What this chain calls a fungible token — used for labels on the send screen. */ val tokenStandard: String, /** A token this chain is likely to have on testnet, pre-filled on the send screen. */ val defaultTokenAddress: String, /** A sample recipient. Blank where there is no obvious throwaway address to suggest. */ val defaultRecipient: String, private val explorerTxPrefix: String, private val explorerAddressPrefix: String, private val explorerSuffix: String = "" )</ID>
