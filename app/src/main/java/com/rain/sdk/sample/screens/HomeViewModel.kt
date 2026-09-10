@@ -370,17 +370,30 @@ class HomeViewModel(
         val organizationId = s.turnkeyOrgId.trim()
         val authProxyConfigId = s.turnkeyAuthProxyConfigId.trim()
         val email = s.turnkeyEmail.trim()
+        val resend = s.turnkeyOtpSent
 
-        SampleLog.i("Turnkey.otpInit", "starting login-code flow email=${SampleLog.maskEmail(email)}")
+        SampleLog.i(
+            "Turnkey.otpInit",
+            (if (resend) "requesting a new login code" else "starting login-code flow") +
+                " email=${SampleLog.maskEmail(email)}"
+        )
         // The ids are saved before the provider is prepared so a relaunch (the only way to change
         // them) picks up the new values. The email is saved only after a successful confirm.
         store.provider = SessionStore.Provider.Turnkey
         store.turnkeyOrgId = organizationId
         store.turnkeyAuthProxyConfigId = authProxyConfigId
-        _state.update { it.copy(isLoading = true, statusText = "Initializing wallet backend...") }
+        _state.update {
+            it.copy(
+                isLoading = true,
+                statusText = if (resend) "Requesting a new login code..." else "Initializing wallet backend..."
+            )
+        }
         viewModelScope.launch {
             try {
-                val provider = session.prepareTurnkey(app, organizationId, authProxyConfigId, turnkeyExpiryHandler())
+                // A resend reuses the prepared provider: the ids cannot have changed while a code is
+                // out, and the SDK replaces the pending challenge with the new one.
+                val provider = session.turnkeyProvider?.takeIf { resend }
+                    ?: session.prepareTurnkey(app, organizationId, authProxyConfigId, turnkeyExpiryHandler())
                 provider.awaitSessionRestore()
 
                 // The SDK restores a valid session from secure storage. Reuse it only when it
@@ -402,7 +415,7 @@ class HomeViewModel(
 
                 _state.update { it.copy(statusText = "Sending login code to $email...") }
                 provider.sendLoginCode(email)
-                SampleLog.i("Turnkey.otpInit", "login code sent")
+                SampleLog.i("Turnkey.otpInit", if (resend) "new login code sent" else "login code sent")
                 _state.update {
                     it.copy(
                         isLoading = false,
@@ -412,7 +425,8 @@ class HomeViewModel(
                         turnkeyEmail = email,
                         turnkeySessionActive = false,
                         turnkeyOtpSent = true,
-                        statusText = "Login code sent — check your email"
+                        turnkeyOtpCode = "",
+                        statusText = if (resend) "New login code sent — check your email" else "Login code sent — check your email"
                     )
                 }
             } catch (e: Exception) {

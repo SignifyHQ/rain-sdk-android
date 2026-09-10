@@ -52,9 +52,10 @@ SDK's managed mode, so the sample calls the provider's own auth methods:
 - **Turnkey** (managed mode, `RainSession.prepareTurnkey`) — parent organization ID + auth proxy
   config ID + email; the SDK sends and confirms the one-time code, signs up (creating one wallet with
   the Ethereum and Solana accounts) or logs in, and backfills a missing account. A rejected code keeps
-  the challenge for a retry. If the login itself succeeded but a later step failed, the sample carries
-  on signed in (Rain's initialization finishes the wallet setup); any other failure restarts from
-  *Send code*.
+  the challenge for a retry, and *Resend code* requests a new one (the ids and email stay locked);
+  the code field takes letters because Turnkey codes may be alphanumeric. If the login itself
+  succeeded but a later step failed, the sample carries on signed in (Rain's initialization
+  finishes the wallet setup); any other failure restarts from *Send code*.
 - **Privy** (`PrivyAuthSample`) — app ID + app client ID + email OTP; embedded Ethereum and Solana
   wallets are created on first sign-in.
 

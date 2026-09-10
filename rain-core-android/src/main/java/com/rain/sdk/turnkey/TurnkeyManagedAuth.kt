@@ -207,7 +207,7 @@ internal class TurnkeyManagedAuthController(
         }
     }
 
-    /** Sends a one-time code to [email]. Touches no session. */
+    /** Sends a one-time code to [email]. Touches no session; a second call replaces the pending challenge. */
     suspend fun sendLoginCode(email: String) {
         flowMutex.withLock {
             prepare()

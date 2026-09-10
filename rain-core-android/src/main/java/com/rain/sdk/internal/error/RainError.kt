@@ -86,7 +86,10 @@ sealed class RainError(
      * Only raised by the Turnkey provider's managed authentication mode.
      */
     class InvalidLoginCode :
-        RainError(RainErrorCode.INVALID_LOGIN_CODE, "Login code rejected — ask the user to re-enter it")
+        RainError(
+            RainErrorCode.INVALID_LOGIN_CODE,
+            "Login code rejected — ask the user to re-enter it or request a new one"
+        )
 
     // --- 3xx Network ---
     class NetworkError(message: String? = null, cause: Throwable? = null) :

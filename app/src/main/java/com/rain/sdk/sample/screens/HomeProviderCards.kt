@@ -50,7 +50,9 @@ private fun PortalCard(state: HomeUiState, viewModel: HomeViewModel) {
 
 @Composable
 private fun TurnkeyCard(state: HomeUiState, viewModel: HomeViewModel, application: Application) {
-    // The ids are frozen once a code is out; a relaunch is the only way to change them.
+    // The ids and the email are frozen once a code is out (a relaunch is the only way to change
+    // them), but the button stays live as "Resend code": Turnkey codes expire after 5 minutes
+    // and lock after 3 wrong attempts, and only a new code gets the user past either.
     val codeSent = state.turnkeyOtpSent
     RainCard {
         CardTitle("Turnkey configuration", "Email one-time code")
@@ -77,14 +79,14 @@ private fun TurnkeyCard(state: HomeUiState, viewModel: HomeViewModel, applicatio
             keyboardType = KeyboardType.Email,
         )
         RainButton(
-            text = if (codeSent) "Code sent" else "Send code",
+            text = if (codeSent) "Resend code" else "Send code",
             onClick = { viewModel.sendTurnkeyOtp(application) },
             modifier = Modifier.fillMaxWidth(),
             enabled = state.turnkeyOrgId.isNotBlank() &&
                 state.turnkeyAuthProxyConfigId.isNotBlank() &&
                 state.turnkeyEmail.isNotBlank() &&
                 !state.isLoading &&
-                !codeSent,
+                !state.turnkeySessionActive,
             loading = state.isLoading && !codeSent && !state.turnkeySessionActive,
         )
         if (codeSent) {
@@ -186,7 +188,9 @@ private fun OneTimeCodeStep(
         onValueChange = onCodeChanged,
         placeholder = "Code from your email",
         enabled = !sessionActive,
-        keyboardType = KeyboardType.Number,
+        // Turnkey codes are numeric or alphanumeric depending on the auth-proxy setting in the
+        // dashboard, so the keyboard must never be numeric-only.
+        keyboardType = KeyboardType.Ascii,
     )
     RainButton(
         text = if (sessionActive) "Session active" else "Verify and log in",

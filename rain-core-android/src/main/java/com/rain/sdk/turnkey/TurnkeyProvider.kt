@@ -292,8 +292,10 @@ class TurnkeyProvider internal constructor(
 
     /**
      * Sends a one-time login code to [email]; touches no existing session. Applies the one-shot
-     * Turnkey configuration when it is the first auth call. Throws `RainError.InvalidConfig` for a
-     * blank email. Managed mode only.
+     * Turnkey configuration when it is the first auth call. Calling it again issues a new code and
+     * replaces the pending one — the way to resend: Turnkey codes expire after 5 minutes by default,
+     * lock after 3 wrong attempts, and at most 3 can be active per user. Throws
+     * `RainError.InvalidConfig` for a blank email. Managed mode only.
      */
     suspend fun sendLoginCode(email: String) = requireManagedAuth().sendLoginCode(email)
 
