@@ -38,7 +38,6 @@
     <ID>MagicNumber:WalletChain.kt$WalletChain$44</ID>
     <ID>MagicNumber:WalletChain.kt$WalletChain$6</ID>
     <ID>MagicNumber:WalletInfoViewModel.kt$WalletInfoUiState$42</ID>
-    <ID>MatchingDeclarationName:HomeScreen.kt$FeatureAction</ID>
     <ID>NoNameShadowing:MainActivity.kt${ selectedChain = it }</ID>
     <ID>ReturnCount:AuthPullViewModel.kt$AuthPullViewModel$private fun resolvedAmount(current: AuthPullUiState): AmountSelection</ID>
     <ID>ReturnCount:AuthPullViewModel.kt$AuthPullViewModel$private fun validate(chain: WalletChain, current: AuthPullUiState): Boolean</ID>
