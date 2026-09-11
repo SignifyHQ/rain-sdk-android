@@ -84,6 +84,8 @@ internal class ErrorMapper {
      *  - Config/setup-style errors (missing rpId, missing config param, client not initialized,
      *    invalid parameter / message / refresh TTL / response, OAuth state mismatch, key already
      *    exists / not found) → InternalError
+     *  - FailedToInitOtp (a failed code request) → ProviderError whatever the status: no session
+     *    exists yet, so 401/403 cannot mean an expired session or a permission problem
      *  - Wrapper errors with an underlying cause → recurse / classify the cause's vendor prose
      *  - Everything else → ProviderError
      */
@@ -120,6 +122,15 @@ internal class ErrorMapper {
                 if (e.cause.let(::turnkeyHttpStatus) in REJECTED_LOGIN_CODE_STATUSES) {
                     return RainError.InvalidLoginCode()
                 }
+
+            // A failed code request: the auth proxy refused or never answered /v1/otp_init_v2. No
+            // session exists while a code is being requested, so a 401 or 403 here cannot mean an
+            // expired session or a missing permission; the cause inspection below would turn them
+            // into TokenExpired or Unauthorized and send the host to re-authenticate a user who is
+            // not signed in. The reason (the channel not enabled on the proxy configuration, an
+            // undeliverable number, a rate limit) is in the response body the Kotlin SDK drops, so
+            // only the status survives in the message.
+            is TurnkeyKotlinError.FailedToInitOtp -> return RainError.ProviderError(e)
 
             else -> Unit // fall through to cause inspection
         }

@@ -240,6 +240,7 @@ Turnkey-specific errors are mapped into the standard `RainError` hierarchy:
 |---------------|-----------|
 | `TurnkeyKotlinError.InvalidSession` | `RainError.TokenExpired` |
 | `TurnkeyKotlinError.FailedToVerifyOtp` carrying an auth-proxy HTTP 400 / 401 / 403 (managed mode) | `RainError.InvalidLoginCode` (`RAIN_203`) — the code was refused; 408 / 429 / 5xx are not a refused code and surface as `RainError.ProviderError` (`RAIN_501`); the auth path does not retry them. A rejection the proxy wraps in an HTTP 500 (real status only in the response body) is `RAIN_501` on Android, because the Kotlin SDK drops the body before Rain sees it, and `RAIN_203` on iOS; the challenge is still kept for a retry |
+| `TurnkeyKotlinError.FailedToInitOtp`, any auth-proxy HTTP status (managed mode) | `RainError.ProviderError` (`RAIN_501`): the code request failed. No session exists while a code is requested, so a 401 or 403 here is not `TokenExpired` or `Unauthorized`. The reason (the channel not enabled on the proxy configuration, an undeliverable number, a rate limit) is in the response body the Kotlin SDK drops, so only the status reaches the message. Request the code again or check the configuration |
 | Turnkey API HTTP 401 | `RainError.TokenExpired` |
 | Turnkey API HTTP 403 | `RainError.Unauthorized` |
 | Config / setup errors (`MissingRpId`, `MissingConfigParam`, `ClientNotInitialized`, `InvalidParameter`, `InvalidResponse`, `InvalidMessage`, `InvalidRefreshTTL`, `OAuthStateMismatch`, `KeyAlreadyExists`, `KeyNotFound`) | `RainError.InternalError` |
