@@ -31,7 +31,8 @@ import java.math.BigDecimal
 interface WalletProvider {
     /**
      * Stable identifier for this provider. Defaults to a generated id for host-supplied providers
-     * that don't override it; the bundled adapters return [ProviderId.PORTAL] / [ProviderId.TURNKEY].
+     * that don't override it; Rain's own adapters return [ProviderId.PORTAL], [ProviderId.TURNKEY]
+     * or [ProviderId.PRIVY].
      */
     val id: ProviderId get() = ProviderId("custom")
 
@@ -46,7 +47,7 @@ interface WalletProvider {
      * flow that signs and broadcasts (withdrawals, Auth Pull approvals), so a chain the provider
      * cannot broadcast on fails closed before the contract reads and the signing prompt rather
      * than after them. A provider that can broadcast on every configured chain keeps the no-op
-     * default; the bundled Turnkey adapter consults its broadcast-chain registry.
+     * default; an adapter whose vendor broadcasts on a fixed set consults its own chain registry.
      *
      * @throws RainError.ChainNotSupported when this provider cannot broadcast on [chainId].
      */

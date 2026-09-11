@@ -51,9 +51,9 @@ class SolanaRpcClient(
     }
 
     /**
-     * The most recent transaction signature involving [address], or null if none. Turnkey's
-     * `sol_send_transaction` returns a status id rather than the signature, so the signature of a
-     * just-submitted transfer is recovered from the chain.
+     * The most recent transaction signature involving [address], or null if none. A managed-broadcast
+     * send can return a status id rather than the signature, so the signature of a just-submitted
+     * transfer is recovered from the chain.
      */
     suspend fun getLatestSignature(rpcUrl: String, address: String): String? {
         val response = jsonRpcClient.call(

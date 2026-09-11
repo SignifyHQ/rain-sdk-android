@@ -6,7 +6,7 @@ import com.rain.sdk.internal.provider.WalletProvider
  * A registrable wallet-provider descriptor — the adapter side of the ports-and-adapters split.
  *
  * Each vendor module ships exactly one `RainProvider` (e.g. `rain-portal-android`'s `PortalProvider`,
- * core's Turnkey `TurnkeyProvider`). The host registers the providers it ships via
+ * `rain-turnkey-android`'s `TurnkeyProvider`). The host registers the providers it ships via
  * [com.rain.sdk.RainSdk.Builder.register]; nothing in core references a concrete provider type,
  * so a provider whose module isn't linked simply isn't on the classpath.
  *

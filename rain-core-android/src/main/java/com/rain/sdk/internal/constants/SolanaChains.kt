@@ -8,8 +8,8 @@ import com.rain.sdk.models.NativeCurrency
 /**
  * Per-cluster reference data for Solana, the analogue of [TokenRegistry]/`RainConstants` for
  * EVM. Solana has no EIP-155 integer chain ID, so the SDK keys clusters by the [RainChain]
- * sentinel IDs and maps them to their CAIP-2 (genesis-hash) identifiers, which is what Turnkey's
- * Solana APIs (`sol_send_transaction`, balances) expect.
+ * sentinel IDs and maps them to their CAIP-2 (genesis-hash) identifiers, which is the form
+ * vendor Solana APIs (send, balances) expect.
  */
 @RainAdapterApi
 object SolanaChains {

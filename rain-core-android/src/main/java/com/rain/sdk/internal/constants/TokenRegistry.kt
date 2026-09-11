@@ -8,11 +8,12 @@ import com.rain.sdk.models.TokenInfo
  * Static registry of ERC-20 tokens the SDK knows how to read balances for.
  *
  * Used by `ChainReader` to batch-fetch balances on chains that aren't covered by a
- * wallet provider's native balance API (e.g. chains outside Turnkey's allowlist).
+ * wallet provider's native balance API.
  *
  * Scope:
- * - EVM chains only. Solana and Stellar entries are intentionally omitted —
- *   Turnkey already covers Solana, and the SDK has no Solana or Horizon client.
+ * - EVM chains only. Solana and Stellar entries are intentionally omitted: Solana balances come
+ *   from the adapter's own vendor API or core's Solana chain reader, and the SDK has no Horizon
+ *   client.
  *
  * Maintenance:
  * This list lives in-tree, so the SDK owns updates. When tokens are added, removed,

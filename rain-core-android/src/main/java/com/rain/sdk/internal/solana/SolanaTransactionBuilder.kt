@@ -4,14 +4,14 @@ import com.rain.sdk.internal.RainAdapterApi
 import java.io.ByteArrayOutputStream
 
 /**
- * Builds the hex-encoded **unsigned** Solana transaction that Turnkey's `sol_send_transaction`
- * activity expects (it hex-decodes and parses the unsigned payload, signs it with the wallet's
- * ed25519 key, and broadcasts). NOTE: the Turnkey type docstring says "base64", but the live
- * API hex-decodes the field (`encoding/hex`), so this emits hex.
+ * Builds the hex-encoded **unsigned** Solana transaction a managed-broadcast wallet API expects:
+ * the vendor hex-decodes and parses the unsigned payload, signs it with the wallet's ed25519 key,
+ * and broadcasts. Hex rather than base64 because that is what the live APIs decode, whatever their
+ * field documentation says.
  *
  * The wire format matches `@solana/web3.js` `Transaction.serialize({ requireAllSignatures: false })`:
  * a legacy transaction = compact-u16 signature count + one zero-filled 64-byte signature
- * placeholder + the serialized message. Turnkey fills the placeholder with the real signature.
+ * placeholder + the serialized message. The vendor fills the placeholder with the real signature.
  *
  * [buildUnsignedTransaction] takes an arbitrary instruction list, which is what an SPL transfer
  * needs — it may carry a create-token-account instruction ahead of the transfer. Native SOL keeps
@@ -54,7 +54,7 @@ object SolanaTransactionBuilder {
         )
     }
 
-    /** Lowercase hex of [buildUnsignedTransaction], ready for Turnkey's `unsignedTransaction`. */
+    /** Lowercase hex of [buildUnsignedTransaction], ready for a vendor's unsigned-transaction field. */
     fun buildUnsignedHex(
         feePayer: ByteArray,
         recentBlockhash: String,
@@ -66,13 +66,13 @@ object SolanaTransactionBuilder {
      * Serializes [instructions] into an unsigned legacy transaction paid for by [feePayer].
      *
      * Only the fee payer signs: every flow here authorises with the wallet's own key, so a
-     * required signer other than [feePayer] would produce a transaction Turnkey cannot complete.
+     * required signer other than [feePayer] would produce a transaction the vendor cannot complete.
      * That is rejected rather than silently emitted.
      *
      * @param extraReadonlyKeys accounts to carry in the static key table even though no
      *   instruction references them, placed after the programs as read-only non-signers. A legacy
-     *   message may list accounts its instructions never touch, and Turnkey requires the System
-     *   Program there on a fee-sponsored transaction. Keys already in the table are not repeated.
+     *   message may list accounts its instructions never touch, and a fee-sponsored send can
+     *   require the System Program there. Keys already in the table are not repeated.
      */
     fun buildUnsignedTransaction(
         feePayer: ByteArray,
@@ -212,7 +212,7 @@ object SolanaTransactionBuilder {
     }
 
     /**
-     * Lowercase hex, the encoding Turnkey's `unsignedTransaction` field expects. Exposed because
+     * Lowercase hex, the encoding a vendor's unsigned-transaction field expects. Exposed because
      * the same bytes are also base64-encoded for `simulateTransaction`, so callers serialize once.
      */
     internal fun hexEncode(bytes: ByteArray): String {

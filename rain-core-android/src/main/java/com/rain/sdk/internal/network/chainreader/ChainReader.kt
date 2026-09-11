@@ -10,10 +10,9 @@ import java.math.BigInteger
 /**
  * Provider-agnostic, read-only on-chain query surface.
  *
- * One place for reading state from any chain the SDK consumer has configured. Used by
- * `TurnkeyWalletProvider` to fill in balances on chains outside the Turnkey `get-balances`
- * allowlist, and available to any future wallet-provider adapter that needs the same
- * fallback.
+ * One place for reading state from any chain the SDK consumer has configured. An adapter whose
+ * vendor serves balances for only some chains uses this to fill in the rest, and it is available
+ * to any wallet-provider adapter that needs the same fallback.
  *
  * V1 surface is balances. Future reads (allowances, generic `eth_call` wrappers) belong on
  * this interface so call sites don't fragment.

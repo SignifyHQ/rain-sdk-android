@@ -8,10 +8,10 @@ import java.util.Base64
 /**
  * Minimal decoder for unsigned legacy Solana transactions.
  *
- * Turnkey's `sol_send_transaction` activity stores only the unsigned transaction — no
- * recipient, amount or asset — so transaction history recovers those by parsing the blob back.
- * The blob is usually the hex this SDK's [SolanaTransactionBuilder] produced, but the same
- * Turnkey organization can be driven by other tooling (web3.js, other SDK versions), so the
+ * A managed-broadcast send records only the unsigned transaction — no recipient, amount or asset
+ * — so transaction history recovers those by parsing the blob back.
+ * The blob is usually the hex this SDK's [SolanaTransactionBuilder] produced, but the same wallet
+ * can be driven by other tooling (web3.js, other SDK versions), so the
  * decoder also accepts base64 input and the bare SPL `Transfer` instruction that
  * `@solana/spl-token` emits by default.
  *

@@ -126,10 +126,9 @@ class TurnkeyConfig internal constructor(
 /**
  * Turnkey adapter — the registrable [RainProvider] for Turnkey's P256-stamper signer.
  *
- * Per the modular-architecture migration this adapter currently lives inside `rain-core-android` (in the
- * `com.rain.sdk.turnkey` package) rather than a standalone `rain-turnkey` module, so core still
- * carries the Turnkey SDK as a dependency for now. The seam is otherwise identical to a true
- * out-of-module adapter: it implements the port and owns all Turnkey-specific wiring.
+ * Ships as `rain-turnkey-android` and owns the Turnkey SDK as its own dependency, so an app that
+ * registers another provider never links Turnkey. It implements the port and owns all
+ * Turnkey-specific wiring.
  *
  * In managed mode the provider is also the authentication surface: construct it, run
  * [sendLoginCode] / [confirmLoginCode] on it, then build the SDK and resolve. Resolving before a

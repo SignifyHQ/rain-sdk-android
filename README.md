@@ -30,17 +30,21 @@ your dependency graph.
 
 ```kotlin
 dependencies {
-    // Portal-only app: pulls rain-core-android transitively. Turnkey is never fetched or shipped.
-    implementation("io.github.spartan-quanhongtran:rain-portal-android:1.0.1")
+    // Turnkey-only app: pulls rain-core-android transitively. Portal and Privy are never fetched.
+    implementation("io.github.spartan-quanhongtran:rain-turnkey-android:1.0.1")
 
-    // Or, for Turnkey (the Turnkey adapter currently ships inside rain-core-android):
-    // implementation("io.github.spartan-quanhongtran:rain-core-android:1.0.1")
+    // Portal-only app: the Turnkey SDK is never fetched or shipped.
+    // implementation("io.github.spartan-quanhongtran:rain-portal-android:1.0.1")
 }
 ```
 
+Each adapter depends on core, so one line is enough. Add a second adapter only if the app offers a
+choice of wallet provider at runtime.
+
 | Module        | Contains                                                                 |
 |---------------|--------------------------------------------------------------------------|
-| `rain-core-android`   | The `WalletProvider` port, capability model, provider registry, all Rain domain logic, **and the Turnkey adapter** (in `com.rain.sdk.turnkey`, for now). |
+| `rain-core-android`   | The `WalletProvider` port, capability model, provider registry, and all Rain domain logic. No wallet vendor SDK. |
+| `rain-turnkey-android` | The Turnkey adapter (`TurnkeyProvider`, `com.rain.sdk.turnkey`); depends on `rain-core-android` + the Turnkey Kotlin SDK. |
 | `rain-portal-android` | The Portal MPC adapter (`PortalProvider`); depends on `rain-core-android` + `portal-android`. |
 | `rain-privy-android`  | The Privy embedded-key adapter (`PrivyProvider`); depends on `rain-core-android` + `privy-core`. |
 

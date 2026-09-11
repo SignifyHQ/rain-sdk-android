@@ -10,20 +10,19 @@ Contains:
 - The **`Capability`** model and **`ProviderId`**.
 - All Rain domain logic — EIP-712 message building, collateral withdraw flow (EVM and Solana),
   transaction orchestration, chain readers, token metadata store.
-- The **Turnkey adapter** (`TurnkeyProvider` / `TurnkeyConfig`), bundled here for now. It will
-  graduate to a standalone `rain-turnkey` module later; the seam is identical to an out-of-core
-  adapter. Bring-your-own (the host hands in an authenticated `TurnkeyContext`) is the public
-  integration; the managed one-time-code mode (email or SMS) is an internal API
-  (`@InternalRainTurnkeyApi`) reserved for the RainWallet provider.
+- The cross-module seams the adapter modules build on, marked `@RainAdapterApi`: the chain
+  readers, the JSON-RPC client, the Solana encoders, and the token metadata store. Marked rather
+  than plain public so they stay out of the contract with host apps.
 
-`rain-core-android` has **no Portal or Privy dependency**. Its only wallet-vendor dependency is
-Turnkey.
+`rain-core-android` has **no wallet-vendor dependency at all**. Every vendor SDK lives in its own
+adapter module, so a Portal-only app never fetches Turnkey and a Turnkey-only app never fetches
+Portal.
+
+Add a wallet provider by depending on its adapter, which pulls core transitively:
+`:rain-turnkey-android`, `:rain-portal-android` or `:rain-privy-android`.
 
 ```kotlin
-// Managed (internal API, RainWallet building block): TurnkeyConfig(application, organizationId,
-// authProxyConfigId), then sendLoginCode(LoginContact.Email(email) or LoginContact.Sms(e164)) /
-// confirmLoginCode(code) before resolving.
-// Bring-your-own, shown here: the host authenticated turnkeyContext itself.
+// Bring-your-own Turnkey, from :rain-turnkey-android — the host authenticated turnkeyContext.
 val rain = RainSdk.builder()
     .rpcEndpoints(mapOf(8453 to "https://mainnet.base.org"))
     .register(TurnkeyProvider(TurnkeyConfig(turnkey = turnkeyContext)))
@@ -32,9 +31,6 @@ val rain = RainSdk.builder()
 val client = rain.provider(ProviderId.TURNKEY)
 val address = client.getWalletAddress()
 ```
-
-To add Portal, depend on `:rain-portal-android` (which pulls `:rain-core-android` transitively). To
-add Privy, depend on `:rain-privy-android`.
 
 ## Architecture
 
@@ -45,16 +41,15 @@ graph TD
     RainClient --> Coord[TransactionCoordinator]
     Coord --> Builder[RainTransactionBuilder]
     Coord --> Port[WalletProvider port]
-    Port -.-> Turnkey[TurnkeyWalletProvider]
-    Port -.-> Portal[PortalWalletProvider]
-    Port -.-> Privy[PrivyWalletProvider]
+    Port -.-> Turnkey["TurnkeyWalletProvider<br/>(rain-turnkey-android)"]
+    Port -.-> Portal["PortalWalletProvider<br/>(rain-portal-android)"]
+    Port -.-> Privy["PrivyWalletProvider<br/>(rain-privy-android)"]
     Builder --> Web3j[Web3j RPC]
     RainClient --> Readers[EvmChainReader / SolanaChainReader]
 ```
 
 A provider is registered on the builder and resolved into a `RainClient` bound to that one wallet.
-Core never imports a wallet vendor except Turnkey; Portal and Privy live behind the port in their
-own modules.
+Core imports no wallet vendor; every adapter lives behind the port in its own module.
 
 ## Entry points
 

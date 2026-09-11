@@ -171,7 +171,7 @@ class SolanaTransferComposer(
             feePayer = ownerKey,
             recentBlockhash = blockhash,
             instructions = instructions,
-            // Turnkey's construction rules for sponsored Solana sends require the System Program
+            // Sponsored Solana sends can require the System Program
             // among the static account keys. A transfer into an existing token account never
             // references it (only the token program does), so it is carried explicitly; the
             // self-paid message is unchanged.

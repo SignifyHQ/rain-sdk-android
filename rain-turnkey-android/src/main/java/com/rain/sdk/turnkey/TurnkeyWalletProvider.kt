@@ -58,8 +58,8 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Turnkey-based implementation of [WalletProvider]. Used when the SDK is initialized with
- * `initializeTurnkey(...)`.
+ * Turnkey-based implementation of [WalletProvider]. Materialized by [TurnkeyProvider] when a
+ * registered Turnkey provider is resolved.
  *
  * Balance reads route through Turnkey's `get_wallet_address_balances` when the chain is in
  * [TurnkeyBroadcastChains.BALANCE_API_CHAIN_IDS]; everything else falls through to the injected
