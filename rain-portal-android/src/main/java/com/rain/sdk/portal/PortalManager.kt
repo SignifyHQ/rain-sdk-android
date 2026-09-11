@@ -471,7 +471,7 @@ internal class PortalManager(
             // Map Portal-specific failures first: `eth_estimateGas` simulates the call, so JSON-RPC
             // error code 3 means the node reverted execution (e.g. an invalid signature in the
             // calldata); 401 / invalid API key means the session token expired. Anything else bubbles
-            // raw so the caller's generic wrapping applies.
+            // raw; the session coordinator maps it before it leaves the adapter.
             PortalErrorMapping.mapSimulationOrNull(e)?.let { throw it }
             throw e
         }
@@ -557,8 +557,8 @@ internal class PortalManager(
             // Map Portal-specific failures first: JSON-RPC error code 3 on a send means the node
             // reverted execution, i.e. the transaction cannot succeed (core translates that to
             // WithdrawalRevertedByNetwork on the withdrawal flows only); 401 / invalid API key means
-            // the session token expired. Anything else bubbles raw so core's ErrorMapper can
-            // classify it (user rejection, insufficient funds, ...).
+            // the session token expired. Anything else bubbles raw so the session coordinator can
+            // classify it (user rejection, insufficient funds, ...) before it leaves the adapter.
             PortalErrorMapping.mapSimulationOrNull(e)?.let { throw it }
             throw e
         }

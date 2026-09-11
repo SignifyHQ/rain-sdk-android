@@ -72,8 +72,6 @@
     <ID>MagicNumber:Base58.kt$Base58$58L</ID>
     <ID>MagicNumber:Erc20Abi.kt$Erc20Abi$256</ID>
     <ID>MagicNumber:Erc20Calldata.kt$Erc20Calldata$64</ID>
-    <ID>MagicNumber:ErrorMapper.kt$ErrorMapper$401</ID>
-    <ID>MagicNumber:ErrorMapper.kt$ErrorMapper$403</ID>
     <ID>MagicNumber:EthereumConverter.kt$EthereumConverter$128</ID>
     <ID>MagicNumber:EthereumConverter.kt$EthereumConverter$16</ID>
     <ID>MagicNumber:EthereumConverter.kt$EthereumConverter$18</ID>
@@ -221,9 +219,6 @@
     <ID>NestedBlockDepth:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator$private suspend fun &lt;T&gt; execute( idempotent: Boolean, block: suspend (Session, TurnkeyClientProtocol) -&gt; T ): T</ID>
     <ID>NoNameShadowing:TurnkeyWalletProvider.kt$TurnkeyWalletProvider${ registeredSplToken(chainId, it.address) }</ID>
     <ID>RedundantSuspendModifier:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$suspend</ID>
-    <ID>ReturnCount:ErrorMapper.kt$ErrorMapper$fun mapTurnkeyError(e: TurnkeyKotlinError): RainError</ID>
-    <ID>ReturnCount:ErrorMapper.kt$ErrorMapper$private fun classify(e: Exception): RainError</ID>
-    <ID>ReturnCount:ErrorMapper.kt$ErrorMapper.Companion$fun turnkeyHttpStatus(e: Throwable): Int?</ID>
     <ID>ReturnCount:EthereumConverter.kt$EthereumConverter$fun parseHexToString(hex: String): String?</ID>
     <ID>ReturnCount:MockRpcServer.kt$MockRpcServer.&lt;no name provided&gt;$override fun dispatch(request: RecordedRequest): MockResponse</ID>
     <ID>ReturnCount:RainApiService.kt$RainApiService$private suspend fun enrichTokens(contract: RainCollateralContract): RainCollateralContract</ID>

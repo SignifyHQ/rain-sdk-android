@@ -1,8 +1,6 @@
 package com.rain.sdk.internal.error
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.helpers.assumeJdk24
-import org.junit.Before
 import org.junit.Test
 import java.io.IOException
 import java.util.concurrent.CancellationException
@@ -11,18 +9,10 @@ import java.util.concurrent.CancellationException
  * Unit tests for [ErrorMapper] — covers the non-Turnkey classification paths (signing
  * vs transaction, prose-based user-reject / insufficient-funds detection, Portal-style
  * provider mapping).
- *
- * Gated on JDK 24+: `ErrorMapper` references `com.turnkey...TurnkeyKotlinError` in its
- * `is TurnkeyKotlinError` branch (class file version 68), and that reference is resolved
- * the moment a method body in `ErrorMapper` runs. The gate matches the pattern used by
- * [com.rain.sdk.internal.core.RainSdkManagerTurnkeyTest].
  */
 class ErrorMapperTest {
 
     private val mapper = ErrorMapper()
-
-    @Before
-    fun requireJdk24() = assumeJdk24()
 
     // ---- mapSigningError -----------------------------------------------------------
 
@@ -159,72 +149,6 @@ class ErrorMapperTest {
         val mapped = mapper.mapPortalError(cause)
         assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
         assertThat(mapped.cause).isSameInstanceAs(cause)
-    }
-
-    // ---- Turnkey HTTP status -------------------------------------------------------
-    //
-    // The Turnkey Kotlin SDK throws a plain RuntimeException carrying the status only in the
-    // message, in two generated shapes. Both must classify to the same RainError.
-
-    @Test
-    fun `a 401 from the query path maps to TokenExpired`() {
-        val e = RuntimeException("HTTP error from /public/v1/query/get_activity: 401")
-        assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.TokenExpired::class.java)
-        assertThat(mapper.mapSigningError(e)).isInstanceOf(RainError.TokenExpired::class.java)
-    }
-
-    @Test
-    fun `a 401 from the activity path maps to TokenExpired`() {
-        val e = RuntimeException("HTTP error calling ACTIVITY_TYPE_ETH_SEND_TRANSACTION request\nError: {}\nCode: 401")
-        assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.TokenExpired::class.java)
-    }
-
-    @Test
-    fun `a 403 maps to Unauthorized`() {
-        val e = RuntimeException("HTTP error from /public/v1/query/get_activity: 403")
-        assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.Unauthorized::class.java)
-    }
-
-    @Test
-    fun `a 401 whose body contains rejection keywords still maps to TokenExpired`() {
-        // The status is the reliable signal; "session expired, request cancelled" is a session
-        // problem, and hosts branch on TokenExpired to re-authenticate.
-        val e = RuntimeException(
-            "HTTP error calling ACTIVITY_TYPE_ETH_SEND_TRANSACTION request\n" +
-                "Error: session expired, request cancelled\nCode: 401"
-        )
-        assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.TokenExpired::class.java)
-        assertThat(mapper.mapSigningError(e)).isInstanceOf(RainError.TokenExpired::class.java)
-    }
-
-    @Test
-    fun `a 403 whose body says permission denied still maps to Unauthorized`() {
-        val e = RuntimeException(
-            "HTTP error calling ACTIVITY_TYPE_ETH_SEND_TRANSACTION request\n" +
-                "Error: permission denied\nCode: 403"
-        )
-        assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.Unauthorized::class.java)
-    }
-
-    @Test
-    fun `an unclassified HTTP status still falls through to the prose checks`() {
-        val e = RuntimeException(
-            "HTTP error calling ACTIVITY_TYPE_ETH_SEND_TRANSACTION request\n" +
-                "Error: user rejected the signing request\nCode: 400"
-        )
-        assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.UserRejected::class.java)
-    }
-
-    @Test
-    fun `other HTTP statuses stay ProviderError`() {
-        val e = RuntimeException("HTTP error from /public/v1/query/get_activity: 500")
-        assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.ProviderError::class.java)
-    }
-
-    @Test
-    fun `a non-HTTP message ending in digits is not treated as a status`() {
-        val e = RuntimeException("Something failed for wallet 401")
-        assertThat(mapper.mapTransactionError(e)).isInstanceOf(RainError.ProviderError::class.java)
     }
 
     /** A vendor exception that names the reason only in its type, as some SDKs do. */

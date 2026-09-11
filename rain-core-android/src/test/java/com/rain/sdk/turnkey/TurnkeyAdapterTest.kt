@@ -282,10 +282,11 @@ class TurnkeyAdapterTest {
                 )
             }
         }.exceptionOrNull()
-        // sendTransaction bubbles the underlying exception — RainSdkManager wraps it; here we
-        // assert the provider surfaced the underlying RuntimeException.
-        assertThat(ex).isInstanceOf(RuntimeException::class.java)
-        assertThat(ex?.message).contains("turnkey rejected send")
+        // The vendor failure leaves the adapter as a RainError, never raw: the session coordinator
+        // maps it, and core passes a RainError through untouched. Nothing recognizes this one, so
+        // it floors at ProviderError with the vendor exception as its cause.
+        assertThat(ex).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(ex?.cause?.message).contains("turnkey rejected send")
     }
 
     // ---- estimateTransactionFee via RPC -----------------------------------------
@@ -419,9 +420,9 @@ class TurnkeyAdapterTest {
         val ex = runCatching {
             runBlocking { provider.getTransactions(chainId = 1) }
         }.exceptionOrNull()
-        // Bare provider exposes the underlying exception; RainSdkManager wraps via ErrorMapper.
-        assertThat(ex).isInstanceOf(RuntimeException::class.java)
-        assertThat(ex?.message).contains("service unavailable")
+        // Leaves as a RainError carrying the vendor failure, mapped at the session coordinator.
+        assertThat(ex).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(ex?.cause?.message).contains("service unavailable")
     }
 
     // ---- signTypedData failure --------------------------------------------------
@@ -442,12 +443,11 @@ class TurnkeyAdapterTest {
                 )
             }
         }.exceptionOrNull()
-        // Bare provider surfaces the underlying exception unwrapped; RainSdkManager would
-        // wrap it via ErrorMapper.mapSigningError. Pin the type so a future implicit-wrap
-        // refactor fails this test instead of silently passing.
-        assertThat(ex).isInstanceOf(RuntimeException::class.java)
-        assertThat(ex).isNotInstanceOf(RainError::class.java)
-        assertThat(ex?.message).contains("hardware key denied")
+        // The adapter is the boundary: a vendor failure leaves as a RainError, never unwrapped.
+        // Pin the type so a refactor that lets a raw vendor exception escape fails this test
+        // instead of silently passing.
+        assertThat(ex).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(ex?.cause?.message).contains("hardware key denied")
     }
 
     // ---- Broadcast-chain gate + gas sponsorship ---------------------------------

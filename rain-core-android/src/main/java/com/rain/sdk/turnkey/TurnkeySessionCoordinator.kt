@@ -1,6 +1,5 @@
 package com.rain.sdk.turnkey
 
-import com.rain.sdk.internal.error.ErrorMapper
 import com.rain.sdk.internal.error.RainError
 import com.turnkey.core.models.AuthState
 import com.turnkey.core.models.Session
@@ -218,7 +217,10 @@ internal class TurnkeySessionCoordinator(
                         retryDelay(backoffMs)
                         backoffMs = (backoffMs * 2).coerceAtMost(policy.maxRetryDelayMs)
                     }
-                    else -> throw e
+                    // Neither a session problem nor retryable. It leaves as a RainError, never as
+                    // a vendor type: core rethrows a RainError untouched and would otherwise see
+                    // a Turnkey exception it cannot classify.
+                    else -> throw TurnkeyErrorMapping.map(e)
                 }
             }
         }
@@ -325,13 +327,13 @@ internal class TurnkeySessionCoordinator(
         t is RainError.TokenExpired ||
             t is TurnkeyKotlinError.InvalidSession ||
             (t is TurnkeyHistoryError && t.statusCode == 401) ||
-            ErrorMapper.turnkeyHttpStatus(t) == 401
+            TurnkeyErrorMapping.turnkeyHttpStatus(t) == 401
     }
 
     private fun isTransient(e: Throwable): Boolean = anyInChain(e) { t ->
         t is IOException ||
             (t is TurnkeyHistoryError && isTransientStatus(t.statusCode)) ||
-            ErrorMapper.turnkeyHttpStatus(t)?.let { isTransientStatus(it) } == true
+            TurnkeyErrorMapping.turnkeyHttpStatus(t)?.let { isTransientStatus(it) } == true
     }
 
     private fun isTransientStatus(status: Int): Boolean =

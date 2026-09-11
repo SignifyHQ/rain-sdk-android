@@ -193,7 +193,7 @@ class PrivySessionCoordinatorTest {
     }
 
     @Test
-    fun `transient failures beyond maxTransientRetries surface the original error`() {
+    fun `transient failures beyond maxTransientRetries surface as ProviderError carrying the cause`() {
         val user = mockk<PrivyUser>()
         val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
         val privy = authenticatedPrivy(auth, user)
@@ -205,7 +205,7 @@ class PrivySessionCoordinatorTest {
         )
         var attempts = 0
 
-        val thrown = assertThrows(IOException::class.java) {
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeRead<String> {
                     attempts++
@@ -213,7 +213,8 @@ class PrivySessionCoordinatorTest {
                 }
             }
         }
-        assertThat(thrown).hasMessageThat().contains("connection reset")
+        assertThat(thrown).hasCauseThat().isInstanceOf(IOException::class.java)
+        assertThat(thrown).hasCauseThat().hasMessageThat().contains("connection reset")
         assertThat(attempts).isEqualTo(3)
         assertThat(delays.delays).hasSize(2)
     }
@@ -234,9 +235,10 @@ class PrivySessionCoordinatorTest {
             delayRecorder = delays,
         )
 
-        assertThrows(NoNetworkException::class.java) {
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
             runBlocking { coordinator.executeRead<String> { throw NoNetworkException } }
         }
+        assertThat(thrown.cause).isSameInstanceAs(NoNetworkException)
         assertThat(delays.delays).containsExactly(500L, 1000L, 1000L, 1000L).inOrder()
     }
 
@@ -248,7 +250,7 @@ class PrivySessionCoordinatorTest {
         var attempts = 0
         val coordinator = coordinator(privy)
 
-        assertThrows(NoNetworkException::class.java) {
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeWrite<String> {
                     attempts++
@@ -256,6 +258,7 @@ class PrivySessionCoordinatorTest {
                 }
             }
         }
+        assertThat(thrown.cause).isSameInstanceAs(NoNetworkException)
         assertThat(attempts).isEqualTo(1)
     }
 
@@ -267,7 +270,8 @@ class PrivySessionCoordinatorTest {
         var attempts = 0
         val coordinator = coordinator(privy)
 
-        assertThrows(IllegalStateException::class.java) {
+        // Not an auth failure and not transient, so it leaves once, as a RainError rather than raw.
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeRead<String> {
                     attempts++
@@ -275,6 +279,7 @@ class PrivySessionCoordinatorTest {
                 }
             }
         }
+        assertThat(thrown).hasCauseThat().isInstanceOf(IllegalStateException::class.java)
         assertThat(attempts).isEqualTo(1)
     }
 

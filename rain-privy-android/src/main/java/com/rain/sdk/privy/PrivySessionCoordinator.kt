@@ -156,7 +156,10 @@ internal class PrivySessionCoordinator(
                         retryDelay(backoffMs)
                         backoffMs = (backoffMs * 2).coerceAtMost(policy.maxRetryDelayMs)
                     }
-                    else -> throw e
+                    // Neither an auth problem nor retryable. It leaves as a RainError, never as a
+                    // vendor type: core rethrows a RainError untouched and would otherwise see a
+                    // Privy exception it cannot classify.
+                    else -> throw PrivyErrorMapping.map(e)
                 }
             }
         }

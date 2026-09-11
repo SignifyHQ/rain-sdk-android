@@ -5,7 +5,6 @@ import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers
-import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
@@ -86,8 +85,6 @@ class RainSdkManagerBalanceTest {
 
     @Test
     fun `getBalances wraps unexpected provider failures via ErrorMapper`() {
-        // ErrorMapper.mapTransactionError transitively loads Turnkey (JDK-24) classes.
-        assumeJdk24()
         val failing = object : StubWalletProvider() {
             override suspend fun getBalances(chainId: Int): List<Balance> {
                 throw RuntimeException("indexer 503")

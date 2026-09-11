@@ -451,6 +451,30 @@ class PortalSessionCoordinatorTest {
         }
     }
 
+    // ---------- the boundary: nothing leaves as a vendor type ----------
+
+    @Test
+    fun `a failure the coordinator does not refresh or retry leaves as ProviderError with its cause`() {
+        val coordinator = coordinator()
+        val raw = IllegalStateException("bad request shape")
+
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
+            runBlocking { coordinator.executeRead<String> { throw raw } }
+        }
+        assertThat(thrown.cause).isSameInstanceAs(raw)
+    }
+
+    @Test
+    fun `a RainError raised inside the block passes through the boundary untouched`() {
+        val coordinator = coordinator()
+        val raised = RainError.InvalidConfig("no RPC endpoint")
+
+        val thrown = assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking { coordinator.executeRead<String> { throw raised } }
+        }
+        assertThat(thrown).isSameInstanceAs(raised)
+    }
+
     // ---------- transient backoff ----------
 
     @Test
@@ -495,11 +519,11 @@ class PortalSessionCoordinatorTest {
     }
 
     @Test
-    fun `reads give up after maxTransientRetries and rethrow the last failure`() {
+    fun `reads give up after maxTransientRetries and surface the last failure as a RainError`() {
         val coordinator = coordinator(policy = PortalSessionPolicy(maxTransientRetries = 1))
         var attempts = 0
 
-        assertThrows(PortalException.Api.HttpRequestFailed::class.java) {
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeRead {
                     attempts++
@@ -507,6 +531,7 @@ class PortalSessionCoordinatorTest {
                 }
             }
         }
+        assertThat(thrown.cause).isInstanceOf(PortalException.Api.HttpRequestFailed::class.java)
         assertThat(attempts).isEqualTo(2)
     }
 
@@ -516,7 +541,7 @@ class PortalSessionCoordinatorTest {
         val coordinator = coordinator(delayRecorder = delays)
         var attempts = 0
 
-        assertThrows(PortalException.Api.HttpRequestFailed::class.java) {
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeWrite {
                     attempts++
@@ -524,16 +549,17 @@ class PortalSessionCoordinatorTest {
                 }
             }
         }
+        assertThat(thrown.cause).isInstanceOf(PortalException.Api.HttpRequestFailed::class.java)
         assertThat(attempts).isEqualTo(1)
         assertThat(delays.delays).isEmpty()
     }
 
     @Test
-    fun `non-transient non-auth failures are rethrown untouched`() {
+    fun `non-transient non-auth failures leave once, as a RainError carrying the vendor cause`() {
         val coordinator = coordinator()
         var attempts = 0
 
-        assertThrows(PortalException.Api.HttpRequestFailed::class.java) {
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeRead {
                     attempts++
@@ -541,6 +567,7 @@ class PortalSessionCoordinatorTest {
                 }
             }
         }
+        assertThat(thrown.cause).isInstanceOf(PortalException.Api.HttpRequestFailed::class.java)
         assertThat(attempts).isEqualTo(1)
     }
 

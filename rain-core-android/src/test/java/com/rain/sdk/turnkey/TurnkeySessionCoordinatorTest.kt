@@ -259,12 +259,13 @@ class TurnkeySessionCoordinatorTest {
             delayRecorder = delays
         )
 
-        val thrown = assertThrows(IOException::class.java) {
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeRead { s, c -> c.getActivities(activitiesBody(s.organizationId)) }
             }
         }
-        assertThat(thrown).hasMessageThat().contains("connection reset")
+        assertThat(thrown).hasCauseThat().isInstanceOf(IOException::class.java)
+        assertThat(thrown).hasCauseThat().hasMessageThat().contains("connection reset")
         assertThat(client.getActivitiesCalls).hasSize(3)
         assertThat(delays.delays).hasSize(2)
     }
@@ -285,7 +286,7 @@ class TurnkeySessionCoordinatorTest {
             delayRecorder = delays
         )
 
-        assertThrows(IOException::class.java) {
+        assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeRead { s, c -> c.getActivities(activitiesBody(s.organizationId)) }
             }
@@ -300,13 +301,14 @@ class TurnkeySessionCoordinatorTest {
         client.ethSendTransactionError = IOException("timed out")
         val coordinator = coordinator(turnkey)
 
-        assertThrows(IOException::class.java) {
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeWrite { s, c ->
                     c.ethSendTransaction(sendBody(s.organizationId))
                 }
             }
         }
+        assertThat(thrown).hasCauseThat().isInstanceOf(IOException::class.java)
         assertThat(client.ethSendTransactionCalls).hasSize(1)
     }
 
@@ -317,13 +319,43 @@ class TurnkeySessionCoordinatorTest {
         client.getActivitiesError = RuntimeException("HTTP error from /activities: 400")
         val coordinator = coordinator(turnkey)
 
-        assertThrows(RuntimeException::class.java) {
+        assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeRead { s, c -> c.getActivities(activitiesBody(s.organizationId)) }
             }
         }
         assertThat(client.getActivitiesCalls).hasSize(1)
         assertThat(turnkey.refreshSessionCallCount).isEqualTo(0)
+    }
+
+    // ---------- the boundary: nothing leaves as a vendor type ----------
+
+    @Test
+    fun `a vendor failure the coordinator does not retry leaves as its Rain error, not raw`() {
+        val turnkey = MockTurnkey()
+        val client = turnkey.turnkeyClient as MockTurnkeyClient
+        // 403 is neither a session problem (401) nor transient, so it takes the else branch.
+        client.getActivitiesError = RuntimeException("HTTP error from /activities: 403")
+        val coordinator = coordinator(turnkey)
+
+        assertThrows(RainError.Unauthorized::class.java) {
+            runBlocking {
+                coordinator.executeRead { s, c -> c.getActivities(activitiesBody(s.organizationId)) }
+            }
+        }
+        assertThat(turnkey.refreshSessionCallCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `a RainError raised inside the block passes through the boundary untouched`() {
+        val turnkey = MockTurnkey()
+        val coordinator = coordinator(turnkey)
+        val raised = RainError.InvalidConfig("no RPC endpoint")
+
+        val thrown = assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking { coordinator.executeRead<String> { _, _ -> throw raised } }
+        }
+        assertThat(thrown).isSameInstanceAs(raised)
     }
 
     // ---------- concurrency ----------

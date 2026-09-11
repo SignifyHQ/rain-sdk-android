@@ -6,10 +6,14 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Turnkey-error classification tests for [ErrorMapper] — covers each `TurnkeyKotlinError`
- * variant the mapper routes (InvalidSession, InvalidParameter, ClientNotInitialized,
- * FailedToSignRawPayload, FailedToCreateWallet, FailedToVerifyOtp, FailedToInitOtp) and the wrapper-recurse paths
- * through `mapSigningError` / `mapTransactionError`.
+ * Turnkey-error classification tests for [com.rain.sdk.turnkey.TurnkeyErrorMapping] — covers each `TurnkeyKotlinError`
+ * variant it routes (InvalidSession, InvalidParameter, ClientNotInitialized,
+ * FailedToSignRawPayload, FailedToCreateWallet, FailedToVerifyOtp, FailedToInitOtp), the
+ * wrapper-recurse paths, and the HTTP statuses the vendor reports as plain exceptions.
+ *
+ * These assert the mapping itself. That the session coordinator applies [com.rain.sdk.turnkey.TurnkeyErrorMapping.map]
+ * to every failure leaving the adapter is covered by [com.rain.sdk.turnkey.TurnkeySessionCoordinatorTest]; that core
+ * passes the result through untouched is covered by `com.rain.sdk.RainSdkAdapterErrorPassthroughTest`.
  *
  * Gated on JDK 24+ because Turnkey's published AAR is compiled to major class version 68
  * (Java 24). See [com.rain.sdk.internal.core.RainSdkManagerTurnkeyTest] for the same pattern.
@@ -22,7 +26,7 @@ import org.junit.Test
  */
 class ErrorMapperTurnkeyTest {
 
-    private val mapper = ErrorMapper()
+    private val mapping = com.rain.sdk.turnkey.TurnkeyErrorMapping
 
     @Before
     fun requireJdk24() = assumeJdk24()
@@ -30,21 +34,21 @@ class ErrorMapperTurnkeyTest {
     @Test
     fun `mapTurnkeyError InvalidSession returns TokenExpired`() {
         val error = com.turnkey.core.models.errors.TurnkeyKotlinError.InvalidSession()
-        val mapped = mapper.mapTurnkeyError(error)
+        val mapped = mapping.mapTurnkeyError(error)
         assertThat(mapped).isInstanceOf(RainError.TokenExpired::class.java)
     }
 
     @Test
     fun `mapTurnkeyError InvalidParameter returns InternalError`() {
         val error = com.turnkey.core.models.errors.TurnkeyKotlinError.InvalidParameter("bad arg", null)
-        val mapped = mapper.mapTurnkeyError(error)
+        val mapped = mapping.mapTurnkeyError(error)
         assertThat(mapped).isInstanceOf(RainError.InternalError::class.java)
     }
 
     @Test
     fun `mapTurnkeyError ClientNotInitialized returns InternalError`() {
         val error = com.turnkey.core.models.errors.TurnkeyKotlinError.ClientNotInitialized()
-        val mapped = mapper.mapTurnkeyError(error)
+        val mapped = mapping.mapTurnkeyError(error)
         assertThat(mapped).isInstanceOf(RainError.InternalError::class.java)
     }
 
@@ -52,7 +56,7 @@ class ErrorMapperTurnkeyTest {
     fun `mapTurnkeyError FailedToSignRawPayload with user-cancel cause maps to UserRejected`() {
         val cause = RuntimeException("User cancelled the operation")
         val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToSignRawPayload(cause)
-        val mapped = mapper.mapTurnkeyError(error)
+        val mapped = mapping.mapTurnkeyError(error)
         assertThat(mapped).isInstanceOf(RainError.UserRejected::class.java)
     }
 
@@ -60,7 +64,7 @@ class ErrorMapperTurnkeyTest {
     fun `mapTurnkeyError FailedToSignRawPayload with an insufficient-funds cause maps to InsufficientFunds`() {
         val cause = RuntimeException("insufficient funds for gas * price + value")
         val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToSignRawPayload(cause)
-        val mapped = mapper.mapTurnkeyError(error)
+        val mapped = mapping.mapTurnkeyError(error)
         assertThat(mapped).isInstanceOf(RainError.InsufficientFunds::class.java)
     }
 
@@ -68,7 +72,7 @@ class ErrorMapperTurnkeyTest {
     fun `mapTurnkeyError FailedToSignRawPayload with a single-word cause stays ProviderError`() {
         val cause = RuntimeException("Transaction cancelled")
         val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToSignRawPayload(cause)
-        val mapped = mapper.mapTurnkeyError(error)
+        val mapped = mapping.mapTurnkeyError(error)
         assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
     }
 
@@ -80,7 +84,7 @@ class ErrorMapperTurnkeyTest {
                 "Error: session expired, request cancelled\nCode: 401"
         )
         val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToSignRawPayload(cause)
-        val mapped = mapper.mapTurnkeyError(error)
+        val mapped = mapping.mapTurnkeyError(error)
         assertThat(mapped).isInstanceOf(RainError.TokenExpired::class.java)
     }
 
@@ -89,22 +93,50 @@ class ErrorMapperTurnkeyTest {
         // FailedToCreateWallet wraps a plain Throwable and isn't in the InternalError allowlist.
         val cause = RuntimeException("server 500")
         val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToCreateWallet(cause)
-        val mapped = mapper.mapTurnkeyError(error)
+        val mapped = mapping.mapTurnkeyError(error)
         assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
     }
 
     @Test
-    fun `mapSigningError on TurnkeyKotlinError routes through mapTurnkeyError`() {
+    fun `classify routes a typed error through mapTurnkeyError`() {
         val turnkeyErr = com.turnkey.core.models.errors.TurnkeyKotlinError.InvalidSession()
-        val mapped = mapper.mapSigningError(turnkeyErr)
+        val mapped = mapping.classify(turnkeyErr)
         assertThat(mapped).isInstanceOf(RainError.TokenExpired::class.java)
     }
 
     @Test
-    fun `mapTransactionError on TurnkeyKotlinError routes through mapTurnkeyError`() {
+    fun `classify declines a throwable that is not a Turnkey failure`() {
+        val mapped = mapping.classify(RuntimeException("something else entirely"))
+        assertThat(mapped).isNull()
+    }
+
+    @Test
+    fun `map floors a throwable nothing recognizes at ProviderError`() {
+        val e = RuntimeException("something else entirely")
+        val mapped = mapping.map(e)
+        assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(mapped.cause).isSameInstanceAs(e)
+    }
+
+    @Test
+    fun `map passes a RainError through untouched`() {
+        val raised = RainError.InvalidConfig("already mapped")
+        assertThat(mapping.map(raised)).isSameInstanceAs(raised)
+    }
+
+    @Test
+    fun `classify is total for a Turnkey error whose prose reads like a rejection`() {
+        // A cause-less vendor error naming no status: mapTurnkeyError still owns it, so core's
+        // prose heuristics never see "user rejected" and cannot reclassify it as UserRejected.
+        val turnkeyErr = com.turnkey.core.models.errors.TurnkeyKotlinError
+            .InvalidResponse("user rejected the request")
+        assertThat(mapping.classify(turnkeyErr)).isInstanceOf(RainError.InternalError::class.java)
+    }
+
+    @Test
+    fun `the classifier carries the error code, not just the error class`() {
         val turnkeyErr = com.turnkey.core.models.errors.TurnkeyKotlinError.InvalidSession()
-        val mapped = mapper.mapTransactionError(turnkeyErr)
-        assertThat(mapped).isInstanceOf(RainError.TokenExpired::class.java)
+        assertThat(mapping.classify(turnkeyErr)?.errorCode).isEqualTo(RainErrorCode.TOKEN_EXPIRED)
     }
 
     // ---------- managed auth: rejected login codes (RAIN_203) ----------
@@ -116,7 +148,7 @@ class ErrorMapperTurnkeyTest {
         val http = RuntimeException("HTTP error from /v1/otp_verify_v2: 401")
         val verify = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToVerifyOtp(http)
         val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToLoginOrSignUpWithOtp(verify)
-        val mapped = mapper.mapTurnkeyError(error)
+        val mapped = mapping.mapTurnkeyError(error)
         assertThat(mapped).isInstanceOf(RainError.InvalidLoginCode::class.java)
         assertThat(mapped.errorCode).isEqualTo(RainErrorCode.INVALID_LOGIN_CODE)
     }
@@ -127,7 +159,7 @@ class ErrorMapperTurnkeyTest {
             val http = RuntimeException("HTTP error from /v1/otp_verify_v2: $status")
             val verify = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToVerifyOtp(http)
             val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToLoginOrSignUpWithOtp(verify)
-            assertThat(mapper.mapTurnkeyError(error)).isInstanceOf(RainError.InvalidLoginCode::class.java)
+            assertThat(mapping.mapTurnkeyError(error)).isInstanceOf(RainError.InvalidLoginCode::class.java)
         }
     }
 
@@ -138,7 +170,7 @@ class ErrorMapperTurnkeyTest {
         // keeps the challenge instead (see isLoginCodeVerifyFailure).
         val http = RuntimeException("HTTP error from /v1/otp_verify_v2: 500")
         val verify = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToVerifyOtp(http)
-        assertThat(mapper.mapTurnkeyError(verify)).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(mapping.mapTurnkeyError(verify)).isInstanceOf(RainError.ProviderError::class.java)
     }
 
     @Test
@@ -150,10 +182,10 @@ class ErrorMapperTurnkeyTest {
         val spent = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToLoginOrSignUpWithOtp(
             com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToCreateSession(RuntimeException("io"))
         )
-        assertThat(ErrorMapper.isLoginCodeVerifyFailure(verify)).isTrue()
-        assertThat(ErrorMapper.isLoginCodeVerifyFailure(wrapped)).isTrue()
-        assertThat(ErrorMapper.isLoginCodeVerifyFailure(spent)).isFalse()
-        assertThat(ErrorMapper.isLoginCodeVerifyFailure(RuntimeException("boom"))).isFalse()
+        assertThat(mapping.isLoginCodeVerifyFailure(verify)).isTrue()
+        assertThat(mapping.isLoginCodeVerifyFailure(wrapped)).isTrue()
+        assertThat(mapping.isLoginCodeVerifyFailure(spent)).isFalse()
+        assertThat(mapping.isLoginCodeVerifyFailure(RuntimeException("boom"))).isFalse()
     }
 
     @Test
@@ -162,7 +194,7 @@ class ErrorMapperTurnkeyTest {
         val verify = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToVerifyOtp(
             java.io.IOException("unreachable")
         )
-        val mapped = mapper.mapTurnkeyError(verify)
+        val mapped = mapping.mapTurnkeyError(verify)
         assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
     }
 
@@ -171,7 +203,7 @@ class ErrorMapperTurnkeyTest {
         // 429 is "too many attempts" and the repo classifies it as transient elsewhere.
         val http = RuntimeException("HTTP error from /v1/otp_verify_v2: 429")
         val verify = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToVerifyOtp(http)
-        val mapped = mapper.mapTurnkeyError(verify)
+        val mapped = mapping.mapTurnkeyError(verify)
         assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
     }
 
@@ -179,7 +211,7 @@ class ErrorMapperTurnkeyTest {
     fun `a verify failure wrapping InvalidResponse still maps to InternalError`() {
         val invalid = com.turnkey.core.models.errors.TurnkeyKotlinError.InvalidResponse("no verification token")
         val verify = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToVerifyOtp(invalid)
-        val mapped = mapper.mapTurnkeyError(verify)
+        val mapped = mapping.mapTurnkeyError(verify)
         assertThat(mapped).isInstanceOf(RainError.InternalError::class.java)
     }
 
@@ -193,7 +225,7 @@ class ErrorMapperTurnkeyTest {
         listOf(400, 401, 403, 429, 500).forEach { status ->
             val http = RuntimeException("HTTP error from /v1/otp_init_v2: $status")
             val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToInitOtp(http)
-            val mapped = mapper.mapTurnkeyError(error)
+            val mapped = mapping.mapTurnkeyError(error)
             assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
             assertThat(mapped).hasMessageThat().contains(status.toString())
         }
@@ -203,7 +235,7 @@ class ErrorMapperTurnkeyTest {
     fun `a failed code request without an HTTP status maps to ProviderError`() {
         val dropped = java.io.IOException("unreachable")
         val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToInitOtp(dropped)
-        assertThat(mapper.mapTurnkeyError(error)).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(mapping.mapTurnkeyError(error)).isInstanceOf(RainError.ProviderError::class.java)
     }
 
     @Test
@@ -212,7 +244,7 @@ class ErrorMapperTurnkeyTest {
         // setup problem (InternalError), not a request the user can retry.
         val setup = com.turnkey.core.models.errors.TurnkeyKotlinError.ClientNotInitialized()
         val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToInitOtp(setup)
-        assertThat(mapper.mapTurnkeyError(error)).isInstanceOf(RainError.InternalError::class.java)
+        assertThat(mapping.mapTurnkeyError(error)).isInstanceOf(RainError.InternalError::class.java)
     }
 
     @Test
@@ -222,28 +254,99 @@ class ErrorMapperTurnkeyTest {
         val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToInitOtp(
             java.util.concurrent.CancellationException("inner job")
         )
-        assertThat(mapper.mapTurnkeyError(error)).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(mapping.mapTurnkeyError(error)).isInstanceOf(RainError.ProviderError::class.java)
     }
 
     @Test
     fun `the status parser reads the init path like the verify path`() {
         val init = RuntimeException("HTTP error from /v1/otp_init_v2: 400")
         val verify = RuntimeException("HTTP error from /v1/otp_verify_v2: 401")
-        assertThat(ErrorMapper.turnkeyHttpStatus(init)).isEqualTo(400)
-        assertThat(ErrorMapper.turnkeyHttpStatus(verify)).isEqualTo(401)
+        assertThat(mapping.turnkeyHttpStatus(init)).isEqualTo(400)
+        assertThat(mapping.turnkeyHttpStatus(verify)).isEqualTo(401)
     }
 
     @Test
     fun `mapAuthError routes a failed code request to ProviderError`() {
         val http = RuntimeException("HTTP error from /v1/otp_init_v2: 401")
         val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToInitOtp(http)
-        assertThat(mapper.mapAuthError(error)).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(mapping.mapAuthError(error)).isInstanceOf(RainError.ProviderError::class.java)
     }
 
     @Test
     fun `mapAuthError on TurnkeyKotlinError routes through mapTurnkeyError`() {
         val turnkeyErr = com.turnkey.core.models.errors.TurnkeyKotlinError.InvalidSession()
-        val mapped = mapper.mapAuthError(turnkeyErr)
+        val mapped = mapping.mapAuthError(turnkeyErr)
         assertThat(mapped).isInstanceOf(RainError.TokenExpired::class.java)
+    }
+
+    // ---------- HTTP statuses the vendor reports as plain exceptions ----------
+    //
+    // The Turnkey Kotlin SDK throws a plain RuntimeException carrying the status only in the
+    // message, in two generated shapes. Both must classify to the same RainError. These moved
+    // here from core's ErrorMapperTest when the vendor knowledge left core; the composed cases
+    // go through map(), which is what the session coordinator applies at the boundary.
+
+    @Test
+    fun `a 401 from the query path maps to TokenExpired`() {
+        val e = RuntimeException("HTTP error from /public/v1/query/get_activity: 401")
+        assertThat(mapping.classify(e)).isInstanceOf(RainError.TokenExpired::class.java)
+    }
+
+    @Test
+    fun `a 401 from the activity path maps to TokenExpired`() {
+        val e = RuntimeException("HTTP error calling ACTIVITY_TYPE_ETH_SEND_TRANSACTION request\nError: {}\nCode: 401")
+        assertThat(mapping.classify(e)).isInstanceOf(RainError.TokenExpired::class.java)
+    }
+
+    @Test
+    fun `a 403 maps to Unauthorized`() {
+        val e = RuntimeException("HTTP error from /public/v1/query/get_activity: 403")
+        assertThat(mapping.classify(e)).isInstanceOf(RainError.Unauthorized::class.java)
+    }
+
+    @Test
+    fun `a 401 whose body contains rejection keywords still maps to TokenExpired`() {
+        // The status is the reliable signal; "session expired, request cancelled" is a session
+        // problem, and hosts branch on TokenExpired to re-authenticate.
+        val e = RuntimeException(
+            "HTTP error calling ACTIVITY_TYPE_ETH_SEND_TRANSACTION request\n" +
+                "Error: session expired, request cancelled\nCode: 401"
+        )
+        assertThat(mapping.classify(e)).isInstanceOf(RainError.TokenExpired::class.java)
+    }
+
+    @Test
+    fun `a 403 whose body says permission denied still maps to Unauthorized`() {
+        val e = RuntimeException(
+            "HTTP error calling ACTIVITY_TYPE_ETH_SEND_TRANSACTION request\n" +
+                "Error: permission denied\nCode: 403"
+        )
+        assertThat(mapping.classify(e)).isInstanceOf(RainError.Unauthorized::class.java)
+    }
+
+    @Test
+    fun `an unclassified HTTP status falls through to the prose checks`() {
+        // 400 is not a session or permission verdict, so classify() declines and map() reads the
+        // body: the user declined, and that is what the host must see.
+        val e = RuntimeException(
+            "HTTP error calling ACTIVITY_TYPE_ETH_SEND_TRANSACTION request\n" +
+                "Error: user rejected the signing request\nCode: 400"
+        )
+        assertThat(mapping.classify(e)).isNull()
+        assertThat(mapping.map(e)).isInstanceOf(RainError.UserRejected::class.java)
+    }
+
+    @Test
+    fun `other HTTP statuses stay ProviderError`() {
+        val e = RuntimeException("HTTP error from /public/v1/query/get_activity: 500")
+        assertThat(mapping.classify(e)).isNull()
+        assertThat(mapping.map(e)).isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    @Test
+    fun `a non-HTTP message ending in digits is not treated as a status`() {
+        val e = RuntimeException("Something failed for wallet 401")
+        assertThat(mapping.turnkeyHttpStatus(e)).isNull()
+        assertThat(mapping.map(e)).isInstanceOf(RainError.ProviderError::class.java)
     }
 }

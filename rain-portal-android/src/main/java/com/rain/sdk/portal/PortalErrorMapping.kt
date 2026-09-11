@@ -1,6 +1,7 @@
 package com.rain.sdk.portal
 
 import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.internal.error.VendorErrorClassifier
 import io.portalhq.android.exceptions.PortalException
 import io.portalhq.android.utils.errors.PortalErrorCodes
 import java.io.IOException
@@ -19,10 +20,24 @@ import java.io.IOException
  *   during a read is not a failed simulation). Whether a simulation failure is a
  *   [RainError.WithdrawalRevertedByNetwork] is decided in core, on the withdrawal flows only.
  *
- * Anything else returns `null`, so call sites keep their existing behavior (wrap in
- * [RainError.ProviderError], or let the raw error flow to core's keyword-based `ErrorMapper`).
+ * Anything else returns `null` from the `OrNull` functions, so call sites keep their existing
+ * behavior (wrap in [RainError.ProviderError], or let the raw error flow to the session
+ * coordinator, whose [map] is the last word before anything leaves the adapter).
  */
 internal object PortalErrorMapping {
+
+    /**
+     * The total mapping [PortalSessionCoordinator] applies to every failure it does not refresh or
+     * retry, so no vendor exception leaves this module. A [RainError] passes through; a Portal
+     * auth failure maps by type; anything else is read by the shared prose rules and floors at
+     * [RainError.ProviderError]. Revert detection stays at the send and fee-estimation call sites,
+     * because only they know that a revert means a failed simulation.
+     */
+    fun map(e: Throwable): RainError =
+        e as? RainError
+            ?: mapAuthOrNull(e)
+            ?: VendorErrorClassifier.fromVendorError(e)
+            ?: RainError.ProviderError(e)
 
     /** Legacy MPC error id Portal's backend returns for an invalid API key. */
     private const val MPC_INVALID_API_KEY_LEGACY_CODE = 320

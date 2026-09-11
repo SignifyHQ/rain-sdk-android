@@ -21,6 +21,12 @@ import java.math.BigDecimal
  * Public so host apps can ship their own implementations and register them via a
  * [com.rain.sdk.provider.RainProvider] descriptor. The interface lives in the `internal.provider`
  * package for historical reasons but is part of the public API surface.
+ *
+ * Error contract: a failure leaves an implementation as a [com.rain.sdk.internal.error.RainError],
+ * never as a vendor exception. Core rethrows a `RainError` untouched and wraps anything else as
+ * `ProviderError` after its shared prose heuristics, so an adapter that lets a vendor type escape
+ * loses the specific code a host branches on, `TokenExpired` above all. Rain's adapters convert
+ * in their session coordinator, the one place every vendor call passes through.
  */
 interface WalletProvider {
     /**
