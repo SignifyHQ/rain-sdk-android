@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.network.chainreader
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
@@ -21,7 +22,8 @@ import java.math.BigInteger
  * JSON-RPC. A future Solana/Stellar reader can implement this alongside it; until then,
  * `chainId: Int` matches the rest of the SDK's EVM-centric typing.
  */
-internal interface ChainReader {
+@RainAdapterApi
+interface ChainReader {
     /**
      * Native balance (e.g. ETH on Ethereum, AVAX on Avalanche). Result is in
      * human-readable form (e.g. `1.5` for 1.5 ETH).
@@ -105,7 +107,8 @@ internal interface ChainReader {
 internal const val LATEST_BLOCK = "latest"
 
 /** A mined transaction's outcome and the block it landed in, so a read can be pinned to that block. */
-internal data class MinedReceipt(
+@RainAdapterApi
+data class MinedReceipt(
     /** `true` when the transaction mined successfully, `false` when it mined but reverted. */
     val succeeded: Boolean,
 

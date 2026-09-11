@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.solana
 
+import com.rain.sdk.internal.RainAdapterApi
 import java.io.ByteArrayOutputStream
 
 /**
@@ -18,7 +19,8 @@ import java.io.ByteArrayOutputStream
  *
  * Pure and dependency-free so it can be unit-tested byte-for-byte; see SolanaTransactionBuilderTest.
  */
-internal object SolanaTransactionBuilder {
+@RainAdapterApi
+object SolanaTransactionBuilder {
     private const val PUBLIC_KEY_LENGTH = 32
     private const val SIGNATURE_LENGTH = 64
     private val HEX_DIGITS = "0123456789abcdef".toCharArray()

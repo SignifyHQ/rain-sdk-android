@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.solana
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.SolanaPrograms
 import com.rain.sdk.internal.error.RainError
 import timber.log.Timber
@@ -11,7 +12,7 @@ import java.util.Base64
  * An unsigned Solana transfer ready for a wallet provider to sign. Public so out-of-module
  * adapters can receive it through [SolanaSupport]; see that class for the visibility rationale.
  */
-class UnsignedSolanaTransfer internal constructor(
+class UnsignedSolanaTransfer @RainAdapterApi constructor(
     transaction: ByteArray,
     val recentBlockhash: String,
     val createsRecipientAccount: Boolean = false
@@ -32,7 +33,8 @@ class UnsignedSolanaTransfer internal constructor(
  * is sponsored opts out of the two self-paid preflights (fee lamports and the dry run) through
  * `sponsoredFees`; the rent check stays, because rent sponsorship is a separate toggle.
  */
-internal class SolanaTransferComposer(
+@RainAdapterApi
+class SolanaTransferComposer(
     private val solanaRpcClient: SolanaRpcClient,
     private val rpcUrlResolver: (Int) -> String?
 ) {

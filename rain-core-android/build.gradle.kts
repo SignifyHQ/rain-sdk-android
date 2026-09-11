@@ -38,7 +38,12 @@ android {
         jvmTarget = "1.8"
         // The managed Turnkey surface is marked @InternalRainTurnkeyApi (a @RequiresOptIn marker at
         // error level). This module defines and uses it, so it opts in as a whole; host apps do not.
-        freeCompilerArgs += listOf("-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi")
+        freeCompilerArgs += listOf(
+            "-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi",
+            // Core's own cross-module seams are marked @RainAdapterApi. This module declares and
+            // uses them, so it opts in as a whole; host apps do not.
+            "-opt-in=com.rain.sdk.internal.RainAdapterApi",
+        )
     }
 }
 

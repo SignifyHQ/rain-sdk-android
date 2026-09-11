@@ -1,5 +1,6 @@
 package com.rain.sdk.provider
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.network.chainreader.SolanaChainReader
 import com.rain.sdk.internal.solana.SolanaSupport
@@ -14,11 +15,12 @@ import com.rain.sdk.internal.tokenstore.TokenMetadataStore
  * adapters (e.g. `rain-privy-android`) need them; the chain readers stay module-internal — only
  * core-resident adapters (e.g. Turnkey) consume them directly.
  */
-class ProviderContext internal constructor(
+class ProviderContext @RainAdapterApi constructor(
     val rpcEndpoints: Map<Int, String>,
     val tokenStore: TokenMetadataStore,
-    internal val evmChainReader: EvmChainReader,
+    @property:RainAdapterApi val evmChainReader: EvmChainReader,
     val solanaSupport: SolanaSupport,
 ) {
-    internal val solanaChainReader: SolanaChainReader get() = solanaSupport.chainReader
+    @RainAdapterApi
+    val solanaChainReader: SolanaChainReader get() = solanaSupport.chainReader
 }

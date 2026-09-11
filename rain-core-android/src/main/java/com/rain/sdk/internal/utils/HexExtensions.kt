@@ -1,7 +1,10 @@
 package com.rain.sdk.internal.utils
 
+import com.rain.sdk.internal.RainAdapterApi
+
 /** Returns the string with a leading `"0x"` or `"0X"` prefix removed. */
-internal fun String.strippingHexPrefix(): String =
+@RainAdapterApi
+fun String.strippingHexPrefix(): String =
     if (startsWith("0x") || startsWith("0X")) substring(2) else this
 
 /**

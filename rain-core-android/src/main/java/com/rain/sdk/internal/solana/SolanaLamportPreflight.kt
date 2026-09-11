@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.solana
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.error.RainError
 import timber.log.Timber
 import java.math.BigInteger
@@ -13,7 +14,8 @@ import java.math.BigInteger
  * it is always required here. The constants gate a friendlier up-front error than a broadcast that
  * fails on chain; a self-paid transaction is simulated afterwards as well.
  */
-internal object SolanaLamportPreflight {
+@RainAdapterApi
+object SolanaLamportPreflight {
     /** Base fee for a single-signature Solana transaction. */
     const val FEE_LAMPORTS = 5_000L
 

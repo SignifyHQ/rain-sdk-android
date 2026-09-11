@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.solana
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.SolanaPrograms
 import java.math.BigInteger
 
@@ -12,7 +13,8 @@ import java.math.BigInteger
  *
  * [pubkey] is held by reference, not copied — treat it as immutable.
  */
-internal class AccountMeta(
+@RainAdapterApi
+class AccountMeta(
     val pubkey: ByteArray,
     val isSigner: Boolean = false,
     val isWritable: Boolean = false
@@ -26,7 +28,8 @@ internal class AccountMeta(
 }
 
 /** A single program invocation: which program, which accounts, and the program's own payload. */
-internal class Instruction(
+@RainAdapterApi
+class Instruction(
     val programId: ByteArray,
     val accounts: List<AccountMeta>,
     val data: ByteArray
@@ -38,7 +41,8 @@ internal class Instruction(
  * Account order within each instruction is fixed by the target program's interface and must not
  * be rearranged — programs read their accounts positionally.
  */
-internal object SolanaInstructions {
+@RainAdapterApi
+object SolanaInstructions {
     /** `SystemInstruction::Transfer`. Also matched by [SolanaTransactionDecoder]. */
     const val SYSTEM_TRANSFER_INDEX = 2
 

@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.solana
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.SolanaPrograms
 import java.math.BigInteger
 import java.util.Base64
@@ -21,7 +22,8 @@ import java.util.Base64
  * and the non-transfer ones are skipped. Returns null if the bytes are not a decodable
  * transaction containing a transfer this SDK knows how to describe.
  */
-internal object SolanaTransactionDecoder {
+@RainAdapterApi
+object SolanaTransactionDecoder {
     private const val PUBLIC_KEY_LENGTH = 32
     private const val SIGNATURE_LENGTH = 64
 

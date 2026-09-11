@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.network.chainreader
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.error.RainError
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -25,7 +26,8 @@ import java.util.concurrent.TimeUnit
  * Stays small on purpose — wire format and error mapping match what
  * `TurnkeyWalletProvider.rpcRequest` did historically.
  */
-internal class JsonRpcClient(
+@RainAdapterApi
+class JsonRpcClient(
     httpClient: OkHttpClient? = null,
     timeoutSeconds: Long = DEFAULT_TIMEOUT_SECONDS
 ) {

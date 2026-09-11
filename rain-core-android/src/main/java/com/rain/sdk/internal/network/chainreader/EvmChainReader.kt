@@ -1,6 +1,7 @@
 package com.rain.sdk.internal.network.chainreader
 
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.TokenRegistry
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.utils.isValidEthereumAddress
@@ -33,7 +34,8 @@ import java.math.BigInteger
  * the token is omitted from the result, so one bad [TokenRegistry] entry doesn't break
  * balance reads for the whole chain.
  */
-internal class EvmChainReader(
+@RainAdapterApi
+class EvmChainReader(
     private val jsonRpcClient: JsonRpcClient = JsonRpcClient(),
     private val rpcUrlResolver: (Int) -> String?
 ) : ChainReader {

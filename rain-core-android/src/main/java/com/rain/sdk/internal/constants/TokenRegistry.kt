@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.constants
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.models.NativeCurrency
 import com.rain.sdk.models.TokenInfo
 
@@ -23,7 +24,8 @@ import com.rain.sdk.models.TokenInfo
  * `MULTICALL3_DEPLOYMENTS` — those use the batched `aggregate3` path.
  * Any chain not in that set uses the parallel `eth_call` fallback.
  */
-internal object TokenRegistry {
+@RainAdapterApi
+object TokenRegistry {
 
     val tokensByChainId: Map<Int, List<TokenInfo>> = mapOf(
         // Ethereum
