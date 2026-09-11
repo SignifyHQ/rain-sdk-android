@@ -22,8 +22,9 @@ sealed interface LoginContact {
     /**
      * A phone number in E.164 form: `+`, the country code and the number, digits only, at most 15
      * of them, for example `+13214567890`. Spaces, dots, hyphens and parentheses are removed before
-     * the check; anything else outside E.164 makes `sendLoginCode` throw `RainError.InvalidConfig`.
-     * A national number without its country code is not converted.
+     * the check; anything else outside E.164 makes `sendLoginCode` throw `RainError.InvalidConfig`,
+     * and so does a parenthesised trunk zero (`+44 (0) 20 ...`), which stripping would fold into a
+     * different number. A national number without its country code is not converted.
      */
     data class Sms(override val value: String) : LoginContact {
         override fun toString(): String = "LoginContact.Sms(…)"

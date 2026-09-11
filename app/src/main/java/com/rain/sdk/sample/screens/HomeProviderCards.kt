@@ -55,6 +55,8 @@ private fun TurnkeyCard(state: HomeUiState, viewModel: HomeViewModel, applicatio
     // The ids, the channel and the contact are frozen once a code is out (a relaunch is the only
     // way to change the ids), but the button stays live as "Resend code": Turnkey codes expire
     // after 5 minutes and lock after 3 wrong attempts, and only a new code gets the user past either.
+    // The channel switch also locks while a send is in flight and while a session is live, so the
+    // channel the code went out on, and the one the header names, cannot change underneath.
     val codeSent = state.turnkeyOtpSent
     RainCard {
         CardTitle("Turnkey configuration", "One-time code by email or SMS")
@@ -72,7 +74,12 @@ private fun TurnkeyCard(state: HomeUiState, viewModel: HomeViewModel, applicatio
             placeholder = "Config ID",
             enabled = !codeSent,
         )
-        TurnkeyContactFields(state, viewModel, enabled = !codeSent)
+        TurnkeyContactFields(
+            state,
+            viewModel,
+            switchEnabled = !codeSent && !state.isLoading && !state.turnkeySessionActive,
+            fieldEnabled = !codeSent,
+        )
         RainButton(
             text = if (codeSent) "Resend code" else "Send code",
             onClick = { viewModel.sendTurnkeyOtp(application) },
@@ -106,14 +113,19 @@ private fun TurnkeyCard(state: HomeUiState, viewModel: HomeViewModel, applicatio
 
 /** The "Send code by" switch and the selected channel's contact field. */
 @Composable
-private fun TurnkeyContactFields(state: HomeUiState, viewModel: HomeViewModel, enabled: Boolean) {
+private fun TurnkeyContactFields(
+    state: HomeUiState,
+    viewModel: HomeViewModel,
+    switchEnabled: Boolean,
+    fieldEnabled: Boolean,
+) {
     Column {
         RainLabel("Send code by")
         RainSegmentedControl(
             options = TurnkeyContactChannel.entries.map { it.label },
             selectedIndex = state.turnkeyChannel.ordinal,
             onSelected = { viewModel.onTurnkeyChannelChanged(TurnkeyContactChannel.entries[it]) },
-            enabled = enabled,
+            enabled = switchEnabled,
         )
     }
     when (state.turnkeyChannel) {
@@ -122,7 +134,7 @@ private fun TurnkeyContactFields(state: HomeUiState, viewModel: HomeViewModel, e
             value = state.turnkeyEmail,
             onValueChange = viewModel::onTurnkeyEmailChanged,
             placeholder = "you@example.com",
-            enabled = enabled,
+            enabled = fieldEnabled,
             keyboardType = KeyboardType.Email,
         )
         // A number typed without a country code is converted with the device's region before it
@@ -132,7 +144,7 @@ private fun TurnkeyContactFields(state: HomeUiState, viewModel: HomeViewModel, e
             value = state.turnkeyPhone,
             onValueChange = viewModel::onTurnkeyPhoneChanged,
             placeholder = "+15551234567",
-            enabled = enabled,
+            enabled = fieldEnabled,
             helper = "With the country code, for example +15551234567",
             keyboardType = KeyboardType.Phone,
         )

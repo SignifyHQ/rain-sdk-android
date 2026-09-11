@@ -42,7 +42,8 @@ object SampleLog {
         if (value.isNullOrBlank()) return "<empty>"
         val digits = value.filter { it.isDigit() }
         val plus = if (value.trimStart().startsWith('+')) "+" else ""
-        val masked = "$plus${digits.take(2)}${"*".repeat(digits.length - 4)}${digits.takeLast(2)}"
-        return if (digits.length <= 4) "***" else masked
+        // Never negative: a short number is fully hidden below, but the string is built first.
+        val hidden = "*".repeat((digits.length - 4).coerceAtLeast(0))
+        return if (digits.length <= 4) "***" else "$plus${digits.take(2)}$hidden${digits.takeLast(2)}"
     }
 }

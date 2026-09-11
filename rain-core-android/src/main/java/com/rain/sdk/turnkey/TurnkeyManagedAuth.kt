@@ -212,16 +212,20 @@ internal class TurnkeyManagedAuthController(
     suspend fun sendLoginCode(email: String) = sendLoginCode(LoginContact.Email(email))
 
     /**
-     * Sends a one-time code to [contact] on its channel. Touches no session; a second call, on
-     * either channel, replaces the pending challenge. The contact becomes the account's identity on
-     * sign-up, so it is canonicalized once here and the very same string is sent on confirm: an
-     * email is trimmed; a phone number is trimmed, stripped of separators and checked against E.164.
-     * A blank or malformed contact throws [RainError.InvalidConfig] before the vendor is called.
+     * Sends a one-time code to [contact] on its channel. Touches no session. A second call for the
+     * same contact replaces the pending challenge on success and keeps it on failure, so a failed
+     * resend leaves a code the user can still type; a call for another contact or channel retires
+     * the pending challenge before the vendor is asked, so a failed switch leaves nothing
+     * confirmable. The contact becomes the account's identity on sign-up, so it is canonicalized
+     * once here and the very same string is sent on confirm: an email is trimmed; a phone number is
+     * trimmed, stripped of separators and checked against E.164. A blank or malformed contact
+     * throws [RainError.InvalidConfig] before the vendor is called and changes nothing.
      */
     suspend fun sendLoginCode(contact: LoginContact) {
         flowMutex.withLock {
             prepare()
             val (canonical, channel) = canonicalize(contact)
+            retirePendingOtpUnlessFor(canonical, channel)
             val challenge = guarded { context.sendOtp(canonical, channel) }
             pendingLock.withJavaLock {
                 pendingOtp = PendingOtp(challenge, canonical)
@@ -280,6 +284,14 @@ internal class TurnkeyManagedAuthController(
         if (!ErrorMapper.isLoginCodeVerifyFailure(e)) clearPendingOtp()
     }
 
+    /** Drops a pending challenge issued for another contact or channel; a same-contact resend keeps it. */
+    private fun retirePendingOtpUnlessFor(contact: String, channel: OtpChannel) {
+        pendingLock.withJavaLock {
+            val pending = pendingOtp ?: return
+            if (pending.contact != contact || pending.challenge.channel != channel) pendingOtp = null
+        }
+    }
+
     private fun requirePendingOtp(): PendingOtp =
         pendingLock.withJavaLock { pendingOtp }
             ?: throw RainError.InvalidConfig("No login code was requested; call sendLoginCode first")
@@ -298,14 +310,15 @@ internal class TurnkeyManagedAuthController(
 
     /**
      * Removes the separators people type (spaces, dots, hyphens, parentheses) and requires the
-     * E.164 shape. No country inference: a national number without `+` is refused. The fixed
-     * message never echoes the input.
+     * E.164 shape. No country inference: a national number without `+` is refused, and so is a
+     * parenthesised trunk zero (`+44 (0) 20 ...`), which stripping would fold into a different,
+     * well-formed number. The fixed message never echoes the input.
      */
     private fun requirePhoneNumber(raw: String): String {
         val trimmed = raw.trim()
         if (trimmed.isEmpty()) throw RainError.InvalidConfig("phoneNumber must not be blank")
         val digits = trimmed.replace(PHONE_SEPARATORS, "")
-        if (!E164.matches(digits)) {
+        if (TRUNK_PREFIX.containsMatchIn(trimmed) || !E164.matches(digits)) {
             throw RainError.InvalidConfig(
                 "phoneNumber must be in E.164 format: '+' then country code and number, digits only, " +
                     "for example +13214567890"
@@ -555,6 +568,9 @@ internal class TurnkeyManagedAuthController(
 
         /** E.164: `+`, a country code that never starts with 0, at most 15 digits in total. */
         private val E164 = Regex("""^\+[1-9]\d{1,14}$""")
+
+        /** A national trunk zero in parentheses; stripping it would yield a wrong but valid-looking number. */
+        private val TRUNK_PREFIX = Regex("""\(\s*0\s*\)""")
 
         val ETHEREUM_ACCOUNT = TurnkeyAccountSpec(
             addressFormat = V1AddressFormat.ADDRESS_FORMAT_ETHEREUM,

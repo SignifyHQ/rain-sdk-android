@@ -101,8 +101,15 @@ class TurnkeyManagedAuthSmsTest {
     fun `a malformed phone number is a caller error before the vendor is touched`() = runTest {
         val turnkey = MockTurnkey(session = null)
         val controller = controller(turnkey)
-        // No plus sign, a country code starting with 0, 16 digits, letters, a 00 prefix.
-        val malformed = listOf("999-999-9999", "+0999999999", "+1234567890123456", "+1999abc9999", "0019999999999")
+        // No plus sign, a country code starting with 0, 16 digits, letters, a 00 prefix, a trunk zero.
+        val malformed = listOf(
+            "999-999-9999",
+            "+0999999999",
+            "+1234567890123456",
+            "+1999abc9999",
+            "0019999999999",
+            "+44 (0) 20 9999 9999",
+        )
 
         malformed.forEach { number ->
             val thrown = expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(LoginContact.Sms(number)) }
@@ -155,6 +162,49 @@ class TurnkeyManagedAuthSmsTest {
         assertThat(call.otpId).isEqualTo("otp-2")
         assertThat(call.channel).isEqualTo(OtpChannel.SMS)
         assertThat(call.contact).isEqualTo("+19999999999")
+    }
+
+    @Test
+    fun `a failed send for another contact retires the pending challenge`() = runTest {
+        val turnkey = MockTurnkey(session = null)
+        val controller = controller(turnkey)
+        controller.sendLoginCode("user@example.com")
+
+        turnkey.sendOtpError = RuntimeException("HTTP error from /v1/otp_init_v2: 400")
+        expectThrows<RainError> { controller.sendLoginCode(smsContact) }
+
+        // The email challenge must not be confirmable under the belief that an SMS login is happening.
+        expectThrows<RainError.InvalidConfig> { controller.confirmLoginCode("123456") }
+        assertThat(turnkey.completeOtpCalls).isEmpty()
+    }
+
+    @Test
+    fun `a failed resend for the same number keeps the pending challenge`() = runTest {
+        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), session = null)
+        turnkey.onCompleteOtp = { turnkey.authenticate() }
+        val controller = controller(turnkey)
+        controller.sendLoginCode(smsContact)
+
+        turnkey.sendOtpError = RuntimeException("HTTP error from /v1/otp_init_v2: 500")
+        expectThrows<RainError> { controller.sendLoginCode(LoginContact.Sms("+1 (999) 999-9999")) }
+        turnkey.sendOtpError = null
+
+        // The first code is still typable.
+        controller.confirmLoginCode("123456")
+        assertThat(turnkey.completeOtpCalls.single().otpId).isEqualTo("otp-id")
+    }
+
+    @Test
+    fun `a malformed contact leaves the pending challenge untouched`() = runTest {
+        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), session = null)
+        turnkey.onCompleteOtp = { turnkey.authenticate() }
+        val controller = controller(turnkey)
+        controller.sendLoginCode(smsContact)
+
+        expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(LoginContact.Sms("999-999-9999")) }
+
+        controller.confirmLoginCode("123456")
+        assertThat(turnkey.completeOtpCalls.single().contact).isEqualTo("+19999999999")
     }
 
     @Test

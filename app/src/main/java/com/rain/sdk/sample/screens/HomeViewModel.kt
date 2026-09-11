@@ -401,13 +401,11 @@ class HomeViewModel(
         }
         val organizationId = s.turnkeyOrgId.trim()
         val authProxyConfigId = s.turnkeyAuthProxyConfigId.trim()
-        val contact = resolveTurnkeyContact(app, s)
         val resend = s.turnkeyOtpSent
 
         SampleLog.i(
             "Turnkey.otpInit",
-            (if (resend) "requesting a new login code" else "starting login-code flow") +
-                " channel=${channel.name} contact=${channel.mask(contact)}"
+            (if (resend) "requesting a new login code" else "starting login-code flow") + " channel=${channel.name}"
         )
         // The ids are saved before the provider is prepared so a relaunch (the only way to change
         // them) picks up the new values. The contact is saved only after a successful confirm.
@@ -422,6 +420,10 @@ class HomeViewModel(
         }
         viewModelScope.launch {
             try {
+                // Resolved inside the try so a telephony or parsing failure is reported like every
+                // other failure of this flow instead of escaping the click handler.
+                val contact = resolveTurnkeyContact(app, s)
+                SampleLog.i("Turnkey.otpInit", "contact=${channel.mask(contact)}")
                 // A resend reuses the prepared provider: the ids cannot have changed while a code is
                 // out, and the SDK replaces the pending challenge with the new one.
                 val provider = session.turnkeyProvider?.takeIf { resend }
@@ -446,11 +448,11 @@ class HomeViewModel(
                     return@launch
                 }
 
-                _state.update { it.copy(statusText = "Sending login code to $contact...") }
+                _state.update { it.copy(statusText = "Sending login code to ${channel.mask(contact)}...") }
                 provider.sendLoginCode(channel.toLoginContact(contact))
                 SampleLog.i("Turnkey.otpInit", if (resend) "new login code sent" else "login code sent")
                 _state.update {
-                    // The code went to this contact: pin the channel's field to it (it stays
+                    // The code went to this contact on this channel: pin both (the field stays
                     // editable while the send is in flight; a converted phone number shows its
                     // E.164 form) and stop treating any live session as this contact's — the
                     // confirm decides whose session it is.
@@ -626,7 +628,8 @@ class HomeViewModel(
         val trimmed = raw.trim()
         if (trimmed.startsWith("+")) return trimmed
         val telephony = app.getSystemService(TelephonyManager::class.java)
-        val region = listOfNotNull(telephony?.networkCountryIso, telephony?.simCountryIso, Locale.getDefault().country)
+        // The SIM's home country first: the network's country is wherever the device is roaming.
+        val region = listOfNotNull(telephony?.simCountryIso, telephony?.networkCountryIso, Locale.getDefault().country)
             .firstOrNull { it.isNotBlank() }
             ?.uppercase(Locale.ROOT)
         return region?.let { PhoneNumberUtils.formatNumberToE164(trimmed, it) } ?: trimmed
@@ -915,10 +918,13 @@ data class HomeUiState(
             TurnkeyContactChannel.Phone -> turnkeyPhone
         }
 
-    /** Pins [channel]'s field to [contact], the string the code went to. */
+    /**
+     * Pins the channel and its field to what the code went to. The channel is pinned too because
+     * the switch can be flipped while a send is in flight; confirm reads both from this state.
+     */
     fun withTurnkeyContact(channel: TurnkeyContactChannel, contact: String): HomeUiState = when (channel) {
-        TurnkeyContactChannel.Email -> copy(turnkeyEmail = contact)
-        TurnkeyContactChannel.Phone -> copy(turnkeyPhone = contact)
+        TurnkeyContactChannel.Email -> copy(turnkeyChannel = channel, turnkeyEmail = contact)
+        TurnkeyContactChannel.Phone -> copy(turnkeyChannel = channel, turnkeyPhone = contact)
     }
 }
 

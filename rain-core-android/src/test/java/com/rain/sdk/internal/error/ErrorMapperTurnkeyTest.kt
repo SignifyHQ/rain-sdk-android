@@ -207,6 +207,15 @@ class ErrorMapperTurnkeyTest {
     }
 
     @Test
+    fun `a failed code request wrapping a vendor setup error keeps that classification`() {
+        // The vendor rewraps its own errors on the init path; a client that is not initialized is a
+        // setup problem (InternalError), not a request the user can retry.
+        val setup = com.turnkey.core.models.errors.TurnkeyKotlinError.ClientNotInitialized()
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToInitOtp(setup)
+        assertThat(mapper.mapTurnkeyError(error)).isInstanceOf(RainError.InternalError::class.java)
+    }
+
+    @Test
     fun `a code request that wraps a cancellation while the caller is active is a ProviderError`() {
         // The controller checks the caller's own cancellation before mapping; a vendor wrapper
         // around someone else's cancellation is a vendor failure, not a user rejection.

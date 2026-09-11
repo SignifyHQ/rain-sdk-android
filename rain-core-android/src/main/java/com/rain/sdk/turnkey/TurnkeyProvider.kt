@@ -287,13 +287,15 @@ class TurnkeyProvider internal constructor(
 
     /**
      * Sends a one-time login code to [contact], by email or by SMS; touches no existing session.
-     * Applies the one-shot Turnkey configuration when it is the first auth call. Calling it again,
-     * on either channel, issues a new code and replaces the pending one, which is how a code is
+     * Applies the one-shot Turnkey configuration when it is the first auth call. Calling it again
+     * for the same contact issues a new code and replaces the pending one, which is how a code is
      * resent: Turnkey codes expire after 5 minutes by default, lock after 3 wrong attempts, and at
-     * most 3 can be active per user. A phone number must be in E.164 form (`+`, country code and
-     * number, digits only); spaces, dots, hyphens and parentheses are removed first. The contact is
-     * canonicalized once and the same string is sent on confirm. Throws `RainError.InvalidConfig`
-     * for a blank email or a phone number outside E.164. Managed mode only.
+     * most 3 can be active per user. Calling it for another contact or channel retires the pending
+     * code first, so a failed switch leaves nothing confirmable. A phone number must be in E.164
+     * form (`+`, country code and number, digits only); spaces, dots, hyphens and parentheses are
+     * removed first, and a parenthesised trunk zero is refused. The contact is canonicalized once
+     * and the same string is sent on confirm. Throws `RainError.InvalidConfig` for a blank email or
+     * a phone number outside E.164. Managed mode only.
      */
     @InternalRainTurnkeyApi
     suspend fun sendLoginCode(contact: LoginContact) = requireManagedAuth().sendLoginCode(contact)

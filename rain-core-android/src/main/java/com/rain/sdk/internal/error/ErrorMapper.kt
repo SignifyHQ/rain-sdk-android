@@ -125,12 +125,17 @@ internal class ErrorMapper {
 
             // A failed code request: the auth proxy refused or never answered /v1/otp_init_v2. No
             // session exists while a code is being requested, so a 401 or 403 here cannot mean an
-            // expired session or a missing permission; the cause inspection below would turn them
+            // expired session or a missing permission; the HTTP-status mapping below would turn them
             // into TokenExpired or Unauthorized and send the host to re-authenticate a user who is
             // not signed in. The reason (the channel not enabled on the proxy configuration, an
             // undeliverable number, a rate limit) is in the response body the Kotlin SDK drops, so
-            // only the status survives in the message.
-            is TurnkeyKotlinError.FailedToInitOtp -> return RainError.ProviderError(e)
+            // only the status survives in the message. A wrapped vendor error keeps its own
+            // classification (a client that is not initialized is still a setup problem).
+            is TurnkeyKotlinError.FailedToInitOtp -> {
+                val wrapped = e.cause
+                if (wrapped is TurnkeyKotlinError) return mapTurnkeyError(wrapped)
+                return RainError.ProviderError(e)
+            }
 
             else -> Unit // fall through to cause inspection
         }
