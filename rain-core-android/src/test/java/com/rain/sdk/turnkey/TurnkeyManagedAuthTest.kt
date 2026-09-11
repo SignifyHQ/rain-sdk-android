@@ -6,6 +6,7 @@ import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.internal.helpers.expectThrows
 import com.turnkey.core.models.AuthState
+import com.turnkey.core.models.OtpType
 import com.turnkey.core.models.errors.TurnkeyKotlinError
 import com.turnkey.types.V1AddressFormat
 import com.turnkey.types.V1Curve
@@ -61,6 +62,9 @@ class TurnkeyManagedAuthTest {
     private fun rejectedCode(): Exception = TurnkeyKotlinError.FailedToLoginOrSignUpWithOtp(
         TurnkeyKotlinError.FailedToVerifyOtp(RuntimeException("HTTP error from /v1/otp_verify_v2: 401"))
     )
+
+    /** Turnkey's documented sandbox number, never a real person's. SMS-specific tests live in [TurnkeyManagedAuthSmsTest]. */
+    private val smsContact = LoginContact.Sms("+19999999999")
 
     // ---------- configurator (process-wide, one-shot) ----------
 
@@ -143,6 +147,16 @@ class TurnkeyManagedAuthTest {
         assertThat(attempts).isEqualTo(2)
     }
 
+    // ---------- one-time-code channel ----------
+
+    @Test
+    fun `OtpChannel mirrors the vendor's OtpType`() {
+        assertThat(OtpChannel.EMAIL.toVendorOtpType()).isEqualTo(OtpType.OTP_TYPE_EMAIL)
+        assertThat(OtpChannel.SMS.toVendorOtpType()).isEqualTo(OtpType.OTP_TYPE_SMS)
+        // A vendor enum addition must be mapped or refused here, never left unmapped.
+        assertThat(OtpChannel.entries).hasSize(OtpType.entries.size)
+    }
+
     // ---------- email OTP ----------
 
     @Test
@@ -152,7 +166,7 @@ class TurnkeyManagedAuthTest {
 
         controller.sendLoginCode("user@example.com")
 
-        assertThat(turnkey.sendOtpCalls).containsExactly("user@example.com")
+        assertThat(turnkey.sendOtpCalls).containsExactly(MockTurnkey.SendOtpCall("user@example.com", OtpChannel.EMAIL))
         assertThat(turnkey.awaitReadyCallCount).isEqualTo(1)
         assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
         assertThat(turnkey.clearSessionCalls).isEmpty()
@@ -170,7 +184,7 @@ class TurnkeyManagedAuthTest {
     @Test
     fun `first login completes with the stashed challenge under a fresh key and creates nothing when both accounts exist`() = runTest {
         val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), session = null)
-        turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-1", encryptionTargetBundle = "bundle-1")
+        turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-1", encryptionTargetBundle = "bundle-1", channel = OtpChannel.EMAIL)
         turnkey.onCompleteOtp = { turnkey.authenticate() }
         val controller = controller(turnkey)
 
@@ -383,7 +397,7 @@ class TurnkeyManagedAuthTest {
         expectThrows<RainError.InvalidConfig> { controller.confirmLoginCode("   ") }
 
         // The challenge survives, and the contact was normalized once for both steps.
-        assertThat(turnkey.sendOtpCalls).containsExactly("user@example.com")
+        assertThat(turnkey.sendOtpCalls).containsExactly(MockTurnkey.SendOtpCall("user@example.com", OtpChannel.EMAIL))
         assertThat(turnkey.completeOtpCalls).isEmpty()
     }
 
@@ -480,6 +494,7 @@ class TurnkeyManagedAuthTest {
         val controller = controller(turnkey, configurationError = RainError.InvalidConfig("mismatch"))
 
         expectThrows<RainError.InvalidConfig> { controller.sendLoginCode("user@example.com") }
+        expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(smsContact) }
         expectThrows<RainError.InvalidConfig> { controller.confirmLoginCode("123456") }
         expectThrows<RainError.InvalidConfig> { controller.awaitSessionRestore(timeoutMs = 100) }
         expectThrows<RainError.InvalidConfig> { controller.logout() }
@@ -660,6 +675,7 @@ class TurnkeyManagedAuthTest {
 
         turnkey.sendOtpError = RuntimeException("boom")
         expectThrows<RainError> { controller.sendLoginCode("user@example.com") }
+        expectThrows<RainError> { controller.sendLoginCode(smsContact) }
         turnkey.sendOtpError = null
         controller.sendLoginCode("user@example.com")
 
@@ -723,6 +739,7 @@ class TurnkeyManagedAuthTest {
         controller.close()
 
         expectThrows<RainError.InvalidConfig> { controller.sendLoginCode("user@example.com") }
+        expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(smsContact) }
         expectThrows<RainError.InvalidConfig> { controller.confirmLoginCode("123456") }
         expectThrows<RainError.InvalidConfig> { controller.logout() }
         expectThrows<RainError.InvalidConfig> { controller.awaitSessionRestore(timeoutMs = 100) }

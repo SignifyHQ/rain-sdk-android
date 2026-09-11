@@ -10,11 +10,13 @@ import com.rain.sdk.sample.ui.RainButton
 import com.rain.sdk.sample.ui.RainCard
 import com.rain.sdk.sample.ui.RainField
 import com.rain.sdk.sample.ui.RainLabel
+import com.rain.sdk.sample.ui.RainSegmentedControl
 import com.rain.sdk.sample.ui.RainStrong
 
 /*
- * Home's provider configuration cards: Portal MPC (session token) and the two email one-time-code
- * providers, Turnkey and Privy. Shown while connecting and again, locked, once connected.
+ * Home's provider configuration cards: Portal MPC (session token) and the two one-time-code
+ * providers, Turnkey (email or SMS) and Privy (email). Shown while connecting and again, locked,
+ * once connected.
  */
 
 /** The configuration card for the selected provider. */
@@ -50,12 +52,14 @@ private fun PortalCard(state: HomeUiState, viewModel: HomeViewModel) {
 
 @Composable
 private fun TurnkeyCard(state: HomeUiState, viewModel: HomeViewModel, application: Application) {
-    // The ids and the email are frozen once a code is out (a relaunch is the only way to change
-    // them), but the button stays live as "Resend code": Turnkey codes expire after 5 minutes
-    // and lock after 3 wrong attempts, and only a new code gets the user past either.
+    // The ids, the channel and the contact are frozen once a code is out (a relaunch is the only
+    // way to change the ids), but the button stays live as "Resend code": Turnkey codes expire
+    // after 5 minutes and lock after 3 wrong attempts, and only a new code gets the user past either.
+    // The channel switch also locks while a send is in flight and while a session is live, so the
+    // channel the code went out on, and the one the header names, cannot change underneath.
     val codeSent = state.turnkeyOtpSent
     RainCard {
-        CardTitle("Turnkey configuration", "Email one-time code")
+        CardTitle("Turnkey configuration", "One-time code by email or SMS")
         RainField(
             label = "Parent organization ID",
             value = state.turnkeyOrgId,
@@ -70,13 +74,11 @@ private fun TurnkeyCard(state: HomeUiState, viewModel: HomeViewModel, applicatio
             placeholder = "Config ID",
             enabled = !codeSent,
         )
-        RainField(
-            label = "Email",
-            value = state.turnkeyEmail,
-            onValueChange = viewModel::onTurnkeyEmailChanged,
-            placeholder = "you@example.com",
-            enabled = !codeSent,
-            keyboardType = KeyboardType.Email,
+        TurnkeyContactFields(
+            state,
+            viewModel,
+            switchEnabled = !codeSent && !state.isLoading && !state.turnkeySessionActive,
+            fieldEnabled = !codeSent,
         )
         RainButton(
             text = if (codeSent) "Resend code" else "Send code",
@@ -84,7 +86,7 @@ private fun TurnkeyCard(state: HomeUiState, viewModel: HomeViewModel, applicatio
             modifier = Modifier.fillMaxWidth(),
             enabled = state.turnkeyOrgId.isNotBlank() &&
                 state.turnkeyAuthProxyConfigId.isNotBlank() &&
-                state.turnkeyEmail.isNotBlank() &&
+                state.turnkeyContact.isNotBlank() &&
                 !state.isLoading &&
                 !state.turnkeySessionActive,
             loading = state.isLoading && !codeSent && !state.turnkeySessionActive,
@@ -96,6 +98,7 @@ private fun TurnkeyCard(state: HomeUiState, viewModel: HomeViewModel, applicatio
                 sessionActive = state.turnkeySessionActive,
                 isLoading = state.isLoading,
                 onVerify = viewModel::verifyTurnkeyOtp,
+                placeholder = state.turnkeyChannel.codePlaceholder,
             )
         }
         if (state.turnkeySessionActive) {
@@ -105,6 +108,46 @@ private fun TurnkeyCard(state: HomeUiState, viewModel: HomeViewModel, applicatio
                 onClick = viewModel::initializeRainWithTurnkey,
             )
         }
+    }
+}
+
+/** The "Send code by" switch and the selected channel's contact field. */
+@Composable
+private fun TurnkeyContactFields(
+    state: HomeUiState,
+    viewModel: HomeViewModel,
+    switchEnabled: Boolean,
+    fieldEnabled: Boolean,
+) {
+    Column {
+        RainLabel("Send code by")
+        RainSegmentedControl(
+            options = TurnkeyContactChannel.entries.map { it.label },
+            selectedIndex = state.turnkeyChannel.ordinal,
+            onSelected = { viewModel.onTurnkeyChannelChanged(TurnkeyContactChannel.entries[it]) },
+            enabled = switchEnabled,
+        )
+    }
+    when (state.turnkeyChannel) {
+        TurnkeyContactChannel.Email -> RainField(
+            label = TurnkeyContactChannel.Email.fieldLabel,
+            value = state.turnkeyEmail,
+            onValueChange = viewModel::onTurnkeyEmailChanged,
+            placeholder = "you@example.com",
+            enabled = fieldEnabled,
+            keyboardType = KeyboardType.Email,
+        )
+        // A number typed without a country code is converted with the device's region before it
+        // reaches the SDK, which requires E.164 and removes spaces, dots, hyphens and parentheses.
+        TurnkeyContactChannel.Phone -> RainField(
+            label = TurnkeyContactChannel.Phone.fieldLabel,
+            value = state.turnkeyPhone,
+            onValueChange = viewModel::onTurnkeyPhoneChanged,
+            placeholder = "+15551234567",
+            enabled = fieldEnabled,
+            helper = "With the country code, for example +15551234567",
+            keyboardType = KeyboardType.Phone,
+        )
     }
 }
 
@@ -174,6 +217,7 @@ private fun CardTitle(title: String, subtitle: String) {
 }
 
 /** Code entry plus "Verify and log in"; both lock once the provider session is active. */
+@Suppress("LongParameterList") // slot-style step shared by two providers: the placeholder is its only per-channel knob
 @Composable
 private fun OneTimeCodeStep(
     code: String,
@@ -181,15 +225,16 @@ private fun OneTimeCodeStep(
     sessionActive: Boolean,
     isLoading: Boolean,
     onVerify: () -> Unit,
+    placeholder: String = "Code from your email",
 ) {
     RainField(
         label = "One-time code",
         value = code,
         onValueChange = onCodeChanged,
-        placeholder = "Code from your email",
+        placeholder = placeholder,
         enabled = !sessionActive,
         // Turnkey codes are numeric or alphanumeric depending on the auth-proxy setting in the
-        // dashboard, so the keyboard must never be numeric-only.
+        // dashboard, one setting shared by email and SMS, so the keyboard must never be numeric-only.
         keyboardType = KeyboardType.Ascii,
     )
     RainButton(

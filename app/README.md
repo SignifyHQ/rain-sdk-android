@@ -52,20 +52,27 @@ provider's own auth methods:
 
 - **Portal MPC** — paste a Portal session token on Home and tap *Initialize SDK*.
 - **Turnkey** (managed mode, `RainSession.prepareTurnkey`) — parent organization ID + auth proxy
-  config ID + email; the SDK sends and confirms the one-time code, signs up (creating one wallet with
-  the Ethereum and Solana accounts) or logs in, and backfills a missing account. A rejected code keeps
-  the challenge for a retry, and *Resend code* requests a new one (the ids and email stay locked);
-  the code field takes letters because Turnkey codes may be alphanumeric. If the login itself
-  succeeded but a later step failed, the sample carries on signed in (Rain's initialization
-  finishes the wallet setup); any other failure restarts from *Send code*.
+  config ID + a contact: an email address, or a phone number when the *Send code by* switch is on
+  Phone. A phone number needs its country code (`+15551234567`); a number typed without one is
+  converted with the device's region before it reaches the SDK, which requires E.164 and removes
+  spaces, dots, hyphens and parentheses. The SDK sends and confirms the one-time code, signs up
+  (creating one wallet with the Ethereum and Solana accounts) or logs in, and backfills a missing
+  account. A rejected code keeps the challenge for a retry, and *Resend code* requests a new one (the
+  ids, the channel and the contact stay locked); the code field takes letters on both channels
+  because the auth proxy's code format is one shared setting and may be alphanumeric. If the login
+  itself succeeded but a later step failed, the sample carries on signed in (Rain's initialization
+  finishes the wallet setup); any other failure restarts from *Send code*. An email login and a phone
+  login by the same person are two different Turnkey accounts. SMS needs SMS OTP enabled on the
+  auth-proxy configuration; in Turnkey's sandbox the test number `+1 999-999-9999` with the code
+  `000000` works once the proxy's code format is numeric and 6 characters.
 - **Privy** (`PrivyAuthSample`) — app ID + app client ID + email OTP; embedded Ethereum and Solana
   wallets are created on first sign-in.
 
 Rain API credentials (program `Api-Key` + Rain `userId`) are separate from the wallet provider: they
 authenticate the contract and withdrawal-signature calls, and are entered in their own card on Home.
-The last working values — provider choice, Rain API credentials, and each provider's ids and email —
-are kept in an encrypted store (`SessionStore`) so the next launch pre-fills them and resumes the
-session; *Clear session* wipes them.
+The last working values — provider choice, Rain API credentials, and each provider's ids and contact
+(email, or phone and channel for Turnkey) — are kept in an encrypted store (`SessionStore`) so the
+next launch pre-fills them and resumes the session; *Clear session* wipes them.
 
 `RainSession` also registers each demo chain's testnet token (`WalletChain.defaultTokenInfo`) via
 `registerTokens` on the builder, identically for all three providers. That is not a workaround the

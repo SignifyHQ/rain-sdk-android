@@ -8,7 +8,7 @@ import org.junit.Test
 /**
  * Turnkey-error classification tests for [ErrorMapper] — covers each `TurnkeyKotlinError`
  * variant the mapper routes (InvalidSession, InvalidParameter, ClientNotInitialized,
- * FailedToSignRawPayload, FailedToCreateWallet, FailedToVerifyOtp) and the wrapper-recurse paths
+ * FailedToSignRawPayload, FailedToCreateWallet, FailedToVerifyOtp, FailedToInitOtp) and the wrapper-recurse paths
  * through `mapSigningError` / `mapTransactionError`.
  *
  * Gated on JDK 24+ because Turnkey's published AAR is compiled to major class version 68
@@ -181,6 +181,63 @@ class ErrorMapperTurnkeyTest {
         val verify = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToVerifyOtp(invalid)
         val mapped = mapper.mapTurnkeyError(verify)
         assertThat(mapped).isInstanceOf(RainError.InternalError::class.java)
+    }
+
+    // ---------- managed auth: failed code requests (send path) ----------
+
+    @Test
+    fun `a failed code request maps to ProviderError for every status`() {
+        // No session exists while a code is being requested, so an init 401 or 403 is not an
+        // expired session or a permission problem. The reason (channel disabled, undeliverable
+        // number, rate limit) is in the response body the Kotlin SDK drops; the status survives.
+        listOf(400, 401, 403, 429, 500).forEach { status ->
+            val http = RuntimeException("HTTP error from /v1/otp_init_v2: $status")
+            val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToInitOtp(http)
+            val mapped = mapper.mapTurnkeyError(error)
+            assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
+            assertThat(mapped).hasMessageThat().contains(status.toString())
+        }
+    }
+
+    @Test
+    fun `a failed code request without an HTTP status maps to ProviderError`() {
+        val dropped = java.io.IOException("unreachable")
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToInitOtp(dropped)
+        assertThat(mapper.mapTurnkeyError(error)).isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    @Test
+    fun `a failed code request wrapping a vendor setup error keeps that classification`() {
+        // The vendor rewraps its own errors on the init path; a client that is not initialized is a
+        // setup problem (InternalError), not a request the user can retry.
+        val setup = com.turnkey.core.models.errors.TurnkeyKotlinError.ClientNotInitialized()
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToInitOtp(setup)
+        assertThat(mapper.mapTurnkeyError(error)).isInstanceOf(RainError.InternalError::class.java)
+    }
+
+    @Test
+    fun `a code request that wraps a cancellation while the caller is active is a ProviderError`() {
+        // The controller checks the caller's own cancellation before mapping; a vendor wrapper
+        // around someone else's cancellation is a vendor failure, not a user rejection.
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToInitOtp(
+            java.util.concurrent.CancellationException("inner job")
+        )
+        assertThat(mapper.mapTurnkeyError(error)).isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    @Test
+    fun `the status parser reads the init path like the verify path`() {
+        val init = RuntimeException("HTTP error from /v1/otp_init_v2: 400")
+        val verify = RuntimeException("HTTP error from /v1/otp_verify_v2: 401")
+        assertThat(ErrorMapper.turnkeyHttpStatus(init)).isEqualTo(400)
+        assertThat(ErrorMapper.turnkeyHttpStatus(verify)).isEqualTo(401)
+    }
+
+    @Test
+    fun `mapAuthError routes a failed code request to ProviderError`() {
+        val http = RuntimeException("HTTP error from /v1/otp_init_v2: 401")
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToInitOtp(http)
+        assertThat(mapper.mapAuthError(error)).isInstanceOf(RainError.ProviderError::class.java)
     }
 
     @Test

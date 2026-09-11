@@ -91,6 +91,7 @@ class TurnkeyManagedProviderTest {
         provider.awaitSessionRestore(timeoutMs = 10) // no-op, must not throw
         val thrown = expectThrows<RainError.InvalidConfig> { provider.sendLoginCode("user@example.com") }
         assertThat(thrown).hasMessageThat().contains("managed mode")
+        expectThrows<RainError.InvalidConfig> { provider.sendLoginCode(LoginContact.Sms("+19999999999")) }
         expectThrows<RainError.InvalidConfig> { provider.confirmLoginCode("123456") }
         expectThrows<RainError.InvalidConfig> { provider.logout() }
         assertThat(turnkey.sendOtpCalls).isEmpty()
@@ -112,7 +113,17 @@ class TurnkeyManagedProviderTest {
         provider.sendLoginCode("user@example.com")
 
         assertThat(configured).containsExactly("org-a" to "proxy-a")
-        assertThat(turnkey.sendOtpCalls).containsExactly("user@example.com")
+        assertThat(turnkey.sendOtpCalls).containsExactly(MockTurnkey.SendOtpCall("user@example.com", OtpChannel.EMAIL))
+    }
+
+    @Test
+    fun `managed mode forwards an SMS send with its channel and canonical number`() = runTest {
+        val turnkey = MockTurnkey(session = null)
+        val provider = TurnkeyProvider(managedConfig(), contextOverride = turnkey)
+
+        provider.sendLoginCode(LoginContact.Sms("+1 999 999 9999"))
+
+        assertThat(turnkey.sendOtpCalls).containsExactly(MockTurnkey.SendOtpCall("+19999999999", OtpChannel.SMS))
     }
 
     @Test
@@ -179,6 +190,7 @@ class TurnkeyManagedProviderTest {
         provider.close()
 
         expectThrows<RainError.InvalidConfig> { provider.sendLoginCode("user@example.com") }
+        expectThrows<RainError.InvalidConfig> { provider.sendLoginCode(LoginContact.Sms("+19999999999")) }
         expectThrows<RainError.InvalidConfig> { provider.logout() }
         assertThat(provider.hasActiveSession()).isFalse()
         assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)

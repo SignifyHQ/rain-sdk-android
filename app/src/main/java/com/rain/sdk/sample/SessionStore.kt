@@ -34,6 +34,10 @@ class SessionStore(context: Context) {
     var turnkeyOrgId: String by string("turnkeyOrgId")
     var turnkeyAuthProxyConfigId: String by string("turnkeyAuthProxyConfigId")
     var turnkeyEmail: String by string("turnkeyEmail")
+    var turnkeyPhone: String by string("turnkeyPhone")
+
+    /** Name of the channel the recorded Turnkey session owner logged in on; blank means none recorded. */
+    var turnkeyChannel: String by string("turnkeyChannel")
     var privyAppId: String by string("privyAppId")
     var privyAppClientId: String by string("privyAppClientId")
     var privyEmail: String by string("privyEmail")

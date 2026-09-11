@@ -13,15 +13,16 @@ Contains:
 - The **Turnkey adapter** (`TurnkeyProvider` / `TurnkeyConfig`), bundled here for now. It will
   graduate to a standalone `rain-turnkey` module later; the seam is identical to an out-of-core
   adapter. Bring-your-own (the host hands in an authenticated `TurnkeyContext`) is the public
-  integration; the managed email one-time-code mode is an internal API (`@InternalRainTurnkeyApi`)
-  reserved for the RainWallet provider.
+  integration; the managed one-time-code mode (email or SMS) is an internal API
+  (`@InternalRainTurnkeyApi`) reserved for the RainWallet provider.
 
 `rain-core-android` has **no Portal or Privy dependency**. Its only wallet-vendor dependency is
 Turnkey.
 
 ```kotlin
 // Managed (internal API, RainWallet building block): TurnkeyConfig(application, organizationId,
-// authProxyConfigId), then sendLoginCode(email) / confirmLoginCode(code) before resolving.
+// authProxyConfigId), then sendLoginCode(LoginContact.Email(email) or LoginContact.Sms(e164)) /
+// confirmLoginCode(code) before resolving.
 // Bring-your-own, shown here: the host authenticated turnkeyContext itself.
 val rain = RainSdk.builder()
     .rpcEndpoints(mapOf(8453 to "https://mainnet.base.org"))

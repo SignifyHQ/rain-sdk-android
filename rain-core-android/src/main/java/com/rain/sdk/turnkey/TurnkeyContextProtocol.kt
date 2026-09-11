@@ -64,10 +64,17 @@ internal interface TurnkeyClientProtocol {
 }
 
 /**
- * An in-flight one-time code: the id and the TEE-signed encryption bundle from `initOtp`, both
- * needed to complete the flow. Module-owned so test doubles never construct the vendor's result type.
+ * The channel a one-time code travels on. Module-owned so the vendor's enum stays inside the
+ * adapter; [toVendorOtpType] is the only mapping.
  */
-internal data class OtpChallenge(val otpId: String, val encryptionTargetBundle: String)
+internal enum class OtpChannel { EMAIL, SMS }
+
+/**
+ * An in-flight one-time code: the id and the TEE-signed encryption bundle from `initOtp`, plus the
+ * channel the code was issued on, which the completion repeats because the vendor looks the account
+ * up by it. Module-owned so test doubles never construct the vendor's result type.
+ */
+internal data class OtpChallenge(val otpId: String, val encryptionTargetBundle: String, val channel: OtpChannel)
 
 /** One account to create on a wallet — the module-owned shape of `V1WalletAccountParams`. */
 internal data class TurnkeyAccountSpec(
@@ -99,17 +106,18 @@ internal interface TurnkeyContextProtocol {
         hashFunction: V1HashFunction
     ): V1SignRawPayloadResult
 
-    // ---- Managed authentication (email OTP through Turnkey's auth proxy) ----
+    // ---- Managed authentication (email or SMS OTP through Turnkey's auth proxy) ----
 
     /** Suspends until the vendor singleton has initialized and restored any persisted session. */
     suspend fun awaitReady()
 
-    /** Starts an email one-time code for [contact]; the returned challenge completes it. */
-    suspend fun sendOtp(contact: String): OtpChallenge
+    /** Starts a one-time code for [contact] on [channel]; the returned challenge completes it. */
+    suspend fun sendOtp(contact: String, channel: OtpChannel): OtpChallenge
 
     /**
      * Completes the [challenge] from [sendOtp] with the user's code (sign-up or login, the vendor
-     * decides) and stores the new session under [sessionKey]. On the sign-up path [signupWallet]
+     * decides) on the channel the challenge was issued on, and stores the new session under
+     * [sessionKey]. [contact] must be the string [sendOtp] was given. On the sign-up path [signupWallet]
      * is created inside the same request as the organization, so a new account never exists
      * without its wallet; the login path ignores it. Fixed arity and a distinct name so it cannot
      * collide with the vendor's defaulted overloads.
@@ -139,6 +147,12 @@ internal interface TurnkeyContextProtocol {
 
     /** Adds [accounts] to the existing wallet [walletId] — no new wallet, no new mnemonic. */
     suspend fun createWalletAccounts(walletId: String, accounts: List<TurnkeyAccountSpec>)
+}
+
+/** The one place the module's channel meets the vendor's enum. */
+internal fun OtpChannel.toVendorOtpType(): OtpType = when (this) {
+    OtpChannel.EMAIL -> OtpType.OTP_TYPE_EMAIL
+    OtpChannel.SMS -> OtpType.OTP_TYPE_SMS
 }
 
 /**
@@ -194,9 +208,13 @@ internal class TurnkeyContextAdapter(
 
     override suspend fun awaitReady() = context.awaitReady()
 
-    override suspend fun sendOtp(contact: String): OtpChallenge {
-        val result = context.initOtp(otpType = OtpType.OTP_TYPE_EMAIL, contact = contact)
-        return OtpChallenge(otpId = result.otpId, encryptionTargetBundle = result.otpEncryptionTargetBundle)
+    override suspend fun sendOtp(contact: String, channel: OtpChannel): OtpChallenge {
+        val result = context.initOtp(otpType = channel.toVendorOtpType(), contact = contact)
+        return OtpChallenge(
+            otpId = result.otpId,
+            encryptionTargetBundle = result.otpEncryptionTargetBundle,
+            channel = channel,
+        )
     }
 
     override suspend fun completeOtp(
@@ -211,7 +229,7 @@ internal class TurnkeyContextAdapter(
             otpCode = otpCode,
             otpEncryptionTargetBundle = challenge.encryptionTargetBundle,
             contact = contact,
-            otpType = OtpType.OTP_TYPE_EMAIL,
+            otpType = challenge.channel.toVendorOtpType(),
             // Revokes this user's other Turnkey sessions server-side on a successful login; a
             // rejected code never reaches this point.
             invalidateExisting = true,

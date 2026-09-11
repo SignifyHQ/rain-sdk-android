@@ -246,11 +246,14 @@ internal class MockTurnkey(
 
     // ---- managed auth seams (recorded like the wallet seams above) ----
 
+    data class SendOtpCall(val contact: String, val channel: OtpChannel)
+
     data class CompleteOtpCall(
         val otpId: String,
         val otpCode: String,
         val otpEncryptionTargetBundle: String,
         val contact: String,
+        val channel: OtpChannel,
         val sessionKey: String,
         val signupWallet: TurnkeyWalletSpec
     )
@@ -263,9 +266,15 @@ internal class MockTurnkey(
     /** When set, [awaitReady] suspends on it — a vendor that never finishes initializing. */
     var awaitReadyGate: CompletableDeferred<Unit>? = null
 
-    val sendOtpCalls = mutableListOf<String>()
+    val sendOtpCalls = mutableListOf<SendOtpCall>()
     var sendOtpError: Exception? = null
-    var stubbedOtpChallenge = OtpChallenge(otpId = "otp-id", encryptionTargetBundle = "bundle")
+
+    /** Returned by [sendOtp] with the requested channel stamped on, like the adapter does. */
+    var stubbedOtpChallenge = OtpChallenge(
+        otpId = "otp-id",
+        encryptionTargetBundle = "bundle",
+        channel = OtpChannel.EMAIL,
+    )
 
     val completeOtpCalls = mutableListOf<CompleteOtpCall>()
     var completeOtpError: Exception? = null
@@ -310,10 +319,10 @@ internal class MockTurnkey(
         awaitReadyGate?.await()
     }
 
-    override suspend fun sendOtp(contact: String): OtpChallenge {
-        sendOtpCalls += contact
+    override suspend fun sendOtp(contact: String, channel: OtpChannel): OtpChallenge {
+        sendOtpCalls += SendOtpCall(contact, channel)
         sendOtpError?.let { throw it }
-        return stubbedOtpChallenge
+        return stubbedOtpChallenge.copy(channel = channel)
     }
 
     override suspend fun completeOtp(
@@ -328,6 +337,7 @@ internal class MockTurnkey(
             otpCode,
             challenge.encryptionTargetBundle,
             contact,
+            challenge.channel,
             sessionKey,
             signupWallet
         )

@@ -23,9 +23,9 @@ import kotlinx.coroutines.withContext
  *   Turnkey's Kotlin SDK itself (passkeys, auth proxy, OAuth, OTP), completes login, and hands the
  *   authenticated [TurnkeyContext] singleton here. The SDK never touches authentication.
  * - **Managed** — `TurnkeyConfig(application, organizationId, authProxyConfigId)`: the SDK owns
- *   Turnkey authentication (email one-time code through Turnkey's auth proxy, Ethereum and Solana
- *   accounts provisioned on first login). Internal API, marked [InternalRainTurnkeyApi]: the
- *   building block of the RainWallet provider, not a host-facing mode.
+ *   Turnkey authentication (one-time code by email or SMS through Turnkey's auth proxy, Ethereum
+ *   and Solana accounts provisioned on first login). Internal API, marked
+ *   [InternalRainTurnkeyApi]: the building block of the RainWallet provider, not a host-facing mode.
  *
  * @param turnkey The `TurnkeyContext` singleton every wallet call goes through — authenticated by
  *                the host in bring-your-own mode, configured and authenticated by the SDK in
@@ -166,7 +166,7 @@ class TurnkeyProvider internal constructor(
         )
     }
 
-    /** Present in managed mode only; owns the email one-time-code flow. */
+    /** Present in managed mode only; owns the one-time-code flow. */
     private val managedAuth: TurnkeyManagedAuthController? by lazy {
         config.managed?.let { ids ->
             TurnkeyManagedAuthController(
@@ -241,7 +241,7 @@ class TurnkeyProvider internal constructor(
         return provider
     }
 
-    // ---------- Managed authentication (email one-time code) — internal API, see InternalRainTurnkeyApi ----------
+    // ---------- Managed authentication (email or SMS one-time code) — internal API, see InternalRainTurnkeyApi ----------
 
     /**
      * Where managed authentication stands, over time: [TurnkeyAuthState.Loading] until the first
@@ -286,14 +286,23 @@ class TurnkeyProvider internal constructor(
     }
 
     /**
-     * Sends a one-time login code to [email]; touches no existing session. Applies the one-shot
-     * Turnkey configuration when it is the first auth call. Calling it again issues a new code and
-     * replaces the pending one — the way to resend: Turnkey codes expire after 5 minutes by default,
-     * lock after 3 wrong attempts, and at most 3 can be active per user. Throws
-     * `RainError.InvalidConfig` for a blank email. Managed mode only.
+     * Sends a one-time login code to [contact], by email or by SMS; touches no existing session.
+     * Applies the one-shot Turnkey configuration when it is the first auth call. Calling it again
+     * for the same contact issues a new code and replaces the pending one, which is how a code is
+     * resent: Turnkey codes expire after 5 minutes by default, lock after 3 wrong attempts, and at
+     * most 3 can be active per user. Calling it for another contact or channel retires the pending
+     * code first, so a failed switch leaves nothing confirmable. A phone number must be in E.164
+     * form (`+`, country code and number, digits only); spaces, dots, hyphens and parentheses are
+     * removed first, and a parenthesised trunk zero is refused. The contact is canonicalized once
+     * and the same string is sent on confirm. Throws `RainError.InvalidConfig` for a blank email or
+     * a phone number outside E.164. Managed mode only.
      */
     @InternalRainTurnkeyApi
-    suspend fun sendLoginCode(email: String) = requireManagedAuth().sendLoginCode(email)
+    suspend fun sendLoginCode(contact: LoginContact) = requireManagedAuth().sendLoginCode(contact)
+
+    /** The email channel: `sendLoginCode(LoginContact.Email(email))`. */
+    @InternalRainTurnkeyApi
+    suspend fun sendLoginCode(email: String) = sendLoginCode(LoginContact.Email(email))
 
     /**
      * Confirms the code from [sendLoginCode]. A first login signs the user up and creates one
@@ -306,7 +315,7 @@ class TurnkeyProvider internal constructor(
      * [TurnkeyConfig.onSessionExpired]; a provisioning failure keeps the new session, which heals
      * at resolution. A successful login revokes the user's other Turnkey sessions on every
      * device (`invalidateExisting`); the signed-out device's `onSessionExpired` fires at its next
-     * call. Managed mode only.
+     * call. The channel the code went out on makes no difference here. Managed mode only.
      */
     @InternalRainTurnkeyApi
     suspend fun confirmLoginCode(code: String) = requireManagedAuth().confirmLoginCode(code)
