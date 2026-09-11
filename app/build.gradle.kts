@@ -38,6 +38,10 @@ android {
     }
     kotlinOptions {
         jvmTarget = "1.8"
+        // The sample drives the SDK's managed Turnkey mode, an internal API behind the
+        // @InternalRainTurnkeyApi opt-in marker; it opts in module-wide the way the RainWallet
+        // provider will. Host apps must not copy this line.
+        freeCompilerArgs += listOf("-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi")
     }
     buildFeatures {
         compose = true

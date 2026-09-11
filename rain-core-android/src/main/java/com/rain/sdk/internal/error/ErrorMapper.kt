@@ -44,6 +44,18 @@ internal class ErrorMapper {
     }
 
     /**
+     * Maps a vendor failure raised during managed authentication — sending or confirming a login
+     * code, provisioning accounts, logging out. Same classification as every other entrypoint;
+     * only the log line differs, so an OTP failure is not reported as a signing error.
+     */
+    fun mapAuthError(e: Exception): RainError {
+        val mapped = classify(e)
+        // No throwable in this log line: an auth-proxy failure can echo the user's contact address.
+        Timber.e("Rain SDK: Authentication error %s (%s)", mapped.errorCode.code, e.javaClass.simpleName)
+        return mapped
+    }
+
+    /**
      * Typed signals win over prose heuristics: an HTTP 401 whose body happens to say
      * "session expired, request cancelled" is a session problem, not a user rejection, and
      * hosts branch on TokenExpired/Unauthorized to decide whether to re-authenticate. The
@@ -93,6 +105,22 @@ internal class ErrorMapper {
             is TurnkeyKotlinError.KeyAlreadyExists,
             is TurnkeyKotlinError.KeyNotFound -> return RainError.InternalError("Turnkey: ${e.message}", e)
 
+            // A rejected one-time login code: the auth proxy answers the verify call with a 4xx.
+            // Gated on the status because the vendor wraps *every* failure of verifyOtp in this
+            // type — timeouts, crypto errors, its own InvalidResponse — and 408/429 are transient,
+            // not "retype your code". Everything else falls through to the cause inspection below.
+            // A 401 is claimed here rather than left to the TokenExpired mapping: during code
+            // verification there is no session yet, so it can only mean the code was refused.
+            // Known gap: the proxy has also been seen wrapping a rejection in an HTTP 500 whose JSON
+            // body carries the real status; the Kotlin SDK discards that body before Rain sees it, so
+            // a wrapped rejection stays a ProviderError here. The managed
+            // controller keeps the challenge for every verify-step failure so the user can still
+            // retype — see isLoginCodeVerifyFailure.
+            is TurnkeyKotlinError.FailedToVerifyOtp ->
+                if (e.cause.let(::turnkeyHttpStatus) in REJECTED_LOGIN_CODE_STATUSES) {
+                    return RainError.InvalidLoginCode()
+                }
+
             else -> Unit // fall through to cause inspection
         }
 
@@ -140,6 +168,23 @@ internal class ErrorMapper {
 
     internal companion object {
         const val TURNKEY_HTTP_ERROR_PREFIX = "HTTP error"
+
+        /** Auth-proxy statuses that mean the login code itself was refused (not 408/429/5xx). */
+        val REJECTED_LOGIN_CODE_STATUSES: Set<Int> = setOf(400, 401, 403)
+
+        /**
+         * True when [e] or any exception in its cause chain is the vendor's verify-step failure —
+         * the one-time code was still being checked when the call failed. Only that step leaves a
+         * code worth retrying; the account lookup, login and session steps that follow run once
+         * the code was accepted, so a failure there has already spent it.
+         */
+        fun isLoginCodeVerifyFailure(e: Throwable): Boolean =
+            generateSequence(e) { current -> current.cause?.takeIf { it !== current } }
+                .take(MAX_CAUSE_DEPTH)
+                .any { it is TurnkeyKotlinError.FailedToVerifyOtp }
+
+        /** Bounds the cause walk so a cyclic cause chain cannot spin it. */
+        private const val MAX_CAUSE_DEPTH = 8
 
         /** Trailing ": <code>" or "Code: <code>" — the two shapes the Turnkey SDK generates. */
         val TURNKEY_HTTP_STATUS_REGEX = Regex("""(?:Code:\s*|:\s*)(\d{3})\s*$""")

@@ -36,6 +36,9 @@ android {
     }
     kotlinOptions {
         jvmTarget = "1.8"
+        // The managed Turnkey surface is marked @InternalRainTurnkeyApi (a @RequiresOptIn marker at
+        // error level). This module defines and uses it, so it opts in as a whole; host apps do not.
+        freeCompilerArgs += listOf("-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi")
     }
 }
 

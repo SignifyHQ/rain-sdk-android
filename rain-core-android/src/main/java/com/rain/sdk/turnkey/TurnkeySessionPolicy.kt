@@ -65,3 +65,34 @@ sealed class TurnkeySessionState {
     /** No session (never logged in, logged out, or cleared by Turnkey's expiry timer). */
     data object Unauthenticated : TurnkeySessionState()
 }
+
+/**
+ * Where managed Turnkey authentication stands, at the Rain boundary.
+ *
+ * A view over the same derivation as [TurnkeySessionState]: [TurnkeySessionState.Expired] and
+ * [TurnkeySessionState.Unauthenticated] both read as [Unauthenticated] here, because a login
+ * screen only needs to know whether a one-time code is required. Observable via
+ * [TurnkeyProvider.authState]; snapshot via [TurnkeyProvider.currentAuthState]. Internal API
+ * ([InternalRainTurnkeyApi]): hosts see it through the RainWallet provider.
+ */
+@InternalRainTurnkeyApi
+sealed class TurnkeyAuthState {
+    /**
+     * Turnkey is not configured yet (no auth call has run), or the SDK is still restoring a
+     * possible previous session from secure storage.
+     */
+    data object Loading : TurnkeyAuthState()
+
+    /** A session is live; the provider can be resolved and wallet calls will succeed. */
+    data object Authenticated : TurnkeyAuthState()
+
+    /** No usable session — run `sendLoginCode` / `confirmLoginCode`. */
+    data object Unauthenticated : TurnkeyAuthState()
+}
+
+internal fun TurnkeySessionState.toAuthState(): TurnkeyAuthState = when (this) {
+    is TurnkeySessionState.Loading -> TurnkeyAuthState.Loading
+    is TurnkeySessionState.Active -> TurnkeyAuthState.Authenticated
+    is TurnkeySessionState.Expired,
+    is TurnkeySessionState.Unauthenticated -> TurnkeyAuthState.Unauthenticated
+}

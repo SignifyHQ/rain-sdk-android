@@ -19,6 +19,7 @@ class RainErrorCodeParityTest {
             RainErrorCode.CHAIN_NOT_SUPPORTED to "RAIN_105",
             RainErrorCode.TOKEN_EXPIRED to "RAIN_201",
             RainErrorCode.UNAUTHORIZED to "RAIN_202",
+            RainErrorCode.INVALID_LOGIN_CODE to "RAIN_203",
             RainErrorCode.NETWORK_ERROR to "RAIN_301",
             RainErrorCode.API_ERROR to "RAIN_302",
             RainErrorCode.SIGNATURE_NOT_READY to "RAIN_303",
@@ -51,6 +52,7 @@ class RainErrorCodeParityTest {
             RainError.ChainNotSupported(43114, "x") to "RAIN_105",
             RainError.TokenExpired() to "RAIN_201",
             RainError.Unauthorized("x") to "RAIN_202",
+            RainError.InvalidLoginCode() to "RAIN_203",
             RainError.NetworkError(cause = underlying) to "RAIN_301",
             RainError.ApiError(500, "x") to "RAIN_302",
             RainError.SignatureNotReady("pending", 30) to "RAIN_303",
@@ -79,6 +81,6 @@ class RainErrorCodeParityTest {
         // A case added to the sealed hierarchy but not listed above fails here.
         assertThat(cases.map { it.first::class }.toSet())
             .isEqualTo(RainError::class.sealedSubclasses.toSet())
-        assertThat(cases).hasSize(26)
+        assertThat(cases).hasSize(27)
     }
 }
