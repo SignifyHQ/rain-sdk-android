@@ -6,7 +6,7 @@ messages, compose withdrawal transactions, sign and submit via a registered wall
 balances and history, and estimate fees. Works on EVM chains and Solana.
 
 - **Portal wallet integration** — Register a `PortalProvider` with a Portal session token and resolve a client; use the connected MPC wallet for signing and sending transactions. Session refresh is host-driven via `PortalConfig.onSessionTokenNeeded` / `onSessionExpired`; see the adapter table in [docs/METHODS.md](docs/METHODS.md#provider-adapters).
-- **Turnkey wallet integration** — Register a `TurnkeyProvider` with a `TurnkeyContext` your app authenticated (passkeys / auth proxy / OAuth / OTP). The SDK also carries a managed email one-time-code mode behind the `@InternalRainTurnkeyApi` opt-in marker: the building block of the upcoming RainWallet provider, not a host-facing API. See [docs/TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md).
+- **Turnkey wallet integration** — Register a `TurnkeyProvider` with a `TurnkeyContext` your app authenticated (passkeys / auth proxy / OAuth / OTP). The SDK also carries a managed one-time-code mode (email or SMS) behind the `@InternalRainTurnkeyApi` opt-in marker: the building block of the upcoming RainWallet provider, not a host-facing API. See [docs/TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md).
 - **Privy wallet integration** — Register a `PrivyProvider` with an authenticated `Privy` instance; embedded EVM and Solana wallets are used for custody.
 - **Solana support** — Native SOL and SPL transfers, balances, history, and collateral withdrawal, on the same `RainClient` methods as EVM. See [Solana](#9-solana).
 - **Wallet-agnostic utilities** — The transaction-building methods (EIP-712 message, withdraw calldata) are available straight off `RainSdk` from the configured RPC endpoints, with no wallet provider resolved — use them with your own wallet or backend.
@@ -89,15 +89,16 @@ val rain = RainSdk.builder()
 val client = rain.provider(ProviderId.TURNKEY)
 ```
 
-**Managed mode (internal API)** — the SDK owns authentication (email one-time code via Turnkey's
-auth proxy) and provisions Ethereum + Solana accounts on first login. It is the building block of
-the upcoming RainWallet provider and is marked `@InternalRainTurnkeyApi`: host apps get a compile
-error, Rain's own modules and the sample app opt in with
+**Managed mode (internal API)** — the SDK owns authentication (a one-time code by email or SMS via
+Turnkey's auth proxy) and provisions Ethereum + Solana accounts on first login. It is the building
+block of the upcoming RainWallet provider and is marked `@InternalRainTurnkeyApi`: host apps get a
+compile error, Rain's own modules and the sample app opt in with
 `-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi`. Shown here for completeness:
 
 ```kotlin
 import com.rain.sdk.RainSdk
 import com.rain.sdk.provider.ProviderId
+import com.rain.sdk.turnkey.LoginContact
 import com.rain.sdk.turnkey.TurnkeyConfig
 import com.rain.sdk.turnkey.TurnkeyProvider
 
@@ -114,6 +115,7 @@ val provider = TurnkeyProvider(
 provider.awaitSessionRestore()
 if (!provider.hasActiveSession()) {
     provider.sendLoginCode("user@example.com")
+    // or provider.sendLoginCode(LoginContact.Sms("+15551234567")) for a code by SMS
     provider.confirmLoginCode(code)          // sign-up or login
 }
 
