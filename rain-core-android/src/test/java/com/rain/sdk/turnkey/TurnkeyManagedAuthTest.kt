@@ -63,6 +63,9 @@ class TurnkeyManagedAuthTest {
         TurnkeyKotlinError.FailedToVerifyOtp(RuntimeException("HTTP error from /v1/otp_verify_v2: 401"))
     )
 
+    /** Turnkey's documented sandbox number, never a real person's. SMS-specific tests live in [TurnkeyManagedAuthSmsTest]. */
+    private val smsContact = LoginContact.Sms("+19999999999")
+
     // ---------- configurator (process-wide, one-shot) ----------
 
     @Test
@@ -491,6 +494,7 @@ class TurnkeyManagedAuthTest {
         val controller = controller(turnkey, configurationError = RainError.InvalidConfig("mismatch"))
 
         expectThrows<RainError.InvalidConfig> { controller.sendLoginCode("user@example.com") }
+        expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(smsContact) }
         expectThrows<RainError.InvalidConfig> { controller.confirmLoginCode("123456") }
         expectThrows<RainError.InvalidConfig> { controller.awaitSessionRestore(timeoutMs = 100) }
         expectThrows<RainError.InvalidConfig> { controller.logout() }
@@ -671,6 +675,7 @@ class TurnkeyManagedAuthTest {
 
         turnkey.sendOtpError = RuntimeException("boom")
         expectThrows<RainError> { controller.sendLoginCode("user@example.com") }
+        expectThrows<RainError> { controller.sendLoginCode(smsContact) }
         turnkey.sendOtpError = null
         controller.sendLoginCode("user@example.com")
 
@@ -734,6 +739,7 @@ class TurnkeyManagedAuthTest {
         controller.close()
 
         expectThrows<RainError.InvalidConfig> { controller.sendLoginCode("user@example.com") }
+        expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(smsContact) }
         expectThrows<RainError.InvalidConfig> { controller.confirmLoginCode("123456") }
         expectThrows<RainError.InvalidConfig> { controller.logout() }
         expectThrows<RainError.InvalidConfig> { controller.awaitSessionRestore(timeoutMs = 100) }
