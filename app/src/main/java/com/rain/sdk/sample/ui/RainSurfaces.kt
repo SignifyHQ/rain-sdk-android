@@ -27,9 +27,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.rain.sdk.sample.R
 import com.rain.sdk.sample.ui.theme.RainColors
+import com.rain.sdk.sample.ui.theme.RainTheme
 import com.rain.sdk.sample.ui.theme.RainType
 
 /*
@@ -175,3 +178,57 @@ fun RainIconTile(@DrawableRes icon: Int, modifier: Modifier = Modifier) {
         )
     }
 }
+
+// region Previews
+
+@Preview(name = "Surfaces", showBackground = true, heightDp = 900)
+@Composable
+private fun RainSurfacesGalleryPreview() {
+    RainTheme {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            RainCard {
+                RainStrong("RainCard")
+                RainMuted("20dp radius, hairline border, 24dp padding.")
+                RainRow {
+                    RainStrong("A row", Modifier.weight(1f))
+                    RainBadge("Trailing")
+                }
+                RainDivider()
+                RainRow {
+                    RainStatusDot(RainColors.Success)
+                    RainMuted("RainStatusDot beside RainRow content")
+                }
+            }
+
+            RainPanel { RainMuted("RainPanel · the subtle status strip") }
+
+            RainNote(
+                title = "RainNote",
+                body = "An explanatory note, used where a screen needs a sentence of guidance.",
+            )
+
+            RainErrorPanel("RainErrorPanel · the message shown when a call fails")
+
+            RainRow {
+                RainBadge("Neutral", tone = RainBadgeTone.Neutral)
+                RainBadge("Success", tone = RainBadgeTone.Success)
+                RainBadge("Danger", tone = RainBadgeTone.Danger)
+            }
+            RainRow {
+                RainBadge("Outline", tone = RainBadgeTone.Outline)
+                RainBadge("Pink", tone = RainBadgeTone.Pink)
+            }
+
+            RainRow {
+                RainIconTile(icon = R.drawable.ic_tile_wallet)
+                RainIconTile(icon = R.drawable.ic_tile_coin)
+                RainIconTile(icon = R.drawable.ic_tile_secure)
+            }
+        }
+    }
+}
+
+// endregion

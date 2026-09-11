@@ -17,6 +17,10 @@ connect a wallet, read balances, send tokens, withdraw collateral, and list tran
 2. Select the **app** run configuration and a device.
 3. Run.
 
+Every screen also carries `@Preview` composables, so each state can be inspected in Android
+Studio's Split or Design view without a wallet provider or Rain API credentials. The feature
+screens otherwise need a real provider login to reach.
+
 ---
 
 ## Screens

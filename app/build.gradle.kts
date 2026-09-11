@@ -71,6 +71,10 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
+    // ui-tooling-preview above is only the @Preview annotation. Rendering a preview needs
+    // ComposeViewAdapter from ui-tooling, which Android Studio instantiates through layoutlib.
+    // Debug-only: it must not reach the release build, which the R8 CI leg checks.
+    debugImplementation(libs.androidx.compose.ui.tooling)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.navigation.compose)
 

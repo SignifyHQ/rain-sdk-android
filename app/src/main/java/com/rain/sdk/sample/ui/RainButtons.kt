@@ -10,7 +10,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -29,9 +31,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.rain.sdk.sample.R
 import com.rain.sdk.sample.ui.theme.RainColors
+import com.rain.sdk.sample.ui.theme.RainTheme
 import com.rain.sdk.sample.ui.theme.RainType
 
 /*
@@ -228,3 +233,64 @@ fun RainSpinner(modifier: Modifier = Modifier, size: Dp = 20.dp, color: Color = 
         strokeWidth = 2.dp,
     )
 }
+
+// region Previews
+
+@Preview(name = "Buttons", showBackground = true, heightDp = 760)
+@Composable
+private fun RainButtonsGalleryPreview() {
+    RainTheme {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            RainButton(text = "Primary", onClick = {}, modifier = Modifier.fillMaxWidth())
+            RainButton(
+                text = "Primary with icon",
+                onClick = {},
+                modifier = Modifier.fillMaxWidth(),
+                icon = R.drawable.ic_arrow_up_right,
+            )
+            RainButton(text = "Primary · disabled", onClick = {}, modifier = Modifier.fillMaxWidth(), enabled = false)
+            RainButton(text = "Primary · loading", onClick = {}, modifier = Modifier.fillMaxWidth(), loading = true)
+
+            RainButton(
+                text = "Secondary",
+                onClick = {},
+                modifier = Modifier.fillMaxWidth(),
+                style = RainButtonStyle.Secondary,
+            )
+            RainButton(
+                text = "Secondary · disabled",
+                onClick = {},
+                modifier = Modifier.fillMaxWidth(),
+                style = RainButtonStyle.Secondary,
+                enabled = false,
+            )
+            RainButton(
+                text = "Ghost",
+                onClick = {},
+                modifier = Modifier.fillMaxWidth(),
+                style = RainButtonStyle.Ghost,
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                RainIconButton(icon = R.drawable.ic_arrow_left, contentDescription = "Back", onClick = {})
+                RainIconButton(icon = R.drawable.ic_copy, contentDescription = "Copy", onClick = {})
+                RainIconButton(
+                    icon = R.drawable.ic_copy,
+                    contentDescription = "Copy, disabled",
+                    onClick = {},
+                    enabled = false,
+                )
+                RainSpinner()
+            }
+
+            RainTextAction(text = "Text action", onClick = {})
+            RainTextAction(text = "Text action with icon", onClick = {}, icon = R.drawable.ic_arrow_up_right)
+            RainTextAction(text = "Text action · disabled", onClick = {}, enabled = false)
+        }
+    }
+}
+
+// endregion
