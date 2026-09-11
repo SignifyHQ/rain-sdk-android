@@ -8,6 +8,8 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -16,8 +18,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rain.sdk.sample.ui.theme.RainColors
+import com.rain.sdk.sample.ui.theme.RainTheme
 import com.rain.sdk.sample.ui.theme.RainType
 
 /*
@@ -78,3 +82,31 @@ fun RainLink(
         modifier = modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick),
     )
 }
+
+// region Previews
+
+@Preview(name = "Text styles", showBackground = true)
+@Composable
+private fun RainTextGalleryPreview() {
+    RainTheme {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            RainLabel("Label · section heading over a field")
+            RainStrong("Strong · a card title")
+            RainMuted("Muted · the descriptor under a title")
+            RainMuted("Muted, centred", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+            RainKeyValue(label = "USDC contract", value = "0x036CbD53842c5426634e7929541eC2318f3dCF7e")
+            RainAmount(value = "1,250.00", unit = "USDC")
+            RainLink(text = "0x9fd7a2c4…b2c73e15", onClick = {})
+            RainLink(
+                text = "A link long enough to need the single-line ellipsis that RainLink applies",
+                onClick = {},
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+// endregion

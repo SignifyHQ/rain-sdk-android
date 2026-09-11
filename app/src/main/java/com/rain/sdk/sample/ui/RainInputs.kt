@@ -45,11 +45,13 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.rain.sdk.sample.R
 import com.rain.sdk.sample.ui.theme.RainColors
 import com.rain.sdk.sample.ui.theme.RainRadius
+import com.rain.sdk.sample.ui.theme.RainTheme
 import com.rain.sdk.sample.ui.theme.RainType
 
 /*
@@ -390,3 +392,73 @@ fun RainFeatureTile(
         RainStrong(label)
     }
 }
+
+// region Previews
+
+@Preview(name = "Inputs", showBackground = true, heightDp = 1250)
+@Composable
+private fun RainInputsGalleryPreview() {
+    RainTheme {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            RainTextField(value = "", onValueChange = {}, placeholder = "RainTextField · placeholder")
+            RainTextField(value = "A value the user typed", onValueChange = {})
+            RainTextField(value = "Disabled", onValueChange = {}, enabled = false)
+
+            RainField(label = "RainField", value = "", onValueChange = {}, placeholder = "you@example.com")
+            RainField(
+                label = "With helper",
+                value = "+15551234567",
+                onValueChange = {},
+                helper = "With the country code, for example +15551234567",
+            )
+            RainField(
+                label = "With an error",
+                value = "not-an-email",
+                onValueChange = {},
+                helper = "Enter a valid email address",
+                helperIsError = true,
+            )
+            RainField(label = "Disabled", value = "Locked once a code is out", onValueChange = {}, enabled = false)
+
+            RainDropdownField(text = "EVM · Base Sepolia", onClick = {})
+            RainDropdownField(text = "Disabled", onClick = {}, enabled = false)
+
+            RainSegmentedControl(options = listOf("Portal MPC", "Turnkey", "Privy"), selectedIndex = 1, onSelected = {})
+            RainSegmentedControl(
+                options = listOf("Email", "Phone"),
+                selectedIndex = 0,
+                onSelected = {},
+                enabled = false,
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                RainToggle(checked = true, onCheckedChange = {})
+                RainToggle(checked = false, onCheckedChange = {})
+                RainToggle(checked = true, onCheckedChange = {}, enabled = false)
+            }
+
+            RainOptionRow(title = "Selected option", subtitle = "With a subtitle", selected = true, onClick = {})
+            RainOptionRow(title = "Unselected option", subtitle = null, selected = false, onClick = {})
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                RainFeatureTile(
+                    icon = R.drawable.ic_tile_wallet,
+                    label = "Wallet & QR",
+                    onClick = {},
+                    modifier = Modifier.weight(1f),
+                )
+                RainFeatureTile(
+                    icon = R.drawable.ic_tile_coin,
+                    label = "Balances",
+                    onClick = {},
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+// endregion
