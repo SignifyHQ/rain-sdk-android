@@ -37,8 +37,8 @@ class RainSdkAdapterErrorPassthroughTest {
     }
 
     /** A wallet that lets a non-Rain exception escape, as a host-supplied provider might. */
-    private class LeakyWallet : StubWalletProvider() {
-        override suspend fun getWalletAddress(): String = error("vendor said no")
+    private class LeakyWallet(private val failure: Throwable) : StubWalletProvider() {
+        override suspend fun getWalletAddress(): String = throw failure
     }
 
     private class StubProvider(private val wallet: WalletProvider) : RainProvider {
@@ -73,13 +73,23 @@ class RainSdkAdapterErrorPassthroughTest {
     }
 
     @Test
-    fun `anything else the adapter lets escape is wrapped as ProviderError`() {
-        val sdk = sdkWith(LeakyWallet())
+    fun `anything else the adapter lets escape is wrapped as ProviderError carrying it`() {
+        val leaked = IllegalStateException("vendor said no")
+        val sdk = sdkWith(LeakyWallet(leaked))
 
         val error = assertThrows(RainError.ProviderError::class.java) {
             runBlocking { sdk.provider(ProviderId("stub-vendor")).getWalletAddress() }
         }
 
-        assertThat(error.cause).isInstanceOf(IllegalStateException::class.java)
+        assertThat(error.cause).isSameInstanceAs(leaked)
+    }
+
+    @Test
+    fun `core's prose heuristics still read a leaked exception before flooring it`() {
+        val sdk = sdkWith(LeakyWallet(RuntimeException("user rejected the request")))
+
+        assertThrows(RainError.UserRejected::class.java) {
+            runBlocking { sdk.provider(ProviderId("stub-vendor")).getWalletAddress() }
+        }
     }
 }

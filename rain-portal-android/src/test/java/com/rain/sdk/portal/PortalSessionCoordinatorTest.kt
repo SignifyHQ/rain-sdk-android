@@ -475,6 +475,28 @@ class PortalSessionCoordinatorTest {
         assertThat(thrown).isSameInstanceAs(raised)
     }
 
+    @Test
+    fun `a rejection in a non-Portal failure keeps its code through the boundary`() {
+        val coordinator = coordinator()
+
+        assertThrows(RainError.UserRejected::class.java) {
+            runBlocking {
+                coordinator.executeWrite<String> { throw IllegalStateException("user rejected the request") }
+            }
+        }
+    }
+
+    @Test
+    fun `a funds shortfall in a non-Portal failure keeps its code through the boundary`() {
+        val coordinator = coordinator()
+
+        assertThrows(RainError.InsufficientFunds::class.java) {
+            runBlocking {
+                coordinator.executeRead<String> { throw IllegalStateException("insufficient funds for gas") }
+            }
+        }
+    }
+
     // ---------- transient backoff ----------
 
     @Test

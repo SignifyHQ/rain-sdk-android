@@ -17,6 +17,7 @@ package com.rain.sdk.internal
         "public API in com.rain.sdk. No compatibility guarantees.",
 )
 @Retention(AnnotationRetention.BINARY)
+@MustBeDocumented
 @Target(
     AnnotationTarget.CLASS,
     AnnotationTarget.CONSTRUCTOR,

@@ -41,6 +41,10 @@ dependencies {
 Each adapter depends on core, so one line is enough. Add a second adapter only if the app offers a
 choice of wallet provider at runtime.
 
+Upgrading from a core-only dependency: the `com.rain.sdk.turnkey` package used to ship inside
+`rain-core-android`. It now lives in `rain-turnkey-android`, so an app that registers
+`TurnkeyProvider` swaps its core coordinate for the adapter's. Imports do not change.
+
 | Module        | Contains                                                                 |
 |---------------|--------------------------------------------------------------------------|
 | `rain-core-android`   | The `WalletProvider` port, capability model, provider registry, and all Rain domain logic. No wallet vendor SDK. |

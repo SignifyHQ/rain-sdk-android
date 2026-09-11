@@ -220,7 +220,10 @@ internal class TurnkeySessionCoordinator(
                     // Neither a session problem nor retryable. It leaves as a RainError, never as
                     // a vendor type: core rethrows a RainError untouched and would otherwise see
                     // a Turnkey exception it cannot classify.
-                    else -> throw TurnkeyErrorMapping.map(e)
+                    else -> {
+                        Timber.e(e, "Rain SDK: Turnkey call failed")
+                        throw TurnkeyErrorMapping.map(e)
+                    }
                 }
             }
         }

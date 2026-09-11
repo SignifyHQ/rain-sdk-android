@@ -1,1 +1,1 @@
-# ProGuard rules for rain-portal-android
+# ProGuard rules for rain-turnkey-android

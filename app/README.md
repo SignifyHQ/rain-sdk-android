@@ -8,7 +8,7 @@ connect a wallet, read balances, send tokens, withdraw collateral, and list tran
 ## Requirements
 
 - Android Studio with its bundled JBR (JDK 21)
-- An emulator or device on API 26+
+- An emulator or device on API 28+
 - The SDK modules in this repo (`:rain-core-android`, `:rain-turnkey-android`, `:rain-portal-android`,
   `:rain-privy-android`)
 

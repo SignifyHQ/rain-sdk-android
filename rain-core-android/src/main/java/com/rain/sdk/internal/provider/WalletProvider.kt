@@ -26,7 +26,8 @@ import java.math.BigDecimal
  * never as a vendor exception. Core rethrows a `RainError` untouched and wraps anything else as
  * `ProviderError` after its shared prose heuristics, so an adapter that lets a vendor type escape
  * loses the specific code a host branches on, `TokenExpired` above all. Rain's adapters convert
- * in their session coordinator, the one place every vendor call passes through.
+ * in their session coordinator, which every wallet call passes through; a creation-time probe
+ * converts at its own call site.
  */
 interface WalletProvider {
     /**

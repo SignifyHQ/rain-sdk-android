@@ -6,9 +6,9 @@ import java.io.IOException
 import java.util.concurrent.CancellationException
 
 /**
- * Unit tests for [ErrorMapper] — covers the non-Turnkey classification paths (signing
- * vs transaction, prose-based user-reject / insufficient-funds detection, Portal-style
- * provider mapping).
+ * Unit tests for [ErrorMapper]: the entry points (signing vs transaction), the shared prose
+ * heuristics for user rejection and funds shortfall, and the ProviderError floor. Vendor-typed
+ * classification lives in the adapter modules and is tested there.
  */
 class ErrorMapperTest {
 

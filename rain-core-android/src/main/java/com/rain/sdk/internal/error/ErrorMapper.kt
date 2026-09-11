@@ -8,8 +8,8 @@ import timber.log.Timber
  * Maps the failures core itself can raise on a wallet call — web3j, network I/O, unexpected
  * shapes — to standardized [RainError] types. Vendor exceptions never reach it: each adapter
  * module converts its own vendor's failures to a [RainError] before they leave the adapter, and
- * every call site here rethrows a [RainError] untouched before mapping anything. Core names no
- * vendor.
+ * every call site here rethrows a [RainError] untouched before mapping anything. Core imports no
+ * vendor type.
  */
 internal class ErrorMapper {
 

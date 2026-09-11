@@ -18,7 +18,7 @@ import org.junit.Test
  * edge cases.
  *
  * Gated on JDK 24+ because the Turnkey AAR is compiled to major class version 68 — see
- * [com.rain.sdk.internal.core.RainSdkManagerTurnkeyTest] for the same pattern. The whole
+ * [TurnkeyWalletFlowTest] for the same pattern. The whole
  * test class would fail to load on JDK 21 since its method/field signatures touch Turnkey
  * types directly — but JUnit reflects on `@Test` methods individually, so per-test `@Before`
  * gating still works for the parameter-free public methods below.
@@ -261,7 +261,7 @@ class TurnkeyAdapterTest {
     // ---- ethSendTransaction error propagation -----------------------------------
 
     @Test
-    fun `sendTransaction propagates ethSendTransaction failures`() {
+    fun `sendTransaction surfaces an ethSendTransaction failure as ProviderError`() {
         stubSendTransactionRPCs()
         val turnkey = MockTurnkey()
         (turnkey.turnkeyClient as MockTurnkeyClient).ethSendTransactionError =
@@ -408,7 +408,7 @@ class TurnkeyAdapterTest {
     // ---- getTransactions error propagation --------------------------------------
 
     @Test
-    fun `getTransactions propagates getActivities failure as raw RuntimeException`() {
+    fun `getTransactions surfaces a getActivities failure as ProviderError`() {
         val turnkey = MockTurnkey()
         (turnkey.turnkeyClient as MockTurnkeyClient).getActivitiesError =
             RuntimeException("service unavailable")
@@ -425,7 +425,7 @@ class TurnkeyAdapterTest {
     // ---- signTypedData failure --------------------------------------------------
 
     @Test
-    fun `signTypedData propagates signRawPayload failures`() {
+    fun `signTypedData surfaces a signRawPayload failure as ProviderError`() {
         val turnkey = MockTurnkey()
         turnkey.signRawPayloadError =
             RuntimeException("hardware key denied")

@@ -152,7 +152,7 @@ internal class MockRpcServer {
     /**
      * Stub a network failure for [method]. The server disconnects the socket so OkHttp
      * surfaces an `IOException` to the caller — used to drive the `RainError.NetworkError`
-     * code path in [com.rain.sdk.internal.provider.TurnkeyWalletProvider].
+     * code path in [TurnkeyWalletProvider].
      */
     fun stubNetworkFailure(method: String) {
         stubs[method] = Stub(networkFailure = true)

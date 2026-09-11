@@ -119,7 +119,10 @@ internal class PortalSessionCoordinator(
                     // Neither a token problem nor retryable. It leaves as a RainError, never as a
                     // vendor type: core rethrows a RainError untouched and would otherwise see a
                     // Portal exception it cannot classify.
-                    else -> throw PortalErrorMapping.map(e)
+                    else -> {
+                        Timber.e(e, "Rain SDK: Portal call failed")
+                        throw PortalErrorMapping.map(e)
+                    }
                 }
             }
         }

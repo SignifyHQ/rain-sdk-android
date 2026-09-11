@@ -132,6 +132,17 @@ class TurnkeyErrorMappingTest {
         val turnkeyErr = com.turnkey.core.models.errors.TurnkeyKotlinError
             .InvalidResponse("user rejected the request")
         assertThat(mapping.classify(turnkeyErr)).isInstanceOf(RainError.InternalError::class.java)
+        // The same holds at map(), which is what the coordinator applies at the boundary.
+        assertThat(mapping.map(turnkeyErr)).isInstanceOf(RainError.InternalError::class.java)
+    }
+
+    @Test
+    fun `map lets a 401 status beat rejection prose in the same message`() {
+        val e = RuntimeException(
+            "HTTP error calling ACTIVITY_TYPE_ETH_SEND_TRANSACTION request\n" +
+                "Error: user rejected the signing request\nCode: 401"
+        )
+        assertThat(mapping.map(e)).isInstanceOf(RainError.TokenExpired::class.java)
     }
 
     @Test

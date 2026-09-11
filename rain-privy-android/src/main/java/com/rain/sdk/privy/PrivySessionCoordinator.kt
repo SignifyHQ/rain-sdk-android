@@ -159,7 +159,10 @@ internal class PrivySessionCoordinator(
                     // Neither an auth problem nor retryable. It leaves as a RainError, never as a
                     // vendor type: core rethrows a RainError untouched and would otherwise see a
                     // Privy exception it cannot classify.
-                    else -> throw PrivyErrorMapping.map(e)
+                    else -> {
+                        Timber.e(e, "Rain SDK: Privy call failed")
+                        throw PrivyErrorMapping.map(e)
+                    }
                 }
             }
         }

@@ -342,7 +342,7 @@ On Turnkey with `sponsorGas` enabled, EVM estimates on broadcast-supported chain
 every EVM send (transfers, withdrawals, approvals) is sponsored, so zero is the honest quote.
 
 - **Returns:** `BigDecimal` — estimated gas fee in the chain's native token (e.g. AVAX).
-- **Throws:** `RainError` if estimation fails.
+- **Throws:** `RainError` if estimation fails. A vendor failure the adapter does not recognize arrives as `ProviderError` (RAIN_501); one whose text names a rejection or a funds shortfall arrives as that code. Core's own `InternalError` (RAIN_502) is reserved for failures raised inside core.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
@@ -371,7 +371,7 @@ sponsored, so zero is the honest quote.
 > verifies (a placeholder would revert the estimate), so estimate-then-withdraw signs twice.
 
 - **Returns:** `BigDecimal`, the estimated withdrawal fee in the chain's native token.
-- **Throws:** `RainError` if estimation fails.
+- **Throws:** `RainError` if estimation fails. A vendor failure the adapter does not recognize arrives as `ProviderError` (RAIN_501); one whose text names a rejection or a funds shortfall arrives as that code. Core's own `InternalError` (RAIN_502) is reserved for failures raised inside core.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
