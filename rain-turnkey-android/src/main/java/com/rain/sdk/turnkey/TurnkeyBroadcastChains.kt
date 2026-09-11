@@ -29,6 +29,21 @@ import com.rain.sdk.internal.error.RainError
  */
 internal object TurnkeyBroadcastChains {
 
+    /**
+     * Chains for which the Turnkey `get-balances` API returns data.
+     * On any other chain, balance reads fall through to `ChainReader`.
+     * Source: https://docs.turnkey.com/api-reference/queries/get-balances
+     */
+    @Suppress("MagicNumber") // the chain ids are the registry's data; each line names its network
+    val BALANCE_API_CHAIN_IDS: Set<Int> = setOf(
+        1, // Ethereum Mainnet
+        11155111, // Sepolia
+        8453, // Base Mainnet
+        84532, // Base Sepolia
+        137, // Polygon Mainnet
+        80002 // Polygon Amoy
+    )
+
     /** EVM chains with Turnkey-managed broadcast, mainnets and their test networks. */
     @Suppress("MagicNumber") // the chain ids are the registry's data; each line names its network
     private val EVM_CHAIN_IDS = setOf(

@@ -1,22 +1,23 @@
-package com.rain.sdk.internal.error
+package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.helpers.assumeJdk24
+import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.internal.error.RainErrorCode
 import org.junit.Before
 import org.junit.Test
 
 /**
- * Turnkey-error classification tests for [com.rain.sdk.turnkey.TurnkeyErrorMapping] — covers each `TurnkeyKotlinError`
+ * Turnkey-error classification tests for [TurnkeyErrorMapping] — covers each `TurnkeyKotlinError`
  * variant it routes (InvalidSession, InvalidParameter, ClientNotInitialized,
  * FailedToSignRawPayload, FailedToCreateWallet, FailedToVerifyOtp, FailedToInitOtp), the
  * wrapper-recurse paths, and the HTTP statuses the vendor reports as plain exceptions.
  *
- * These assert the mapping itself. That the session coordinator applies [com.rain.sdk.turnkey.TurnkeyErrorMapping.map]
- * to every failure leaving the adapter is covered by [com.rain.sdk.turnkey.TurnkeySessionCoordinatorTest]; that core
+ * These assert the mapping itself. That the session coordinator applies [TurnkeyErrorMapping.map]
+ * to every failure leaving the adapter is covered by [TurnkeySessionCoordinatorTest]; that core
  * passes the result through untouched is covered by `com.rain.sdk.RainSdkAdapterErrorPassthroughTest`.
  *
  * Gated on JDK 24+ because Turnkey's published AAR is compiled to major class version 68
- * (Java 24). See [com.rain.sdk.internal.core.RainSdkManagerTurnkeyTest] for the same pattern.
+ * (Java 24). See [TurnkeyWalletFlowTest] for the same pattern.
  *
  * IMPORTANT: This file must NOT reference any Turnkey type in a method/field signature.
  * JUnit calls `Class.getDeclaredMethods()` during discovery, which eagerly resolves
@@ -24,9 +25,9 @@ import org.junit.Test
  * `TurnkeyKotlinError` on JDK 21, failing before `assumeTrue` can skip. All Turnkey
  * objects live inside method bodies and are typed as [Any] / [Throwable] at the field level.
  */
-class ErrorMapperTurnkeyTest {
+class TurnkeyErrorMappingTest {
 
-    private val mapping = com.rain.sdk.turnkey.TurnkeyErrorMapping
+    private val mapping = TurnkeyErrorMapping
 
     @Before
     fun requireJdk24() = assumeJdk24()

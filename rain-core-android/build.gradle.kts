@@ -36,63 +36,44 @@ android {
     }
     kotlinOptions {
         jvmTarget = "1.8"
-        // The managed Turnkey surface is marked @InternalRainTurnkeyApi (a @RequiresOptIn marker at
-        // error level). This module defines and uses it, so it opts in as a whole; host apps do not.
-        freeCompilerArgs += listOf(
-            "-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi",
-            // Core's own cross-module seams are marked @RainAdapterApi. This module declares and
-            // uses them, so it opts in as a whole; host apps do not.
-            "-opt-in=com.rain.sdk.internal.RainAdapterApi",
-        )
+        // Core's own cross-module seams are marked @RainAdapterApi. This module declares and
+        // uses them, so it opts in as a whole; host apps do not.
+        freeCompilerArgs += listOf("-opt-in=com.rain.sdk.internal.RainAdapterApi")
     }
 }
 
-// Turnkey (com.turnkey:crypto, com.turnkey:encoding) depends on Bouncy Castle's
-// `bcprov-jdk15to18:1.82`. Web3j 4.10 depends on the parallel `bcprov-jdk18on:1.73` build.
-// Both artifacts ship the same `org.bouncycastle.*` class names, so dex-ing them together
-// fails with "Duplicate class" errors. Force the whole project onto a single BC artifact
-// (Turnkey's, since Turnkey was compiled against it) by excluding the duplicate.
+// This module needs Bouncy Castle at runtime: web3j's crypto helpers (Keccak hashing behind
+// `RainHexUtils.validateAndChecksum` and the Solana withdrawal path) call into it. It is declared
+// directly below rather than inherited from a wallet vendor's transitive graph, so a Portal-only
+// or Privy-only consumer still gets it.
 //
-// The targeted exclusion below (on the web3j dependency) is also published into Gradle
-// Module Metadata so downstream Gradle consumers inherit it automatically. The
-// configurations-wide exclusion is belt-and-suspenders for direct module builds and
-// non-Gradle consumers — see docs/TURNKEY_SUPPORT.md for the Maven-POM workaround.
+// Two `org.bouncycastle.*` builds exist and ship the same class names, so dex-ing both fails with
+// "Duplicate class" errors. The project standardizes on `bcprov-jdk15to18` and excludes web3j's
+// parallel `bcprov-jdk18on:1.73`. The targeted exclusion below (on the web3j dependency) is also
+// published into Gradle Module Metadata so downstream Gradle consumers inherit it automatically.
+// The configurations-wide exclusion is belt-and-suspenders for direct module builds and non-Gradle
+// consumers — see docs/TURNKEY_SUPPORT.md for the Maven-POM workaround.
 configurations.all {
     exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
 }
 
 dependencies {
-    // Security: force Turnkey's transitive deps above their CVE-affected versions.
-    // Constraints publish into Gradle Module Metadata, so downstream consumers inherit
-    // the bumped versions; they only raise versions, never downgrade.
-    //   bitcoinj < 0.17.1 -> GHSA-hfcf-v2f8-x9pc (P2PKH/P2WPKH verify bypass)
-    //   protobuf-javalite < 3.25.5 -> GHSA-735f-pc8j-v9w8 (DoS)
-    //   bcprov-jdk15to18 < 1.84 -> GHSA-574f-3g2m-x479 (GOST 28147 CTR keystream reuse).
-    //     The one BC artifact kept on the classpath (jdk18on is excluded above); floored on
-    //     purpose, not via whichever transitive happens to win.
+    // Bouncy Castle: web3j's Keccak hashing needs it, so core owns the dependency and its CVE
+    // floor rather than inheriting either from a wallet vendor. `implementation` because no public
+    // signature names a BC type. Constraints publish into Gradle Module Metadata, so downstream
+    // consumers inherit the floor; they only raise versions, never downgrade.
+    //   bcprov-jdk15to18 < 1.84 -> GHSA-574f-3g2m-x479 (GOST 28147 CTR keystream reuse, critical)
     constraints {
-        api(libs.bitcoinj.core) {
-            because("CVE GHSA-hfcf-v2f8-x9pc: P2PKH/P2WPKH verification bypass in bitcoinj < 0.17.1")
-        }
-        api(libs.protobuf.javalite) {
-            because("CVE GHSA-735f-pc8j-v9w8: DoS in protobuf-javalite < 3.25.5")
-        }
-        api(libs.bouncycastle.bcprov) {
+        implementation(libs.bouncycastle.bcprov) {
             because(
                 "GHSA-574f-3g2m-x479: GOST 28147 CTR keystream reuse in bcprov < 1.84. " +
                     "bcprov-jdk15to18 is the single BC artifact on the classpath (it replaces " +
-                    "web3j's bcprov-jdk18on:1.73); floored here so the fix does not depend on " +
-                    "whichever Turnkey/bitcoinj transitive wins resolution"
+                    "web3j's bcprov-jdk18on:1.73)"
             )
         }
     }
 
-    // Turnkey SDK (Use api to expose TurnkeyContext / types to consumers).
-    // Turnkey lives inside rain-core-android for now (com.rain.sdk.turnkey) per the modular-architecture
-    // migration; it will graduate to a standalone rain-turnkey module later.
-    api(libs.turnkey.sdk.kotlin)
-    api(libs.turnkey.http)
-    api(libs.turnkey.types)
+    implementation(libs.bouncycastle.bcprov)
 
     // Web3j for ABI Encoding. See note above about Bouncy Castle conflict.
     implementation(libs.web3j.core) {

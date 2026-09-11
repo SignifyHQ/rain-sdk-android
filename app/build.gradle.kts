@@ -55,6 +55,7 @@ android {
 
 dependencies {
     implementation(project(":rain-core-android"))
+    implementation(project(":rain-turnkey-android"))
     implementation(project(":rain-portal-android"))
     implementation(project(":rain-privy-android"))
 

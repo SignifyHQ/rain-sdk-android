@@ -39,7 +39,8 @@ val allowedSkippedTests = setOf(
     "com.rain.sdk.internal.transaction.RainTransactionBuilderImplTest" +
         ".getLatestNonce uses real network and returns nonce gt 0"
 )
-val sdkTestModules = listOf("rain-core-android", "rain-portal-android", "rain-privy-android")
+val sdkTestModules =
+    listOf("rain-core-android", "rain-turnkey-android", "rain-portal-android", "rain-privy-android")
 
 // detekt: static analysis on all modules, defaults + config/detekt/detekt.yml overrides.
 // CI runs the type-resolving tasks (`detektMain detektTest`) — the bare `detekt` task has
