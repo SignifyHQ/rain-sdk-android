@@ -1,6 +1,8 @@
 package com.rain.sdk.sample.screens
 
 import android.app.Application
+import android.telephony.PhoneNumberUtils
+import android.telephony.TelephonyManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -14,6 +16,7 @@ import com.rain.sdk.sample.SessionHealth
 import com.rain.sdk.sample.SessionStore
 import com.rain.sdk.sample.WalletChain
 import com.rain.sdk.sample.WalletSessionStatus
+import com.rain.sdk.turnkey.LoginContact
 import com.rain.sdk.turnkey.TurnkeyAuthState
 import com.rain.sdk.turnkey.TurnkeyProvider
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,8 +24,23 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 enum class WalletMode { Portal, Turnkey, Privy }
+
+/**
+ * The channel the sample asks Turnkey to send the login code on. The per-channel copy lives here so
+ * the send and confirm flows stay free of channel branches.
+ */
+enum class TurnkeyContactChannel(
+    val label: String,
+    val fieldLabel: String,
+    val inboxHint: String,
+    val codePlaceholder: String,
+) {
+    Email("Email", "Email", "check your email", "Code from your email"),
+    Phone("Phone", "Phone number", "check your text messages", "Code from your text message"),
+}
 
 @Suppress("LargeClass") // one sample ViewModel for three providers' flows; a split is a sample-only refactor
 class HomeViewModel(
@@ -43,7 +61,9 @@ class HomeViewModel(
         userId = store.rainUserId,
         turnkeyOrgId = store.turnkeyOrgId,
         turnkeyAuthProxyConfigId = store.turnkeyAuthProxyConfigId,
+        turnkeyChannel = store.turnkeyChannelOrEmail(),
         turnkeyEmail = store.turnkeyEmail,
+        turnkeyPhone = store.turnkeyPhone,
         privyAppId = store.privyAppId,
         privyAppClientId = store.privyAppClientId,
         privyEmail = store.privyEmail,
@@ -136,7 +156,7 @@ class HomeViewModel(
                     resumeFallback("Still restoring the Turnkey session — try again in a moment")
                 !turnkey.hasActiveSession() ->
                     resumeFallback("No active Turnkey session — log in again")
-                store.turnkeyEmail.isBlank() ->
+                recordedTurnkeyOwner() == null ->
                     resumeFallback("Saved Turnkey session has no recorded owner — log in again")
                 else -> {
                     _state.update { it.copy(turnkeySessionActive = true) }
@@ -233,6 +253,15 @@ class HomeViewModel(
 
     fun onTurnkeyEmailChanged(value: String) {
         _state.update { it.copy(turnkeyEmail = value) }
+    }
+
+    fun onTurnkeyPhoneChanged(value: String) {
+        _state.update { it.copy(turnkeyPhone = value) }
+    }
+
+    /** Ignored once a code is out: the contact it went to stays frozen until the flow completes or restarts. */
+    fun onTurnkeyChannelChanged(channel: TurnkeyContactChannel) {
+        _state.update { if (it.turnkeyOtpSent) it else it.copy(turnkeyChannel = channel) }
     }
 
     fun onTurnkeyOtpCodeChanged(value: String) {
@@ -363,22 +392,25 @@ class HomeViewModel(
 
     fun sendTurnkeyOtp(app: Application) {
         val s = _state.value
-        if (s.turnkeyOrgId.isBlank() || s.turnkeyAuthProxyConfigId.isBlank() || s.turnkeyEmail.isBlank()) {
-            _state.update { it.copy(statusText = "Org ID, Auth Proxy Config ID, and Email are required") }
+        val channel = s.turnkeyChannel
+        if (s.turnkeyOrgId.isBlank() || s.turnkeyAuthProxyConfigId.isBlank() || s.turnkeyContact.isBlank()) {
+            _state.update {
+                it.copy(statusText = "Org ID, Auth Proxy Config ID, and ${channel.fieldLabel} are required")
+            }
             return
         }
         val organizationId = s.turnkeyOrgId.trim()
         val authProxyConfigId = s.turnkeyAuthProxyConfigId.trim()
-        val email = s.turnkeyEmail.trim()
+        val contact = resolveTurnkeyContact(app, s)
         val resend = s.turnkeyOtpSent
 
         SampleLog.i(
             "Turnkey.otpInit",
             (if (resend) "requesting a new login code" else "starting login-code flow") +
-                " email=${SampleLog.maskEmail(email)}"
+                " channel=${channel.name} contact=${channel.mask(contact)}"
         )
         // The ids are saved before the provider is prepared so a relaunch (the only way to change
-        // them) picks up the new values. The email is saved only after a successful confirm.
+        // them) picks up the new values. The contact is saved only after a successful confirm.
         store.provider = SessionStore.Provider.Turnkey
         store.turnkeyOrgId = organizationId
         store.turnkeyAuthProxyConfigId = authProxyConfigId
@@ -397,12 +429,13 @@ class HomeViewModel(
                 provider.awaitSessionRestore()
 
                 // The SDK restores a valid session from secure storage. Reuse it only when it
-                // belongs to the email being logged in: the last successful login on this device
-                // wrote store.turnkeyEmail and logout clears it, so that is the session's owner.
-                // Any other email runs the full code flow, which logs in under a fresh session
-                // and leaves the current one untouched until the switch succeeds.
-                if (provider.hasActiveSession() && store.turnkeyEmail.equals(email, ignoreCase = true)) {
-                    SampleLog.i("Turnkey.otpInit", "existing session restored for this email — skipping the code")
+                // belongs to the contact being logged in: the last successful login on this device
+                // recorded its channel and contact, and logout clears them, so that is the
+                // session's owner. Any other contact, the same person on the other channel
+                // included, runs the full code flow, which logs in under a fresh session and
+                // leaves the current one untouched until the switch succeeds.
+                if (provider.hasActiveSession() && isRecordedTurnkeyOwner(channel, contact)) {
+                    SampleLog.i("Turnkey.otpInit", "existing session restored for this contact — skipping the code")
                     _state.update {
                         it.copy(
                             isLoading = false,
@@ -413,20 +446,20 @@ class HomeViewModel(
                     return@launch
                 }
 
-                _state.update { it.copy(statusText = "Sending login code to $email...") }
-                provider.sendLoginCode(email)
+                _state.update { it.copy(statusText = "Sending login code to $contact...") }
+                provider.sendLoginCode(channel.toLoginContact(contact))
                 SampleLog.i("Turnkey.otpInit", if (resend) "new login code sent" else "login code sent")
                 _state.update {
-                    it.copy(
+                    // The code went to this contact: pin the channel's field to it (it stays
+                    // editable while the send is in flight; a converted phone number shows its
+                    // E.164 form) and stop treating any live session as this contact's — the
+                    // confirm decides whose session it is.
+                    it.withTurnkeyContact(channel, contact).copy(
                         isLoading = false,
-                        // The code went to this address: pin the field to it (it stays editable
-                        // while the send is in flight) and stop treating any live session as this
-                        // email's — the confirm decides whose session it is.
-                        turnkeyEmail = email,
                         turnkeySessionActive = false,
                         turnkeyOtpSent = true,
                         turnkeyOtpCode = "",
-                        statusText = if (resend) "New login code sent — check your email" else "Login code sent — check your email"
+                        statusText = (if (resend) "New login code sent — " else "Login code sent — ") + channel.inboxHint
                     )
                 }
             } catch (e: Exception) {
@@ -456,17 +489,18 @@ class HomeViewModel(
         SampleLog.i("Turnkey.otpVerify", "confirming login code")
         _state.update { it.copy(isLoading = true, statusText = "Confirming login code...") }
         viewModelScope.launch {
-            val email = s.turnkeyEmail.trim()
-            val previousOwner = store.turnkeyEmail
+            val channel = s.turnkeyChannel
+            val contact = s.turnkeyContact.trim()
+            val previousOwner = snapshotTurnkeyOwner()
             val hadSession = provider.hasActiveSession()
             try {
-                // A confirm may switch the device's session to this email and then fail before it
+                // A confirm may switch the device's session to this contact and then fail before it
                 // returns, so the owner recorded for the previous session is forgotten first and
                 // the new one is written only on success: the restored-session checks trust it.
-                store.turnkeyEmail = ""
+                forgetTurnkeyOwner()
                 // Sign-up or login, plus EVM + Solana account provisioning — all inside the SDK.
                 provider.confirmLoginCode(s.turnkeyOtpCode.trim())
-                store.turnkeyEmail = email
+                recordTurnkeyOwner(channel, contact)
                 SampleLog.i("Turnkey.otpVerify", "session active")
                 _state.update {
                     it.copy(
@@ -479,7 +513,7 @@ class HomeViewModel(
                 SampleLog.w("Turnkey.otpVerify", "login code rejected", e)
                 // The SDK guarantees a rejected code leaves the live session untouched, so the
                 // previous owner is still the owner.
-                store.turnkeyEmail = previousOwner
+                restoreTurnkeyOwner(previousOwner)
                 _state.update {
                     it.copy(
                         isLoading = false,
@@ -488,7 +522,7 @@ class HomeViewModel(
                     )
                 }
             } catch (e: Exception) {
-                onTurnkeyConfirmFailed(provider, email, hadSession, e)
+                onTurnkeyConfirmFailed(provider, channel, contact, hadSession, e)
             }
         }
     }
@@ -500,10 +534,16 @@ class HomeViewModel(
      * (a switch may or may not have happened), so the owner stays unrecorded and the flow restarts
      * from "Send code" — that path always works; a challenge the SDK kept is simply replaced.
      */
-    private fun onTurnkeyConfirmFailed(provider: TurnkeyProvider, email: String, hadSession: Boolean, e: Exception) {
+    private fun onTurnkeyConfirmFailed(
+        provider: TurnkeyProvider,
+        channel: TurnkeyContactChannel,
+        contact: String,
+        hadSession: Boolean,
+        e: Exception,
+    ) {
         SampleLog.e("Turnkey.otpVerify", "failed: ${e.message}", e)
         if (!hadSession && provider.hasActiveSession()) {
-            store.turnkeyEmail = email
+            recordTurnkeyOwner(channel, contact)
             _state.update {
                 it.copy(
                     isLoading = false,
@@ -521,6 +561,81 @@ class HomeViewModel(
                 )
             }
         }
+    }
+
+    /**
+     * Who the device's Turnkey session belongs to, as the sample records it: the channel of the last
+     * successful login and the contact in that channel's slot. Null when nothing is recorded. The
+     * slots double as the prefill for the fields, and an install from before the phone channel
+     * recorded only the email, so a blank channel reads as an email owner.
+     */
+    private fun recordedTurnkeyOwner(): Pair<TurnkeyContactChannel, String>? {
+        val channel = store.turnkeyChannelOrEmail()
+        val contact = when (channel) {
+            TurnkeyContactChannel.Email -> store.turnkeyEmail
+            TurnkeyContactChannel.Phone -> store.turnkeyPhone
+        }.trim()
+        return if (contact.isBlank()) null else channel to contact
+    }
+
+    /** Email compares ignoring case; a phone number compares on its `+` and digits only. */
+    private fun isRecordedTurnkeyOwner(channel: TurnkeyContactChannel, contact: String): Boolean {
+        val (ownerChannel, owner) = recordedTurnkeyOwner() ?: return false
+        return ownerChannel == channel && when (channel) {
+            TurnkeyContactChannel.Email -> owner.equals(contact, ignoreCase = true)
+            TurnkeyContactChannel.Phone -> owner.phoneKey() == contact.phoneKey()
+        }
+    }
+
+    private fun recordTurnkeyOwner(channel: TurnkeyContactChannel, contact: String) {
+        store.turnkeyChannel = channel.name
+        when (channel) {
+            TurnkeyContactChannel.Email -> store.turnkeyEmail = contact
+            TurnkeyContactChannel.Phone -> store.turnkeyPhone = contact
+        }
+    }
+
+    /** Both slots go blank too, so a blank channel cannot read as a legacy email owner. */
+    private fun forgetTurnkeyOwner() {
+        store.turnkeyChannel = ""
+        store.turnkeyEmail = ""
+        store.turnkeyPhone = ""
+    }
+
+    private data class TurnkeyOwnerSnapshot(val channel: String, val email: String, val phone: String)
+
+    private fun snapshotTurnkeyOwner() = TurnkeyOwnerSnapshot(
+        channel = store.turnkeyChannel,
+        email = store.turnkeyEmail,
+        phone = store.turnkeyPhone,
+    )
+
+    private fun restoreTurnkeyOwner(snapshot: TurnkeyOwnerSnapshot) {
+        store.turnkeyChannel = snapshot.channel
+        store.turnkeyEmail = snapshot.email
+        store.turnkeyPhone = snapshot.phone
+    }
+
+    /**
+     * Converts a number typed without a country code to E.164 with the device's region, the way a
+     * host app would before calling the SDK; a number that already starts with `+` goes through
+     * untouched for the SDK's own check. When the framework cannot parse the input, the raw string
+     * is sent so the SDK's message explains the problem.
+     */
+    private fun normalizePhoneNumber(app: Application, raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.startsWith("+")) return trimmed
+        val telephony = app.getSystemService(TelephonyManager::class.java)
+        val region = listOfNotNull(telephony?.networkCountryIso, telephony?.simCountryIso, Locale.getDefault().country)
+            .firstOrNull { it.isNotBlank() }
+            ?.uppercase(Locale.ROOT)
+        return region?.let { PhoneNumberUtils.formatNumberToE164(trimmed, it) } ?: trimmed
+    }
+
+    /** The string the selected channel sends to, trimmed; a phone number is converted to E.164 first. */
+    private fun resolveTurnkeyContact(app: Application, s: HomeUiState): String = when (s.turnkeyChannel) {
+        TurnkeyContactChannel.Email -> s.turnkeyEmail.trim()
+        TurnkeyContactChannel.Phone -> normalizePhoneNumber(app, s.turnkeyPhone)
     }
 
     fun initializeRainWithTurnkey() {
@@ -773,7 +888,9 @@ data class HomeUiState(
     val userId: String = "",
     val turnkeyOrgId: String = "",
     val turnkeyAuthProxyConfigId: String = "",
+    val turnkeyChannel: TurnkeyContactChannel = TurnkeyContactChannel.Email,
     val turnkeyEmail: String = "",
+    val turnkeyPhone: String = "",
     val turnkeyOtpSent: Boolean = false,
     val turnkeyOtpCode: String = "",
     val turnkeySessionActive: Boolean = false,
@@ -790,7 +907,37 @@ data class HomeUiState(
     val sessionStatus: WalletSessionStatus? = null,
     /** Portal only: installed by "Update token" or handed to `onSessionTokenNeeded`. */
     val replacementPortalToken: String = "",
-)
+) {
+    /** The contact the selected Turnkey channel sends to. */
+    val turnkeyContact: String
+        get() = when (turnkeyChannel) {
+            TurnkeyContactChannel.Email -> turnkeyEmail
+            TurnkeyContactChannel.Phone -> turnkeyPhone
+        }
+
+    /** Pins [channel]'s field to [contact], the string the code went to. */
+    fun withTurnkeyContact(channel: TurnkeyContactChannel, contact: String): HomeUiState = when (channel) {
+        TurnkeyContactChannel.Email -> copy(turnkeyEmail = contact)
+        TurnkeyContactChannel.Phone -> copy(turnkeyPhone = contact)
+    }
+}
+
+/** The recorded channel; an install from before the phone channel recorded only the email. */
+private fun SessionStore.turnkeyChannelOrEmail(): TurnkeyContactChannel =
+    TurnkeyContactChannel.entries.firstOrNull { it.name == turnkeyChannel } ?: TurnkeyContactChannel.Email
+
+private fun TurnkeyContactChannel.toLoginContact(contact: String): LoginContact = when (this) {
+    TurnkeyContactChannel.Email -> LoginContact.Email(contact)
+    TurnkeyContactChannel.Phone -> LoginContact.Sms(contact)
+}
+
+private fun TurnkeyContactChannel.mask(contact: String): String = when (this) {
+    TurnkeyContactChannel.Email -> SampleLog.maskEmail(contact)
+    TurnkeyContactChannel.Phone -> SampleLog.maskPhone(contact)
+}
+
+/** The part of a phone number that identifies it: the leading `+` and the digits. */
+private fun String.phoneKey(): String = filter { it == '+' || it.isDigit() }
 
 private fun SessionStore.Provider.toMode(): WalletMode = when (this) {
     SessionStore.Provider.Portal -> WalletMode.Portal

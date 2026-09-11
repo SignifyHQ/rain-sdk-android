@@ -36,4 +36,13 @@ object SampleLog {
         val head = name.take(1)
         return "$head${"*".repeat((name.length - 1).coerceAtLeast(1))}$domain"
     }
+
+    /** Keeps the leading `+`, the first two digits and the last two: `+19999999999` reads `+19*******99`. */
+    fun maskPhone(value: String?): String {
+        if (value.isNullOrBlank()) return "<empty>"
+        val digits = value.filter { it.isDigit() }
+        val plus = if (value.trimStart().startsWith('+')) "+" else ""
+        val masked = "$plus${digits.take(2)}${"*".repeat(digits.length - 4)}${digits.takeLast(2)}"
+        return if (digits.length <= 4) "***" else masked
+    }
 }

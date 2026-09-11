@@ -188,8 +188,8 @@ class RainSession {
         private set
 
     /**
-     * Creates the managed Turnkey provider. The SDK owns Turnkey configuration and the email
-     * one-time-code flow from here on — the sample never touches the vendor SDK. The previous
+     * Creates the managed Turnkey provider. The SDK owns Turnkey configuration and the one-time-code
+     * flow, email or SMS, from here on — the sample never touches the vendor SDK. The previous
      * provider is retired first, whether or not it was built into an SDK: two providers must never
      * share the process-wide vendor context.
      */

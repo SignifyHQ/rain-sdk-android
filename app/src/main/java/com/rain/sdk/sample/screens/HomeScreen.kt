@@ -31,6 +31,7 @@ import com.rain.sdk.sample.R
 import com.rain.sdk.sample.RainSampleApp
 import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.SampleEnvironment
+import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.Screen
 import com.rain.sdk.sample.SessionHealth
 import com.rain.sdk.sample.WalletChain
@@ -83,7 +84,11 @@ internal val WalletMode.displayName: String
 /** "Turnkey · dev@rain.xyz" once connected; the bare provider name where there is no account. */
 private fun HomeUiState.connectedSubtitle(): String {
     val account = when (mode) {
-        WalletMode.Turnkey -> turnkeyEmail
+        WalletMode.Turnkey -> when (turnkeyChannel) {
+            TurnkeyContactChannel.Email -> turnkeyEmail
+            // The header shows up in screenshots, so a phone number is masked.
+            TurnkeyContactChannel.Phone -> if (turnkeyPhone.isBlank()) "" else SampleLog.maskPhone(turnkeyPhone)
+        }
         WalletMode.Privy -> privyEmail
         WalletMode.Portal -> ""
     }.trim()
