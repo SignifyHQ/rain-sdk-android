@@ -1,6 +1,6 @@
 # Turnkey Support
 
-Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provider, alongside the Portal MPC and Privy adapters. Turnkey ships as the `TurnkeyProvider` adapter in its own `rain-turnkey-android` module (package `com.rain.sdk.turnkey`). Authentication has two modes. **Managed** (recommended): construct `TurnkeyConfig(application, organizationId, authProxyConfigId)` and the SDK owns the one-time-code flow, email or SMS, through Turnkey's auth proxy — `sendLoginCode` / `confirmLoginCode` / `logout` / `authState` on `TurnkeyProvider`, including Ethereum + Solana account provisioning on first login. **Bring-your-own**: the host app uses the official [Turnkey Kotlin SDK](https://docs.turnkey.com/sdks/kotlin/getting-started) to authenticate (passkeys, OAuth, OTP, auth proxy) and hands the live `TurnkeyContext` to Rain via `TurnkeyConfig(turnkey)`.
+Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provider, alongside the Portal MPC and Privy adapters. Turnkey ships as the `TurnkeyProvider` adapter in its own `rain-turnkey-android` module (package `com.rain.sdk.turnkey`). Authentication has two modes. **Bring-your-own** (public): the host app uses the official [Turnkey Kotlin SDK](https://docs.turnkey.com/sdks/kotlin/getting-started) to authenticate (passkeys, OAuth, OTP, auth proxy) and hands the live `TurnkeyContext` to Rain via `TurnkeyConfig(turnkey)`. **Managed** (internal API, `@InternalRainTurnkeyApi`): construct `TurnkeyConfig(application, organizationId, authProxyConfigId)` and the SDK owns the one-time-code flow, email or SMS, through Turnkey's auth proxy, with `sendLoginCode` / `confirmLoginCode` / `logout` / `authState` on `TurnkeyProvider` and Ethereum + Solana account provisioning on first login. It compiles only with the opt-in and exists for the upcoming RainWallet provider; see [Managed mode](#managed-mode-internal-api).
 
 ## Requirements
 
@@ -371,11 +371,11 @@ Duplicate class org.bouncycastle.asn1.pkcs.EncryptionScheme found in modules
   bcprov-jdk18on-1.73.jar  -> jetified-bcprov-jdk18on-1.73  (org.bouncycastle:bcprov-jdk18on:1.73)
 ```
 
-The two artifacts are parallel builds of the same library for different JDK targets — their class APIs are interchangeable. Rain SDK pins everyone to `bcprov-jdk15to18`, floored at 1.84 by a published constraint.
+The two artifacts are parallel builds of the same library for different JDK targets — their class APIs are interchangeable. Rain SDK standardizes on `bcprov-jdk15to18`, floored at 1.84 by a published constraint, and publishes the `bcprov-jdk18on` exclusion on every dependency edge that would otherwise pull it: web3j in core, Portal and Privy, and `privy-core` in the Privy module.
 
-**Gradle consumers** (resolve via Module Metadata): no action required. Rain SDK publishes a `compileOnly`/`runtime` exclusion against `bcprov-jdk18on` on its web3j dependency, and Gradle inherits it.
+**Gradle consumers** (resolve via Module Metadata): no action required as long as you reach the vendor SDKs only through Rain's modules. The exclusions above are part of the published metadata, and Gradle inherits them along each edge that declares them.
 
-**If your build still hits the duplicate-class error** (older Gradle, Maven POM-only resolution, or you depend on web3j directly), add the exclusion in your own module:
+**If your build still hits the duplicate-class error** (older Gradle, Maven POM-only resolution, or you declare web3j, `io.privy:privy-core` or another dependency that pulls `bcprov-jdk18on` yourself), add the exclusion in your own module:
 
 ```kotlin
 // build.gradle.kts

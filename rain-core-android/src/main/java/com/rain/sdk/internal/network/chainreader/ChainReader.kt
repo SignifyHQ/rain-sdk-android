@@ -18,8 +18,9 @@ import java.math.BigInteger
  * this interface so call sites don't fragment.
  *
  * Implementations exist per chain family. [EvmChainReader] covers all EIP-155 chains via
- * JSON-RPC. A future Solana/Stellar reader can implement this alongside it; until then,
- * `chainId: Int` matches the rest of the SDK's EVM-centric typing.
+ * JSON-RPC and [SolanaChainReader] covers the Solana clusters; a Stellar reader would sit
+ * alongside them. `chainId: Int` matches the rest of the SDK's typing, with Rain's own sentinel
+ * ids standing in for chains that have no EIP-155 number.
  */
 @RainAdapterApi
 interface ChainReader {

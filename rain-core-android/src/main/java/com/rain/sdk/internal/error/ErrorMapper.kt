@@ -50,15 +50,4 @@ internal class ErrorMapper {
      */
     private fun classify(e: Exception): RainError =
         VendorErrorClassifier.fromVendorError(e) ?: RainError.ProviderError(e)
-
-    /**
-     * Maps general Portal errors to RainError.
-     *
-     * @param e The exception thrown by Portal SDK
-     * @return Mapped RainError
-     */
-    fun mapPortalError(e: Exception): RainError {
-        Timber.e(e, "Rain SDK: Portal error")
-        return RainError.ProviderError(e)
-    }
 }

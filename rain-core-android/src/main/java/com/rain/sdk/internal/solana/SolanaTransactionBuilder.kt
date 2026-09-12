@@ -4,10 +4,8 @@ import com.rain.sdk.internal.RainAdapterApi
 import java.io.ByteArrayOutputStream
 
 /**
- * Builds the hex-encoded **unsigned** Solana transaction a managed-broadcast wallet API expects:
- * the vendor hex-decodes and parses the unsigned payload, signs it with the wallet's ed25519 key,
- * and broadcasts. Hex rather than base64 because that is what the live APIs decode, whatever their
- * field documentation says.
+ * Builds the **unsigned** Solana transaction bytes a wallet provider signs with the wallet's ed25519
+ * key and broadcasts, plus a hex encoding for managed-broadcast APIs that take hex.
  *
  * The wire format matches `@solana/web3.js` `Transaction.serialize({ requireAllSignatures: false })`:
  * a legacy transaction = compact-u16 signature count + one zero-filled 64-byte signature

@@ -9,11 +9,10 @@ plugins {
     alias(libs.plugins.dokka) apply false
 }
 
-// Turnkey (com.turnkey:crypto, com.turnkey:encoding) depends on Bouncy Castle's
-// `bcprov-jdk15to18:1.82`. Web3j 4.10 depends on the parallel `bcprov-jdk18on:1.73` build.
-// Both artifacts publish the same `org.bouncycastle.*` class names, so dex-ing them together
-// fails with "Duplicate class" errors. Force every module onto a single BC artifact
-// (Turnkey's, since Turnkey was compiled against it) by excluding the duplicate everywhere.
+// Two Bouncy Castle builds ship the same `org.bouncycastle.*` class names, so dex-ing both fails
+// with "Duplicate class" errors. The project standardizes on `bcprov-jdk15to18`, which core declares
+// directly (web3j's Keccak needs it) and the Turnkey artifacts are compiled against; web3j's parallel
+// `bcprov-jdk18on:1.73` is excluded everywhere.
 subprojects {
     configurations.all {
         exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
@@ -81,6 +80,89 @@ subprojects {
             failOnWarning.set(true)
         }
     }
+}
+
+// Which wallet vendor SDK each published module may carry on its release compile and runtime
+// classpaths. The modular split promises that core carries none and each adapter carries only its
+// own; a build that merely compiles is no proof of that, because a vendor left on core's classpath
+// is simply unused there. Every module that applies the Android library plugin must be listed.
+val vendorGroupIds = setOf("com.turnkey", "io.portalhq", "io.privy")
+val allowedVendorGroups = mapOf(
+    "rain-core-android" to emptySet(),
+    "rain-turnkey-android" to setOf("com.turnkey"),
+    "rain-portal-android" to setOf("io.portalhq"),
+    "rain-privy-android" to setOf("io.privy"),
+)
+require(allowedVendorGroups.values.flatten().all { it in vendorGroupIds }) {
+    "allowedVendorGroups names a vendor group missing from vendorGroupIds, " +
+        "so the check would never look for it in another module"
+}
+
+subprojects {
+    plugins.withId("com.android.library") {
+        // Locals only: the task action must not capture the build script (a Project), or the
+        // configuration cache cannot serialize it.
+        val moduleName = name
+        val allowed = allowedVendorGroups[moduleName]
+            ?: throw GradleException("$moduleName applies com.android.library but has no allowedVendorGroups entry")
+        val forbidden = vendorGroupIds - allowed
+        val permitted = if (allowed.isEmpty()) "no wallet vendor SDK" else "only ${allowed.joinToString()}"
+        tasks.register("checkVendorFreeClasspath") {
+            group = "verification"
+            description = "Fails if this module's release classpaths carry a wallet vendor SDK it must not ship."
+            // Resolution results are captured as providers when the task graph realizes this task,
+            // after the Android plugin has created the variant configurations, and read in doLast.
+            val roots = listOf("releaseCompileClasspath", "releaseRuntimeClasspath").map { cfg ->
+                cfg to configurations.named(cfg).flatMap { it.incoming.resolutionResult.rootComponent }
+            }
+            doLast {
+                // Walks the resolved graph and returns the first path from the root to each leaked
+                // group, so the failure message says which dependency introduced the vendor. An
+                // unresolved edge fails the check outright: a vendor coordinate that failed to resolve
+                // must not pass as absent.
+                fun leakPaths(cfg: String, root: org.gradle.api.artifacts.result.ResolvedComponentResult): Map<String, String> {
+                    val found = linkedMapOf<String, String>()
+                    val seen = mutableSetOf<org.gradle.api.artifacts.result.ResolvedComponentResult>()
+                    fun visit(node: org.gradle.api.artifacts.result.ResolvedComponentResult, path: List<String>) {
+                        if (!seen.add(node)) return
+                        node.dependencies.filterIsInstance<org.gradle.api.artifacts.result.UnresolvedDependencyResult>().firstOrNull()?.let {
+                            throw GradleException(
+                                "$moduleName: $cfg has an unresolved dependency, so the vendor check cannot vouch for it: " +
+                                    "${it.requested.displayName} (${it.failure.message})"
+                            )
+                        }
+                        node.dependencies.filterIsInstance<org.gradle.api.artifacts.result.ResolvedDependencyResult>().forEach { dep ->
+                            val id = dep.selected.id
+                            val label = id.displayName
+                            val group = (id as? org.gradle.api.artifacts.component.ModuleComponentIdentifier)?.group
+                            val leaked = group != null && forbidden.any { vendor -> group == vendor || group.startsWith("$vendor.") }
+                            if (leaked && group !in found) found[group!!] = (path + label).joinToString(" -> ")
+                            visit(dep.selected, path + label)
+                        }
+                    }
+                    visit(root, listOf(moduleName))
+                    return found
+                }
+                roots.forEach { (cfg, rootProvider) ->
+                    val leaks = leakPaths(cfg, rootProvider.get())
+                    if (leaks.isNotEmpty()) {
+                        throw GradleException(
+                            "$moduleName carries a wallet vendor SDK it must not ship on $cfg. This module may carry " +
+                                "$permitted. Leaked:\n" + leaks.values.joinToString("\n") { "  $it" }
+                        )
+                    }
+                }
+                println("$moduleName: compile and runtime classpaths carry $permitted")
+            }
+        }
+        tasks.named("check") { dependsOn("checkVendorFreeClasspath") }
+    }
+}
+
+tasks.register("checkVendorFreeClasspaths") {
+    group = "verification"
+    description = "Runs every module's vendor-free classpath check."
+    dependsOn(allowedVendorGroups.keys.map { ":$it:checkVendorFreeClasspath" })
 }
 
 // Fails the build if any unit test skipped, so JDK-gated Turnkey suites can't pass by not running.

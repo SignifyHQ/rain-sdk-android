@@ -278,6 +278,34 @@ class TurnkeyErrorMappingTest {
     }
 
     @Test
+    fun `mapAuthError never hands the throwable to the log`() {
+        // The auth proxy echoes the contact a code was sent to, so the only log line on this path
+        // carries the error code and the class name. Captured through a planted tree: Timber folds
+        // a throwable's stack trace into the message it hands the tree.
+        val seen = StringBuilder()
+        val throwables = mutableListOf<Throwable>()
+        val tree = object : timber.log.Timber.Tree() {
+            override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+                seen.append(message).append('\n')
+                if (t != null) throwables += t
+            }
+        }
+        timber.log.Timber.plant(tree)
+        try {
+            val http = RuntimeException("HTTP error from /v1/otp_init_v2 for someone@example.com: 401")
+            // The wrapped shape the vendor produces, and the bare status-carrying shape.
+            mapping.mapAuthError(com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToInitOtp(http))
+            mapping.mapAuthError(http)
+        } finally {
+            timber.log.Timber.uproot(tree)
+        }
+        assertThat(seen.toString()).contains("Authentication error")
+        assertThat(seen.toString()).contains(RainErrorCode.TOKEN_EXPIRED.code) // the bare 401 parsed
+        assertThat(seen.toString()).doesNotContain("example.com")
+        assertThat(throwables).isEmpty()
+    }
+
+    @Test
     fun `mapAuthError routes a failed code request to ProviderError`() {
         val http = RuntimeException("HTTP error from /v1/otp_init_v2: 401")
         val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToInitOtp(http)

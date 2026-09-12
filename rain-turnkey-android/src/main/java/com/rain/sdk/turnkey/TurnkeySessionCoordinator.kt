@@ -218,10 +218,10 @@ internal class TurnkeySessionCoordinator(
                         backoffMs = (backoffMs * 2).coerceAtMost(policy.maxRetryDelayMs)
                     }
                     // Neither a session problem nor retryable. It leaves as a RainError, never as
-                    // a vendor type: core rethrows a RainError untouched and would otherwise see
+                    // a vendor type: core passes a RainError through with its code and would otherwise see
                     // a Turnkey exception it cannot classify.
                     else -> {
-                        Timber.e(e, "Rain SDK: Turnkey call failed")
+                        logUnmappedFailure(e)
                         throw TurnkeyErrorMapping.map(e)
                     }
                 }
@@ -324,6 +324,15 @@ internal class TurnkeySessionCoordinator(
         session == null || auth == AuthState.unauthenticated -> TurnkeySessionState.Unauthenticated
         session.expiry <= nowEpochSeconds() -> TurnkeySessionState.Expired
         else -> TurnkeySessionState.Active(session.expiry)
+    }
+
+    /**
+     * Warning, not error: reads on fallback paths land here in normal operation, and the RainError
+     * itself is what the host acts on. A RainError raised inside the block is our own verdict and
+     * needs no vendor log.
+     */
+    private fun logUnmappedFailure(e: Exception) {
+        if (e !is RainError) Timber.w(e, "Rain SDK: Turnkey call failed")
     }
 
     private fun isAuthFailure(e: Throwable): Boolean = anyInChain(e) { t ->

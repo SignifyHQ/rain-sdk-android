@@ -134,19 +134,18 @@ class ErrorMapperTest {
     }
 
     @Test
+    fun `a vendor-shaped HTTP status message is a plain ProviderError in core`() {
+        // Status parsing is the adapters' job now; core reads no vendor message shapes.
+        val e = RuntimeException("HTTP error from /public/v1/query/get_activity: 401")
+        val mapped = mapper.mapTransactionError(e)
+        assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(mapped.cause).isSameInstanceAs(e)
+    }
+
+    @Test
     fun `mapTransactionError wraps unknown error as ProviderError`() {
         val cause = IllegalArgumentException("RPC error -32603")
         val mapped = mapper.mapTransactionError(cause)
-        assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
-        assertThat(mapped.cause).isSameInstanceAs(cause)
-    }
-
-    // ---- mapPortalError ------------------------------------------------------------
-
-    @Test
-    fun `mapPortalError always wraps as ProviderError preserving cause`() {
-        val cause = RuntimeException("Portal: SESSION_EXPIRED")
-        val mapped = mapper.mapPortalError(cause)
         assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
         assertThat(mapped.cause).isSameInstanceAs(cause)
     }

@@ -15,6 +15,9 @@ import io.privy.wallet.ethereum.EmbeddedEthereumWallet
 import io.privy.wallet.ethereum.EmbeddedEthereumWalletProvider
 import io.privy.wallet.ethereum.EthereumChain
 import io.privy.wallet.ethereum.EthereumRpcResponse
+import io.privy.wallet.solana.EmbeddedSolanaWallet
+import io.privy.wallet.solana.EmbeddedSolanaWalletProvider
+import io.privy.wallet.solana.SolanaCluster
 import io.privy.wallet.transactions.GetTransactionsParams
 import io.privy.wallet.transactions.TransactionChain
 import io.privy.wallet.transactions.TransactionsPage
@@ -73,7 +76,7 @@ class PrivyManagerTest {
     fun `getSolanaAddress returns the first solana wallet's address`() = runBlocking {
         val privy = privyWith(emptyList())
         val user = privy.getUser()!!
-        val solanaWallet = mockk<io.privy.wallet.solana.EmbeddedSolanaWallet>().also {
+        val solanaWallet = mockk<EmbeddedSolanaWallet>().also {
             every { it.address } returns SOLANA_WALLET
         }
         every { user.embeddedSolanaWallets } returns listOf(solanaWallet)
@@ -145,6 +148,30 @@ class PrivyManagerTest {
         // The manager lets it bubble raw; the session coordinator reads the prose before anything
         // leaves the adapter, so the host sees the rejection, never a generic ProviderError.
         assertThat(error).isInstanceOf(RainError.UserRejected::class.java)
+    }
+
+    @Test
+    fun `a raw failure in the Solana send leaves the adapter as ProviderError with its cause`() = runBlocking {
+        val privy = privyWith(emptyList())
+        val user = privy.getUser()!!
+        val raw = IllegalStateException("node refused the transaction")
+        val solanaProvider = mockk<EmbeddedSolanaWalletProvider>()
+        coEvery { solanaProvider.signAndSendTransaction(any(), any(), any()) } throws raw
+        val solanaWallet = mockk<EmbeddedSolanaWallet>().also {
+            every { it.address } returns SOLANA_WALLET
+            every { it.provider } returns solanaProvider
+        }
+        every { user.embeddedSolanaWallets } returns listOf(solanaWallet)
+        val manager = PrivyManager(privy)
+
+        val error = runCatching {
+            manager.signAndSendSolanaTransaction(ByteArray(8), SolanaCluster.DevNet, RPC)
+        }.exceptionOrNull()
+
+        // The call site rethrows what it cannot map; the session coordinator converts it before it
+        // leaves the adapter, so core's withdrawal wrapper sees a RainError, never its InternalError.
+        assertThat(error).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(error?.cause).isSameInstanceAs(raw)
     }
 
     @Test

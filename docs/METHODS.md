@@ -201,9 +201,15 @@ vendor-shaped details are worth knowing:
 **Bring your own provider:** implement the `WalletProvider` port and a `RainProvider` descriptor
 (with your own `ProviderId`), then `register(...)` it. Convert your vendor's exceptions to `RainError`
 before they leave your adapter, the way Rain's own adapters do in their session coordinators: core
-rethrows a `RainError` untouched and wraps anything else as `ProviderError` after its shared prose
-heuristics, so a vendor exception that escapes loses the specific code a host branches on, and an
-expired session then arrives as a generic error with no re-authentication hook. Core needs no change — the transaction-building methods
+passes a `RainError` through with its code (the withdrawal paths alone rewrap a simulation failure
+as `WithdrawalRevertedByNetwork`); anything else it wraps as `ProviderError` after its shared prose
+heuristics, with two exceptions. On `estimateGas`, `estimateWithdrawalFee` and the Solana
+`withdrawCollateral` / `prepareWithdrawal` paths a raw exception floors at `InternalError`, and the
+hooks core calls before it enters a wrapper (the EVM wallet-address read, `requireSendSupport` on
+`withdrawCollateral` and `prepareWithdrawal`, and `sponsorsFees` on `estimateWithdrawalFee`) are
+not wrapped at all, so a raw exception there reaches the host as thrown. A vendor exception that
+escapes therefore loses the specific code a host branches on, and an expired session arrives as a
+generic error with no re-authentication hook. Core needs no change: the transaction-building
 utilities are available regardless of which provider you register.
 
 ---
@@ -274,7 +280,11 @@ accounts are supported; the wallet must be the account's owner.
   its managed-broadcast coverage throws `RainError.ChainNotSupported` (`RAIN_105`) before anything
   is read or signed. A fee-sponsored withdrawal skips the self-paid dry run; a revert the provider
   reports after broadcast still surfaces as `WithdrawalRevertedByNetwork`. On Solana, a recipient
-  without a token account costs the owner rent, checked up front (`InsufficientFunds`).
+  without a token account costs the owner rent, checked up front (`InsufficientFunds`). A raw
+  provider failure during the Solana wallet-address read or send passes through the adapter's
+  session coordinator on Turnkey and Privy and arrives as its mapping: `ProviderError` (`RAIN_501`), `Unauthorized`
+  (`RAIN_202`) for a Turnkey 403, or a code the shared prose rules assign. One that nothing mapped
+  floors at `InternalError` (`RAIN_502`).
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
@@ -300,7 +310,11 @@ the transaction (the simulation is skipped when the provider sponsors fees).
 - **Returns:** `RainPreparedWithdrawal` — `Evm(RainTransactionParameters)` carrying a complete,
   submittable transaction (`from` / `to` / `value` / `data`), or `Solana(UnsignedSolanaTransfer)`
   carrying the serialized unsigned transaction plus its `recentBlockhash`.
-- **Throws:** `RainError` if construction or signing fails.
+- **Throws:** `RainError` if construction or signing fails. On Solana, the wallet-address read passes
+  through the adapter's session coordinator on Turnkey and Privy, so a raw provider failure there
+  arrives as its mapping: `ProviderError` (`RAIN_501`), `Unauthorized` (`RAIN_202`) for a Turnkey
+  403, or a code the shared prose rules assign. One that nothing mapped floors at `InternalError`
+  (`RAIN_502`).
 - **Suspend:** Yes
 
 > A Solana blockhash is valid for roughly 150 slots (60–90 seconds). Submit promptly or re-prepare.
@@ -342,7 +356,7 @@ On Turnkey with `sponsorGas` enabled, EVM estimates on broadcast-supported chain
 every EVM send (transfers, withdrawals, approvals) is sponsored, so zero is the honest quote.
 
 - **Returns:** `BigDecimal` — estimated gas fee in the chain's native token (e.g. AVAX).
-- **Throws:** `RainError` if estimation fails. A vendor failure the adapter does not recognize arrives as `ProviderError` (RAIN_501); one whose text names a rejection or a funds shortfall arrives as that code. Core's own `InternalError` (RAIN_502) is reserved for failures raised inside core.
+- **Throws:** `RainError` if estimation fails. A node revert arrives as `TransactionSimulationFailed` (RAIN_403) on every adapter. Anything else depends on the adapter: Portal maps through its session coordinator, prose rules included, so an unrecognized Portal failure is `ProviderError` (RAIN_501) and one whose text names a funds shortfall is `InsufficientFunds`; Privy's own RPC client also maps a funds shortfall to `InsufficientFunds` and floors at `InternalError` (RAIN_502); Turnkey's self-paid estimate runs through core's RPC client and floors at `InternalError`. A raw exception from the estimate call that nothing mapped floors at `InternalError` as well.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
@@ -371,7 +385,7 @@ sponsored, so zero is the honest quote.
 > verifies (a placeholder would revert the estimate), so estimate-then-withdraw signs twice.
 
 - **Returns:** `BigDecimal`, the estimated withdrawal fee in the chain's native token.
-- **Throws:** `RainError` if estimation fails. A vendor failure the adapter does not recognize arrives as `ProviderError` (RAIN_501); one whose text names a rejection or a funds shortfall arrives as that code. Core's own `InternalError` (RAIN_502) is reserved for failures raised inside core.
+- **Throws:** `RainError` if estimation fails. A node revert arrives as `WithdrawalRevertedByNetwork` (RAIN_405) on every adapter, the withdrawal flow's rewrap of a simulation failure. Anything else depends on the adapter: Portal maps through its session coordinator, prose rules included, so an unrecognized Portal failure is `ProviderError` (RAIN_501) and one whose text names a funds shortfall is `InsufficientFunds`; Privy's own RPC client also maps a funds shortfall to `InsufficientFunds` and floors at `InternalError` (RAIN_502); Turnkey's self-paid estimate runs through core's RPC client and floors at `InternalError`. A raw exception from the estimate call that nothing mapped floors at `InternalError` as well.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |

@@ -43,7 +43,9 @@ choice of wallet provider at runtime.
 
 Upgrading from a core-only dependency: the `com.rain.sdk.turnkey` package used to ship inside
 `rain-core-android`. It now lives in `rain-turnkey-android`, so an app that registers
-`TurnkeyProvider` swaps its core coordinate for the adapter's. Imports do not change.
+`TurnkeyProvider` swaps its core coordinate for the adapter's. Imports do not change. Take both
+artifacts from the first release that carries the split; the version printed above is the catalog
+version at the time of writing.
 
 | Module        | Contains                                                                 |
 |---------------|--------------------------------------------------------------------------|

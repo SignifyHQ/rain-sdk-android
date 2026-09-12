@@ -39,7 +39,7 @@ android {
 }
 
 // The root build's subprojects block already forces the project onto a single Bouncy Castle
-// artifact (Turnkey's bcprov-jdk15to18), which web3j's transitive bcprov-jdk18on would otherwise
+// artifact (bcprov-jdk15to18, which core declares directly), which web3j's transitive bcprov-jdk18on would otherwise
 // duplicate. Kept here too as belt-and-suspenders for direct module builds.
 configurations.all {
     exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
@@ -49,9 +49,11 @@ dependencies {
     // Vendor-free core: exposes the WalletProvider port, models, registry, and domain logic.
     api(project(":rain-core-android"))
 
-    // Portal SDK — a private detail of this module. `implementation` keeps Portal's internals off
-    // the consumer's compile classpath; a Portal-only app links rain-portal-android and nothing else.
-    implementation(libs.portal.android)
+    // Portal SDK. `api` (not `implementation`) because PortalProvider's public constructor takes an
+    // `onPortalCreated: ((Portal) -> Unit)?` callback, which puts the `Portal` type in a signature
+    // consumers compile against. Same rule as rain-privy-android and rain-turnkey-android: a vendor
+    // type in a public Rain signature makes that dependency part of the API.
+    api(libs.portal.android)
 
     // Web3j for ABI encoding in Portal balance/transaction paths. See the BC note above.
     implementation(libs.web3j.core) {

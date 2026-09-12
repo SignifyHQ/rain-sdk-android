@@ -23,11 +23,19 @@ import java.math.BigDecimal
  * package for historical reasons but is part of the public API surface.
  *
  * Error contract: a failure leaves an implementation as a [com.rain.sdk.internal.error.RainError],
- * never as a vendor exception. Core rethrows a `RainError` untouched and wraps anything else as
- * `ProviderError` after its shared prose heuristics, so an adapter that lets a vendor type escape
- * loses the specific code a host branches on, `TokenExpired` above all. Rain's adapters convert
- * in their session coordinator, which every wallet call passes through; a creation-time probe
- * converts at its own call site.
+ * never as a vendor exception. Core passes a `RainError` through with its code, the withdrawal
+ * paths' rewrap of a simulation failure as `WithdrawalRevertedByNetwork` aside. Anything else it
+ * wraps as `ProviderError` after its shared prose heuristics, with two exceptions: on
+ * `estimateGas`, `estimateWithdrawalFee` and the Solana `withdrawCollateral` and
+ * `prepareWithdrawal` paths a raw exception floors at `InternalError`, and the hooks core calls
+ * before it enters a wrapper (the EVM wallet-address read, [requireSendSupport] on
+ * `withdrawCollateral` and `prepareWithdrawal`, and [sponsorsFees] on `estimateWithdrawalFee`)
+ * are not wrapped at all, so a raw exception there reaches the host as thrown. Either way an
+ * adapter that lets a vendor type escape loses the specific code a host branches on,
+ * `TokenExpired` above all. Rain's adapters convert in their session coordinator, which every
+ * wallet call passes through. Reads and estimates an adapter answers straight from an RPC node
+ * bypass it and raise core's error types directly. A creation-time probe converts at its own call
+ * site, and managed authentication converts at its own boundary.
  */
 interface WalletProvider {
     /**

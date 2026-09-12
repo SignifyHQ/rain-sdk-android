@@ -102,6 +102,11 @@ jobs:
             # exercises their consumer-rules.pro keep rules. The shrunk app is not RUN in
             # CI — runtime behavior under R8 stays unverified here.
             task: :app:assembleRelease
+          - name: Vendor-free classpaths
+            # The modular split at the dependency level: core resolves no wallet vendor SDK and
+            # each adapter resolves only its own. A green compile cannot prove this, since a
+            # vendor left on core's classpath is merely unused there.
+            task: checkVendorFreeClasspaths
     steps:
       - uses: actions/checkout@v4
 

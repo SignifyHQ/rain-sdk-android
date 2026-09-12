@@ -405,7 +405,8 @@ internal class PortalManager(
             if (e is CancellationException) throw e
             Timber.e(e, "Rain SDK: Failed to sign typed data")
             // Map Portal-specific failures (401 / invalid API key) here; anything else bubbles raw
-            // so core's ErrorMapper can classify it (user rejection, insufficient funds, ...).
+            // so the session coordinator can classify it (user rejection, insufficient funds, ...)
+            // before it leaves the adapter.
             PortalErrorMapping.mapAuthOrNull(e)?.let { throw it }
             throw e
         }

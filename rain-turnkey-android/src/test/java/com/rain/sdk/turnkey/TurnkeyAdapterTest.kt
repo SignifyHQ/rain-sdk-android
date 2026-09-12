@@ -368,7 +368,7 @@ class TurnkeyAdapterTest {
         // 1 ETH in wei = 0xde0b6b3a7640000
         rpc.stub(method = "eth_getBalance", result = "0xde0b6b3a7640000")
 
-        // 43113 (Avalanche Fuji) is outside TURNKEY_SUPPORTED_CHAINS, so the balance read
+        // 43113 (Avalanche Fuji) is outside BALANCE_API_CHAIN_IDS, so the balance read
         // falls through to the chain reader / RPC rather than the Turnkey indexer.
         val provider = makeProvider(chainId = 43113)
 

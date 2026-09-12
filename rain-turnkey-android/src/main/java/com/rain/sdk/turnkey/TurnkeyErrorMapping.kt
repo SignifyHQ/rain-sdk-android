@@ -12,10 +12,10 @@ import timber.log.Timber
  * vendor exception leaves this module and core never sees a Turnkey type. Two properties of
  * [classify] matter, and the tests pin both:
  *
- * - It is **total** for anything recognizably Turnkey — every [TurnkeyKotlinError] and every HTTP
- *   failure the vendor reports as a plain exception carrying the status in its message. Returning
- *   null for one of those would hand it to the prose heuristics, and a vendor error whose text
- *   happens to read "insufficient funds" or "user rejected" would change error code.
+ * - It is **total** for every [TurnkeyKotlinError]. For a plain HTTP failure carrying the status
+ *   in its message it claims only 401 (`TokenExpired`) and 403 (`Unauthorized`); any other status
+ *   returns null on purpose so the shared prose rules can read the body, pinned by the test
+ *   `an unclassified HTTP status falls through to the prose checks`.
  * - It returns null for everything else, which leaves the shared prose fallback in charge.
  */
 internal object TurnkeyErrorMapping {
@@ -41,7 +41,12 @@ internal object TurnkeyErrorMapping {
         return mapTurnkeyHttpStatus(t)
     }
 
-    /** [map] plus the authentication log line, for the managed-login catch-all boundary. */
+    /**
+     * [map] plus the authentication log line, for the managed-login catch-all boundary. On the
+     * auth-proxy calls (code request, code verification, login) nothing hands the throwable to the
+     * log: an auth-proxy failure can echo the user's contact address, so only the code and the class
+     * name are recorded, and no step of the mapping logs the throwable itself.
+     */
     fun mapAuthError(e: Throwable): RainError {
         val mapped = map(e)
         // No throwable in this log line: an auth-proxy failure can echo the user's contact address.
@@ -63,11 +68,12 @@ internal object TurnkeyErrorMapping {
      *    exists yet, so 401/403 cannot mean an expired session or a permission problem
      *  - Wrapper errors with an underlying cause → recurse / classify the cause's vendor prose
      *  - Everything else → ProviderError
+     *
+     * Logs nothing itself: the session coordinator records an unmapped failure at its boundary, and
+     * the auth-proxy calls must not put the throwable in the log at all.
      */
     @Suppress("ReturnCount") // one return per vendor variant reads better than a nested when
     fun mapTurnkeyError(e: TurnkeyKotlinError): RainError {
-        Timber.e(e, "Rain SDK: Turnkey error")
-
         when (e) {
             is TurnkeyKotlinError.InvalidSession -> return RainError.TokenExpired()
 

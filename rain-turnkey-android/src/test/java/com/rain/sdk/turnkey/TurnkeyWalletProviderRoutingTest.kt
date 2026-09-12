@@ -12,7 +12,7 @@ import java.math.BigInteger
 
 /**
  * Verifies the chain-routing decision in [TurnkeyWalletProvider]:
- *  - Chains in [com.rain.sdk.internal.constants.RainConstants.TURNKEY_SUPPORTED_CHAINS] go
+ *  - Chains in [TurnkeyBroadcastChains.BALANCE_API_CHAIN_IDS] go
  *    through Turnkey's `get_wallet_address_balances`.
  *  - Anything else falls through to the injected [com.rain.sdk.internal.network.chainreader.ChainReader].
  *  - `getERC20Balance` is delegated to the ChainReader unconditionally — same RPC call

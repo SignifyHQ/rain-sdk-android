@@ -694,6 +694,30 @@ class TurnkeySolanaProviderTest {
         assertThat(result).isEqualTo(turnkeySignature)
     }
 
+    /**
+     * A raw failure from Turnkey's send is not a [RainError], so the session coordinator maps it
+     * before it leaves the adapter: core's withdrawal wrapper then sees `ProviderError`, not the
+     * `InternalError` it puts around anything unmapped. Pins the Solana half of the error boundary
+     * that `withdrawCollateral` relies on for its send.
+     */
+    @Test
+    fun `sendSolanaTransaction maps a raw send failure to ProviderError before it leaves the adapter`() {
+        val raw = RuntimeException("node refused the transaction")
+        val client = MockTurnkeyClient().apply { solSendTransactionError = raw }
+        val provider = makeProvider(client = client)
+        val unsigned = UnsignedSolanaTransfer(
+            transaction = ByteArray(8),
+            recentBlockhash = MockTurnkey.DEFAULT_SOLANA_ADDRESS
+        )
+
+        val ex = assertThrows(RainError.ProviderError::class.java) {
+            runBlocking { provider.sendSolanaTransaction(devnet, unsigned) }
+        }
+
+        assertThat(ex.cause).isSameInstanceAs(raw)
+        assertThat(client.solSendTransactionCalls).hasSize(1)
+    }
+
     @Test
     fun `sendNativeToken on solana rejects sub-lamport precision before contacting anything`() {
         val client = MockTurnkeyClient()
