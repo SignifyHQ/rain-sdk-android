@@ -193,7 +193,7 @@ class PrivySessionCoordinatorTest {
     }
 
     @Test
-    fun `transient failures beyond maxTransientRetries surface the original error`() {
+    fun `transient failures beyond maxTransientRetries surface as ProviderError carrying the cause`() {
         val user = mockk<PrivyUser>()
         val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
         val privy = authenticatedPrivy(auth, user)
@@ -205,7 +205,7 @@ class PrivySessionCoordinatorTest {
         )
         var attempts = 0
 
-        val thrown = assertThrows(IOException::class.java) {
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeRead<String> {
                     attempts++
@@ -213,7 +213,8 @@ class PrivySessionCoordinatorTest {
                 }
             }
         }
-        assertThat(thrown).hasMessageThat().contains("connection reset")
+        assertThat(thrown).hasCauseThat().isInstanceOf(IOException::class.java)
+        assertThat(thrown).hasCauseThat().hasMessageThat().contains("connection reset")
         assertThat(attempts).isEqualTo(3)
         assertThat(delays.delays).hasSize(2)
     }
@@ -234,9 +235,10 @@ class PrivySessionCoordinatorTest {
             delayRecorder = delays,
         )
 
-        assertThrows(NoNetworkException::class.java) {
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
             runBlocking { coordinator.executeRead<String> { throw NoNetworkException } }
         }
+        assertThat(thrown.cause).isSameInstanceAs(NoNetworkException)
         assertThat(delays.delays).containsExactly(500L, 1000L, 1000L, 1000L).inOrder()
     }
 
@@ -248,7 +250,7 @@ class PrivySessionCoordinatorTest {
         var attempts = 0
         val coordinator = coordinator(privy)
 
-        assertThrows(NoNetworkException::class.java) {
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeWrite<String> {
                     attempts++
@@ -256,6 +258,7 @@ class PrivySessionCoordinatorTest {
                 }
             }
         }
+        assertThat(thrown.cause).isSameInstanceAs(NoNetworkException)
         assertThat(attempts).isEqualTo(1)
     }
 
@@ -267,7 +270,8 @@ class PrivySessionCoordinatorTest {
         var attempts = 0
         val coordinator = coordinator(privy)
 
-        assertThrows(IllegalStateException::class.java) {
+        // Not an auth failure and not transient, so it leaves once, as a RainError rather than raw.
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeRead<String> {
                     attempts++
@@ -275,7 +279,76 @@ class PrivySessionCoordinatorTest {
                 }
             }
         }
+        assertThat(thrown).hasCauseThat().isInstanceOf(IllegalStateException::class.java)
         assertThat(attempts).isEqualTo(1)
+    }
+
+    // ---------- the boundary: nothing leaves as a vendor type ----------
+
+    @Test
+    fun `a RainError raised inside the block passes through the boundary untouched`() {
+        val user = mockk<PrivyUser>()
+        val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
+        val coordinator = coordinator(authenticatedPrivy(auth, user))
+        val raised = RainError.InvalidConfig("no RPC endpoint")
+
+        val thrown = assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking { coordinator.executeRead<String> { throw raised } }
+        }
+        assertThat(thrown).isSameInstanceAs(raised)
+    }
+
+    @Test
+    fun `a cancellation raised inside the block is rethrown as itself, never mapped`() {
+        val user = mockk<PrivyUser>()
+        val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
+        val coordinator = coordinator(authenticatedPrivy(auth, user))
+        val cancel = kotlinx.coroutines.CancellationException("caller went away")
+
+        val thrown = assertThrows(kotlinx.coroutines.CancellationException::class.java) {
+            runBlocking { coordinator.executeRead<String> { throw cancel } }
+        }
+        assertThat(thrown).isSameInstanceAs(cancel)
+    }
+
+    @Test
+    fun `a bare TokenExpired raised inside the block is an auth failure, not a mapped failure`() {
+        val user = mockk<PrivyUser>()
+        val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
+        var hookCalls = 0
+        val coordinator = coordinator(authenticatedPrivy(auth, user), onSessionExpired = { hookCalls++ })
+
+        assertThrows(RainError.TokenExpired::class.java) {
+            runBlocking { coordinator.executeRead<String> { throw RainError.TokenExpired() } }
+        }
+        assertThat(hookCalls).isEqualTo(1)
+    }
+
+    @Test
+    fun `an unmapped failure is logged once at warning level and a RainError not at all`() {
+        val user = mockk<PrivyUser>()
+        val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
+        val coordinator = coordinator(authenticatedPrivy(auth, user))
+        val raw = IllegalStateException("bad request shape")
+        val entries = mutableListOf<Pair<Int, Throwable?>>()
+        val tree = object : timber.log.Timber.Tree() {
+            override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+                entries += priority to t
+            }
+        }
+        timber.log.Timber.plant(tree)
+        try {
+            runCatching { runBlocking { coordinator.executeRead<String> { throw raw } } }
+            val vendorEntries = entries.toList()
+            entries.clear()
+            runCatching { runBlocking { coordinator.executeRead<String> { throw RainError.InvalidConfig("ours") } } }
+            assertThat(vendorEntries).hasSize(1)
+            assertThat(vendorEntries.single().first).isEqualTo(android.util.Log.WARN)
+            assertThat(vendorEntries.single().second).isSameInstanceAs(raw)
+            assertThat(entries).isEmpty()
+        } finally {
+            timber.log.Timber.uproot(tree)
+        }
     }
 
     // ---------- manual refresh ----------

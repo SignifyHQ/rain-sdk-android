@@ -1,9 +1,11 @@
 package com.rain.sdk.internal.utils
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.SolanaChains
 
 /** CAIP-2 chain-ID namespaces: EIP-155 (`eip155:1`) and Solana (`solana:<genesis>`). */
-internal enum class ChainIdFormat(val prefix: String) {
+@RainAdapterApi
+enum class ChainIdFormat(val prefix: String) {
     EIP155("eip155"),
     SOLANA("solana");
 

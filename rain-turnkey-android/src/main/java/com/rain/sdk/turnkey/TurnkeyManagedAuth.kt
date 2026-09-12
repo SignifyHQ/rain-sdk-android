@@ -1,7 +1,6 @@
 package com.rain.sdk.turnkey
 
 import android.app.Application
-import com.rain.sdk.internal.error.ErrorMapper
 import com.rain.sdk.internal.error.RainError
 import com.turnkey.core.TurnkeyContext
 import com.turnkey.core.models.AuthState
@@ -161,7 +160,6 @@ internal class TurnkeyManagedAuthController(
     private val context: TurnkeyContextProtocol,
     private val coordinator: TurnkeySessionCoordinator,
     private val configure: suspend () -> RainError?,
-    private val errorMapper: ErrorMapper = ErrorMapper(),
     private val nowEpochSeconds: () -> Double = { System.currentTimeMillis() / MILLIS_PER_SECOND },
 ) {
     private data class PendingOtp(val challenge: OtpChallenge, val contact: String)
@@ -281,7 +279,7 @@ internal class TurnkeyManagedAuthController(
      * is harmless: the retry surfaces [RainError.InvalidLoginCode] and the user requests a new code.
      */
     private fun dropChallengeUnlessVerifyFailed(e: Exception) {
-        if (!ErrorMapper.isLoginCodeVerifyFailure(e)) clearPendingOtp()
+        if (!TurnkeyErrorMapping.isLoginCodeVerifyFailure(e)) clearPendingOtp()
     }
 
     /** Drops a pending challenge issued for another contact or channel; a same-contact resend keeps it. */
@@ -543,7 +541,7 @@ internal class TurnkeyManagedAuthController(
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
             onVendorFailure?.invoke(e)
-            throw errorMapper.mapAuthError(e)
+            throw TurnkeyErrorMapping.mapAuthError(e)
         }
     }
 

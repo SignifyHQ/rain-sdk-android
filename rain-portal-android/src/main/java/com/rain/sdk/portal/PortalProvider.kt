@@ -48,8 +48,8 @@ class PortalConfig(
 /**
  * Portal adapter — the registrable [RainProvider] for Portal's MPC signer.
  *
- * Lives in the `rain-portal-android` module and owns the `portal-android` dependency as a private
- * detail. Core never imports Portal; linking this module is what pulls Portal onto the classpath.
+ * Lives in the `rain-portal-android` module and owns the `portal-android` dependency. Core never
+ * imports Portal; linking this module is what pulls Portal onto the classpath.
  *
  * @param onPortalCreated Optional hook invoked with the underlying [Portal] instance once it is
  *   constructed during resolution, for Portal-specific APIs like `backupWallet`/`recoverWallet`.

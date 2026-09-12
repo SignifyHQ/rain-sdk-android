@@ -191,10 +191,11 @@ internal class PrivyManager(
      *
      * Privy vendor exceptions classify into specific [RainError] cases here via
      * [PrivyErrorMapping] (invalid session, user rejection, insufficient funds, missing wallet).
-     * Non-Privy failures bubble up raw (only logged here) rather than being
-     * wrapped: core's `TransactionExecutor` / `TransactionSigner` short-circuit on any
-     * `RainError` before their `ErrorMapper` runs, so pre-wrapping those would hide
-     * user-rejection / insufficient-funds behind a generic `ProviderError`.
+     * Non-Privy failures bubble up raw (logged here with the operation, and once more by the
+     * session coordinator when it maps them) rather than being wrapped: the session coordinator
+     * maps them with [PrivyErrorMapping.map] before they leave the adapter, which
+     * reads the node's prose first, so a user rejection or funds shortfall keeps its specific
+     * code instead of hiding behind a generic `ProviderError`.
      */
     private suspend fun request(
         wallet: EmbeddedEthereumWallet,

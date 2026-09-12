@@ -13,18 +13,4 @@ internal object RainConstants {
      * pulling a provider SDK's namespace enum into core.
      */
     const val EIP155_NAMESPACE = "eip155"
-
-    /**
-     * Chains for which the Turnkey `get-balances` API returns data.
-     * On any other chain, balance reads fall through to `ChainReader`.
-     * Source: https://docs.turnkey.com/api-reference/queries/get-balances
-     */
-    val TURNKEY_SUPPORTED_CHAINS: Set<Int> = setOf(
-        1, // Ethereum Mainnet
-        11155111, // Sepolia
-        8453, // Base Mainnet
-        84532, // Base Sepolia
-        137, // Polygon Mainnet
-        80002 // Polygon Amoy
-    )
 }

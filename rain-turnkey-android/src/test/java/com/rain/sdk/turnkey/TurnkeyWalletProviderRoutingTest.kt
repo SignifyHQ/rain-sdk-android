@@ -1,8 +1,6 @@
 package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.helpers.MockChainReader
-import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import com.turnkey.types.V1AssetBalance
@@ -14,7 +12,7 @@ import java.math.BigInteger
 
 /**
  * Verifies the chain-routing decision in [TurnkeyWalletProvider]:
- *  - Chains in [com.rain.sdk.internal.constants.RainConstants.TURNKEY_SUPPORTED_CHAINS] go
+ *  - Chains in [TurnkeyBroadcastChains.BALANCE_API_CHAIN_IDS] go
  *    through Turnkey's `get_wallet_address_balances`.
  *  - Anything else falls through to the injected [com.rain.sdk.internal.network.chainreader.ChainReader].
  *  - `getERC20Balance` is delegated to the ChainReader unconditionally — same RPC call

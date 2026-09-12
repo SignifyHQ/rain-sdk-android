@@ -14,6 +14,7 @@ package com.rain.sdk.turnkey
         "provider or bring-your-own TurnkeyConfig(turnkey). No compatibility guarantees.",
 )
 @Retention(AnnotationRetention.BINARY)
+@MustBeDocumented
 @Target(
     AnnotationTarget.CLASS,
     AnnotationTarget.CONSTRUCTOR,

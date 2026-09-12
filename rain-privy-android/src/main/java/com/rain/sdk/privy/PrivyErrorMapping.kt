@@ -19,10 +19,23 @@ import io.privy.wallet.EmbeddedWalletException
  * failures classify by message. Rejection and funds-shortfall prose goes through core's
  * [VendorErrorClassifier] so Privy is held to the same standard as every other vendor.
  *
- * Non-Privy exceptions return `null` and keep bubbling raw, so core's `ErrorMapper` fallbacks
- * (and the tests pinning that behavior) still apply.
+ * Non-Privy exceptions return `null` from [mapOrNull] and keep bubbling raw inside the adapter.
+ * [map], which [PrivySessionCoordinator] applies to everything that leaves the adapter, reads them
+ * by the shared prose rules and floors at [RainError.ProviderError], so a user rejection or funds
+ * shortfall in a node message still classifies rather than hiding behind a generic error.
  */
 internal object PrivyErrorMapping {
+
+    /**
+     * The total mapping for every failure that leaves the adapter: a [RainError] passes through,
+     * a Privy exception maps by type via [mapOrNull], and anything else is read by the shared
+     * prose rules before flooring at [RainError.ProviderError].
+     */
+    fun map(e: Throwable): RainError =
+        e as? RainError
+            ?: mapOrNull(e)
+            ?: VendorErrorClassifier.fromVendorError(e)
+            ?: RainError.ProviderError(e)
 
     fun mapOrNull(e: Throwable): RainError? = when (e) {
         is AuthenticationException -> mapAuthenticationException(e)

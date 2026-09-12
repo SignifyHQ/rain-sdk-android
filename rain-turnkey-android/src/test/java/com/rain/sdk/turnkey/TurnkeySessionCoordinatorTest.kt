@@ -2,7 +2,6 @@ package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.internal.helpers.assumeJdk24
 import com.turnkey.core.models.AuthState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -259,12 +258,13 @@ class TurnkeySessionCoordinatorTest {
             delayRecorder = delays
         )
 
-        val thrown = assertThrows(IOException::class.java) {
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeRead { s, c -> c.getActivities(activitiesBody(s.organizationId)) }
             }
         }
-        assertThat(thrown).hasMessageThat().contains("connection reset")
+        assertThat(thrown).hasCauseThat().isInstanceOf(IOException::class.java)
+        assertThat(thrown).hasCauseThat().hasMessageThat().contains("connection reset")
         assertThat(client.getActivitiesCalls).hasSize(3)
         assertThat(delays.delays).hasSize(2)
     }
@@ -285,7 +285,7 @@ class TurnkeySessionCoordinatorTest {
             delayRecorder = delays
         )
 
-        assertThrows(IOException::class.java) {
+        assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeRead { s, c -> c.getActivities(activitiesBody(s.organizationId)) }
             }
@@ -300,13 +300,14 @@ class TurnkeySessionCoordinatorTest {
         client.ethSendTransactionError = IOException("timed out")
         val coordinator = coordinator(turnkey)
 
-        assertThrows(IOException::class.java) {
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeWrite { s, c ->
                     c.ethSendTransaction(sendBody(s.organizationId))
                 }
             }
         }
+        assertThat(thrown).hasCauseThat().isInstanceOf(IOException::class.java)
         assertThat(client.ethSendTransactionCalls).hasSize(1)
     }
 
@@ -317,13 +318,120 @@ class TurnkeySessionCoordinatorTest {
         client.getActivitiesError = RuntimeException("HTTP error from /activities: 400")
         val coordinator = coordinator(turnkey)
 
-        assertThrows(RuntimeException::class.java) {
+        assertThrows(RainError.ProviderError::class.java) {
             runBlocking {
                 coordinator.executeRead { s, c -> c.getActivities(activitiesBody(s.organizationId)) }
             }
         }
         assertThat(client.getActivitiesCalls).hasSize(1)
         assertThat(turnkey.refreshSessionCallCount).isEqualTo(0)
+    }
+
+    // ---------- the boundary: nothing leaves as a vendor type ----------
+
+    @Test
+    fun `a vendor failure the coordinator does not retry leaves as its Rain error, not raw`() {
+        val turnkey = MockTurnkey()
+        val client = turnkey.turnkeyClient as MockTurnkeyClient
+        // 403 is neither a session problem (401) nor transient, so it takes the else branch.
+        client.getActivitiesError = RuntimeException("HTTP error from /activities: 403")
+        val coordinator = coordinator(turnkey)
+
+        assertThrows(RainError.Unauthorized::class.java) {
+            runBlocking {
+                coordinator.executeRead { s, c -> c.getActivities(activitiesBody(s.organizationId)) }
+            }
+        }
+        assertThat(turnkey.refreshSessionCallCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `a RainError raised inside the block passes through the boundary untouched`() {
+        val turnkey = MockTurnkey()
+        val coordinator = coordinator(turnkey)
+        val raised = RainError.InvalidConfig("no RPC endpoint")
+
+        val thrown = assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking { coordinator.executeRead<String> { _, _ -> throw raised } }
+        }
+        assertThat(thrown).isSameInstanceAs(raised)
+    }
+
+    @Test
+    fun `a cancellation raised inside the block is rethrown as itself, never mapped`() {
+        val turnkey = MockTurnkey()
+        val coordinator = coordinator(turnkey)
+        val cancel = kotlinx.coroutines.CancellationException("caller went away")
+
+        val thrown = assertThrows(kotlinx.coroutines.CancellationException::class.java) {
+            runBlocking { coordinator.executeRead<String> { _, _ -> throw cancel } }
+        }
+        assertThat(thrown).isSameInstanceAs(cancel)
+        assertThat(turnkey.refreshSessionCallCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `a typed vendor error that is neither auth nor transient leaves with its Rain code`() {
+        val turnkey = MockTurnkey()
+        val client = turnkey.turnkeyClient as MockTurnkeyClient
+        client.getActivitiesError = com.turnkey.core.models.errors.TurnkeyKotlinError.ClientNotInitialized()
+        val coordinator = coordinator(turnkey)
+
+        assertThrows(RainError.InternalError::class.java) {
+            runBlocking {
+                coordinator.executeRead { s, c -> c.getActivities(activitiesBody(s.organizationId)) }
+            }
+        }
+        assertThat(turnkey.refreshSessionCallCount).isEqualTo(0)
+        assertThat(client.getActivitiesCalls).hasSize(1)
+    }
+
+    @Test
+    fun `a TokenExpired raised inside the block takes the refresh branch, not the map branch`() = runBlocking {
+        val turnkey = MockTurnkey()
+        turnkey.onRefreshSession = { turnkey.session = MockTurnkey.defaultSession() }
+        val coordinator = coordinator(turnkey)
+        var attempts = 0
+
+        val result = coordinator.executeRead<String> { _, _ ->
+            if (attempts++ == 0) throw RainError.TokenExpired() else "ok"
+        }
+
+        assertThat(result).isEqualTo("ok")
+        assertThat(attempts).isEqualTo(2)
+        assertThat(turnkey.refreshSessionCallCount).isEqualTo(1)
+    }
+
+    @Test
+    fun `an unmapped failure is logged once at warning level and a RainError not at all`() {
+        val turnkey = MockTurnkey()
+        val client = turnkey.turnkeyClient as MockTurnkeyClient
+        val raw = RuntimeException("HTTP error from /activities: 403")
+        client.getActivitiesError = raw
+        val coordinator = coordinator(turnkey)
+        val entries = mutableListOf<Pair<Int, Throwable?>>()
+        val tree = object : timber.log.Timber.Tree() {
+            override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+                entries += priority to t
+            }
+        }
+        timber.log.Timber.plant(tree)
+        try {
+            runCatching {
+                runBlocking { coordinator.executeRead { s, c -> c.getActivities(activitiesBody(s.organizationId)) } }
+            }
+            val vendorEntries = entries.toList()
+            entries.clear()
+            runCatching {
+                runBlocking { coordinator.executeRead<String> { _, _ -> throw RainError.InvalidConfig("ours") } }
+            }
+            assertThat(vendorEntries).hasSize(1)
+            assertThat(vendorEntries.single().first).isEqualTo(android.util.Log.WARN)
+            assertThat(vendorEntries.single().second).isSameInstanceAs(raw)
+            assertThat(entries).isEmpty()
+        } finally {
+            timber.log.Timber.uproot(tree)
+        }
     }
 
     // ---------- concurrency ----------

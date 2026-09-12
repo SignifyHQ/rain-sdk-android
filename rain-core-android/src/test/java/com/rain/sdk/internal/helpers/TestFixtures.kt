@@ -9,24 +9,7 @@ import com.rain.sdk.internal.network.chainreader.ChainReader
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.RainAdminSignature
-import org.junit.Assume.assumeTrue
 import java.util.Base64
-
-/**
- * Skips the calling test when the host JVM is older than JDK 24.
- *
- * Turnkey's published AAR — and `ErrorMapper`, which references `TurnkeyKotlinError` — are
- * compiled to class-file major version 68 (Java 24). Any test that transitively touches
- * those classes must gate on this so it skips cleanly on the JDK 21 bundled with Android
- * Studio rather than blowing up with `UnsupportedClassVersionError`.
- */
-internal fun assumeJdk24() {
-    val major = System.getProperty("java.version")?.substringBefore('.')?.toIntOrNull() ?: 0
-    assumeTrue(
-        "Turnkey SDK / ErrorMapper transitively load JDK-24 classes. Current: $major",
-        major >= 24
-    )
-}
 
 /**
  * Shared test fixtures: canonical addresses, salts, and signatures so manager-contract

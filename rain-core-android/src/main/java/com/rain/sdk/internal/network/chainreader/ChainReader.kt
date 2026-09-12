@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.network.chainreader
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
@@ -9,19 +10,20 @@ import java.math.BigInteger
 /**
  * Provider-agnostic, read-only on-chain query surface.
  *
- * One place for reading state from any chain the SDK consumer has configured. Used by
- * `TurnkeyWalletProvider` to fill in balances on chains outside the Turnkey `get-balances`
- * allowlist, and available to any future wallet-provider adapter that needs the same
- * fallback.
+ * One place for reading state from any chain the SDK consumer has configured. An adapter whose
+ * vendor serves balances for only some chains uses this to fill in the rest, and it is available
+ * to any wallet-provider adapter that needs the same fallback.
  *
  * V1 surface is balances. Future reads (allowances, generic `eth_call` wrappers) belong on
  * this interface so call sites don't fragment.
  *
  * Implementations exist per chain family. [EvmChainReader] covers all EIP-155 chains via
- * JSON-RPC. A future Solana/Stellar reader can implement this alongside it; until then,
- * `chainId: Int` matches the rest of the SDK's EVM-centric typing.
+ * JSON-RPC and [SolanaChainReader] covers the Solana clusters; a Stellar reader would sit
+ * alongside them. `chainId: Int` matches the rest of the SDK's typing, with Rain's own sentinel
+ * ids standing in for chains that have no EIP-155 number.
  */
-internal interface ChainReader {
+@RainAdapterApi
+interface ChainReader {
     /**
      * Native balance (e.g. ETH on Ethereum, AVAX on Avalanche). Result is in
      * human-readable form (e.g. `1.5` for 1.5 ETH).
@@ -105,7 +107,8 @@ internal interface ChainReader {
 internal const val LATEST_BLOCK = "latest"
 
 /** A mined transaction's outcome and the block it landed in, so a read can be pinned to that block. */
-internal data class MinedReceipt(
+@RainAdapterApi
+data class MinedReceipt(
     /** `true` when the transaction mined successfully, `false` when it mined but reverted. */
     val succeeded: Boolean,
 

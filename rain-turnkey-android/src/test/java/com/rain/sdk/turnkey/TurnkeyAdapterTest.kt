@@ -2,9 +2,6 @@ package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.internal.helpers.MockRpcServer
-import com.rain.sdk.internal.helpers.TestFixtures
-import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.models.Token
 import com.rain.sdk.provider.Capability
 import kotlinx.coroutines.runBlocking
@@ -21,7 +18,7 @@ import org.junit.Test
  * edge cases.
  *
  * Gated on JDK 24+ because the Turnkey AAR is compiled to major class version 68 — see
- * [com.rain.sdk.internal.core.RainSdkManagerTurnkeyTest] for the same pattern. The whole
+ * [TurnkeyWalletFlowTest] for the same pattern. The whole
  * test class would fail to load on JDK 21 since its method/field signatures touch Turnkey
  * types directly — but JUnit reflects on `@Test` methods individually, so per-test `@Before`
  * gating still works for the parameter-free public methods below.
@@ -78,7 +75,7 @@ class TurnkeyAdapterTest {
         val txHash = provider.sendTransaction(
             chainId = 1,
             from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
-            to = TestFixtures.RECIPIENT_ADDRESS,
+            to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
             data = "0x",
             value = "0x0"
         )
@@ -107,7 +104,7 @@ class TurnkeyAdapterTest {
         val txHash = provider.sendTransaction(
             chainId = 1,
             from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
-            to = TestFixtures.TOKEN_ADDRESS,
+            to = TurnkeyTestFixtures.TOKEN_ADDRESS,
             data = approveCalldata,
             value = "0x0"
         )
@@ -127,7 +124,7 @@ class TurnkeyAdapterTest {
 
         assertThrows(RainError.InvalidAmount::class.java) {
             runBlocking {
-                provider.sendNativeToken(1, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("-1"))
+                provider.sendNativeToken(1, TurnkeyTestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("-1"))
             }
         }
         assertThat(client.ethSendTransactionCalls).isEmpty()
@@ -144,7 +141,7 @@ class TurnkeyAdapterTest {
             runBlocking {
                 provider.sendNativeToken(
                     1,
-                    TestFixtures.RECIPIENT_ADDRESS,
+                    TurnkeyTestFixtures.RECIPIENT_ADDRESS,
                     java.math.BigDecimal("0.0000000000000000015")
                 )
             }
@@ -170,7 +167,7 @@ class TurnkeyAdapterTest {
                 provider.sendTransaction(
                     chainId = 1,
                     from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
-                    to = TestFixtures.RECIPIENT_ADDRESS,
+                    to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
                     data = "0x",
                     value = "0x0"
                 )
@@ -200,7 +197,7 @@ class TurnkeyAdapterTest {
                 provider.sendTransaction(
                     chainId = 1,
                     from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
-                    to = TestFixtures.RECIPIENT_ADDRESS,
+                    to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
                     data = "0x",
                     value = "0x0"
                 )
@@ -228,7 +225,7 @@ class TurnkeyAdapterTest {
                 provider.sendTransaction(
                     chainId = 1,
                     from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
-                    to = TestFixtures.RECIPIENT_ADDRESS,
+                    to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
                     data = "0x",
                     value = "0x0"
                 )
@@ -252,7 +249,7 @@ class TurnkeyAdapterTest {
                 provider.sendTransaction(
                     chainId = 1,
                     from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
-                    to = TestFixtures.RECIPIENT_ADDRESS,
+                    to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
                     data = "0x",
                     value = "0x0"
                 )
@@ -264,7 +261,7 @@ class TurnkeyAdapterTest {
     // ---- ethSendTransaction error propagation -----------------------------------
 
     @Test
-    fun `sendTransaction propagates ethSendTransaction failures`() {
+    fun `sendTransaction surfaces an ethSendTransaction failure as ProviderError`() {
         stubSendTransactionRPCs()
         val turnkey = MockTurnkey()
         (turnkey.turnkeyClient as MockTurnkeyClient).ethSendTransactionError =
@@ -276,16 +273,17 @@ class TurnkeyAdapterTest {
                 provider.sendTransaction(
                     chainId = 1,
                     from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
-                    to = TestFixtures.RECIPIENT_ADDRESS,
+                    to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
                     data = "0x",
                     value = "0x0"
                 )
             }
         }.exceptionOrNull()
-        // sendTransaction bubbles the underlying exception — RainSdkManager wraps it; here we
-        // assert the provider surfaced the underlying RuntimeException.
-        assertThat(ex).isInstanceOf(RuntimeException::class.java)
-        assertThat(ex?.message).contains("turnkey rejected send")
+        // The vendor failure leaves the adapter as a RainError, never raw: the session coordinator
+        // maps it, and core passes a RainError through untouched. Nothing recognizes this one, so
+        // it floors at ProviderError with the vendor exception as its cause.
+        assertThat(ex).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(ex?.cause?.message).contains("turnkey rejected send")
     }
 
     // ---- estimateTransactionFee via RPC -----------------------------------------
@@ -300,7 +298,7 @@ class TurnkeyAdapterTest {
         val fee = provider.estimateTransactionFee(
             chainId = 1,
             from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
-            to = TestFixtures.RECIPIENT_ADDRESS,
+            to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
             data = "0x",
             value = "0x0"
         )
@@ -321,7 +319,7 @@ class TurnkeyAdapterTest {
                 provider.estimateTransactionFee(
                     chainId = 1,
                     from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
-                    to = TestFixtures.RECIPIENT_ADDRESS,
+                    to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
                     data = "0x",
                     value = "0x0"
                 )
@@ -339,7 +337,7 @@ class TurnkeyAdapterTest {
         val provider = makeProvider()
         val balance = provider.getBalance(
             chainId = 1,
-            token = Token.Contract(TestFixtures.USDC_ADDRESS)
+            token = Token.Contract(TurnkeyTestFixtures.USDC_ADDRESS)
         )
 
         // USDC is in the chain-1 registry (decimals 6), so no extra metadata RPC is needed.
@@ -357,7 +355,7 @@ class TurnkeyAdapterTest {
             runBlocking {
                 provider.getBalance(
                     chainId = 1,
-                    token = Token.Contract(TestFixtures.USDC_ADDRESS)
+                    token = Token.Contract(TurnkeyTestFixtures.USDC_ADDRESS)
                 )
             }
         }
@@ -370,7 +368,7 @@ class TurnkeyAdapterTest {
         // 1 ETH in wei = 0xde0b6b3a7640000
         rpc.stub(method = "eth_getBalance", result = "0xde0b6b3a7640000")
 
-        // 43113 (Avalanche Fuji) is outside TURNKEY_SUPPORTED_CHAINS, so the balance read
+        // 43113 (Avalanche Fuji) is outside BALANCE_API_CHAIN_IDS, so the balance read
         // falls through to the chain reader / RPC rather than the Turnkey indexer.
         val provider = makeProvider(chainId = 43113)
 
@@ -390,7 +388,7 @@ class TurnkeyAdapterTest {
                 provider.sendTransaction(
                     chainId = 1,
                     from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
-                    to = TestFixtures.RECIPIENT_ADDRESS,
+                    to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
                     data = "0x",
                     value = "0x0"
                 )
@@ -410,7 +408,7 @@ class TurnkeyAdapterTest {
     // ---- getTransactions error propagation --------------------------------------
 
     @Test
-    fun `getTransactions propagates getActivities failure as raw RuntimeException`() {
+    fun `getTransactions surfaces a getActivities failure as ProviderError`() {
         val turnkey = MockTurnkey()
         (turnkey.turnkeyClient as MockTurnkeyClient).getActivitiesError =
             RuntimeException("service unavailable")
@@ -419,15 +417,15 @@ class TurnkeyAdapterTest {
         val ex = runCatching {
             runBlocking { provider.getTransactions(chainId = 1) }
         }.exceptionOrNull()
-        // Bare provider exposes the underlying exception; RainSdkManager wraps via ErrorMapper.
-        assertThat(ex).isInstanceOf(RuntimeException::class.java)
-        assertThat(ex?.message).contains("service unavailable")
+        // Leaves as a RainError carrying the vendor failure, mapped at the session coordinator.
+        assertThat(ex).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(ex?.cause?.message).contains("service unavailable")
     }
 
     // ---- signTypedData failure --------------------------------------------------
 
     @Test
-    fun `signTypedData propagates signRawPayload failures`() {
+    fun `signTypedData surfaces a signRawPayload failure as ProviderError`() {
         val turnkey = MockTurnkey()
         turnkey.signRawPayloadError =
             RuntimeException("hardware key denied")
@@ -442,12 +440,11 @@ class TurnkeyAdapterTest {
                 )
             }
         }.exceptionOrNull()
-        // Bare provider surfaces the underlying exception unwrapped; RainSdkManager would
-        // wrap it via ErrorMapper.mapSigningError. Pin the type so a future implicit-wrap
-        // refactor fails this test instead of silently passing.
-        assertThat(ex).isInstanceOf(RuntimeException::class.java)
-        assertThat(ex).isNotInstanceOf(RainError::class.java)
-        assertThat(ex?.message).contains("hardware key denied")
+        // The adapter is the boundary: a vendor failure leaves as a RainError, never unwrapped.
+        // Pin the type so a refactor that lets a raw vendor exception escape fails this test
+        // instead of silently passing.
+        assertThat(ex).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(ex?.cause?.message).contains("hardware key denied")
     }
 
     // ---- Broadcast-chain gate + gas sponsorship ---------------------------------
@@ -460,7 +457,7 @@ class TurnkeyAdapterTest {
 
         val error = assertThrows(RainError.ChainNotSupported::class.java) {
             runBlocking {
-                provider.sendNativeToken(43114, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal.ONE)
+                provider.sendNativeToken(43114, TurnkeyTestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal.ONE)
             }
         }
         assertThat(error.chainId).isEqualTo(43114)
@@ -479,8 +476,8 @@ class TurnkeyAdapterTest {
             runBlocking {
                 provider.sendToken(
                     chainId = 42220,
-                    contractAddress = TestFixtures.RECIPIENT_ADDRESS,
-                    toAddress = TestFixtures.RECIPIENT_ADDRESS,
+                    contractAddress = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
+                    toAddress = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
                     amount = java.math.BigDecimal.ONE,
                     decimals = 6
                 )
@@ -496,7 +493,7 @@ class TurnkeyAdapterTest {
         val provider = makeProvider(chainId = 902)
         assertThrows(RainError.ChainNotSupported::class.java) {
             runBlocking {
-                provider.sendNativeToken(902, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal.ONE)
+                provider.sendNativeToken(902, TurnkeyTestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal.ONE)
             }
         }
     }
@@ -515,7 +512,7 @@ class TurnkeyAdapterTest {
         }
         val provider = makeProvider(turnkey, sponsorGas = false)
 
-        val hash = provider.sendNativeToken(1, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
+        val hash = provider.sendNativeToken(1, TurnkeyTestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
 
         assertThat(hash).isEqualTo(expectedHash)
         val body = client.ethSendTransactionCalls.single()
@@ -542,7 +539,7 @@ class TurnkeyAdapterTest {
                 provider.sendTransaction(
                     chainId = 43114,
                     from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
-                    to = TestFixtures.RECIPIENT_ADDRESS,
+                    to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
                     data = "0x",
                     value = "0x0"
                 )
@@ -570,7 +567,7 @@ class TurnkeyAdapterTest {
         provider.sendTransaction(
             chainId = 1,
             from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
-            to = TestFixtures.RECIPIENT_ADDRESS,
+            to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
             data = "0x",
             value = "0x0"
         )
@@ -599,7 +596,7 @@ class TurnkeyAdapterTest {
         val fee = provider.estimateTransactionFee(
             chainId = 1,
             from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
-            to = TestFixtures.RECIPIENT_ADDRESS,
+            to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
             data = "0x",
             value = "0x0"
         )
@@ -622,7 +619,7 @@ class TurnkeyAdapterTest {
         }
         val provider = makeProvider(turnkey, sponsorGas = true)
 
-        val hash = provider.sendNativeToken(1, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
+        val hash = provider.sendNativeToken(1, TurnkeyTestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
 
         assertThat(hash).isEqualTo("0x" + "b".repeat(64))
         val body = client.ethSendTransactionCalls.single()
@@ -654,7 +651,7 @@ class TurnkeyAdapterTest {
 
         val ex = runCatching {
             runBlocking {
-                provider.sendNativeToken(1, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
+                provider.sendNativeToken(1, TurnkeyTestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
             }
         }.exceptionOrNull()
 
@@ -673,7 +670,7 @@ class TurnkeyAdapterTest {
         val fee = provider.estimateTransactionFee(
             chainId = 43114,
             from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
-            to = TestFixtures.RECIPIENT_ADDRESS,
+            to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
             data = "0x",
             value = "0x0"
         )
@@ -695,7 +692,7 @@ class TurnkeyAdapterTest {
         }
         val provider = makeProvider(turnkey, sponsorGas = true)
 
-        val hash = provider.sendNativeToken(1, TestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
+        val hash = provider.sendNativeToken(1, TurnkeyTestFixtures.RECIPIENT_ADDRESS, java.math.BigDecimal("0.01"))
 
         assertThat(hash).isEqualTo("0x" + "c".repeat(64))
         val body = client.ethSendTransactionCalls.single()

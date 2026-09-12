@@ -21,11 +21,27 @@ import java.math.BigDecimal
  * Public so host apps can ship their own implementations and register them via a
  * [com.rain.sdk.provider.RainProvider] descriptor. The interface lives in the `internal.provider`
  * package for historical reasons but is part of the public API surface.
+ *
+ * Error contract: a failure leaves an implementation as a [com.rain.sdk.internal.error.RainError],
+ * never as a vendor exception. Core passes a `RainError` through with its code, the withdrawal
+ * paths' rewrap of a simulation failure as `WithdrawalRevertedByNetwork` aside. Anything else it
+ * wraps as `ProviderError` after its shared prose heuristics, with two exceptions: on
+ * `estimateGas`, `estimateWithdrawalFee` and the Solana `withdrawCollateral` and
+ * `prepareWithdrawal` paths a raw exception floors at `InternalError`, and the hooks core calls
+ * before it enters a wrapper (the EVM wallet-address read, [requireSendSupport] on
+ * `withdrawCollateral` and `prepareWithdrawal`, and [sponsorsFees] on `estimateWithdrawalFee`)
+ * are not wrapped at all, so a raw exception there reaches the host as thrown. Either way an
+ * adapter that lets a vendor type escape loses the specific code a host branches on,
+ * `TokenExpired` above all. Rain's adapters convert in their session coordinator, which every
+ * wallet call passes through. Reads and estimates an adapter answers straight from an RPC node
+ * bypass it and raise core's error types directly. A creation-time probe converts at its own call
+ * site, and managed authentication converts at its own boundary.
  */
 interface WalletProvider {
     /**
      * Stable identifier for this provider. Defaults to a generated id for host-supplied providers
-     * that don't override it; the bundled adapters return [ProviderId.PORTAL] / [ProviderId.TURNKEY].
+     * that don't override it; Rain's own adapters return [ProviderId.PORTAL], [ProviderId.TURNKEY]
+     * or [ProviderId.PRIVY].
      */
     val id: ProviderId get() = ProviderId("custom")
 
@@ -40,7 +56,7 @@ interface WalletProvider {
      * flow that signs and broadcasts (withdrawals, Auth Pull approvals), so a chain the provider
      * cannot broadcast on fails closed before the contract reads and the signing prompt rather
      * than after them. A provider that can broadcast on every configured chain keeps the no-op
-     * default; the bundled Turnkey adapter consults its broadcast-chain registry.
+     * default; an adapter whose vendor broadcasts on a fixed set consults its own chain registry.
      *
      * @throws RainError.ChainNotSupported when this provider cannot broadcast on [chainId].
      */

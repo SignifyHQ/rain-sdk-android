@@ -6,7 +6,6 @@ import com.rain.sdk.internal.helpers.MockChainReader
 import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers
-import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertThrows
@@ -297,7 +296,6 @@ class RainSdkManagerSendTokenTest {
 
     @Test
     fun `sendNative wraps generic provider exception as ProviderError`() {
-        assumeJdk24()
         val failing = object : StubWalletProvider() {
             override suspend fun sendNativeToken(
                 chainId: Int,

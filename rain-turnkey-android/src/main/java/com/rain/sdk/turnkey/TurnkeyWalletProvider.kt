@@ -1,7 +1,6 @@
 package com.rain.sdk.turnkey
 
 import com.rain.sdk.internal.abi.Erc20Abi
-import com.rain.sdk.internal.constants.RainConstants
 import com.rain.sdk.internal.constants.SolanaChains
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.chainreader.ChainReader
@@ -59,11 +58,11 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Turnkey-based implementation of [WalletProvider]. Used when the SDK is initialized with
- * `initializeTurnkey(...)`.
+ * Turnkey-based implementation of [WalletProvider]. Materialized by [TurnkeyProvider] when a
+ * registered Turnkey provider is resolved.
  *
  * Balance reads route through Turnkey's `get_wallet_address_balances` when the chain is in
- * [RainConstants.TURNKEY_SUPPORTED_CHAINS]; everything else falls through to the injected
+ * [TurnkeyBroadcastChains.BALANCE_API_CHAIN_IDS]; everything else falls through to the injected
  * [ChainReader] (parallel `eth_call` + Multicall3 where deployed).
  */
 internal class TurnkeyWalletProvider(
@@ -202,7 +201,7 @@ internal class TurnkeyWalletProvider(
 
     /** True when Turnkey's `get-balances` API covers [chainId] (EVM allowlist or any Solana cluster). */
     private fun usesTurnkeyForBalances(chainId: Int): Boolean =
-        chainId in RainConstants.TURNKEY_SUPPORTED_CHAINS || SolanaChains.isSolanaChain(chainId)
+        chainId in TurnkeyBroadcastChains.BALANCE_API_CHAIN_IDS || SolanaChains.isSolanaChain(chainId)
 
     /** CAIP-2 for [chainId]: EIP-155 for EVM, genesis-hash form for Solana clusters. */
     private fun caip2For(chainId: Int): String =

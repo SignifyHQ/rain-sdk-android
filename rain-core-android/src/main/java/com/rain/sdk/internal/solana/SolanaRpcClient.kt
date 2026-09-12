@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.solana
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.SolanaPrograms
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.chainreader.JsonRpcClient
@@ -18,7 +19,8 @@ import java.util.Base64
  * `getTokenAccountBalance`, returns a null value rather than an RPC *error* for an account that
  * does not exist yet, which is the normal case for a first-time recipient.
  */
-internal class SolanaRpcClient(
+@RainAdapterApi
+class SolanaRpcClient(
     private val jsonRpcClient: JsonRpcClient = JsonRpcClient()
 ) {
     private companion object {
@@ -49,9 +51,9 @@ internal class SolanaRpcClient(
     }
 
     /**
-     * The most recent transaction signature involving [address], or null if none. Turnkey's
-     * `sol_send_transaction` returns a status id rather than the signature, so the signature of a
-     * just-submitted transfer is recovered from the chain.
+     * The most recent transaction signature involving [address], or null if none. A managed-broadcast
+     * send can return a status id rather than the signature, so the signature of a just-submitted
+     * transfer is recovered from the chain.
      */
     suspend fun getLatestSignature(rpcUrl: String, address: String): String? {
         val response = jsonRpcClient.call(
@@ -129,7 +131,7 @@ internal class SolanaRpcClient(
      * Read at `confirmed` rather than the default `finalized`: a token account created moments
      * earlier must be visible, or the SDK would try to create it a second time.
      */
-    suspend fun getAccountInfo(rpcUrl: String, address: String): SolanaAccountInfo? {
+    internal suspend fun getAccountInfo(rpcUrl: String, address: String): SolanaAccountInfo? {
         val response = jsonRpcClient.call(
             rpcUrl,
             "getAccountInfo",
@@ -158,7 +160,7 @@ internal class SolanaRpcClient(
      * `getAccountInfo` with raw base64 data, or null when no account exists — for accounts the
      * SDK parses itself (Rain's collateral program accounts), where `jsonParsed` has nothing.
      */
-    suspend fun getAccountRaw(rpcUrl: String, address: String): SolanaRawAccount? {
+    internal suspend fun getAccountRaw(rpcUrl: String, address: String): SolanaRawAccount? {
         val response = jsonRpcClient.call(
             rpcUrl,
             "getAccountInfo",
@@ -278,7 +280,7 @@ internal class SolanaRpcClient(
      * that actually matters here (funds, account ownership, mint/decimals agreement, rent) is
      * still checked, which is what turns a silent on-chain failure into an upfront error.
      */
-    suspend fun simulateTransaction(rpcUrl: String, base64Transaction: String): SolanaSimulation {
+    internal suspend fun simulateTransaction(rpcUrl: String, base64Transaction: String): SolanaSimulation {
         val response = jsonRpcClient.call(
             rpcUrl,
             "simulateTransaction",
@@ -319,14 +321,16 @@ internal data class SolanaAccountInfo(
 )
 
 /** An SPL mint: its scale, and the token program that owns it. */
-internal data class SolanaMintInfo(
+@RainAdapterApi
+data class SolanaMintInfo(
     val address: String,
     val decimals: Int,
     val tokenProgram: String
 )
 
 /** An SPL token account: which mint it holds, for whom, and how much. */
-internal data class SolanaTokenAccount(
+@RainAdapterApi
+data class SolanaTokenAccount(
     val address: String,
     val mint: String,
     val owner: String,
@@ -335,7 +339,8 @@ internal data class SolanaTokenAccount(
 )
 
 /** The fields of a `getTransaction` result the SDK reads. [error] is null when it succeeded. */
-internal data class SolanaTransactionRecord(
+@RainAdapterApi
+data class SolanaTransactionRecord(
     /** The transaction's signers in account-key order; the first one paid the fee. */
     val signers: List<String>,
     val error: String?

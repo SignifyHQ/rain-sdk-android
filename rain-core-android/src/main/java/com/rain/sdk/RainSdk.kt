@@ -38,8 +38,8 @@ import java.util.concurrent.ConcurrentHashMap
  * Entry point for the modular Rain SDK.
  *
  * Built via [builder]; the host registers exactly the provider adapters it ships
- * ([com.rain.sdk.provider.RainProvider] descriptors such as `rain-portal-android`'s `PortalProvider` or
- * core's `TurnkeyProvider`) and the chains it talks to. Nothing here references a concrete vendor
+ * ([com.rain.sdk.provider.RainProvider] descriptors such as `rain-portal-android`'s `PortalProvider`
+ * or `rain-turnkey-android`'s `TurnkeyProvider`) and the chains it talks to. Nothing here references a concrete vendor
  * type — a provider whose module isn't on the classpath simply can't be registered.
  *
  * ```kotlin
