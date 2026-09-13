@@ -9,6 +9,7 @@ import com.rain.sdk.internal.solana.SolanaRpcClient
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.Token
 import com.turnkey.types.V1AssetBalance
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.After
@@ -131,6 +132,24 @@ class TurnkeyManagerTest {
 
         assertThat(hash).isEqualTo(expected)
         assertThat(client.sendTransactionStatusCalls).hasSize(3)
+    }
+
+    @Test
+    fun `sendEvmTransaction lets a cancellation during the status poll leave as itself, not as TransactionPending`() {
+        val turnkey = MockTurnkey()
+        val client = clientOf(turnkey)
+        val cancelled = CancellationException("caller left")
+        client.sendTransactionStatusError = cancelled
+
+        val error = assertThrows(CancellationException::class.java) {
+            runBlocking { manager(turnkey, sponsorGas = true).sendEvmTransaction(1, from, to, "0x", "0x0") }
+        }
+
+        // Turnkey accepted the send, but a cancelled caller is not a pending send: the coordinator and
+        // the poll both rethrow cancellation ahead of the TransactionPending fallback.
+        assertThat(error).isSameInstanceAs(cancelled)
+        assertThat(client.ethSendTransactionCalls).hasSize(1)
+        assertThat(client.sendTransactionStatusCalls).hasSize(1)
     }
 
     // ---------- EVM balances ----------
