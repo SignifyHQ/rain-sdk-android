@@ -50,8 +50,8 @@ internal class TurnkeySessionCoordinator(
 
     /**
      * Set by a deliberate logout so the Active→dead transition it causes does not fire the host's
-     * re-auth hook (whose contract forbids re-entering the SDK). Internal death callbacks still
-     * run — cached accounts must be evicted on logout too. Sticky until the watcher next sees an
+     * re-auth hook (whose contract forbids re-entering the SDK). The death still advances
+     * [deathEpoch], so cached accounts go stale on logout too. Sticky until the watcher next sees an
      * Active session, because the watcher observes the transition on its own coroutine after the
      * clear call has already returned.
      */
@@ -62,9 +62,10 @@ internal class TurnkeySessionCoordinator(
      * resolved under and is stale once this has moved on: the previous user's addresses must never
      * serve a later login. A counter rather than a callback list, so a discarded manager leaves
      * nothing registered here. Advanced before the host hook runs, so anything the hook re-reads
-     * is already stale.
+     * is already stale. Read-only outside this class: only the coordinator advances it.
      */
-    val deathEpoch = AtomicInteger(0)
+    val deathEpoch: Int get() = deaths.get()
+    private val deaths = AtomicInteger(0)
 
     /** Marks the next session death as intentional: the host hook stays silent for it. */
     fun suppressNextHostHook() {
@@ -83,7 +84,7 @@ internal class TurnkeySessionCoordinator(
      */
     fun notifySessionReplaced() {
         if (stopped.get()) return
-        deathEpoch.incrementAndGet()
+        deaths.incrementAndGet()
     }
 
     /** Snapshot of the session state as seen right now. */
@@ -304,7 +305,7 @@ internal class TurnkeySessionCoordinator(
         if (!sawSession.get()) return
         if (!expiryNotified.compareAndSet(false, true)) return
         // Stale the caches first: whatever the host hook re-reads must already be invalid.
-        deathEpoch.incrementAndGet()
+        deaths.incrementAndGet()
         // A deliberate logout is not a death the host has to recover from.
         if (hostHookSuppressed.getAndSet(false)) return
         onSessionExpired?.let { hook ->

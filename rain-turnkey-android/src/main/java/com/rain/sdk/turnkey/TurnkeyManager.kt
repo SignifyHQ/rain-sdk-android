@@ -47,11 +47,15 @@ import java.time.temporal.ChronoUnit
 import java.util.Locale
 
 /**
- * The Turnkey vendor wrapper: every call to Turnkey's context, client and history API lives here,
- * guarded by [sessions], and leaves as a Rain type or a `RainError`. [TurnkeyWalletProvider] is the
- * port over it, the way `PortalWalletProvider` sits over `PortalManager`. Built once per
- * `TurnkeyProvider.create()`; its address caches carry the coordinator's death count, so a later
- * login never reads the previous user's address.
+ * The Turnkey vendor wrapper: every wallet-operation call to Turnkey's context, client and history
+ * API lives here, guarded by [sessions], and leaves as a Rain type or a `RainError`; the session
+ * coordinator and managed authentication make their own session and login calls.
+ * [TurnkeyWalletProvider] is the port over it, the way `PortalWalletProvider` sits over
+ * `PortalManager`. Built once per `TurnkeyProvider.create()`; its address caches carry the
+ * coordinator's death count, so a session death or a managed-auth login replacement stales them
+ * before the next read. A live session replaced by another live one outside managed
+ * authentication is not counted: a bring-your-own host rebuilds the SDK per login and closes the
+ * discarded provider, as TURNKEY_SUPPORT.md describes.
  */
 @Suppress("TooManyFunctions") // the vendor wrapper owns every Turnkey call, as PortalManager does
 internal class TurnkeyManager(
@@ -94,7 +98,7 @@ internal class TurnkeyManager(
 
     /** The cached address if it was resolved under the current session, else null. */
     private fun CachedAddress?.stillCurrent(): String? =
-        this?.takeIf { it.epoch == sessions.deathEpoch.get() }?.address
+        this?.takeIf { it.epoch == sessions.deathEpoch }?.address
 
     internal companion object {
         const val DEFAULT_NATIVE_DECIMALS = 18
@@ -143,9 +147,9 @@ internal class TurnkeyManager(
 
             // Cache only while no death happened mid-flight — a result resolved across a
             // session death may belong to the previous user.
-            val epoch = sessions.deathEpoch.get()
+            val epoch = sessions.deathEpoch
             fun cache(address: String): String =
-                address.also { if (sessions.deathEpoch.get() == epoch) cachedAddress = CachedAddress(it, epoch) }
+                address.also { if (sessions.deathEpoch == epoch) cachedAddress = CachedAddress(it, epoch) }
 
             resolveEthereumWalletAddress(turnkey.wallets)?.let(::cache)
                 ?: run {
@@ -172,9 +176,9 @@ internal class TurnkeyManager(
         return cachedAddressLock.withLock {
             cachedSolanaAddress.stillCurrent()?.let { return@withLock it }
 
-            val epoch = sessions.deathEpoch.get()
+            val epoch = sessions.deathEpoch
             fun cache(address: String): String =
-                address.also { if (sessions.deathEpoch.get() == epoch) cachedSolanaAddress = CachedAddress(it, epoch) }
+                address.also { if (sessions.deathEpoch == epoch) cachedSolanaAddress = CachedAddress(it, epoch) }
 
             resolveSolanaWalletAddress(turnkey.wallets)?.let(::cache)
                 ?: run {

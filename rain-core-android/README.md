@@ -44,9 +44,9 @@ graph TD
     Port -.-> Turnkey["TurnkeyWalletProvider<br/>(rain-turnkey-android)"]
     Port -.-> Portal["PortalWalletProvider<br/>(rain-portal-android)"]
     Port -.-> Privy["PrivyWalletProvider<br/>(rain-privy-android)"]
-    Turnkey --> TurnkeyMgr["TurnkeyManager<br/>every Turnkey SDK call"]
-    Portal --> PortalMgr["PortalManager<br/>every Portal SDK call"]
-    Privy --> PrivyMgr["PrivyManager<br/>every Privy SDK call"]
+    Turnkey --> TurnkeyMgr["TurnkeyManager<br/>every Turnkey wallet call"]
+    Portal --> PortalMgr["PortalManager<br/>every Portal wallet call"]
+    Privy --> PrivyMgr["PrivyManager<br/>every Privy wallet call"]
     Builder --> Web3j[Web3j RPC]
     RainClient --> Readers[EvmChainReader / SolanaChainReader]
 ```

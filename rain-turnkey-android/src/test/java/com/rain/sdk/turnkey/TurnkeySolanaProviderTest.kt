@@ -1511,16 +1511,18 @@ class TurnkeySolanaProviderTest {
     fun `getBalance on solana reads the node once when Turnkey lists no row and a failing read surfaces`() {
         val mint = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
         val reader = MockChainReader()
-        reader.balanceFailures += RuntimeException("node blip")
+        val failure = RainError.TokenNotFound(mint, devnet)
+        reader.balanceFailures += failure
         // Turnkey lists no assets, so the SPL read misses and falls to the node.
         val provider = makeProvider(client = MockTurnkeyClient(mockBalances = emptyList()), solanaReader = reader)
 
-        val error = assertThrows(RuntimeException::class.java) {
+        val error = assertThrows(RainError.TokenNotFound::class.java) {
             runBlocking { provider.getBalance(devnet, Token.Contract(mint)) }
         }
 
-        // One node read, and its failure is the caller's to see: nothing retries it.
-        assertThat(error).hasMessageThat().isEqualTo("node blip")
+        // One node read, and its failure is the caller's to see as the reader threw it: nothing
+        // retries it and nothing rewraps it.
+        assertThat(error).isSameInstanceAs(failure)
         assertThat(reader.balanceCalls).hasSize(1)
     }
 }

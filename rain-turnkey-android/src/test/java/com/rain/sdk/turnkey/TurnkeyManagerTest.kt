@@ -16,6 +16,7 @@ import org.junit.After
 import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
+import java.lang.ref.WeakReference
 import java.math.BigInteger
 
 /**
@@ -24,6 +25,10 @@ import java.math.BigInteger
  * provider's and stay in its suites.
  */
 class TurnkeyManagerTest {
+
+    private companion object {
+        const val GC_ATTEMPTS = 20
+    }
 
     private lateinit var rpc: MockRpcServer
     private val devnet = RainChain.SOLANA_DEVNET
@@ -343,6 +348,43 @@ class TurnkeyManagerTest {
         assertThat(transactions.map { it.uniqueId }).containsExactly("a1")
         assertThat(transactions.single().hash).isEqualTo(client.mockTransactionHash)
         assertThat(client.sendTransactionStatusCalls.single().sendTransactionStatusId).isEqualTo("status-1")
+    }
+
+    // ---------- lifecycle ----------
+
+    @Test
+    @Suppress("ExplicitGarbageCollectionCall") // the assertion is collectability itself
+    fun `a discarded manager leaves nothing registered on the coordinator it shared`() {
+        val turnkey = MockTurnkey()
+        val coordinator = TurnkeySessionCoordinator(turnkey = turnkey, retryDelay = { })
+        val discarded = resolveAndDrop(turnkey, coordinator)
+
+        // Only the coordinator outlives the manager here. The callback list the manager used to
+        // register on kept every discarded manager reachable for the coordinator's lifetime; the
+        // death count leaves nothing behind, so the reference clears.
+        var attempts = 0
+        while (discarded.get() != null && attempts < GC_ATTEMPTS) {
+            System.gc()
+            attempts++
+        }
+        assertThat(discarded.get()).isNull()
+        assertThat(coordinator.deathEpoch).isEqualTo(0)
+    }
+
+    /** Builds a manager over [coordinator], resolves through it and hands back only a weak handle. */
+    private fun resolveAndDrop(
+        turnkey: MockTurnkey,
+        coordinator: TurnkeySessionCoordinator
+    ): WeakReference<TurnkeyManager> {
+        val manager = TurnkeyManager(
+            turnkey = turnkey,
+            rpcEndpoints = emptyMap(),
+            solanaRpcClient = SolanaRpcClient(JsonRpcClient()),
+            sponsorGas = false,
+            sessionCoordinator = coordinator,
+        )
+        runBlocking { manager.getAddress() }
+        return WeakReference(manager)
     }
 
     // ---------- error boundary ----------

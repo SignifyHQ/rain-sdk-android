@@ -99,6 +99,27 @@ class TurnkeyWalletProviderSessionTest {
     }
 
     @Test
+    fun `a solana address resolved across a session death is not written back into the cache`() = runBlocking {
+        val turnkey = MockTurnkey(wallets = emptyList())
+        val (provider, coordinator) = providerWithCoordinator(turnkey)
+
+        val stale = MockTurnkey.DEFAULT_SOLANA_ADDRESS
+        turnkey.onRefreshWallets = {
+            turnkey.wallets = listOf(MockTurnkey.walletWithEthAndSolana(solanaAddress = stale))
+            // The session dies after the wallets are fetched but before the address is cached.
+            turnkey.session = null
+            runCatching { coordinator.refreshNow() }
+        }
+
+        assertThat(provider.getWalletAddress(RainChain.SOLANA_DEVNET)).isEqualTo(stale)
+
+        // Not cached: the next call re-resolves and sees the new user's Solana account.
+        val fresh = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
+        turnkey.wallets = listOf(MockTurnkey.walletWithEthAndSolana(solanaAddress = fresh))
+        assertThat(provider.getWalletAddress(RainChain.SOLANA_DEVNET)).isEqualTo(fresh)
+    }
+
+    @Test
     fun `sendTransaction with an expired session and failing refresh throws TokenExpired`() {
         val turnkey = MockTurnkey(session = MockTurnkey.expiredSession())
         turnkey.refreshSessionError = RuntimeException("refresh rejected")
