@@ -708,4 +708,27 @@ class TurnkeySessionCoordinatorTest {
         to = MockTurnkey.DEFAULT_WALLET_ADDRESS,
         value = "0"
     )
+
+    @Test
+    fun `deathEpoch advances once per session death and on every replacement`() = runBlocking {
+        val turnkey = MockTurnkey(session = null)
+        val coordinator = TurnkeySessionCoordinator(turnkey = turnkey, retryDelay = { })
+
+        // Never logged in is not a death: nothing was cached under a session.
+        assertThrows(RainError.TokenExpired::class.java) { runBlocking { coordinator.refreshNow() } }
+        assertThat(coordinator.deathEpoch.get()).isEqualTo(0)
+
+        // A live session that dies counts once, however often the death is observed.
+        turnkey.session = MockTurnkey.defaultSession()
+        coordinator.refreshNow()
+        turnkey.session = null
+        assertThrows(RainError.TokenExpired::class.java) { runBlocking { coordinator.refreshNow() } }
+        assertThrows(RainError.TokenExpired::class.java) { runBlocking { coordinator.refreshNow() } }
+        assertThat(coordinator.deathEpoch.get()).isEqualTo(1)
+
+        // A login over a live session is not a death the watcher sees, so it is counted explicitly.
+        turnkey.session = MockTurnkey.defaultSession()
+        coordinator.notifySessionReplaced()
+        assertThat(coordinator.deathEpoch.get()).isEqualTo(2)
+    }
 }

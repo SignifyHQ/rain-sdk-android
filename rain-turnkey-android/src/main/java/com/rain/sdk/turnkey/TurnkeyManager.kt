@@ -45,7 +45,6 @@ import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.temporal.ChronoUnit
 import java.util.Locale
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The Turnkey vendor wrapper: every call to Turnkey's context, client and history API lives here,
@@ -73,9 +72,10 @@ internal class TurnkeyManager(
     private val sessions: TurnkeySessionCoordinator =
         sessionCoordinator ?: TurnkeySessionCoordinator(turnkey)
 
-    // Bumped on every eviction so a resolution that was already in flight when the session
-    // died cannot write the dead session's address back into the cache.
-    private val evictionEpoch = AtomicInteger(0)
+    // A cached account is only as good as the session that resolved it. Each cache carries the
+    // coordinator's death count it was filled under: a later count means the previous user's
+    // address, so the read re-resolves, and a resolution that straddled a death is not written back.
+    private class CachedAddress(val address: String, val epoch: Int)
 
     // Once resolved, the wallet address is stable for the provider's lifetime, so cache
     // it. Mutex (rather than synchronized) so the suspend-friendly address() doesn't block
@@ -86,20 +86,14 @@ internal class TurnkeyManager(
     private val evmSendLock = Mutex()
 
     @Volatile
-    private var cachedAddress: String? = null
+    private var cachedAddress: CachedAddress? = null
 
     @Volatile
-    private var cachedSolanaAddress: String? = null
+    private var cachedSolanaAddress: CachedAddress? = null
 
-    init {
-        // Cached accounts must not survive the session that resolved them: a later login as a
-        // different user would otherwise keep signing with the previous user's addresses.
-        sessions.onSessionDeath {
-            evictionEpoch.incrementAndGet()
-            cachedAddress = null
-            cachedSolanaAddress = null
-        }
-    }
+    /** The cached address if it was resolved under the current session, else null. */
+    private fun CachedAddress?.stillCurrent(): String? =
+        this?.takeIf { it.epoch == sessions.deathEpoch.get() }?.address
 
     internal companion object {
         const val DEFAULT_NATIVE_DECIMALS = 18
@@ -141,16 +135,16 @@ internal class TurnkeyManager(
     internal suspend fun getAddress(): String {
         walletAddressOverride?.takeIf { it.isNotEmpty() }?.let { return it }
 
-        cachedAddress?.let { return it }
+        cachedAddress.stillCurrent()?.let { return it }
 
         return cachedAddressLock.withLock {
-            cachedAddress?.let { return@withLock it }
+            cachedAddress.stillCurrent()?.let { return@withLock it }
 
-            // Cache only while no eviction happened mid-flight — a result resolved across a
+            // Cache only while no death happened mid-flight — a result resolved across a
             // session death may belong to the previous user.
-            val epoch = evictionEpoch.get()
+            val epoch = sessions.deathEpoch.get()
             fun cache(address: String): String =
-                address.also { if (evictionEpoch.get() == epoch) cachedAddress = it }
+                address.also { if (sessions.deathEpoch.get() == epoch) cachedAddress = CachedAddress(it, epoch) }
 
             resolveEthereumWalletAddress(turnkey.wallets)?.let(::cache)
                 ?: run {
@@ -172,14 +166,14 @@ internal class TurnkeyManager(
         if (SolanaChains.isSolanaChain(chainId)) getSolanaAddress() else getAddress()
 
     private suspend fun getSolanaAddress(): String {
-        cachedSolanaAddress?.let { return it }
+        cachedSolanaAddress.stillCurrent()?.let { return it }
 
         return cachedAddressLock.withLock {
-            cachedSolanaAddress?.let { return@withLock it }
+            cachedSolanaAddress.stillCurrent()?.let { return@withLock it }
 
-            val epoch = evictionEpoch.get()
+            val epoch = sessions.deathEpoch.get()
             fun cache(address: String): String =
-                address.also { if (evictionEpoch.get() == epoch) cachedSolanaAddress = it }
+                address.also { if (sessions.deathEpoch.get() == epoch) cachedSolanaAddress = CachedAddress(it, epoch) }
 
             resolveSolanaWalletAddress(turnkey.wallets)?.let(::cache)
                 ?: run {

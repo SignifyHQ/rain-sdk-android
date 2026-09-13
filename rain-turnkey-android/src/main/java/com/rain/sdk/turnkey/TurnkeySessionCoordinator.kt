@@ -19,8 +19,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import java.io.IOException
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -29,9 +29,9 @@ import kotlin.time.Duration.Companion.milliseconds
  * in `RainSessionStore`/`RainApiService.withCst`, adapted to Turnkey's externally-owned
  * session.
  *
- * Terminal auth failures always surface as [RainError.TokenExpired] and fire the death
- * callbacks plus the host's `onSessionExpired` hook once per session death; both re-arm when a
- * live session is seen again.
+ * Terminal auth failures always surface as [RainError.TokenExpired], advance [deathEpoch] and
+ * fire the host's `onSessionExpired` hook once per session death; both re-arm when a live
+ * session is seen again.
  */
 internal class TurnkeySessionCoordinator(
     private val turnkey: TurnkeyContextProtocol,
@@ -57,13 +57,14 @@ internal class TurnkeySessionCoordinator(
      */
     private val hostHookSuppressed = AtomicBoolean(false)
 
-    /** Runs when an active session dies (before the host hook) — e.g. cached-account eviction. */
-    private val deathCallbacks = CopyOnWriteArrayList<() -> Unit>()
-
-    /** Registers a callback invoked once per session death, before the host hook. */
-    fun onSessionDeath(callback: () -> Unit) {
-        deathCallbacks += callback
-    }
+    /**
+     * Counts session deaths and replacements. Cached account state carries the value it was
+     * resolved under and is stale once this has moved on: the previous user's addresses must never
+     * serve a later login. A counter rather than a callback list, so a discarded manager leaves
+     * nothing registered here. Advanced before the host hook runs, so anything the hook re-reads
+     * is already stale.
+     */
+    val deathEpoch = AtomicInteger(0)
 
     /** Marks the next session death as intentional: the host hook stays silent for it. */
     fun suppressNextHostHook() {
@@ -77,12 +78,12 @@ internal class TurnkeySessionCoordinator(
 
     /**
      * A login replaced the live session with another one (Active→Active, which the watcher does
-     * not treat as a death): runs the internal eviction callbacks — cached accounts belong to the
-     * previous user — without the host hook, and without arming the death latch.
+     * not treat as a death): advances [deathEpoch] — cached accounts belong to the previous user —
+     * without the host hook, and without arming the death latch.
      */
     fun notifySessionReplaced() {
         if (stopped.get()) return
-        runDeathCallbacks()
+        deathEpoch.incrementAndGet()
     }
 
     /** Snapshot of the session state as seen right now. */
@@ -302,20 +303,13 @@ internal class TurnkeySessionCoordinator(
         // Never logged in is not a session death: only notify once a session has been seen.
         if (!sawSession.get()) return
         if (!expiryNotified.compareAndSet(false, true)) return
-        // Internal listeners first: they evict state the host hook may immediately re-read.
-        runDeathCallbacks()
+        // Stale the caches first: whatever the host hook re-reads must already be invalid.
+        deathEpoch.incrementAndGet()
         // A deliberate logout is not a death the host has to recover from.
         if (hostHookSuppressed.getAndSet(false)) return
         onSessionExpired?.let { hook ->
             runCatching { hook() }
                 .onFailure { Timber.w(it, "Rain SDK: onSessionExpired callback threw") }
-        }
-    }
-
-    private fun runDeathCallbacks() {
-        deathCallbacks.forEach { callback ->
-            runCatching { callback() }
-                .onFailure { Timber.w(it, "Rain SDK: session-death callback threw") }
         }
     }
 

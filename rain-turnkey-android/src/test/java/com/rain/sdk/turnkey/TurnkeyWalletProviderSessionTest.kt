@@ -247,4 +247,33 @@ class TurnkeyWalletProviderSessionTest {
         assertThat(solanaReader.balanceCalls).isEmpty()
         assertThat(solanaReader.balancesCalls).isEmpty()
     }
+
+    @Test
+    fun `two providers over one coordinator both drop their cached addresses when the session dies`() = runBlocking {
+        val turnkey = MockTurnkey(wallets = emptyList())
+        turnkey.onRefreshWallets = { turnkey.wallets = listOf(MockTurnkey.defaultWallet()) }
+        val coordinator = TurnkeySessionCoordinator(turnkey = turnkey, retryDelay = { })
+        val providers = List(2) {
+            turnkeyWalletProvider(
+                turnkey = turnkey,
+                rpcEndpoints = mapOf(1 to "https://eth.example/rpc"),
+                httpClient = OkHttpClient(),
+                chainReader = MockChainReader(),
+                history = ThrowingTurnkeyHistory,
+                sessionCoordinator = coordinator,
+            )
+        }
+        providers.forEach { assertThat(it.getWalletAddress()).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS) }
+
+        turnkey.session = null
+        assertThrows(RainError.TokenExpired::class.java) {
+            runBlocking { coordinator.refreshNow() }
+        }
+        val other = "0x9999999999999999999999999999999999999999"
+        turnkey.wallets = listOf(MockTurnkey.walletWithEthereumAddress(other))
+        turnkey.session = MockTurnkey.defaultSession()
+
+        // Nothing registers with the coordinator, so no provider depends on another's lifetime.
+        providers.forEach { assertThat(it.getWalletAddress()).isEqualTo(other) }
+    }
 }
