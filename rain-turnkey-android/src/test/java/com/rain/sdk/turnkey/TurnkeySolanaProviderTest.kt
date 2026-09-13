@@ -66,7 +66,7 @@ class TurnkeySolanaProviderTest {
             wallets = listOf(MockTurnkey.walletWithEthAndSolana()),
             turnkeyClient = client
         )
-        return TurnkeyWalletProvider(
+        return turnkeyWalletProvider(
             turnkey = turnkey,
             rpcEndpoints = mapOf(devnet to rpc.urlFor(devnet)),
             httpClient = OkHttpClient(),
@@ -302,7 +302,7 @@ class TurnkeySolanaProviderTest {
         )
         rpc.stubObject("getBalance", balanceResult(5_000_000_000L))
         stubDiscoveredTokenAccounts(mint = mint, amount = "20000000", decimals = 6)
-        val provider = TurnkeyWalletProvider(
+        val provider = turnkeyWalletProvider(
             turnkey = MockTurnkey(
                 wallets = listOf(MockTurnkey.walletWithEthAndSolana()),
                 turnkeyClient = client
@@ -1505,5 +1505,22 @@ class TurnkeySolanaProviderTest {
 
     private companion object {
         const val SIGNATURE = "2id3YC2jK9G5Wo2phDx4gJVAew8DcY5NAB7jTLd5p3KqJ7xQy9bniaP4q1hk2N1nF"
+    }
+
+    @Test
+    fun `getBalance on solana reads the node once when Turnkey lists no row and a failing read surfaces`() {
+        val mint = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
+        val reader = MockChainReader()
+        reader.balanceFailures += RuntimeException("node blip")
+        // Turnkey lists no assets, so the SPL read misses and falls to the node.
+        val provider = makeProvider(client = MockTurnkeyClient(mockBalances = emptyList()), solanaReader = reader)
+
+        val error = assertThrows(RuntimeException::class.java) {
+            runBlocking { provider.getBalance(devnet, Token.Contract(mint)) }
+        }
+
+        // One node read, and its failure is the caller's to see: nothing retries it.
+        assertThat(error).hasMessageThat().isEqualTo("node blip")
+        assertThat(reader.balanceCalls).hasSize(1)
     }
 }

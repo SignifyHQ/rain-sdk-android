@@ -1,6 +1,7 @@
 package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.RainChain
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.models.Token
 import kotlinx.coroutines.runBlocking
@@ -23,11 +24,13 @@ class TurnkeyWalletProviderSessionTest {
         policy: TurnkeySessionPolicy = TurnkeySessionPolicy(),
         onSessionExpired: (() -> Unit)? = null,
         history: TurnkeyHistoryProtocol = ThrowingTurnkeyHistory,
-    ): TurnkeyWalletProvider = TurnkeyWalletProvider(
+        solanaChainReader: MockChainReader? = null,
+    ): TurnkeyWalletProvider = turnkeyWalletProvider(
         turnkey = turnkey,
         rpcEndpoints = mapOf(1 to "https://eth.example/rpc"),
         httpClient = OkHttpClient(),
         chainReader = MockChainReader(),
+        solanaChainReader = solanaChainReader,
         history = history,
         sessionCoordinator = TurnkeySessionCoordinator(
             turnkey = turnkey,
@@ -42,7 +45,7 @@ class TurnkeyWalletProviderSessionTest {
         turnkey: MockTurnkey,
     ): Pair<TurnkeyWalletProvider, TurnkeySessionCoordinator> {
         val coordinator = TurnkeySessionCoordinator(turnkey = turnkey, retryDelay = { })
-        return TurnkeyWalletProvider(
+        return turnkeyWalletProvider(
             turnkey = turnkey,
             rpcEndpoints = mapOf(1 to "https://eth.example/rpc"),
             httpClient = OkHttpClient(),
@@ -198,5 +201,79 @@ class TurnkeyWalletProviderSessionTest {
         assertThat(signature).startsWith("0x")
         assertThat(turnkey.refreshSessionCallCount).isEqualTo(1)
         assertThat(turnkey.signRawPayloadCalls).hasSize(1)
+    }
+
+    @Test
+    fun `session death evicts the cached solana address so a re-login cannot reuse it`() = runBlocking {
+        // Empty at first so the resolution runs through the coordinator, as the EVM case above does.
+        val turnkey = MockTurnkey(wallets = emptyList())
+        turnkey.onRefreshWallets = { turnkey.wallets = listOf(MockTurnkey.walletWithEthAndSolana()) }
+        val (provider, coordinator) = providerWithCoordinator(turnkey)
+
+        assertThat(provider.getWalletAddress(RainChain.SOLANA_DEVNET))
+            .isEqualTo(MockTurnkey.DEFAULT_SOLANA_ADDRESS)
+
+        // The session dies for good.
+        turnkey.session = null
+        assertThrows(RainError.TokenExpired::class.java) {
+            runBlocking { coordinator.refreshNow() }
+        }
+
+        // A different user logs in against the same Turnkey singleton.
+        val other = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
+        turnkey.wallets = listOf(MockTurnkey.walletWithEthAndSolana(solanaAddress = other))
+        turnkey.session = MockTurnkey.defaultSession()
+
+        assertThat(provider.getWalletAddress(RainChain.SOLANA_DEVNET)).isEqualTo(other)
+    }
+
+    @Test
+    fun `getBalance and getBalances on solana surface TokenExpired without the node fallback`() {
+        val turnkey = MockTurnkey(
+            wallets = listOf(MockTurnkey.walletWithEthAndSolana()),
+            session = MockTurnkey.expiredSession()
+        )
+        turnkey.refreshSessionError = RuntimeException("refresh rejected")
+        val solanaReader = MockChainReader()
+        val provider = makeProvider(turnkey, solanaChainReader = solanaReader)
+
+        assertThrows(RainError.TokenExpired::class.java) {
+            runBlocking { provider.getBalance(RainChain.SOLANA_DEVNET, Token.Native) }
+        }
+        assertThrows(RainError.TokenExpired::class.java) {
+            runBlocking { provider.getBalances(RainChain.SOLANA_DEVNET) }
+        }
+        // A dead session surfaces as such; the node never stands in for it.
+        assertThat(solanaReader.balanceCalls).isEmpty()
+        assertThat(solanaReader.balancesCalls).isEmpty()
+    }
+
+    @Test
+    fun `two providers over one coordinator both drop their cached addresses when the session dies`() = runBlocking {
+        val turnkey = MockTurnkey(wallets = emptyList())
+        turnkey.onRefreshWallets = { turnkey.wallets = listOf(MockTurnkey.defaultWallet()) }
+        val coordinator = TurnkeySessionCoordinator(turnkey = turnkey, retryDelay = { })
+        val providers = List(2) {
+            turnkeyWalletProvider(
+                turnkey = turnkey,
+                rpcEndpoints = mapOf(1 to "https://eth.example/rpc"),
+                httpClient = OkHttpClient(),
+                chainReader = MockChainReader(),
+                history = ThrowingTurnkeyHistory,
+                sessionCoordinator = coordinator,
+            )
+        }
+        providers.forEach { assertThat(it.getWalletAddress()).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS) }
+
+        turnkey.session = null
+        assertThrows(RainError.TokenExpired::class.java) {
+            runBlocking { coordinator.refreshNow() }
+        }
+        val other = "0x9999999999999999999999999999999999999999"
+        turnkey.wallets = listOf(MockTurnkey.walletWithEthereumAddress(other))
+        turnkey.session = MockTurnkey.defaultSession()
+
+        // Nothing registers with the coordinator, so no provider depends on another's lifetime.
+        providers.forEach { assertThat(it.getWalletAddress()).isEqualTo(other) }
     }
 }

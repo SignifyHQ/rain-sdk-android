@@ -1,5 +1,13 @@
 package com.rain.sdk.turnkey
 
+import com.rain.sdk.internal.network.chainreader.ChainReader
+import com.rain.sdk.internal.network.chainreader.EvmChainReader
+import com.rain.sdk.internal.network.chainreader.JsonRpcClient
+import com.rain.sdk.internal.network.chainreader.SolanaChainReader
+import com.rain.sdk.internal.solana.SolanaRpcClient
+import com.rain.sdk.internal.solana.SolanaTransferComposer
+import com.rain.sdk.internal.tokenstore.TokenMetadataStore
+import okhttp3.OkHttpClient
 import org.junit.Assume.assumeTrue
 
 /**
@@ -40,4 +48,48 @@ internal suspend inline fun <reified T : Throwable> expectThrows(block: suspend 
         throw t
     }
     throw AssertionError("Expected ${T::class.simpleName} to be thrown")
+}
+
+/**
+ * Builds a [TurnkeyWalletProvider] over a [TurnkeyManager] the way `TurnkeyProvider.create()` does,
+ * with the parameter list the provider suites were written against, so a test states its doubles once.
+ * One HTTP client, one JSON-RPC client and one Solana RPC client back both classes, as in production.
+ */
+@Suppress("LongParameterList") // mirrors the wiring the suites were written against; every argument is named
+internal fun turnkeyWalletProvider(
+    turnkey: TurnkeyContextProtocol,
+    rpcEndpoints: Map<Int, String>,
+    walletAddressOverride: String? = null,
+    httpClient: OkHttpClient = OkHttpClient(),
+    pollingIntervalMs: Long = TurnkeyManager.POLLING_INTERVAL_MS,
+    chainReader: ChainReader? = null,
+    solanaChainReader: ChainReader? = null,
+    tokenStore: TokenMetadataStore? = null,
+    history: TurnkeyHistoryProtocol? = null,
+    sessionCoordinator: TurnkeySessionCoordinator? = null,
+    sponsorGas: Boolean = false
+): TurnkeyWalletProvider {
+    val jsonRpcClient = JsonRpcClient(httpClient)
+    val solanaRpcClient = SolanaRpcClient(jsonRpcClient)
+    val evmReader = chainReader ?: EvmChainReader(rpcEndpoints = rpcEndpoints, jsonRpcClient = jsonRpcClient)
+    val manager = TurnkeyManager(
+        turnkey = turnkey,
+        rpcEndpoints = rpcEndpoints,
+        solanaRpcClient = solanaRpcClient,
+        sponsorGas = sponsorGas,
+        walletAddressOverride = walletAddressOverride,
+        httpClient = httpClient,
+        pollingIntervalMs = pollingIntervalMs,
+        jsonRpcClient = jsonRpcClient,
+        history = history,
+        sessionCoordinator = sessionCoordinator,
+    )
+    return TurnkeyWalletProvider(
+        manager = manager,
+        chainReader = evmReader,
+        solanaChainReader = solanaChainReader
+            ?: SolanaChainReader(rpcEndpoints = rpcEndpoints, solanaRpcClient = solanaRpcClient),
+        solanaTransferComposer = SolanaTransferComposer(solanaRpcClient, rpcEndpoints::get),
+        tokenStore = tokenStore ?: TokenMetadataStore(evmReader),
+    )
 }

@@ -2,16 +2,16 @@
 <SmellBaseline>
   <ManuallySuppressedIssues></ManuallySuppressedIssues>
   <CurrentIssues>
+    <ID>CyclomaticComplexMethod:TurnkeyManager.kt$TurnkeyManager$internal suspend fun getEvmTransactionsFromActivities( chainId: Int, limit: Int?, offset: Int?, order: RainTransactionOrder? ): List&lt;RainTransaction&gt;</ID>
+    <ID>CyclomaticComplexMethod:TurnkeyManager.kt$TurnkeyManager$internal suspend fun solanaBalancesOrNull( chainId: Int, walletAddress: String, tokenStore: TokenMetadataStore ): List&lt;Balance&gt;?</ID>
+    <ID>CyclomaticComplexMethod:TurnkeyManager.kt$TurnkeyManager$private fun indexedTransaction( chainId: Int, walletAddress: String, hash: String, block: TurnkeyHistoryBlock?, status: String?, txFrom: String?, txTo: String?, transfer: TurnkeyHistoryTransfer?, sponsored: Boolean? ): RainTransaction</ID>
     <ID>CyclomaticComplexMethod:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator$private suspend fun &lt;T&gt; execute( idempotent: Boolean, block: suspend (Session, TurnkeyClientProtocol) -&gt; T ): T</ID>
-    <ID>CyclomaticComplexMethod:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$private fun indexedTransaction( chainId: Int, walletAddress: String, hash: String, block: TurnkeyHistoryBlock?, status: String?, txFrom: String?, txTo: String?, transfer: TurnkeyHistoryTransfer?, sponsored: Boolean? ): RainTransaction</ID>
-    <ID>CyclomaticComplexMethod:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$private suspend fun getEvmTransactionsFromActivities( chainId: Int, limit: Int?, offset: Int?, order: RainTransactionOrder? ): List&lt;RainTransaction&gt;</ID>
-    <ID>CyclomaticComplexMethod:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$private suspend fun solanaBalances(chainId: Int, walletAddress: String): List&lt;Balance&gt;</ID>
     <ID>DoubleMutabilityForCollection:MockTurnkey.kt$MockTurnkeyClient$/** * Optional queue of status responses returned sequentially by `getSendTransactionStatus`. * When non-empty, each call consumes the next entry; the final entry is reused for * subsequent calls. When empty (default), a single BROADCASTED status containing * [mockTransactionHash] is returned. */ var sendTransactionStatusQueue: MutableList&lt;StatusFixture&gt; = mutableListOf()</ID>
     <ID>InjectDispatcher:TurnkeyHistoryClient.kt$TurnkeyHistoryClient$IO</ID>
     <ID>InjectDispatcher:TurnkeyProvider.kt$TurnkeyProvider$Default</ID>
     <ID>InjectDispatcher:TurnkeyProvider.kt$TurnkeyProvider$IO</ID>
+    <ID>LargeClass:TurnkeyManager.kt$TurnkeyManager</ID>
     <ID>LargeClass:TurnkeySolanaProviderTest.kt$TurnkeySolanaProviderTest</ID>
-    <ID>LargeClass:TurnkeyWalletProvider.kt$TurnkeyWalletProvider : WalletProvider</ID>
     <ID>LongMethod:TurnkeySolanaProviderTest.kt$TurnkeySolanaProviderTest$@Test fun `getTransactions on solana decodes an spl transfer and resolves the recipient wallet`(): Unit</ID>
     <ID>LongMethod:TurnkeySolanaProviderTest.kt$TurnkeySolanaProviderTest$private fun splFixture( recipientAccountExists: Boolean, senderAccountExists: Boolean = true, senderBaseUnits: String = "5000000", // 5.0 at 6 decimals tokenProgram: String = SolanaPrograms.TOKEN_ADDRESS, simulationError: String? = null, lamports: Long = 1_000_000_000L ): Boolean</ID>
     <ID>LongMethod:TurnkeyWalletProviderHistoryTest.kt$TurnkeyWalletProviderHistoryTest$@Test fun `solana history maps signature native SOL and SPL rows`()</ID>
@@ -19,12 +19,20 @@
     <ID>LongParameterList:MockTurnkey.kt$MockTurnkey.Companion$( id: String, from: String, to: String, caip2: String, value: String?, data: String?, sendTransactionStatusId: String )</ID>
     <ID>LongParameterList:MockTurnkey.kt$MockTurnkey.Companion$( id: String, signWith: String, caip2: String, unsignedTransaction: String, sendTransactionStatusId: String, createdAtSeconds: String = "1714521600" )</ID>
     <ID>LongParameterList:TurnkeyHistoryClient.kt$TurnkeyHistoryClient$( path: String, sessionPublicKey: String, organizationId: String, address: String, caip2: String, limit: Int )</ID>
+    <ID>LongParameterList:TurnkeyManager.kt$TurnkeyManager$( chainId: Int, walletAddress: String, hash: String, block: TurnkeyHistoryBlock?, status: String?, txFrom: String?, txTo: String?, transfer: TurnkeyHistoryTransfer?, sponsored: Boolean? )</ID>
+    <ID>LongParameterList:TurnkeyManager.kt$TurnkeyManager$( private val turnkey: TurnkeyContextProtocol, private val rpcEndpoints: Map&lt;Int, String&gt;, private val solanaRpcClient: SolanaRpcClient, internal val sponsorGas: Boolean, private val walletAddressOverride: String? = null, httpClient: OkHttpClient = OkHttpClient(), private val pollingIntervalMs: Long = POLLING_INTERVAL_MS, private val jsonRpcClient: JsonRpcClient = JsonRpcClient(httpClient), history: TurnkeyHistoryProtocol? = null, sessionCoordinator: TurnkeySessionCoordinator? = null, )</ID>
+    <ID>LongParameterList:TurnkeyManager.kt$TurnkeyManager$( session: com.turnkey.core.models.Session, client: TurnkeyClientProtocol, chainId: Int, from: String, to: String, data: String, value: String )</ID>
     <ID>LongParameterList:TurnkeySolanaProviderTest.kt$TurnkeySolanaProviderTest$( recipientAccountExists: Boolean, senderAccountExists: Boolean = true, senderBaseUnits: String = "5000000", // 5.0 at 6 decimals tokenProgram: String = SolanaPrograms.TOKEN_ADDRESS, simulationError: String? = null, lamports: Long = 1_000_000_000L )</ID>
-    <ID>LongParameterList:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$( chainId: Int, walletAddress: String, hash: String, block: TurnkeyHistoryBlock?, status: String?, txFrom: String?, txTo: String?, transfer: TurnkeyHistoryTransfer?, sponsored: Boolean? )</ID>
-    <ID>LongParameterList:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$( private val turnkey: TurnkeyContextProtocol, private val rpcEndpoints: Map&lt;Int, String&gt;, private val walletAddressOverride: String? = null, private val httpClient: OkHttpClient = OkHttpClient(), private val pollingIntervalMs: Long = POLLING_INTERVAL_MS, jsonRpcClient: JsonRpcClient = JsonRpcClient(httpClient), chainReader: ChainReader? = null, solanaChainReader: ChainReader? = null, solanaRpcClient: SolanaRpcClient? = null, solanaSupport: SolanaSupport? = null, tokenStore: TokenMetadataStore? = null, history: TurnkeyHistoryProtocol? = null, sessionCoordinator: TurnkeySessionCoordinator? = null, private val sponsorGas: Boolean = false )</ID>
-    <ID>LongParameterList:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$( session: com.turnkey.core.models.Session, client: TurnkeyClientProtocol, chainId: Int, from: String, to: String, data: String, value: String )</ID>
     <ID>LongParameterList:TurnkeyWalletProviderHistoryTest.kt$TurnkeyWalletProviderHistoryTest$( hash: String = "0xhash", timestamp: String = "2026-08-12T10:00:00Z", blockNumber: String = "123", status: String? = "CONFIRMED", from: String? = "0xsender", to: String? = "0xrecipient", transfers: List&lt;TurnkeyHistoryTransfer&gt; = emptyList(), sponsored: Boolean? = false )</ID>
-    <ID>LoopWithTooManyJumpStatements:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$for</ID>
+    <ID>LoopWithTooManyJumpStatements:TurnkeyManager.kt$TurnkeyManager$for</ID>
+    <ID>MagicNumber:TurnkeyManager.kt$TurnkeyManager$10</ID>
+    <ID>MagicNumber:TurnkeyManager.kt$TurnkeyManager$100</ID>
+    <ID>MagicNumber:TurnkeyManager.kt$TurnkeyManager$1000</ID>
+    <ID>MagicNumber:TurnkeyManager.kt$TurnkeyManager$1000.0</ID>
+    <ID>MagicNumber:TurnkeyManager.kt$TurnkeyManager$16</ID>
+    <ID>MagicNumber:TurnkeyManager.kt$TurnkeyManager$27</ID>
+    <ID>MagicNumber:TurnkeyManager.kt$TurnkeyManager$5</ID>
+    <ID>MagicNumber:TurnkeyManager.kt$TurnkeyManager$64</ID>
     <ID>MagicNumber:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator$1000</ID>
     <ID>MagicNumber:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator$1000.0</ID>
     <ID>MagicNumber:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator$401</ID>
@@ -32,32 +40,23 @@
     <ID>MagicNumber:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator$429</ID>
     <ID>MagicNumber:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator$500</ID>
     <ID>MagicNumber:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator$599</ID>
-    <ID>MagicNumber:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$10</ID>
-    <ID>MagicNumber:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$100</ID>
-    <ID>MagicNumber:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$1000</ID>
-    <ID>MagicNumber:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$1000.0</ID>
-    <ID>MagicNumber:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$16</ID>
-    <ID>MagicNumber:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$27</ID>
-    <ID>MagicNumber:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$5</ID>
-    <ID>MagicNumber:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$64</ID>
     <ID>NestedBlockDepth:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator$private suspend fun &lt;T&gt; execute( idempotent: Boolean, block: suspend (Session, TurnkeyClientProtocol) -&gt; T ): T</ID>
-    <ID>NoNameShadowing:TurnkeyWalletProvider.kt$TurnkeyWalletProvider${ registeredSplToken(chainId, it.address) }</ID>
-    <ID>RedundantSuspendModifier:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$suspend</ID>
+    <ID>RedundantSuspendModifier:TurnkeyManager.kt$TurnkeyManager$suspend</ID>
     <ID>ReturnCount:MockRpcServer.kt$MockRpcServer.&lt;no name provided&gt;$override fun dispatch(request: RecordedRequest): MockResponse</ID>
+    <ID>ReturnCount:TurnkeyManager.kt$TurnkeyManager$@Suppress("TooGenericExceptionCaught") // a failed status read ends the poll, not the send; recovered from chain private suspend fun pollForSolanaCompletion(sendTransactionStatusId: String): String?</ID>
+    <ID>ReturnCount:TurnkeyManager.kt$TurnkeyManager$internal suspend fun getAddress(): String</ID>
+    <ID>ReturnCount:TurnkeyManager.kt$TurnkeyManager$private fun caip19Asset(caip19: String, caip2: String): Caip19Asset?</ID>
     <ID>ReturnCount:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator$private fun notifyExpired()</ID>
     <ID>ReturnCount:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator$private suspend fun ensureValidSession(): Session</ID>
     <ID>ReturnCount:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$override suspend fun getBalances(chainId: Int): List&lt;Balance&gt;</ID>
-    <ID>ReturnCount:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$override suspend fun getWalletAddress(): String</ID>
-    <ID>ReturnCount:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$private fun caip19Asset(caip19: String, caip2: String): Caip19Asset?</ID>
-    <ID>ReturnCount:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$private suspend fun pollForSolanaCompletion(sendTransactionStatusId: String): String?</ID>
-    <ID>SwallowedException:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$e: RainError.InvalidRpcUrl</ID>
-    <ID>ThrowsCount:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$private suspend fun pollForTransactionHash(sendTransactionStatusId: String): String</ID>
-    <ID>ThrowsCount:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$private suspend fun submitSolanaTransaction( chainId: Int, from: String, unsigned: UnsignedSolanaTransfer ): String</ID>
+    <ID>SwallowedException:TurnkeyManager.kt$TurnkeyManager$e: RainError.InvalidRpcUrl</ID>
+    <ID>ThrowsCount:TurnkeyManager.kt$TurnkeyManager$@Suppress("TooGenericExceptionCaught") // a failed status read after acceptance is pending, not a failed send private suspend fun pollForTransactionHash(sendTransactionStatusId: String): String</ID>
+    <ID>ThrowsCount:TurnkeyManager.kt$TurnkeyManager$internal suspend fun submitSolanaTransaction( chainId: Int, from: String, unsigned: UnsignedSolanaTransfer ): String</ID>
     <ID>TooGenericExceptionCaught:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator$e: Exception</ID>
     <ID>TooGenericExceptionCaught:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$e: Exception</ID>
     <ID>TooGenericExceptionThrown:TurnkeySessionCoordinatorTest.kt$TurnkeySessionCoordinatorTest.&lt;no name provided&gt;$throw RuntimeException("HTTP error from /activities: 500")</ID>
     <ID>TooManyFunctions:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator</ID>
     <ID>TooManyFunctions:TurnkeyWalletProvider.kt$TurnkeyWalletProvider : WalletProvider</ID>
-    <ID>UseOrEmpty:TurnkeyWalletProvider.kt$TurnkeyWalletProvider$it.caip19 ?: ""</ID>
+    <ID>UseOrEmpty:TurnkeyManager.kt$TurnkeyManager$it.caip19 ?: ""</ID>
   </CurrentIssues>
 </SmellBaseline>

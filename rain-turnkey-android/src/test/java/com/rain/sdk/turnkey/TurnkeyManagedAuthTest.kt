@@ -223,8 +223,7 @@ class TurnkeyManagedAuthTest {
     fun `logging in over a live session switches to a fresh key, evicts cached accounts, then clears the old session`() = runTest {
         val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()))
         val coordinator = coordinator(turnkey)
-        var evictions = 0
-        coordinator.onSessionDeath { evictions++ }
+        val deathsBefore = coordinator.deathEpoch.get()
         val controller = controller(turnkey, coordinator = coordinator)
 
         controller.sendLoginCode("other@example.com")
@@ -238,7 +237,7 @@ class TurnkeyManagedAuthTest {
         assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
         assertThat(turnkey.clearSessionCalls).containsExactly(MockTurnkey.DEFAULT_SESSION_KEY)
         // Active→Active is not a death the watcher notices, so eviction is explicit — host hook silent.
-        assertThat(evictions).isEqualTo(1)
+        assertThat(coordinator.deathEpoch.get()).isEqualTo(deathsBefore + 1)
         assertThat(hookCalls).isEqualTo(0)
     }
 

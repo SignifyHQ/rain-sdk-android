@@ -43,7 +43,7 @@ class TurnkeyAdapterTest {
         walletAddressOverride: String? = null,
         chainId: Int = 1,
         sponsorGas: Boolean = false
-    ): TurnkeyWalletProvider = TurnkeyWalletProvider(
+    ): TurnkeyWalletProvider = turnkeyWalletProvider(
         turnkey = turnkey,
         rpcEndpoints = mapOf(chainId to rpc.urlFor(chainId)),
         walletAddressOverride = walletAddressOverride,

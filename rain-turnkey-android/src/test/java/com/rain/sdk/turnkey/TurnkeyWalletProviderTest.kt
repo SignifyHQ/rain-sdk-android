@@ -1,6 +1,7 @@
 package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.RainChain
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
@@ -30,7 +31,7 @@ class TurnkeyWalletProviderTest {
         turnkey: MockTurnkey = MockTurnkey(),
         walletAddressOverride: String? = null,
         rpcEndpoints: Map<Int, String> = mapOf(1 to "https://eth.example/rpc")
-    ): TurnkeyWalletProvider = TurnkeyWalletProvider(
+    ): TurnkeyWalletProvider = turnkeyWalletProvider(
         turnkey = turnkey,
         rpcEndpoints = rpcEndpoints,
         walletAddressOverride = walletAddressOverride,
@@ -63,7 +64,7 @@ class TurnkeyWalletProviderTest {
                 turnkey.wallets = listOf(MockTurnkey.defaultWallet())
             }
         }
-        val provider = TurnkeyWalletProvider(
+        val provider = turnkeyWalletProvider(
             turnkey = withRefresh,
             rpcEndpoints = mapOf(1 to "https://eth.example/rpc"),
             walletAddressOverride = null,
@@ -299,4 +300,47 @@ class TurnkeyWalletProviderTest {
             }
         }
     }
+
+    @Test
+    fun `getAddress override applies to the ethereum address only`() = runBlocking {
+        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()))
+        val provider = makeProvider(turnkey = turnkey, walletAddressOverride = "0xOVERRIDE")
+
+        assertThat(provider.getWalletAddress()).isEqualTo("0xOVERRIDE")
+        assertThat(provider.getWalletAddress(RainChain.SOLANA_DEVNET))
+            .isEqualTo(MockTurnkey.DEFAULT_SOLANA_ADDRESS)
+    }
+
+    @Test
+    fun `getBalances fills decimals symbol and name from the token store when Turnkey omits them`() =
+        runBlocking {
+            val turnkey = MockTurnkey()
+            turnkey.turnkeyClient = MockTurnkeyClient(
+                mockBalances = listOf(
+                    V1AssetBalance(
+                        balance = "1000000",
+                        caip19 = "eip155:1/erc20:${TurnkeyTestFixtures.TOKEN_ADDRESS}",
+                        decimals = null,
+                        display = null,
+                        name = null,
+                        symbol = null
+                    )
+                )
+            )
+            val reader = MockChainReader(decimals = 6, symbol = "MOCK", name = "Mock Token")
+            val provider = turnkeyWalletProvider(
+                turnkey = turnkey,
+                rpcEndpoints = mapOf(1 to "https://eth.example/rpc"),
+                httpClient = OkHttpClient(),
+                chainReader = reader,
+                history = ThrowingTurnkeyHistory
+            )
+
+            val token = provider.getBalances(chainId = 1)
+                .single { it.token == Token.Contract(TurnkeyTestFixtures.TOKEN_ADDRESS) }
+
+            assertThat(token.decimals).isEqualTo(6)
+            assertThat(token.symbol).isEqualTo("MOCK")
+            assertThat(token.name).isEqualTo("Mock Token")
+        }
 }
