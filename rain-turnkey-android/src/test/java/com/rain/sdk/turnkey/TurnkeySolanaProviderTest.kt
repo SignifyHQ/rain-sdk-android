@@ -66,7 +66,7 @@ class TurnkeySolanaProviderTest {
             wallets = listOf(MockTurnkey.walletWithEthAndSolana()),
             turnkeyClient = client
         )
-        return TurnkeyWalletProvider(
+        return turnkeyWalletProvider(
             turnkey = turnkey,
             rpcEndpoints = mapOf(devnet to rpc.urlFor(devnet)),
             httpClient = OkHttpClient(),
@@ -302,7 +302,7 @@ class TurnkeySolanaProviderTest {
         )
         rpc.stubObject("getBalance", balanceResult(5_000_000_000L))
         stubDiscoveredTokenAccounts(mint = mint, amount = "20000000", decimals = 6)
-        val provider = TurnkeyWalletProvider(
+        val provider = turnkeyWalletProvider(
             turnkey = MockTurnkey(
                 wallets = listOf(MockTurnkey.walletWithEthAndSolana()),
                 turnkeyClient = client
@@ -1505,5 +1505,29 @@ class TurnkeySolanaProviderTest {
 
     private companion object {
         const val SIGNATURE = "2id3YC2jK9G5Wo2phDx4gJVAew8DcY5NAB7jTLd5p3KqJ7xQy9bniaP4q1hk2N1nF"
+    }
+
+    @Test
+    fun `getBalance on solana reads the node again when the SPL-miss read fails once`() = runBlocking {
+        val mint = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
+        val reader = MockChainReader(
+            balance = Balance(
+                token = Token.Contract(mint),
+                chainId = devnet,
+                rawAmount = BigInteger.valueOf(5),
+                decimals = 6,
+                symbol = "USDC",
+                name = null
+            )
+        )
+        reader.balanceFailures += RuntimeException("node blip")
+        // Turnkey lists no assets, so the SPL read misses and falls to the node.
+        val provider = makeProvider(client = MockTurnkeyClient(mockBalances = emptyList()), solanaReader = reader)
+
+        val balance = provider.getBalance(devnet, Token.Contract(mint))
+
+        // The miss read failed and the fallback read repeated it: two node reads, one answer.
+        assertThat(reader.balanceCalls).hasSize(2)
+        assertThat(balance.rawAmount).isEqualTo(BigInteger.valueOf(5))
     }
 }

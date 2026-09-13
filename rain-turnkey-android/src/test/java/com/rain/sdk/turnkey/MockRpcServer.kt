@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
  * val rpc = MockRpcServer().also { it.start() }
  * rpc.stub(method = "eth_estimateGas", result = "0x5208")
  * rpc.stubNetworkFailure(method = "eth_call")
- * val provider = TurnkeyWalletProvider(rpcEndpoints = mapOf(1 to rpc.urlFor(1)), ...)
+ * val provider = turnkeyWalletProvider(rpcEndpoints = mapOf(1 to rpc.urlFor(1)), ...)
  * ...
  * rpc.shutdown()
  * ```
@@ -152,7 +152,7 @@ internal class MockRpcServer {
     /**
      * Stub a network failure for [method]. The server disconnects the socket so OkHttp
      * surfaces an `IOException` to the caller — used to drive the `RainError.NetworkError`
-     * code path in [TurnkeyWalletProvider].
+     * code path in [TurnkeyManager].
      */
     fun stubNetworkFailure(method: String) {
         stubs[method] = Stub(networkFailure = true)

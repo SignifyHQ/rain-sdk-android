@@ -90,4 +90,27 @@ class TurnkeyProviderTest {
             solanaSupport = SolanaSupport(rpcEndpoints)
         )
     }
+
+    @Test
+    fun `sponsorGas reaches the send body of the wallet provider create builds`(): Unit = runBlocking {
+        val turnkey = MockTurnkey()
+        val descriptor = TurnkeyProvider(config(sponsorGas = true), contextOverride = turnkey)
+        try {
+            val wallet = descriptor.create(providerContext())
+
+            val hash = wallet.sendTransaction(
+                chainId = 1,
+                from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
+                to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
+                data = "0x",
+                value = "0x0"
+            )
+
+            val client = turnkey.turnkeyClient as MockTurnkeyClient
+            assertThat(client.ethSendTransactionCalls.single().sponsor).isTrue()
+            assertThat(hash).isEqualTo(client.mockTransactionHash)
+        } finally {
+            descriptor.close()
+        }
+    }
 }
