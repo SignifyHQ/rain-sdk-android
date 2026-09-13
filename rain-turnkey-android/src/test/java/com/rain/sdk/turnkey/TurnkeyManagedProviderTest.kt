@@ -160,6 +160,31 @@ class TurnkeyManagedProviderTest {
     }
 
     @Test
+    fun `a managed login over a live session hands the wallet create built the new user's address`() = runTest {
+        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()))
+        val provider = TurnkeyProvider(managedConfig(), contextOverride = turnkey)
+        try {
+            val wallet = provider.create(providerContext())
+            assertThat(wallet.getWalletAddress()).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
+
+            // Another user logs in over the live session; the vendor now lists that user's wallet.
+            val other = "0x9999999999999999999999999999999999999999"
+            turnkey.onCompleteOtp = {
+                val reAddressed = MockTurnkey.walletWithEthereumAddress(other)
+                turnkey.wallets = listOf(reAddressed.copy(accounts = reAddressed.accounts + MockTurnkey.solanaAccount()))
+            }
+            provider.sendLoginCode("other@example.com")
+            provider.confirmLoginCode("123456")
+
+            // The replacement advanced the coordinator the manager shares with the descriptor, so the
+            // cached address is stale and the next read resolves the new user's wallet.
+            assertThat(wallet.getWalletAddress()).isEqualTo(other)
+        } finally {
+            provider.close()
+        }
+    }
+
+    @Test
     fun `resolving a BYO provider never provisions`() = runTest {
         val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.defaultWallet()))
         val provider = TurnkeyProvider(TurnkeyConfig(turnkey = TurnkeyContext), contextOverride = turnkey)

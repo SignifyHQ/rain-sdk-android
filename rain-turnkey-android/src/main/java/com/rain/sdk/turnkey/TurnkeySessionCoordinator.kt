@@ -30,8 +30,8 @@ import kotlin.time.Duration.Companion.milliseconds
  * session.
  *
  * Terminal auth failures always surface as [RainError.TokenExpired], advance [deathEpoch] and
- * fire the host's `onSessionExpired` hook once per session death; both re-arm when a live
- * session is seen again.
+ * fire the host's `onSessionExpired` hook once per session death; the hook re-arms when a live
+ * session is seen again, the count only grows.
  */
 internal class TurnkeySessionCoordinator(
     private val turnkey: TurnkeyContextProtocol,

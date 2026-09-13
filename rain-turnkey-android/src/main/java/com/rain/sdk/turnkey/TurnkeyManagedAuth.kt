@@ -340,7 +340,7 @@ internal class TurnkeyManagedAuthController(
 
     /**
      * Clears the selected session. Deliberate, so the host's `onSessionExpired` re-auth hook stays
-     * silent for the death this causes; cached accounts are still evicted. A pending code is
+     * silent for the death this causes; cached accounts still go stale. A pending code is
      * dropped once the clear was attempted, whether or not it succeeded. Reads made right after
      * this returns already see no session: the vendor flips its auth state, selected key and
      * session inline inside `clearSession`, and [hasActiveSession] and [currentAuthState] derive
@@ -407,9 +407,10 @@ internal class TurnkeyManagedAuthController(
 
     /**
      * On a first login the vendor selects the new session itself; over a live session it only
-     * stores it, so the switch has to be explicit. Afterwards the wallet provider's cached
-     * addresses are evicted — an Active→Active transition is not a death the watcher notices — and
-     * the previous session, revoked server-side by the login, is cleared locally. A switch that
+     * stores it, so the switch has to be explicit. Afterwards the coordinator's death count
+     * advances and stales the manager's cached addresses, since an Active→Active transition is not
+     * a death the watcher notices, and the previous session, revoked server-side by the login, is
+     * cleared locally. A switch that
      * fails is abandoned the same way on both exits: see [abandonSwitch].
      */
     private suspend fun switchToSession(sessionKey: String, previousKey: String?) {
