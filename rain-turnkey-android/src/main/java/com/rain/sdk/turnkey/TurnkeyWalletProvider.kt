@@ -228,30 +228,30 @@ internal class TurnkeyWalletProvider(
      * fallback for both native SOL and SPL tokens — Turnkey does not index every cluster (devnet
      * in particular), and the node always does.
      */
-    private suspend fun solanaBalance(chainId: Int, walletAddress: String, token: Token): Balance =
-        runCatching {
-            // Turnkey omits zero balances, and on a cluster it does not index every mint looks
-            // like a zero — so a missing SPL entry is re-read from the node rather than reported
-            // as zero with unknown decimals.
+    private suspend fun solanaBalance(chainId: Int, walletAddress: String, token: Token): Balance {
+        val fromTurnkey = runCatching {
             manager.solanaBalanceOrNull(chainId, walletAddress, token, tokenStore)
-                ?: chainReaderFor(chainId).getBalance(
-                    chainId = chainId,
-                    walletAddress = walletAddress,
-                    token = token,
-                    tokenInfo = (token as? Token.Contract)?.let { registeredSplToken(chainId, it.address) }
-                )
         }.getOrElse {
             if (it is CancellationException) throw it
             // A dead session must surface, not be masked by the node fallback — the coordinator
             // already tried a refresh before this error was thrown.
             if (it is RainError.TokenExpired) throw it
-            chainReaderFor(chainId).getBalance(
-                chainId = chainId,
-                walletAddress = walletAddress,
-                token = token,
-                tokenInfo = (token as? Token.Contract)?.let { registeredSplToken(chainId, it.address) }
-            )
+            return nodeBalance(chainId, walletAddress, token)
         }
+        // Turnkey omits zero balances, and on a cluster it does not index every mint looks like a
+        // zero — so a missing SPL entry is read from the node, once, rather than reported as zero
+        // with unknown decimals. A failing node read surfaces, as it does on every other path.
+        return fromTurnkey ?: nodeBalance(chainId, walletAddress, token)
+    }
+
+    /** The node's answer for [token], named from the host's registry when it has an entry. */
+    private suspend fun nodeBalance(chainId: Int, walletAddress: String, token: Token): Balance =
+        chainReaderFor(chainId).getBalance(
+            chainId = chainId,
+            walletAddress = walletAddress,
+            token = token,
+            tokenInfo = (token as? Token.Contract)?.let { registeredSplToken(chainId, it.address) }
+        )
 
     /**
      * Host-registered metadata for [mint], if any.

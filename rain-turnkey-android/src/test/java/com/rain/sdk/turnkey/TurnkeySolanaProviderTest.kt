@@ -1508,26 +1508,19 @@ class TurnkeySolanaProviderTest {
     }
 
     @Test
-    fun `getBalance on solana reads the node again when the SPL-miss read fails once`() = runBlocking {
+    fun `getBalance on solana reads the node once when Turnkey lists no row and a failing read surfaces`() {
         val mint = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
-        val reader = MockChainReader(
-            balance = Balance(
-                token = Token.Contract(mint),
-                chainId = devnet,
-                rawAmount = BigInteger.valueOf(5),
-                decimals = 6,
-                symbol = "USDC",
-                name = null
-            )
-        )
+        val reader = MockChainReader()
         reader.balanceFailures += RuntimeException("node blip")
         // Turnkey lists no assets, so the SPL read misses and falls to the node.
         val provider = makeProvider(client = MockTurnkeyClient(mockBalances = emptyList()), solanaReader = reader)
 
-        val balance = provider.getBalance(devnet, Token.Contract(mint))
+        val error = assertThrows(RuntimeException::class.java) {
+            runBlocking { provider.getBalance(devnet, Token.Contract(mint)) }
+        }
 
-        // The miss read failed and the fallback read repeated it: two node reads, one answer.
-        assertThat(reader.balanceCalls).hasSize(2)
-        assertThat(balance.rawAmount).isEqualTo(BigInteger.valueOf(5))
+        // One node read, and its failure is the caller's to see: nothing retries it.
+        assertThat(error).hasMessageThat().isEqualTo("node blip")
+        assertThat(reader.balanceCalls).hasSize(1)
     }
 }

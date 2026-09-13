@@ -41,7 +41,6 @@
     <ID>MagicNumber:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator$500</ID>
     <ID>MagicNumber:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator$599</ID>
     <ID>NestedBlockDepth:TurnkeySessionCoordinator.kt$TurnkeySessionCoordinator$private suspend fun &lt;T&gt; execute( idempotent: Boolean, block: suspend (Session, TurnkeyClientProtocol) -&gt; T ): T</ID>
-    <ID>NoNameShadowing:TurnkeyWalletProvider.kt$TurnkeyWalletProvider${ registeredSplToken(chainId, it.address) }</ID>
     <ID>RedundantSuspendModifier:TurnkeyManager.kt$TurnkeyManager$suspend</ID>
     <ID>ReturnCount:MockRpcServer.kt$MockRpcServer.&lt;no name provided&gt;$override fun dispatch(request: RecordedRequest): MockResponse</ID>
     <ID>ReturnCount:TurnkeyManager.kt$TurnkeyManager$@Suppress("TooGenericExceptionCaught") // a failed status read ends the poll, not the send; recovered from chain private suspend fun pollForSolanaCompletion(sendTransactionStatusId: String): String?</ID>
