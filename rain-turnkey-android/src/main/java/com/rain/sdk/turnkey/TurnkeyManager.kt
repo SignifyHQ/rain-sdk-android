@@ -50,7 +50,8 @@ import java.util.Locale
  * The Turnkey vendor wrapper: every call to Turnkey's context, client and history API lives here,
  * guarded by [sessions], and leaves as a Rain type or a `RainError`. [TurnkeyWalletProvider] is the
  * port over it, the way `PortalWalletProvider` sits over `PortalManager`. Built once per
- * `TurnkeyProvider.create()`, so its address cache never outlives the session that filled it.
+ * `TurnkeyProvider.create()`; its address caches carry the coordinator's death count, so a later
+ * login never reads the previous user's address.
  */
 @Suppress("TooManyFunctions") // the vendor wrapper owns every Turnkey call, as PortalManager does
 internal class TurnkeyManager(

@@ -25,6 +25,10 @@ import java.math.BigInteger
  * Turnkey-based implementation of [WalletProvider]. Materialized by [TurnkeyProvider] when a
  * registered Turnkey provider is resolved.
  *
+ * The port over [TurnkeyManager]: this class routes by chain family, gates sends, composes Solana
+ * transfers through core's Solana support and shapes each [WalletProvider] method; every Turnkey
+ * call belongs to the manager, the way `PortalWalletProvider` sits over `PortalManager`.
+ *
  * Balance reads route through Turnkey's `get_wallet_address_balances` when the chain is in
  * [TurnkeyBroadcastChains.BALANCE_API_CHAIN_IDS]; everything else falls through to the injected
  * [ChainReader] (parallel `eth_call` + Multicall3 where deployed).
