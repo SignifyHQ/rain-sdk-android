@@ -1,6 +1,7 @@
 package com.rain.sdk.internal.tokenstore
 
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.SolanaChains
 import com.rain.sdk.internal.constants.TokenRegistry
 import com.rain.sdk.internal.network.chainreader.ChainReader
@@ -25,7 +26,7 @@ import timber.log.Timber
  * — never across the enrichment RPC — so concurrent `tokenInfo` calls for different tokens don't
  * serialize behind each other's network round-trips.
  */
-class TokenMetadataStore internal constructor(
+class TokenMetadataStore @RainAdapterApi constructor(
     private val chainReader: ChainReader,
     seedTokens: List<TokenInfo> = emptyList()
 ) {

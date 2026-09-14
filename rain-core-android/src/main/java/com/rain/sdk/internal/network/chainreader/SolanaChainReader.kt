@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.network.chainreader
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.SolanaChains
 import com.rain.sdk.internal.constants.SolanaPrograms
 import com.rain.sdk.internal.error.RainError
@@ -26,7 +27,8 @@ import java.math.BigInteger
  * deriving its associated token account, and *discovery* uses `getTokenAccountsByOwner`, which
  * enumerates holdings directly — no registry of known mints required, unlike EVM.
  */
-internal class SolanaChainReader(
+@RainAdapterApi
+class SolanaChainReader(
     private val solanaRpcClient: SolanaRpcClient = SolanaRpcClient(),
     private val rpcUrlResolver: (Int) -> String?
 ) : ChainReader {

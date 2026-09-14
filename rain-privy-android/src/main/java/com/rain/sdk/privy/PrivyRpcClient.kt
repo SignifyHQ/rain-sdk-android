@@ -28,7 +28,8 @@ internal enum class RpcCallPurpose { READ, SIMULATION }
 /**
  * Minimal JSON-RPC 2.0 client for Privy's read path (balances, gas, fee estimates).
  *
- * Core's `JsonRpcClient` is module-internal, so this out-of-module adapter carries its own. Privy's
+ * Core's `JsonRpcClient` is a `@RainAdapterApi` seam this module does not opt in to yet, so it
+ * carries its own client. Privy's
  * EIP-1193 provider is reserved for custody (sign/send); everything read-only goes through here
  * against the RPC endpoints Rain was configured with. Wire format / error mapping mirror core.
  */

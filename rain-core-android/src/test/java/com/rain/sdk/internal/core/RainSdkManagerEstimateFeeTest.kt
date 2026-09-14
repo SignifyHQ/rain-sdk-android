@@ -28,7 +28,9 @@ import java.util.concurrent.CompletableFuture
 
 /**
  * Manager-contract tests for `estimateWithdrawalFee`: the primary BigDecimal overload
- * (the caller-supplied withdrawal authorization) and the Solana guard.
+ * (the caller-supplied withdrawal authorization) and the Solana guard, plus the error contract on
+ * both estimate paths: an adapter-mapped RainError passes through untouched, a raw exception floors
+ * at InternalError.
  */
 class RainSdkManagerEstimateFeeTest {
 
@@ -98,6 +100,126 @@ class RainSdkManagerEstimateFeeTest {
         assertThat(calldata).contains("02".repeat(65)) // caller's admin signature bytes
         // Nothing was broadcast.
         assertThat(stub.sendTransactionCalls).isEmpty()
+    }
+
+    // ---- the error contract on the estimate paths ------------------------------------------
+    //
+    // An adapter converts its vendor's failure to a RainError before it leaves the adapter, and core
+    // passes that RainError through with its code intact. Core's own InternalError wrap on these two
+    // paths is the floor for a failure nothing mapped, not a relabelling of the adapter's verdict.
+
+    @Test
+    fun `estimateGas passes an adapter-mapped ProviderError through with its code intact`(): Unit = runBlocking {
+        val mapped = RainError.ProviderError(RuntimeException("node refused the estimate"))
+        val stub = object : StubWalletProvider() {
+            override suspend fun estimateTransactionFee(
+                chainId: Int,
+                from: String,
+                to: String,
+                data: String,
+                value: String
+            ): BigDecimal = throw mapped
+        }
+        val (manager, _) = TestManagers.stubProviderManager(stub, transactionBuilder = builder)
+
+        val error = assertThrows(RainError.ProviderError::class.java) {
+            runBlocking {
+                manager.estimateGas(
+                    chainId = 1,
+                    from = TestFixtures.WALLET_ADDRESS,
+                    to = TestFixtures.CONTROLLER_ADDRESS,
+                    data = "0x"
+                )
+            }
+        }
+        assertThat(error).isSameInstanceAs(mapped)
+    }
+
+    @Test
+    fun `estimateWithdrawalFee passes an adapter-mapped ProviderError through with its code intact`(): Unit =
+        runBlocking {
+            val mapped = RainError.ProviderError(RuntimeException("node refused the estimate"))
+            val stub = object : StubWalletProvider() {
+                override suspend fun estimateTransactionFee(
+                    chainId: Int,
+                    from: String,
+                    to: String,
+                    data: String,
+                    value: String
+                ): BigDecimal = throw mapped
+            }
+            val (manager, _) = TestManagers.stubProviderManager(stub, transactionBuilder = builder)
+            stub.signTypedDataToReturn = TestFixtures.validSignatureHex
+
+            val error = assertThrows(RainError.ProviderError::class.java) {
+                runBlocking {
+                    manager.estimateWithdrawalFee(
+                        chainId = 1,
+                        addresses = addresses,
+                        amount = BigDecimal("100.0"),
+                        decimals = 6,
+                        adminSignature = TestFixtures.adminSignature()
+                    )
+                }
+            }
+            assertThat(error).isSameInstanceAs(mapped)
+        }
+
+    @Test
+    fun `estimateWithdrawalFee still floors a failure nothing mapped at InternalError`(): Unit = runBlocking {
+        val raw = IllegalStateException("truncated response")
+        val stub = object : StubWalletProvider() {
+            override suspend fun estimateTransactionFee(
+                chainId: Int,
+                from: String,
+                to: String,
+                data: String,
+                value: String
+            ): BigDecimal = throw raw
+        }
+        val (manager, _) = TestManagers.stubProviderManager(stub, transactionBuilder = builder)
+        stub.signTypedDataToReturn = TestFixtures.validSignatureHex
+
+        val error = assertThrows(RainError.InternalError::class.java) {
+            runBlocking {
+                manager.estimateWithdrawalFee(
+                    chainId = 1,
+                    addresses = addresses,
+                    amount = BigDecimal("100.0"),
+                    decimals = 6,
+                    adminSignature = TestFixtures.adminSignature()
+                )
+            }
+        }
+        assertThat(error.cause).isSameInstanceAs(raw)
+    }
+
+    @Test
+    fun `estimateGas still floors a failure nothing mapped at InternalError`(): Unit = runBlocking {
+        // A host-supplied provider that lets a raw exception escape, or a failure raised inside core.
+        val raw = IllegalStateException("truncated response")
+        val stub = object : StubWalletProvider() {
+            override suspend fun estimateTransactionFee(
+                chainId: Int,
+                from: String,
+                to: String,
+                data: String,
+                value: String
+            ): BigDecimal = throw raw
+        }
+        val (manager, _) = TestManagers.stubProviderManager(stub, transactionBuilder = builder)
+
+        val error = assertThrows(RainError.InternalError::class.java) {
+            runBlocking {
+                manager.estimateGas(
+                    chainId = 1,
+                    from = TestFixtures.WALLET_ADDRESS,
+                    to = TestFixtures.CONTROLLER_ADDRESS,
+                    data = "0x"
+                )
+            }
+        }
+        assertThat(error.cause).isSameInstanceAs(raw)
     }
 
     @Test

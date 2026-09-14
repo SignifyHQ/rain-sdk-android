@@ -5,7 +5,6 @@ import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers
-import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
 import kotlinx.coroutines.runBlocking
@@ -43,7 +42,6 @@ class RainSdkManagerWalletInfoTest {
 
     @Test
     fun `getAddress wraps non-RainError provider failures via ErrorMapper`() {
-        assumeJdk24()
         val failing = object : StubWalletProvider() {
             override suspend fun getWalletAddress(): String {
                 throw RuntimeException("network down")
@@ -98,7 +96,6 @@ class RainSdkManagerWalletInfoTest {
 
     @Test
     fun `getTransactions wraps unexpected provider failures as ProviderError`() {
-        assumeJdk24()
         val failing = object : StubWalletProvider() {
             override suspend fun getTransactions(
                 chainId: Int,

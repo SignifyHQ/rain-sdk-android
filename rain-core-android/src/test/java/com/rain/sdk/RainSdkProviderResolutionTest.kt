@@ -3,7 +3,6 @@ package com.rain.sdk
 import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
@@ -52,7 +51,6 @@ class RainSdkProviderResolutionTest {
 
     @Test
     fun `a raw vendor failure at creation is wrapped as a RainError`() {
-        assumeJdk24() // the mapper's Turnkey branch loads Turnkey classes
         val vendor = IllegalStateException("401 Unauthorized")
         val sdk = sdkWith(FailingProvider(vendor))
 
@@ -86,7 +84,6 @@ class RainSdkProviderResolutionTest {
     /** A failed resolution caches nothing: fixing the credentials and calling again must retry. */
     @Test
     fun `a failed resolution is retried on the next call`() {
-        assumeJdk24() // the mapper's Turnkey branch loads Turnkey classes
         val provider = FailingProvider(IllegalStateException("boom"))
         val sdk = sdkWith(provider)
 

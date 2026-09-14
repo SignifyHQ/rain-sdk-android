@@ -1,19 +1,11 @@
 package com.rain.sdk.turnkey
 
-import com.rain.sdk.internal.abi.Erc20Abi
-import com.rain.sdk.internal.constants.RainConstants
 import com.rain.sdk.internal.constants.SolanaChains
 import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.internal.network.chainreader.ChainReader
-import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.network.chainreader.JsonRpcClient
-import com.rain.sdk.internal.network.chainreader.SolanaChainReader
-import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.solana.SolanaConverter
 import com.rain.sdk.internal.solana.SolanaRpcClient
-import com.rain.sdk.internal.solana.SolanaSupport
 import com.rain.sdk.internal.solana.SolanaTransactionDecoder
-import com.rain.sdk.internal.solana.SolanaTransferComposer
 import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.internal.utils.ChainIdFormat
@@ -23,9 +15,6 @@ import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionCategory
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
-import com.rain.sdk.models.TokenInfo
-import com.rain.sdk.provider.Capability
-import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.utils.EthereumConverter
 import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TGetActivitiesBody
@@ -56,71 +45,31 @@ import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.temporal.ChronoUnit
 import java.util.Locale
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Turnkey-based implementation of [WalletProvider]. Used when the SDK is initialized with
- * `initializeTurnkey(...)`.
- *
- * Balance reads route through Turnkey's `get_wallet_address_balances` when the chain is in
- * [RainConstants.TURNKEY_SUPPORTED_CHAINS]; everything else falls through to the injected
- * [ChainReader] (parallel `eth_call` + Multicall3 where deployed).
+ * The Turnkey vendor wrapper: every wallet-operation call to Turnkey's context, client and history
+ * API lives here, guarded by [sessions], and leaves as a Rain type or a `RainError`; the session
+ * coordinator and managed authentication make their own session and login calls.
+ * [TurnkeyWalletProvider] is the port over it, the way `PortalWalletProvider` sits over
+ * `PortalManager`. Built once per `TurnkeyProvider.create()`; its address caches carry the
+ * coordinator's death count, so a session death or a managed-auth login replacement stales them
+ * before the next read. A live session replaced by another live one outside managed
+ * authentication is not counted: a bring-your-own host rebuilds the SDK per login and closes the
+ * discarded provider, as TURNKEY_SUPPORT.md describes.
  */
-internal class TurnkeyWalletProvider(
+@Suppress("TooManyFunctions") // the vendor wrapper owns every Turnkey call, as PortalManager does
+internal class TurnkeyManager(
     private val turnkey: TurnkeyContextProtocol,
     private val rpcEndpoints: Map<Int, String>,
+    private val solanaRpcClient: SolanaRpcClient,
+    internal val sponsorGas: Boolean,
     private val walletAddressOverride: String? = null,
-    private val httpClient: OkHttpClient = OkHttpClient(),
+    httpClient: OkHttpClient = OkHttpClient(),
     private val pollingIntervalMs: Long = POLLING_INTERVAL_MS,
-    jsonRpcClient: JsonRpcClient = JsonRpcClient(httpClient),
-    chainReader: ChainReader? = null,
-    solanaChainReader: ChainReader? = null,
-    solanaRpcClient: SolanaRpcClient? = null,
-    solanaSupport: SolanaSupport? = null,
-    tokenStore: TokenMetadataStore? = null,
+    private val jsonRpcClient: JsonRpcClient = JsonRpcClient(httpClient),
     history: TurnkeyHistoryProtocol? = null,
     sessionCoordinator: TurnkeySessionCoordinator? = null,
-    private val sponsorGas: Boolean = false
-) : WalletProvider {
-
-    override val id: ProviderId get() = ProviderId.TURNKEY
-
-    /**
-     * Turnkey holds EVM + Solana accounts (multi-chain) and gates signing behind passkeys/biometrics.
-     * With [sponsorGas] on it also advertises [Capability.GAS_SPONSORSHIP], which tells core to
-     * skip the self-paid preflights that would charge the fee to the wallet (the Solana
-     * collateral-withdrawal dry run) when composing transactions this provider will sign.
-     * Shared with [TurnkeyProvider] through [capabilitiesFor]: `RainSdk` copies the descriptor's
-     * set onto the resolved client, so the two must never disagree.
-     */
-    override val capabilities: Set<Capability> get() = capabilitiesFor(sponsorGas)
-
-    /** Core's up-front gate for withdrawals and approvals; the registry answers, as for transfers. */
-    override fun requireSendSupport(chainId: Int) = TurnkeyBroadcastChains.requireSendSupport(chainId)
-
-    /** Sponsorship applies exactly where Turnkey can broadcast; elsewhere the wallet pays. */
-    override fun sponsorsFees(chainId: Int): Boolean =
-        sponsorGas && TurnkeyBroadcastChains.supportsSend(chainId)
-
-    private val jsonRpcClient: JsonRpcClient = jsonRpcClient
-    private val chainReader: ChainReader = chainReader
-        ?: EvmChainReader(rpcEndpoints = rpcEndpoints, jsonRpcClient = jsonRpcClient)
-
-    // Explicit test doubles win; then the shared Solana stack; a private stack is the last resort.
-    private val solanaRpcClient: SolanaRpcClient =
-        solanaRpcClient ?: solanaSupport?.rpc ?: SolanaRpcClient(jsonRpcClient)
-    private val solanaChainReader: ChainReader = solanaChainReader
-        ?: solanaSupport?.chainReader
-        ?: SolanaChainReader(rpcEndpoints = rpcEndpoints, solanaRpcClient = this.solanaRpcClient)
-    private val solanaTransferComposer = solanaSupport?.composer
-        ?: SolanaTransferComposer(this.solanaRpcClient, rpcEndpoints::get)
-
-    /** Picks the reader for [chainId]'s chain family. */
-    private fun chainReaderFor(chainId: Int): ChainReader =
-        if (SolanaChains.isSolanaChain(chainId)) solanaChainReader else chainReader
-
-    // Resolves token metadata (decimals / symbol / name) and enriches unknown tokens once.
-    private val tokenStore: TokenMetadataStore = tokenStore ?: TokenMetadataStore(this.chainReader)
+) {
 
     private val history: TurnkeyHistoryProtocol = history ?: TurnkeyHistoryClient(httpClient)
 
@@ -128,9 +77,10 @@ internal class TurnkeyWalletProvider(
     private val sessions: TurnkeySessionCoordinator =
         sessionCoordinator ?: TurnkeySessionCoordinator(turnkey)
 
-    // Bumped on every eviction so a resolution that was already in flight when the session
-    // died cannot write the dead session's address back into the cache.
-    private val evictionEpoch = AtomicInteger(0)
+    // A cached account is only as good as the session that resolved it. Each cache carries the
+    // coordinator's death count it was filled under: a later count means the previous user's
+    // address, so the read re-resolves, and a resolution that straddled a death is not written back.
+    private class CachedAddress(val address: String, val epoch: Int)
 
     // Once resolved, the wallet address is stable for the provider's lifetime, so cache
     // it. Mutex (rather than synchronized) so the suspend-friendly address() doesn't block
@@ -141,35 +91,16 @@ internal class TurnkeyWalletProvider(
     private val evmSendLock = Mutex()
 
     @Volatile
-    private var cachedAddress: String? = null
+    private var cachedAddress: CachedAddress? = null
 
     @Volatile
-    private var cachedSolanaAddress: String? = null
+    private var cachedSolanaAddress: CachedAddress? = null
 
-    init {
-        // Cached accounts must not survive the session that resolved them: a later login as a
-        // different user would otherwise keep signing with the previous user's addresses.
-        sessions.onSessionDeath {
-            evictionEpoch.incrementAndGet()
-            cachedAddress = null
-            cachedSolanaAddress = null
-        }
-    }
+    /** The cached address if it was resolved under the current session, else null. */
+    private fun CachedAddress?.stillCurrent(): String? =
+        this?.takeIf { it.epoch == sessions.deathEpoch }?.address
 
     internal companion object {
-        /**
-         * The capabilities a Turnkey provider advertises for a given [sponsorGas] setting. The one
-         * source for both the [TurnkeyProvider] descriptor (what hosts see through
-         * `client.capabilities` and `rain.first { }`) and the wallet provider it creates (what core
-         * reads when composing transactions), so a host and core can never disagree about
-         * whether this provider's sends are sponsored.
-         */
-        fun capabilitiesFor(sponsorGas: Boolean): Set<Capability> = buildSet {
-            add(Capability.MULTI_CHAIN)
-            add(Capability.BIOMETRIC_GATE)
-            if (sponsorGas) add(Capability.GAS_SPONSORSHIP)
-        }
-
         const val DEFAULT_NATIVE_DECIMALS = 18
         const val DEFAULT_POLLING_ATTEMPTS = 30
         const val POLLING_INTERVAL_MS = 1_000L
@@ -200,29 +131,25 @@ internal class TurnkeyWalletProvider(
         val sendTransactionStatusId: String?
     )
 
-    /** True when Turnkey's `get-balances` API covers [chainId] (EVM allowlist or any Solana cluster). */
-    private fun usesTurnkeyForBalances(chainId: Int): Boolean =
-        chainId in RainConstants.TURNKEY_SUPPORTED_CHAINS || SolanaChains.isSolanaChain(chainId)
-
     /** CAIP-2 for [chainId]: EIP-155 for EVM, genesis-hash form for Solana clusters. */
     private fun caip2For(chainId: Int): String =
         ChainIdFormat.namespaceFor(chainId).format(chainId)
 
     // ---------- address ----------
 
-    override suspend fun getWalletAddress(): String {
+    internal suspend fun getAddress(): String {
         walletAddressOverride?.takeIf { it.isNotEmpty() }?.let { return it }
 
-        cachedAddress?.let { return it }
+        cachedAddress.stillCurrent()?.let { return it }
 
         return cachedAddressLock.withLock {
-            cachedAddress?.let { return@withLock it }
+            cachedAddress.stillCurrent()?.let { return@withLock it }
 
-            // Cache only while no eviction happened mid-flight — a result resolved across a
+            // Cache only while no death happened mid-flight — a result resolved across a
             // session death may belong to the previous user.
-            val epoch = evictionEpoch.get()
+            val epoch = sessions.deathEpoch
             fun cache(address: String): String =
-                address.also { if (evictionEpoch.get() == epoch) cachedAddress = it }
+                address.also { if (sessions.deathEpoch == epoch) cachedAddress = CachedAddress(it, epoch) }
 
             resolveEthereumWalletAddress(turnkey.wallets)?.let(::cache)
                 ?: run {
@@ -240,18 +167,18 @@ internal class TurnkeyWalletProvider(
      * every other chain shares the Ethereum account. Internal balance / send paths use this so
      * a Solana request never reads or signs with the EVM address.
      */
-    override suspend fun getWalletAddress(chainId: Int): String =
-        if (SolanaChains.isSolanaChain(chainId)) getSolanaAddress() else getWalletAddress()
+    internal suspend fun getWalletAddress(chainId: Int): String =
+        if (SolanaChains.isSolanaChain(chainId)) getSolanaAddress() else getAddress()
 
     private suspend fun getSolanaAddress(): String {
-        cachedSolanaAddress?.let { return it }
+        cachedSolanaAddress.stillCurrent()?.let { return it }
 
         return cachedAddressLock.withLock {
-            cachedSolanaAddress?.let { return@withLock it }
+            cachedSolanaAddress.stillCurrent()?.let { return@withLock it }
 
-            val epoch = evictionEpoch.get()
+            val epoch = sessions.deathEpoch
             fun cache(address: String): String =
-                address.also { if (evictionEpoch.get() == epoch) cachedSolanaAddress = it }
+                address.also { if (sessions.deathEpoch == epoch) cachedSolanaAddress = CachedAddress(it, epoch) }
 
             resolveSolanaWalletAddress(turnkey.wallets)?.let(::cache)
                 ?: run {
@@ -278,71 +205,8 @@ internal class TurnkeyWalletProvider(
 
     // ---------- high-level send ----------
 
-    override suspend fun sendNativeToken(
-        chainId: Int,
-        toAddress: String,
-        amountInEth: BigDecimal
-    ): String {
-        TurnkeyBroadcastChains.requireSendSupport(chainId)
-        if (SolanaChains.isSolanaChain(chainId)) {
-            return sendSolanaNative(chainId, toAddress, amountInEth)
-        }
-        val from = getWalletAddress(chainId)
-        val decimals = tokenStore.nativeCurrency(chainId).decimals
-        val valueHex = EthereumConverter.convertEthToWeiHex(amountInEth, decimals)
-        return sendEvmTransaction(
-            chainId = chainId,
-            from = from,
-            to = toAddress,
-            data = "0x",
-            value = valueHex
-        )
-    }
-
-    override suspend fun sendToken(
-        chainId: Int,
-        contractAddress: String,
-        toAddress: String,
-        amount: BigDecimal,
-        decimals: Int
-    ): String {
-        TurnkeyBroadcastChains.requireSendSupport(chainId)
-        if (SolanaChains.isSolanaChain(chainId)) {
-            // `decimals` is deliberately unread — it is not authoritative here. sendSolanaSplToken
-            // reads the mint's own scale from the chain, which `TransferChecked` then enforces.
-            return sendSolanaSplToken(chainId, contractAddress, toAddress, amount)
-        }
-        val from = getWalletAddress(chainId)
-        val data = Erc20Abi.encodeTransfer(toAddress, amount, decimals)
-        return sendEvmTransaction(
-            chainId = chainId,
-            from = from,
-            to = contractAddress,
-            data = data,
-            value = "0x0"
-        )
-    }
-
-    // ---------- low-level send / sign / fee ----------
-
-    /**
-     * Raw sends follow [sponsorGas] exactly like the transfer entries. Withdrawals, Auth Pull
-     * approvals, and host-composed calldata arrive here, and Turnkey sponsors any
-     * `ethSendTransaction`, not just plain transfers. A zero-balance card user's first action
-     * is often the Auth Pull approval, so leaving these self-paid would defeat the feature and
-     * would make the zero fee estimate wrong for exactly these flows. Sponsorship cost passes
-     * through to the partner that turned the flag on.
-     */
-    override suspend fun sendTransaction(
-        chainId: Int,
-        from: String,
-        to: String,
-        data: String,
-        value: String
-    ): String = sendEvmTransaction(chainId, from, to, data, value)
-
     /** Every EVM send, transfer or raw, follows [sponsorGas]; there is no per-call override. */
-    private suspend fun sendEvmTransaction(
+    internal suspend fun sendEvmTransaction(
         chainId: Int,
         from: String,
         to: String,
@@ -371,12 +235,8 @@ internal class TurnkeyWalletProvider(
         }
     }
 
-    override suspend fun signTypedData(
-        chainId: Int,
-        walletAddress: String,
-        typedDataJson: String
-    ): String {
-        requireEvmChain(chainId, "signTypedData")
+    /** Signs EIP-712 typed data with the Ethereum account; the caller has already gated the chain. */
+    internal suspend fun signTypedData(walletAddress: String, typedDataJson: String): String {
         val signature = sessions.executeWrite { _, _ ->
             turnkey.signRawPayload(
                 signWith = walletAddress,
@@ -388,21 +248,14 @@ internal class TurnkeyWalletProvider(
         return ethereumSignatureHex(signature)
     }
 
-    override suspend fun estimateTransactionFee(
+    /** Self-paid fee quote: `eth_estimateGas` times `eth_gasPrice`, read from the chain's RPC endpoint. */
+    internal suspend fun estimateTransactionFee(
         chainId: Int,
         from: String,
         to: String,
         data: String,
         value: String
     ): BigDecimal {
-        requireEvmChain(chainId, "estimateTransactionFee")
-        if (sponsorsFees(chainId)) {
-            // Every EVM send is sponsored under this flag, so zero is the honest quote for
-            // transfers, withdrawals, and approvals alike (product decision: pass through what
-            // Turnkey charges the sender, which is nothing). Estimating as if the sender paid
-            // would also reject the zero-balance wallets sponsorship serves.
-            return BigDecimal.ZERO
-        }
         val estimateHex = rpcCallForHex(
             chainId = chainId,
             method = "eth_estimateGas",
@@ -420,133 +273,59 @@ internal class TurnkeyWalletProvider(
         return EthereumConverter.convertWeiToEthDecimal(gasLimit.multiply(gasPrice))
     }
 
-    // ---------- balances ----------
-
-    override suspend fun getBalance(chainId: Int, token: Token): Balance {
-        val walletAddress = getWalletAddress(chainId)
-
-        // Solana has its own balance policy (Turnkey-first with an RPC fallback),
-        // so it branches out before the EVM logic below.
-        if (SolanaChains.isSolanaChain(chainId)) {
-            return solanaBalance(chainId, walletAddress, token)
-        }
-
-        return when (token) {
-            is Token.Contract -> {
-                // `eth_call balanceOf` is the same operation everywhere — delegate to the
-                // chain reader so the SDK has one implementation rather than per-adapter copies.
-                val info = tokenStore.tokenInfo(chainId, token.address)
-                chainReaderFor(chainId).getBalance(
-                    chainId = chainId,
-                    walletAddress = walletAddress,
-                    token = token,
-                    tokenInfo = info
-                )
-            }
-            is Token.Native -> {
-                if (!usesTurnkeyForBalances(chainId)) {
-                    chainReaderFor(chainId).getBalance(
-                        chainId = chainId,
-                        walletAddress = walletAddress,
-                        token = Token.Native,
-                        tokenInfo = null
-                    )
-                } else {
-                    val balances = fetchBalances(chainId, walletAddress)
-                    nativeBalance(chainId, balances, caip2For(chainId))
-                }
-            }
-        }
-    }
-
-    /**
-     * Solana balance read. Turnkey is the primary source, with the Solana RPC reader as the
-     * fallback for both native SOL and SPL tokens — Turnkey does not index every cluster (devnet
-     * in particular), and the node always does.
-     */
-    private suspend fun solanaBalance(chainId: Int, walletAddress: String, token: Token): Balance =
-        runCatching {
-            val balances = fetchBalances(chainId, walletAddress)
-            val caip2 = caip2For(chainId)
-            when (token) {
-                is Token.Native -> nativeBalance(chainId, balances, caip2)
-                is Token.Contract -> splBalance(chainId, walletAddress, balances, caip2, token.address)
-            }
-        }.getOrElse {
-            if (it is CancellationException) throw it
-            // A dead session must surface, not be masked by the node fallback — the coordinator
-            // already tried a refresh before this error was thrown.
-            if (it is RainError.TokenExpired) throw it
-            chainReaderFor(chainId).getBalance(
-                chainId = chainId,
-                walletAddress = walletAddress,
-                token = token,
-                tokenInfo = (token as? Token.Contract)?.let { registeredSplToken(chainId, it.address) }
-            )
-        }
-
-    /**
-     * Builds an SPL [Balance] for [mint] from a Turnkey asset list.
-     *
-     * Turnkey omits zero balances, and on a cluster it does not index every mint looks like a
-     * zero — so a missing entry is re-read from the node rather than reported as zero with
-     * unknown decimals.
-     */
-    private suspend fun splBalance(
+    /** The native balance Turnkey reports for an EVM chain it indexes. */
+    internal suspend fun evmNativeBalance(
         chainId: Int,
         walletAddress: String,
-        balances: List<V1AssetBalance>,
-        caip2: String,
-        mint: String
+        tokenStore: TokenMetadataStore
     ): Balance {
-        val asset = balances.firstOrNull { tokenAddressFromCaip19(it.caip19 ?: "", caip2) == mint }
-            ?: return chainReaderFor(chainId).getBalance(
-                chainId = chainId,
-                walletAddress = walletAddress,
-                token = Token.Contract(mint),
-                tokenInfo = registeredSplToken(chainId, mint)
-            )
-        val raw = runCatching { BigInteger(asset.balance ?: "0") }.getOrDefault(BigInteger.ZERO)
-        return contractBalanceFrom(chainId, mint, raw, asset)
+        val balances = fetchBalances(chainId, walletAddress)
+        return nativeBalance(chainId, balances, caip2For(chainId), tokenStore)
     }
 
-    /**
-     * Host-registered metadata for [mint], if any.
-     *
-     * Reads only the registry — never [TokenMetadataStore.tokenInfo], whose enrichment path goes
-     * through the EVM reader and cannot describe an SPL mint. This is how a caller names a token
-     * that no indexer covers, via `registerTokens`.
-     */
-    private suspend fun registeredSplToken(chainId: Int, mint: String): TokenInfo? =
-        tokenStore.registeredTokens(chainId).firstOrNull { it.address.equals(mint, ignoreCase = true) }
-
-    override suspend fun getBalances(chainId: Int): List<Balance> {
-        val walletAddress = getWalletAddress(chainId)
-
-        if (!usesTurnkeyForBalances(chainId)) {
-            val tokens = tokenStore.registeredTokens(chainId)
-            val all = chainReaderFor(chainId).getBalances(chainId, walletAddress, tokens)
-            return all.filter { balance ->
-                balance.token is Token.Native || balance.rawAmount > BigInteger.ZERO
-            }
-        }
-
-        if (SolanaChains.isSolanaChain(chainId)) {
-            return solanaBalances(chainId, walletAddress)
-        }
-
+    /** Native plus every non-zero token balance Turnkey reports for an EVM chain it indexes. */
+    internal suspend fun evmBalances(
+        chainId: Int,
+        walletAddress: String,
+        tokenStore: TokenMetadataStore
+    ): List<Balance> {
         val caip2 = caip2For(chainId)
         val balances = fetchBalances(chainId, walletAddress)
 
-        val output = mutableListOf(nativeBalance(chainId, balances, caip2))
+        val output = mutableListOf(nativeBalance(chainId, balances, caip2, tokenStore))
         for (balance in balances) {
             val caip19 = balance.caip19 ?: continue
             val tokenAddress = tokenAddressFromCaip19(caip19, caip2) ?: continue
             val raw = runCatching { BigInteger(balance.balance ?: "0") }.getOrDefault(BigInteger.ZERO)
             if (raw <= BigInteger.ZERO) continue
-            output += contractBalanceFrom(chainId, tokenAddress, raw, balance)
+            output += contractBalanceFrom(chainId, tokenAddress, raw, balance, tokenStore)
         }
         return output
+    }
+
+    /**
+     * A Solana balance from Turnkey's asset list, or null when Turnkey lists no entry for the SPL
+     * mint: Turnkey omits zero balances, and on a cluster it does not index every mint looks like a
+     * zero, so the caller re-reads a missing entry from the node rather than reporting it as zero
+     * with unknown decimals. Native SOL is always answered.
+     */
+    internal suspend fun solanaBalanceOrNull(
+        chainId: Int,
+        walletAddress: String,
+        token: Token,
+        tokenStore: TokenMetadataStore
+    ): Balance? {
+        val balances = fetchBalances(chainId, walletAddress)
+        val caip2 = caip2For(chainId)
+        return when (token) {
+            is Token.Native -> nativeBalance(chainId, balances, caip2, tokenStore)
+            is Token.Contract -> {
+                val asset = balances.firstOrNull { tokenAddressFromCaip19(it.caip19 ?: "", caip2) == token.address }
+                    ?: return null
+                val raw = runCatching { BigInteger(asset.balance ?: "0") }.getOrDefault(BigInteger.ZERO)
+                contractBalanceFrom(chainId, token.address, raw, asset, tokenStore)
+            }
+        }
     }
 
     /**
@@ -554,9 +333,14 @@ internal class TurnkeyWalletProvider(
      *
      * Turnkey does not index every cluster: on devnet / testnet it errors, or answers with SOL
      * and no SPL assets at all. Discovering the wallet's token accounts from the node covers
-     * both cases; on mainnet, where Turnkey does list SPL assets, its richer metadata wins.
+     * both cases; on mainnet, where Turnkey does list SPL assets, its richer metadata wins. Null
+     * tells the caller the node has to answer.
      */
-    private suspend fun solanaBalances(chainId: Int, walletAddress: String): List<Balance> {
+    internal suspend fun solanaBalancesOrNull(
+        chainId: Int,
+        walletAddress: String,
+        tokenStore: TokenMetadataStore
+    ): List<Balance>? {
         val caip2 = caip2For(chainId)
         val turnkeyAssets = try {
             fetchBalances(chainId, walletAddress)
@@ -572,35 +356,18 @@ internal class TurnkeyWalletProvider(
             tokenAddressFromCaip19(it.caip19 ?: "", caip2) != null
         }
         if (turnkeyAssets == null || !listsSplAssets) {
-            return solanaBalancesFromNode(chainId, walletAddress)
+            return null
         }
 
-        val output = mutableListOf(nativeBalance(chainId, turnkeyAssets, caip2))
+        val output = mutableListOf(nativeBalance(chainId, turnkeyAssets, caip2, tokenStore))
         for (balance in turnkeyAssets) {
             val caip19 = balance.caip19 ?: continue
             val tokenAddress = tokenAddressFromCaip19(caip19, caip2) ?: continue
             val raw = runCatching { BigInteger(balance.balance ?: "0") }.getOrDefault(BigInteger.ZERO)
             if (raw <= BigInteger.ZERO) continue
-            output += contractBalanceFrom(chainId, tokenAddress, raw, balance)
+            output += contractBalanceFrom(chainId, tokenAddress, raw, balance, tokenStore)
         }
         return output
-    }
-
-    /**
-     * Native SOL plus the SPL tokens the wallet holds, read from the node. Zero balances are
-     * dropped, matching every other chain. Naming falls back to host-registered tokens, so a
-     * mint no indexer covers can still be labelled by the caller rather than shown as a bare
-     * address.
-     */
-    private suspend fun solanaBalancesFromNode(chainId: Int, walletAddress: String): List<Balance> {
-        val all = chainReaderFor(chainId).getBalances(
-            chainId,
-            walletAddress,
-            tokenStore.registeredTokens(chainId)
-        )
-        return all.filter { balance ->
-            balance.token is Token.Native || balance.rawAmount > BigInteger.ZERO
-        }
     }
 
     /**
@@ -613,7 +380,8 @@ internal class TurnkeyWalletProvider(
         chainId: Int,
         tokenAddress: String,
         raw: BigInteger,
-        balance: V1AssetBalance?
+        balance: V1AssetBalance?,
+        tokenStore: TokenMetadataStore
     ): Balance {
         if (SolanaChains.isSolanaChain(chainId)) {
             return Balance(
@@ -643,7 +411,8 @@ internal class TurnkeyWalletProvider(
     private suspend fun nativeBalance(
         chainId: Int,
         balances: List<V1AssetBalance>,
-        caip2: String
+        caip2: String,
+        tokenStore: TokenMetadataStore
     ): Balance {
         val nativeAsset = balances.firstOrNull { isNativeAsset(it, caip2) }
         val raw = runCatching { BigInteger(nativeAsset?.balance ?: "0") }.getOrDefault(BigInteger.ZERO)
@@ -660,41 +429,7 @@ internal class TurnkeyWalletProvider(
 
     // ---------- transactions ----------
 
-    /**
-     * Transaction history. Turnkey's indexed history queries are the primary source, since they
-     * cover the wallet's full on-chain history (receives and externally-submitted transactions
-     * included). When the indexed query is unavailable, most commonly because the history feature
-     * is not enabled for the Turnkey organization, the provider falls back to the activity log,
-     * which lists only transactions sent through Turnkey.
-     */
-    override suspend fun getTransactions(
-        chainId: Int,
-        limit: Int?,
-        offset: Int?,
-        order: RainTransactionOrder?
-    ): List<RainTransaction> {
-        try {
-            return if (SolanaChains.isSolanaChain(chainId)) {
-                indexedSolanaTransactions(chainId, limit, offset, order)
-            } else {
-                indexedEvmTransactions(chainId, limit, offset, order)
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: RainError.TokenExpired) {
-            // The activity path needs the same session, so falling back would only fail again.
-            throw e
-        } catch (e: Exception) {
-            Timber.w(e, "Rain SDK: Turnkey indexed history unavailable, falling back to activities")
-        }
-        return if (SolanaChains.isSolanaChain(chainId)) {
-            getSolanaTransactionsFromActivities(chainId, limit, offset, order)
-        } else {
-            getEvmTransactionsFromActivities(chainId, limit, offset, order)
-        }
-    }
-
-    private suspend fun indexedEvmTransactions(
+    internal suspend fun indexedEvmTransactions(
         chainId: Int,
         limit: Int?,
         offset: Int?,
@@ -726,7 +461,7 @@ internal class TurnkeyWalletProvider(
         return sortAndSlice(rows, limit, offset, order)
     }
 
-    private suspend fun indexedSolanaTransactions(
+    internal suspend fun indexedSolanaTransactions(
         chainId: Int,
         limit: Int?,
         offset: Int?,
@@ -907,7 +642,7 @@ internal class TurnkeyWalletProvider(
     }
 
     /** Activity-log history, used when the indexed query is unavailable. Sends only, no receives. */
-    private suspend fun getEvmTransactionsFromActivities(
+    internal suspend fun getEvmTransactionsFromActivities(
         chainId: Int,
         limit: Int?,
         offset: Int?,
@@ -981,7 +716,7 @@ internal class TurnkeyWalletProvider(
      * recipient/amount) and no on-chain signature, so `to`/`value` are decoded from that blob
      * and the row's hash is the Turnkey status id (not an explorer-resolvable signature).
      */
-    private suspend fun getSolanaTransactionsFromActivities(
+    internal suspend fun getSolanaTransactionsFromActivities(
         chainId: Int,
         limit: Int?,
         offset: Int?,
@@ -1244,6 +979,7 @@ internal class TurnkeyWalletProvider(
         return status.eth?.txHash
     }
 
+    @Suppress("TooGenericExceptionCaught") // a failed status read after acceptance is pending, not a failed send
     private suspend fun pollForTransactionHash(sendTransactionStatusId: String): String {
         for (attempt in 0 until DEFAULT_POLLING_ATTEMPTS) {
             // Session-guarded per poll: a session expiring mid-poll refreshes instead of
@@ -1307,62 +1043,13 @@ internal class TurnkeyWalletProvider(
 
     // ---------- Solana send ----------
 
-    private suspend fun sendSolanaNative(
-        chainId: Int,
-        toAddress: String,
-        amountInSol: BigDecimal
-    ): String {
-        val from = getWalletAddress(chainId)
-        val unsigned = solanaTransferComposer.composeNative(chainId, from, toAddress, amountInSol)
-        return submitSolanaTransaction(chainId, from, unsigned)
-    }
-
-    /**
-     * Sends SPL tokens. Composition and every preflight (mint resolution, token-account
-     * derivation/creation, balance and fee checks, simulation) live in [SolanaTransferComposer];
-     * this method only signs and broadcasts through Turnkey.
-     */
-    private suspend fun sendSolanaSplToken(
-        chainId: Int,
-        mintAddress: String,
-        toAddress: String,
-        amount: BigDecimal
-    ): String {
-        val from = getWalletAddress(chainId)
-        val unsigned = solanaTransferComposer.composeSplToken(
-            chainId,
-            from,
-            mintAddress,
-            toAddress,
-            amount,
-            sponsoredFees = sponsorGas
-        )
-        return submitSolanaTransaction(chainId, from, unsigned)
-    }
-
-    /**
-     * Signs and broadcasts a core-composed Solana transaction (e.g. a collateral withdrawal)
-     * with the Turnkey Solana account. Follows [sponsorGas] like every other send: with it on,
-     * Turnkey covers the fee, and because this provider then advertises
-     * [Capability.GAS_SPONSORSHIP], core composes the withdrawal without its self-paid dry run
-     * (which would charge the fee to a wallet that pays none). The composed message is submitted
-     * as-is either way.
-     */
-    override suspend fun sendSolanaTransaction(
-        chainId: Int,
-        unsigned: UnsignedSolanaTransfer
-    ): String {
-        TurnkeyBroadcastChains.requireSendSupport(chainId)
-        return submitSolanaTransaction(chainId, getWalletAddress(chainId), unsigned)
-    }
-
     /**
      * Signs and broadcasts a composed transfer through Turnkey, then resolves the signature:
      * from the send-status response (Turnkey SDK 2.0 populates it once Included), else recovered
      * from chain and verified as this wallet's own successful transaction. Anything short of that
      * is [RainError.TransactionPending] — never the status id posing as a signature.
      */
-    private suspend fun submitSolanaTransaction(
+    internal suspend fun submitSolanaTransaction(
         chainId: Int,
         from: String,
         unsigned: UnsignedSolanaTransfer
@@ -1432,15 +1119,6 @@ internal class TurnkeyWalletProvider(
         return null
     }
 
-    /** Rejects a Solana chain id on the EVM-only entry points, which have no Solana equivalent. */
-    private fun requireEvmChain(chainId: Int, operation: String) {
-        if (SolanaChains.isSolanaChain(chainId)) {
-            throw RainError.InvalidConfig(
-                "$operation is EVM-only; use sendNativeToken/sendToken on Solana chainId=$chainId"
-            )
-        }
-    }
-
     /**
      * Polls Turnkey for the terminal status of a Solana submission. Keeps
      * polling through `Broadcasted` until the signature appears or a terminal state
@@ -1448,6 +1126,7 @@ internal class TurnkeyWalletProvider(
      * Turnkey SDK 2.0), null at a terminal status without it or on timeout (caller then recovers
      * the signature from chain), and throws on explicit failure.
      */
+    @Suppress("TooGenericExceptionCaught") // a failed status read ends the poll, not the send; recovered from chain
     private suspend fun pollForSolanaCompletion(sendTransactionStatusId: String): String? {
         for (attempt in 0 until DEFAULT_POLLING_ATTEMPTS) {
             // A failed status read (session death, network) stops the polling, not the submitted

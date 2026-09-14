@@ -1,7 +1,6 @@
 package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.solana.SolanaSupport
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
@@ -90,5 +89,49 @@ class TurnkeyProviderTest {
             evmChainReader = evm,
             solanaSupport = SolanaSupport(rpcEndpoints)
         )
+    }
+
+    @Test
+    fun `sponsorGas reaches the send body of the wallet provider create builds`(): Unit = runBlocking {
+        val turnkey = MockTurnkey()
+        val descriptor = TurnkeyProvider(config(sponsorGas = true), contextOverride = turnkey)
+        try {
+            val wallet = descriptor.create(providerContext())
+
+            val hash = wallet.sendTransaction(
+                chainId = 1,
+                from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
+                to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
+                data = "0x",
+                value = "0x0"
+            )
+
+            val client = turnkey.turnkeyClient as MockTurnkeyClient
+            assertThat(client.ethSendTransactionCalls.single().sponsor).isTrue()
+            assertThat(hash).isEqualTo(client.mockTransactionHash)
+        } finally {
+            descriptor.close()
+        }
+    }
+
+    @Test
+    fun `create builds a fresh manager each time so a re-resolve reads the current wallets`(): Unit = runBlocking {
+        val turnkey = MockTurnkey()
+        val descriptor = TurnkeyProvider(config(sponsorGas = false), contextOverride = turnkey)
+        try {
+            val first = descriptor.create(providerContext())
+            assertThat(first.getWalletAddress()).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
+
+            // A different account appears with no session death: reset() then re-resolve must see it.
+            val other = "0x2222222222222222222222222222222222222222"
+            turnkey.wallets = listOf(MockTurnkey.walletWithEthereumAddress(other))
+            val second = descriptor.create(providerContext())
+
+            assertThat(second.getWalletAddress()).isEqualTo(other)
+            // The first provider keeps its own cache: nothing is shared through the descriptor.
+            assertThat(first.getWalletAddress()).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
+        } finally {
+            descriptor.close()
+        }
     }
 }

@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.network.chainreader
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.error.RainError
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,14 +19,15 @@ import java.util.concurrent.TimeUnit
 /**
  * Minimal JSON-RPC 2.0 client used by the SDK's chain-read layer.
  *
- * Owned by `EvmChainReader` and reused by `TurnkeyWalletProvider` for its `eth_*` calls
+ * Owned by `EvmChainReader` and reused by adapter modules for their own `eth_*` calls
  * (gas, nonce, balance helpers) so the SDK has one HTTP+JSON-RPC implementation rather
  * than per-adapter copies.
  *
- * Stays small on purpose — wire format and error mapping match what
- * `TurnkeyWalletProvider.rpcRequest` did historically.
+ * Stays small on purpose: wire format and error mapping match what the adapters' own
+ * request helpers did before this was shared.
  */
-internal class JsonRpcClient(
+@RainAdapterApi
+class JsonRpcClient(
     httpClient: OkHttpClient? = null,
     timeoutSeconds: Long = DEFAULT_TIMEOUT_SECONDS
 ) {

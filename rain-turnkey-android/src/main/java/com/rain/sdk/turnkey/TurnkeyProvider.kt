@@ -126,10 +126,9 @@ class TurnkeyConfig internal constructor(
 /**
  * Turnkey adapter — the registrable [RainProvider] for Turnkey's P256-stamper signer.
  *
- * Per the modular-architecture migration this adapter currently lives inside `rain-core-android` (in the
- * `com.rain.sdk.turnkey` package) rather than a standalone `rain-turnkey` module, so core still
- * carries the Turnkey SDK as a dependency for now. The seam is otherwise identical to a true
- * out-of-module adapter: it implements the port and owns all Turnkey-specific wiring.
+ * Ships as `rain-turnkey-android` and owns the Turnkey SDK as its own dependency, so an app that
+ * registers another provider never links Turnkey. It implements the port and owns all
+ * Turnkey-specific wiring.
  *
  * In managed mode the provider is also the authentication surface: construct it, run
  * [sendLoginCode] / [confirmLoginCode] on it, then build the SDK and resolve. Resolving before a
@@ -222,15 +221,22 @@ class TurnkeyProvider internal constructor(
         // probe below could reject it for a missing account.
         managedAuth?.ensureAccounts()
 
-        val provider = TurnkeyWalletProvider(
+        // Built per create(), never lazily on the descriptor: reset() re-runs create(), and the
+        // manager's address cache belongs to the session that filled it.
+        val manager = TurnkeyManager(
             turnkey = turnkeyContext,
             rpcEndpoints = context.rpcEndpoints,
-            walletAddressOverride = config.walletAddress,
-            chainReader = context.evmChainReader,
-            solanaSupport = context.solanaSupport,
-            tokenStore = context.tokenStore,
-            sessionCoordinator = coordinator,
+            solanaRpcClient = context.solanaSupport.rpc,
             sponsorGas = config.sponsorGas,
+            walletAddressOverride = config.walletAddress,
+            sessionCoordinator = coordinator,
+        )
+        val provider = TurnkeyWalletProvider(
+            manager = manager,
+            chainReader = context.evmChainReader,
+            solanaChainReader = context.solanaSupport.chainReader,
+            solanaTransferComposer = context.solanaSupport.composer,
+            tokenStore = context.tokenStore,
         )
 
         // Probe — ensures Turnkey has an EVM wallet available before the provider is handed out.

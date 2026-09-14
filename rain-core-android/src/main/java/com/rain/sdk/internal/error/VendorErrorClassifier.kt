@@ -1,5 +1,7 @@
 package com.rain.sdk.internal.error
 
+import java.util.concurrent.CancellationException
+
 /**
  * The one standard for classifying free-text vendor error prose, shared by core's [ErrorMapper]
  * and every adapter module so the same vendor message never classifies two ways.
@@ -50,8 +52,11 @@ object VendorErrorClassifier {
      * Classifies a throwable by its message plus its type name — vendors often spell the reason
      * only in the class (`UserRejectedRequestException`) and leave the message generic.
      */
-    fun fromVendorError(e: Throwable): RainError? =
-        fromVendorMessage(e.javaClass.simpleName + " " + e.message.orEmpty())
+    fun fromVendorError(e: Throwable): RainError? {
+        // Coroutine cancellation is not a wallet-UI rejection, and its type name says "cancel".
+        if (e is CancellationException) return null
+        return fromVendorMessage(e.javaClass.simpleName + " " + e.message.orEmpty())
+    }
 
     /** Lowercases, and splits camelCase so a type name like `userRejectedRequest` reads as prose. */
     private fun normalize(message: String): String {

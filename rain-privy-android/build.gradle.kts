@@ -42,8 +42,14 @@ dependencies {
 
     // Privy SDK. `api` (not `implementation`) because PrivyConfig exposes the `Privy` type to
     // consumers — the host initializes/authenticates Privy and hands the singleton in, mirroring
-    // how rain-core-android's TurnkeyConfig exposes TurnkeyContext.
-    api(libs.privy.core)
+    // how rain-turnkey-android's TurnkeyConfig exposes TurnkeyContext. The Bouncy Castle exclusion
+    // is declared on this edge so it publishes into the module metadata: Privy's own graph declares
+    // bcprov-jdk18on (1.79, via kmp-embedded-wallet-impl-android), the parallel build of the artifact
+    // core standardizes on, and a consumer that reaches privy-core only through this module must
+    // not resolve it.
+    api(libs.privy.core) {
+        exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
+    }
 
     // Web3j for ERC-20 ABI encoding in sendToken calldata. Shares core's Bouncy Castle note.
     implementation(libs.web3j.core) {
@@ -54,8 +60,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.timber)
     implementation(libs.androidx.annotation)
-    // Own JSON-RPC read path: core's JsonRpcClient/ChainReader are module-internal, so out-of-module
-    // adapters can't reuse them. Privy's EIP-1193 provider handles custody (sign/send) only.
+    // Own JSON-RPC read path: core's JsonRpcClient/ChainReader are @RainAdapterApi seams this module
+    // does not opt in to yet, so it keeps its own client. Privy's EIP-1193 provider handles custody
+    // (sign/send) only.
     implementation(libs.okhttp)
 
     testImplementation(libs.junit)

@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.solana
 
+import com.rain.sdk.internal.RainAdapterApi
 import java.math.BigDecimal
 import java.math.BigInteger
 
@@ -7,7 +8,8 @@ import java.math.BigInteger
  * SOL <-> lamports conversion, mirroring [com.rain.sdk.utils.EthereumConverter]'s role for
  * wei. 1 SOL = 1e9 lamports; SOL therefore has 9 decimals (vs 18 for EVM native currencies).
  */
-internal object SolanaConverter {
+@RainAdapterApi
+object SolanaConverter {
     const val SOL_DECIMALS = 9
     const val LAMPORTS_PER_SOL = 1_000_000_000L
 

@@ -1,14 +1,19 @@
-package com.rain.sdk.internal.core
+package com.rain.sdk.turnkey
 
 import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.helpers.assumeJdk24
-import com.rain.sdk.internal.network.Web3jProvider
+import com.rain.sdk.RainSdk
 import com.rain.sdk.models.RainPreparedWithdrawal
+import com.rain.sdk.provider.ProviderId
 import io.mockk.every
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -17,10 +22,15 @@ import java.math.BigInteger
 import java.util.Base64
 
 /**
- * Integration coverage for the Turnkey path through `RainSdkManager` — builds a
- * [com.rain.sdk.turnkey.TurnkeyWalletProvider] over a mock TurnkeyContext, binds a manager to it,
- * and drives `withdrawCollateral` end-to-end to assert the EIP-712 payload is signed via
+ * Integration coverage for the Turnkey path through a resolved [com.rain.sdk.interfaces.RainClient]
+ * — registers the descriptor over a mock TurnkeyContext, resolves a client the way a host does, and
+ * drives `prepareWithdrawal` end-to-end to assert the EIP-712 payload is signed via
  * `signRawPayload` with the correct encoding.
+ *
+ * Driven through the public builder rather than core's `RainSdkManager`: that class is internal to
+ * core, and Kotlin `internal` does not cross a Gradle module boundary. Going through
+ * `RainSdk.provider(id)` also exercises descriptor registration and client resolution, which is
+ * what a host actually does.
  *
  * Gated on JDK 24+ because Turnkey's published AAR is compiled against major class version 68.
  *
@@ -31,50 +41,49 @@ import java.util.Base64
  * on JDK 21, failing before `assumeTrue` runs. All Turnkey-touched values live inside test method
  * bodies and are typed as `Any` at the field level.
  */
-class RainSdkManagerTurnkeyTest {
+@OptIn(ExperimentalCoroutinesApi::class)
+class TurnkeyWalletFlowTest {
 
-    private var sdkManager: Any? = null
+    private var sdk: Any? = null
     private var mockTurnkey: Any? = null
 
     @Before
     fun setUpAndGate() {
         assumeJdk24()
 
-        Web3jProvider.shutDownAll()
+        // TurnkeyConfig touches the vendor's TurnkeyContext singleton, whose class initializer
+        // dispatches onto Dispatchers.Main; on the JVM that dispatcher is absent.
+        Dispatchers.setMain(StandardTestDispatcher())
 
         mockkStatic(URLUtil::class)
         every { URLUtil.isValidUrl(any()) } returns true
 
         // Build Turnkey-touching objects only after the JDK-24 gate has passed.
-        val rpcEndpoints = mapOf(1 to "https://rpc.example/test")
-        val tk = com.rain.sdk.turnkey.MockTurnkey()
+        val tk = MockTurnkey()
         mockTurnkey = tk
-        val provider = com.rain.sdk.turnkey.TurnkeyWalletProvider(
-            turnkey = tk,
-            rpcEndpoints = rpcEndpoints
-        )
-        sdkManager = RainSdkManager(
-            walletProvider = provider,
-            rpcEndpoints = rpcEndpoints
-        )
+        sdk = RainSdk.builder()
+            .rpcEndpoints(mapOf(1 to "https://rpc.example/test"))
+            .register(TurnkeyProvider(TurnkeyConfig(turnkey = com.turnkey.core.TurnkeyContext), contextOverride = tk))
+            .build()
     }
 
     @After
     fun tearDown() {
+        (sdk as? RainSdk)?.close()
         unmockkAll()
-        Web3jProvider.shutDownAll()
+        Dispatchers.resetMain()
     }
 
     @Test
     fun `withdrawCollateral routes signing through Turnkey`() = runBlocking {
-        val manager = sdkManager as RainSdkManager
-        val turnkey = mockTurnkey as com.rain.sdk.turnkey.MockTurnkey
+        val rain = sdk as RainSdk
+        val turnkey = mockTurnkey as MockTurnkey
+        val client = rain.provider(ProviderId.TURNKEY)
 
         val chainId = 1
 
-        assertThat(manager.isInitialized).isTrue()
-        assertThat(manager.getWalletAddress())
-            .isEqualTo(com.rain.sdk.turnkey.MockTurnkey.DEFAULT_WALLET_ADDRESS)
+        assertThat(client.isInitialized).isTrue()
+        assertThat(client.getWalletAddress()).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
 
         val addresses = com.rain.sdk.models.RainWithdrawAddresses(
             proxyAddress = "0x0000000000000000000000000000000000000001",
@@ -88,7 +97,7 @@ class RainSdkManagerTurnkeyTest {
             expiresAt = "2025-12-31T23:59:59Z"
         )
 
-        val prepared = manager.prepareWithdrawal(
+        val prepared = client.prepareWithdrawal(
             chainId = chainId,
             addresses = addresses,
             amount = BigDecimal("100.0"),
@@ -100,15 +109,14 @@ class RainSdkManagerTurnkeyTest {
         // A complete, submittable transaction — not the bare calldata the old result carried.
         val parameters = (prepared as RainPreparedWithdrawal.Evm).parameters
         assertThat(parameters.data).startsWith("0x")
-        assertThat(parameters.from).isEqualTo(com.rain.sdk.turnkey.MockTurnkey.DEFAULT_WALLET_ADDRESS)
+        assertThat(parameters.from).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
         assertThat(parameters.to).isEqualTo(addresses.controllerAddress)
         assertThat(parameters.value).isEqualTo("0x0")
 
         // EIP-712 message went through Turnkey signRawPayload with the right encoding/hash.
         assertThat(turnkey.signRawPayloadCalls).hasSize(1)
         val signCall = turnkey.signRawPayloadCalls.single()
-        assertThat(signCall.signWith)
-            .isEqualTo(com.rain.sdk.turnkey.MockTurnkey.DEFAULT_WALLET_ADDRESS)
+        assertThat(signCall.signWith).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
         assertThat(signCall.encoding)
             .isEqualTo(com.turnkey.types.V1PayloadEncoding.PAYLOAD_ENCODING_EIP712)
         assertThat(signCall.hashFunction)

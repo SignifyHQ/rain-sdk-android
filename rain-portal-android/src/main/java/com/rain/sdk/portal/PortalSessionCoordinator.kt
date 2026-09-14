@@ -116,7 +116,13 @@ internal class PortalSessionCoordinator(
                         retryDelay(backoffMs)
                         backoffMs = (backoffMs * 2).coerceAtMost(policy.maxRetryDelayMs)
                     }
-                    else -> throw e
+                    // Neither a token problem nor retryable. It leaves as a RainError, never as a
+                    // vendor type: core passes a RainError through with its code and would otherwise see a
+                    // Portal exception it cannot classify.
+                    else -> {
+                        logUnmappedFailure(e)
+                        throw PortalErrorMapping.map(e)
+                    }
                 }
             }
         }
@@ -206,6 +212,15 @@ internal class PortalSessionCoordinator(
             runCatching { hook() }
                 .onFailure { Timber.w(it, "Rain SDK: onSessionExpired callback threw") }
         }
+    }
+
+    /**
+     * Warning, not error: reads on fallback paths land here in normal operation, and the RainError
+     * itself is what the host acts on. A RainError raised inside the block is our own verdict and
+     * needs no vendor log.
+     */
+    private fun logUnmappedFailure(e: Exception) {
+        if (e !is RainError) Timber.w(e, "Rain SDK: Portal call failed")
     }
 
     private fun isAuthFailure(e: Throwable): Boolean = anyInChain(e) {

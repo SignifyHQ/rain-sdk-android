@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.solana
 
+import com.rain.sdk.internal.RainAdapterApi
 import java.math.BigInteger
 
 /**
@@ -12,7 +13,8 @@ import java.math.BigInteger
  * Leading zero bytes map to leading `'1'` characters (and back), matching the reference
  * implementations.
  */
-internal object Base58 {
+@RainAdapterApi
+object Base58 {
     private const val ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
     private val BASE = BigInteger.valueOf(58L)
 

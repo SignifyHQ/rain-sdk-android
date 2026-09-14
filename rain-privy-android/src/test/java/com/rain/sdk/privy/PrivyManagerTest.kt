@@ -15,6 +15,9 @@ import io.privy.wallet.ethereum.EmbeddedEthereumWallet
 import io.privy.wallet.ethereum.EmbeddedEthereumWalletProvider
 import io.privy.wallet.ethereum.EthereumChain
 import io.privy.wallet.ethereum.EthereumRpcResponse
+import io.privy.wallet.solana.EmbeddedSolanaWallet
+import io.privy.wallet.solana.EmbeddedSolanaWalletProvider
+import io.privy.wallet.solana.SolanaCluster
 import io.privy.wallet.transactions.GetTransactionsParams
 import io.privy.wallet.transactions.TransactionChain
 import io.privy.wallet.transactions.TransactionsPage
@@ -73,7 +76,7 @@ class PrivyManagerTest {
     fun `getSolanaAddress returns the first solana wallet's address`() = runBlocking {
         val privy = privyWith(emptyList())
         val user = privy.getUser()!!
-        val solanaWallet = mockk<io.privy.wallet.solana.EmbeddedSolanaWallet>().also {
+        val solanaWallet = mockk<EmbeddedSolanaWallet>().also {
             every { it.address } returns SOLANA_WALLET
         }
         every { user.embeddedSolanaWallets } returns listOf(solanaWallet)
@@ -131,7 +134,7 @@ class PrivyManagerTest {
     }
 
     @Test
-    fun `request bubbles the raw provider failure rather than wrapping it`() = runBlocking {
+    fun `a rejection in a non-Privy provider failure keeps its code through the boundary`() = runBlocking {
         val provider = mockk<EmbeddedEthereumWalletProvider>()
         every { provider.switchChain(any()) } just Runs
         val raw = IllegalStateException("user rejected the request")
@@ -142,10 +145,33 @@ class PrivyManagerTest {
             manager.sendTransaction(walletAddress = WALLET, rpcUrl = RPC, transactionJson = "{}")
         }.exceptionOrNull()
 
-        // Must NOT be pre-wrapped in RainError — core's ErrorMapper needs the raw error to
-        // classify user-rejection / insufficient-funds.
-        assertThat(error).isSameInstanceAs(raw)
-        assertThat(error).isNotInstanceOf(RainError::class.java)
+        // The manager lets it bubble raw; the session coordinator reads the prose before anything
+        // leaves the adapter, so the host sees the rejection, never a generic ProviderError.
+        assertThat(error).isInstanceOf(RainError.UserRejected::class.java)
+    }
+
+    @Test
+    fun `a raw failure in the Solana send leaves the adapter as ProviderError with its cause`() = runBlocking {
+        val privy = privyWith(emptyList())
+        val user = privy.getUser()!!
+        val raw = IllegalStateException("node refused the transaction")
+        val solanaProvider = mockk<EmbeddedSolanaWalletProvider>()
+        coEvery { solanaProvider.signAndSendTransaction(any(), any(), any()) } throws raw
+        val solanaWallet = mockk<EmbeddedSolanaWallet>().also {
+            every { it.address } returns SOLANA_WALLET
+            every { it.provider } returns solanaProvider
+        }
+        every { user.embeddedSolanaWallets } returns listOf(solanaWallet)
+        val manager = PrivyManager(privy)
+
+        val error = runCatching {
+            manager.signAndSendSolanaTransaction(ByteArray(8), SolanaCluster.DevNet, RPC)
+        }.exceptionOrNull()
+
+        // The call site rethrows what it cannot map; the session coordinator converts it before it
+        // leaves the adapter, so core's withdrawal wrapper sees a RainError, never its InternalError.
+        assertThat(error).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(error?.cause).isSameInstanceAs(raw)
     }
 
     @Test
@@ -162,7 +188,7 @@ class PrivyManagerTest {
     }
 
     @Test
-    fun `getTransactions bubbles the raw failure rather than wrapping it`() = runBlocking {
+    fun `getTransactions leaves an unrecognized failure as ProviderError carrying the cause`() = runBlocking {
         val provider = mockk<EmbeddedEthereumWalletProvider>()
         val w = wallet(WALLET, provider)
         val raw = IllegalStateException("wallet does not support transaction history")
@@ -173,8 +199,9 @@ class PrivyManagerTest {
             manager.getTransactions(WALLET, GetTransactionsParams(chain = TransactionChain.Evm.Base))
         }.exceptionOrNull()
 
-        assertThat(error).isSameInstanceAs(raw)
-        assertThat(error).isNotInstanceOf(RainError::class.java)
+        // Nothing recognizes this one, so the boundary floors it; the raw failure stays as the cause.
+        assertThat(error).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(error!!.cause).isSameInstanceAs(raw)
     }
 
     @Test
@@ -220,7 +247,7 @@ class PrivyManagerTest {
     }
 
     @Test
-    fun `request bubbles a raw exception thrown by the provider call`() = runBlocking {
+    fun `a funds shortfall thrown by the provider call keeps its code through the boundary`() = runBlocking {
         val provider = mockk<EmbeddedEthereumWalletProvider>()
         val raw = RuntimeException("insufficient funds for gas")
         coEvery { provider.request(any()) } throws raw
@@ -228,8 +255,7 @@ class PrivyManagerTest {
 
         val error = runCatching { manager.signTypedData(WALLET, "{}") }.exceptionOrNull()
 
-        assertThat(error).isSameInstanceAs(raw)
-        assertThat(error).isNotInstanceOf(RainError::class.java)
+        assertThat(error).isInstanceOf(RainError.InsufficientFunds::class.java)
     }
 
     private companion object {

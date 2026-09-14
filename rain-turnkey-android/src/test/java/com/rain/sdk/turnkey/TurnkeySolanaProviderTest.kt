@@ -4,9 +4,6 @@ import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.RainChain
 import com.rain.sdk.internal.constants.SolanaPrograms
 import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.internal.helpers.MockChainReader
-import com.rain.sdk.internal.helpers.MockRpcServer
-import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.internal.network.chainreader.SolanaChainReader
 import com.rain.sdk.internal.solana.Base58
 import com.rain.sdk.internal.solana.SolanaAddresses
@@ -69,7 +66,7 @@ class TurnkeySolanaProviderTest {
             wallets = listOf(MockTurnkey.walletWithEthAndSolana()),
             turnkeyClient = client
         )
-        return TurnkeyWalletProvider(
+        return turnkeyWalletProvider(
             turnkey = turnkey,
             rpcEndpoints = mapOf(devnet to rpc.urlFor(devnet)),
             httpClient = OkHttpClient(),
@@ -305,7 +302,7 @@ class TurnkeySolanaProviderTest {
         )
         rpc.stubObject("getBalance", balanceResult(5_000_000_000L))
         stubDiscoveredTokenAccounts(mint = mint, amount = "20000000", decimals = 6)
-        val provider = TurnkeyWalletProvider(
+        val provider = turnkeyWalletProvider(
             turnkey = MockTurnkey(
                 wallets = listOf(MockTurnkey.walletWithEthAndSolana()),
                 turnkeyClient = client
@@ -695,6 +692,30 @@ class TurnkeySolanaProviderTest {
         val result = provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5"))
 
         assertThat(result).isEqualTo(turnkeySignature)
+    }
+
+    /**
+     * A raw failure from Turnkey's send is not a [RainError], so the session coordinator maps it
+     * before it leaves the adapter: core's withdrawal wrapper then sees `ProviderError`, not the
+     * `InternalError` it puts around anything unmapped. Pins the Solana half of the error boundary
+     * that `withdrawCollateral` relies on for its send.
+     */
+    @Test
+    fun `sendSolanaTransaction maps a raw send failure to ProviderError before it leaves the adapter`() {
+        val raw = RuntimeException("node refused the transaction")
+        val client = MockTurnkeyClient().apply { solSendTransactionError = raw }
+        val provider = makeProvider(client = client)
+        val unsigned = UnsignedSolanaTransfer(
+            transaction = ByteArray(8),
+            recentBlockhash = MockTurnkey.DEFAULT_SOLANA_ADDRESS
+        )
+
+        val ex = assertThrows(RainError.ProviderError::class.java) {
+            runBlocking { provider.sendSolanaTransaction(devnet, unsigned) }
+        }
+
+        assertThat(ex.cause).isSameInstanceAs(raw)
+        assertThat(client.solSendTransactionCalls).hasSize(1)
     }
 
     @Test
@@ -1484,5 +1505,24 @@ class TurnkeySolanaProviderTest {
 
     private companion object {
         const val SIGNATURE = "2id3YC2jK9G5Wo2phDx4gJVAew8DcY5NAB7jTLd5p3KqJ7xQy9bniaP4q1hk2N1nF"
+    }
+
+    @Test
+    fun `getBalance on solana reads the node once when Turnkey lists no row and a failing read surfaces`() {
+        val mint = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
+        val reader = MockChainReader()
+        val failure = RainError.TokenNotFound(mint, devnet)
+        reader.balanceFailures += failure
+        // Turnkey lists no assets, so the SPL read misses and falls to the node.
+        val provider = makeProvider(client = MockTurnkeyClient(mockBalances = emptyList()), solanaReader = reader)
+
+        val error = assertThrows(RainError.TokenNotFound::class.java) {
+            runBlocking { provider.getBalance(devnet, Token.Contract(mint)) }
+        }
+
+        // One node read, and its failure is the caller's to see as the reader threw it: nothing
+        // retries it and nothing rewraps it.
+        assertThat(error).isSameInstanceAs(failure)
+        assertThat(reader.balanceCalls).hasSize(1)
     }
 }

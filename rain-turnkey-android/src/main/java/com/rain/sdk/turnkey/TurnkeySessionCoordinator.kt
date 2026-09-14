@@ -1,6 +1,5 @@
 package com.rain.sdk.turnkey
 
-import com.rain.sdk.internal.error.ErrorMapper
 import com.rain.sdk.internal.error.RainError
 import com.turnkey.core.models.AuthState
 import com.turnkey.core.models.Session
@@ -20,8 +19,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import java.io.IOException
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -30,9 +29,9 @@ import kotlin.time.Duration.Companion.milliseconds
  * in `RainSessionStore`/`RainApiService.withCst`, adapted to Turnkey's externally-owned
  * session.
  *
- * Terminal auth failures always surface as [RainError.TokenExpired] and fire the death
- * callbacks plus the host's `onSessionExpired` hook once per session death; both re-arm when a
- * live session is seen again.
+ * Terminal auth failures always surface as [RainError.TokenExpired], advance [deathEpoch] and
+ * fire the host's `onSessionExpired` hook once per session death; both re-arm when a live
+ * session is seen again.
  */
 internal class TurnkeySessionCoordinator(
     private val turnkey: TurnkeyContextProtocol,
@@ -51,20 +50,22 @@ internal class TurnkeySessionCoordinator(
 
     /**
      * Set by a deliberate logout so the Active→dead transition it causes does not fire the host's
-     * re-auth hook (whose contract forbids re-entering the SDK). Internal death callbacks still
-     * run — cached accounts must be evicted on logout too. Sticky until the watcher next sees an
+     * re-auth hook (whose contract forbids re-entering the SDK). The death still advances
+     * [deathEpoch], so cached accounts go stale on logout too. Sticky until the watcher next sees an
      * Active session, because the watcher observes the transition on its own coroutine after the
      * clear call has already returned.
      */
     private val hostHookSuppressed = AtomicBoolean(false)
 
-    /** Runs when an active session dies (before the host hook) — e.g. cached-account eviction. */
-    private val deathCallbacks = CopyOnWriteArrayList<() -> Unit>()
-
-    /** Registers a callback invoked once per session death, before the host hook. */
-    fun onSessionDeath(callback: () -> Unit) {
-        deathCallbacks += callback
-    }
+    /**
+     * Counts session deaths and replacements. Cached account state carries the value it was
+     * resolved under and is stale once this has moved on: the previous user's addresses must never
+     * serve a later login. A counter rather than a callback list, so a discarded manager leaves
+     * nothing registered here. Advanced before the host hook runs, so anything the hook re-reads
+     * is already stale. Read-only outside this class: only the coordinator advances it.
+     */
+    val deathEpoch: Int get() = deaths.get()
+    private val deaths = AtomicInteger(0)
 
     /** Marks the next session death as intentional: the host hook stays silent for it. */
     fun suppressNextHostHook() {
@@ -78,12 +79,12 @@ internal class TurnkeySessionCoordinator(
 
     /**
      * A login replaced the live session with another one (Active→Active, which the watcher does
-     * not treat as a death): runs the internal eviction callbacks — cached accounts belong to the
-     * previous user — without the host hook, and without arming the death latch.
+     * not treat as a death): advances [deathEpoch] — cached accounts belong to the previous user —
+     * without the host hook, and without arming the death latch.
      */
     fun notifySessionReplaced() {
         if (stopped.get()) return
-        runDeathCallbacks()
+        deaths.incrementAndGet()
     }
 
     /** Snapshot of the session state as seen right now. */
@@ -218,7 +219,13 @@ internal class TurnkeySessionCoordinator(
                         retryDelay(backoffMs)
                         backoffMs = (backoffMs * 2).coerceAtMost(policy.maxRetryDelayMs)
                     }
-                    else -> throw e
+                    // Neither a session problem nor retryable. It leaves as a RainError, never as
+                    // a vendor type: core passes a RainError through with its code and would otherwise see
+                    // a Turnkey exception it cannot classify.
+                    else -> {
+                        logUnmappedFailure(e)
+                        throw TurnkeyErrorMapping.map(e)
+                    }
                 }
             }
         }
@@ -297,20 +304,13 @@ internal class TurnkeySessionCoordinator(
         // Never logged in is not a session death: only notify once a session has been seen.
         if (!sawSession.get()) return
         if (!expiryNotified.compareAndSet(false, true)) return
-        // Internal listeners first: they evict state the host hook may immediately re-read.
-        runDeathCallbacks()
+        // Stale the caches first: whatever the host hook re-reads must already be invalid.
+        deaths.incrementAndGet()
         // A deliberate logout is not a death the host has to recover from.
         if (hostHookSuppressed.getAndSet(false)) return
         onSessionExpired?.let { hook ->
             runCatching { hook() }
                 .onFailure { Timber.w(it, "Rain SDK: onSessionExpired callback threw") }
-        }
-    }
-
-    private fun runDeathCallbacks() {
-        deathCallbacks.forEach { callback ->
-            runCatching { callback() }
-                .onFailure { Timber.w(it, "Rain SDK: session-death callback threw") }
         }
     }
 
@@ -321,17 +321,26 @@ internal class TurnkeySessionCoordinator(
         else -> TurnkeySessionState.Active(session.expiry)
     }
 
+    /**
+     * Warning, not error: reads on fallback paths land here in normal operation, and the RainError
+     * itself is what the host acts on. A RainError raised inside the block is our own verdict and
+     * needs no vendor log.
+     */
+    private fun logUnmappedFailure(e: Exception) {
+        if (e !is RainError) Timber.w(e, "Rain SDK: Turnkey call failed")
+    }
+
     private fun isAuthFailure(e: Throwable): Boolean = anyInChain(e) { t ->
         t is RainError.TokenExpired ||
             t is TurnkeyKotlinError.InvalidSession ||
             (t is TurnkeyHistoryError && t.statusCode == 401) ||
-            ErrorMapper.turnkeyHttpStatus(t) == 401
+            TurnkeyErrorMapping.turnkeyHttpStatus(t) == 401
     }
 
     private fun isTransient(e: Throwable): Boolean = anyInChain(e) { t ->
         t is IOException ||
             (t is TurnkeyHistoryError && isTransientStatus(t.statusCode)) ||
-            ErrorMapper.turnkeyHttpStatus(t)?.let { isTransientStatus(it) } == true
+            TurnkeyErrorMapping.turnkeyHttpStatus(t)?.let { isTransientStatus(it) } == true
     }
 
     private fun isTransientStatus(status: Int): Boolean =

@@ -8,7 +8,6 @@ import com.rain.sdk.internal.helpers.MockChainReader
 import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers
-import com.rain.sdk.internal.helpers.assumeJdk24
 import com.rain.sdk.models.RainTokenAllowance
 import com.rain.sdk.models.TokenInfo
 import kotlinx.coroutines.CancellationException
@@ -735,7 +734,6 @@ class RainSdkManagerApprovalTest {
     @Test
     fun `a raw vendor failure resolving the owner surfaces as a typed SDK error`(): Unit =
         runBlocking {
-            assumeJdk24()
             // The owner lookup runs before the confirm loop; a raw provider exception there must
             // still surface mapped, never escape a @Throws(RainError) API.
             val failing = object : StubWalletProvider() {

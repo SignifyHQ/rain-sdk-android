@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.constants
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.solana.Base58
 
 /**
@@ -9,7 +10,8 @@ import com.rain.sdk.internal.solana.Base58
  *
  * The arrays are shared, not copied — treat them as immutable.
  */
-internal object SolanaPrograms {
+@RainAdapterApi
+object SolanaPrograms {
     const val SYSTEM_ADDRESS = "11111111111111111111111111111111"
     const val TOKEN_ADDRESS = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
     const val TOKEN_2022_ADDRESS = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"

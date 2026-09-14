@@ -1,16 +1,18 @@
 package com.rain.sdk.internal.constants
 
 import com.rain.sdk.RainChain
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.solana.SolanaConverter
 import com.rain.sdk.models.NativeCurrency
 
 /**
  * Per-cluster reference data for Solana, the analogue of [TokenRegistry]/`RainConstants` for
  * EVM. Solana has no EIP-155 integer chain ID, so the SDK keys clusters by the [RainChain]
- * sentinel IDs and maps them to their CAIP-2 (genesis-hash) identifiers, which is what Turnkey's
- * Solana APIs (`sol_send_transaction`, balances) expect.
+ * sentinel IDs and maps them to their CAIP-2 (genesis-hash) identifiers, which is the form
+ * vendor Solana APIs (send, balances) expect.
  */
-internal object SolanaChains {
+@RainAdapterApi
+object SolanaChains {
     // CAIP-2 references: base58 of each cluster's genesis hash, truncated to 32 chars per the spec.
     private val CAIP2_BY_CHAIN_ID: Map<Int, String> = mapOf(
         RainChain.SOLANA_MAINNET to "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",

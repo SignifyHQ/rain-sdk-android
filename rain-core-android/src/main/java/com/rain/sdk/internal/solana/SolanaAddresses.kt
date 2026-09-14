@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.solana
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.SolanaPrograms
 import java.math.BigInteger
 import java.security.MessageDigest
@@ -15,7 +16,8 @@ import java.security.MessageDigest
  * keeps the first result that does *not* land on the ed25519 curve, matching Solana's
  * `find_program_address`.
  */
-internal object SolanaAddresses {
+@RainAdapterApi
+object SolanaAddresses {
     private const val PUBLIC_KEY_LENGTH = 32
     private const val MAX_SEEDS = 16
     private const val MAX_SEED_LENGTH = 32

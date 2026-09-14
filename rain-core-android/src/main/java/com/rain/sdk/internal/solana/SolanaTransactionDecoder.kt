@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.solana
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.SolanaPrograms
 import java.math.BigInteger
 import java.util.Base64
@@ -7,10 +8,10 @@ import java.util.Base64
 /**
  * Minimal decoder for unsigned legacy Solana transactions.
  *
- * Turnkey's `sol_send_transaction` activity stores only the unsigned transaction — no
- * recipient, amount or asset — so transaction history recovers those by parsing the blob back.
- * The blob is usually the hex this SDK's [SolanaTransactionBuilder] produced, but the same
- * Turnkey organization can be driven by other tooling (web3.js, other SDK versions), so the
+ * A managed-broadcast send records only the unsigned transaction — no recipient, amount or asset
+ * — so transaction history recovers those by parsing the blob back.
+ * The blob is usually the hex this SDK's [SolanaTransactionBuilder] produced, but the same wallet
+ * can be driven by other tooling (web3.js, other SDK versions), so the
  * decoder also accepts base64 input and the bare SPL `Transfer` instruction that
  * `@solana/spl-token` emits by default.
  *
@@ -21,7 +22,8 @@ import java.util.Base64
  * and the non-transfer ones are skipped. Returns null if the bytes are not a decodable
  * transaction containing a transfer this SDK knows how to describe.
  */
-internal object SolanaTransactionDecoder {
+@RainAdapterApi
+object SolanaTransactionDecoder {
     private const val PUBLIC_KEY_LENGTH = 32
     private const val SIGNATURE_LENGTH = 64
 

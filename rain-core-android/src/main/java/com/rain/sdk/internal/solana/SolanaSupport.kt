@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.solana
 
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.SolanaChains
 import com.rain.sdk.internal.network.chainreader.SolanaChainReader
 import com.rain.sdk.models.Balance
@@ -19,14 +20,17 @@ import java.math.BigDecimal
  */
 class SolanaSupport internal constructor(
     rpcEndpoints: Map<Int, String>,
-    internal val rpc: SolanaRpcClient,
+    @property:RainAdapterApi val rpc: SolanaRpcClient,
 ) {
 
     constructor(rpcEndpoints: Map<Int, String>) : this(rpcEndpoints, SolanaRpcClient())
 
-    internal val chainReader =
+    @RainAdapterApi
+    val chainReader =
         SolanaChainReader(rpcEndpoints = rpcEndpoints, solanaRpcClient = rpc)
-    internal val composer = SolanaTransferComposer(rpc, rpcEndpoints::get)
+
+    @RainAdapterApi
+    val composer = SolanaTransferComposer(rpc, rpcEndpoints::get)
 
     fun isSolanaChain(chainId: Int): Boolean = SolanaChains.isSolanaChain(chainId)
 
