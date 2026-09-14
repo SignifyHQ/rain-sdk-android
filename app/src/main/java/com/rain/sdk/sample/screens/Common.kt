@@ -11,6 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.rain.sdk.sample.R
@@ -25,6 +26,7 @@ import com.rain.sdk.sample.ui.RainLink
 import com.rain.sdk.sample.ui.RainMuted
 import com.rain.sdk.sample.ui.RainRow
 import com.rain.sdk.sample.ui.RainStrong
+import com.rain.sdk.sample.ui.theme.RainTheme
 import com.rain.sdk.sample.ui.theme.RainType
 import java.math.BigDecimal
 import java.text.DecimalFormat
@@ -135,3 +137,70 @@ fun TransactionResultCard(
         }
     }
 }
+
+// region Previews
+
+private const val PREVIEW_TX_HASH = "0x9fd7a2c4e81b6035f4d0c19ab7e2385c6f1d94a0b3e75c28d6410af9b2c73e15"
+private const val PREVIEW_SOLANA_SIGNATURE =
+    "5YvBkX2q8ZHn1rLcW3dJpTgA7uMfNsE4RhQ9oKbV6xCyDzPwSj1UmTnFeGa2HcRb"
+
+@Preview(name = "Submitted · explorer link", showBackground = true)
+@Composable
+private fun TransactionResultExplorerPreview() {
+    RainTheme {
+        TransactionResultCard(
+            title = "Withdrawal sent",
+            hash = PREVIEW_TX_HASH,
+            explorerUrl = "https://sepolia.basescan.org/tx/$PREVIEW_TX_HASH",
+            explorerName = "Basescan",
+        )
+    }
+}
+
+@Preview(name = "Submitted · no explorer entry", showBackground = true)
+@Composable
+private fun TransactionResultNoExplorerPreview() {
+    RainTheme {
+        TransactionResultCard(
+            title = "Transfer sent",
+            hash = PREVIEW_SOLANA_SIGNATURE,
+            explorerUrl = null,
+            explorerName = "Solscan",
+            note = "This cluster has no resolvable explorer entry, so the signature is shown as plain text.",
+        )
+    }
+}
+
+@Preview(name = "Prepared · not broadcast", showBackground = true)
+@Composable
+private fun TransactionResultPreparedPreview() {
+    RainTheme {
+        TransactionResultCard(
+            title = "Withdrawal prepared",
+            hash = PREVIEW_TX_HASH,
+            explorerUrl = null,
+            explorerName = "Basescan",
+            badge = "Not broadcast",
+            badgeTone = RainBadgeTone.Neutral,
+            note = "prepareWithdrawal returned the calldata; nothing has been submitted yet.",
+        )
+    }
+}
+
+@Preview(name = "Failed", showBackground = true)
+@Composable
+private fun TransactionResultFailedPreview() {
+    RainTheme {
+        TransactionResultCard(
+            title = "Withdrawal reverted",
+            hash = PREVIEW_TX_HASH,
+            explorerUrl = "https://sepolia.basescan.org/tx/$PREVIEW_TX_HASH",
+            explorerName = "Basescan",
+            badge = "Failed",
+            badgeTone = RainBadgeTone.Danger,
+            note = "The transaction was mined but the collateral contract reverted.",
+        )
+    }
+}
+
+// endregion

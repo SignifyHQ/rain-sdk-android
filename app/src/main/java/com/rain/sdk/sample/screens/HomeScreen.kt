@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.sample.R
@@ -54,6 +55,7 @@ import com.rain.sdk.sample.ui.RainStrong
 import com.rain.sdk.sample.ui.RainTitleBlock
 import com.rain.sdk.sample.ui.theme.RainColors
 import com.rain.sdk.sample.ui.theme.RainRadius
+import com.rain.sdk.sample.ui.theme.RainTheme
 import com.rain.sdk.sample.ui.theme.RainType
 
 data class FeatureAction(
@@ -108,7 +110,93 @@ fun HomeScreen(
     ),
 ) {
     val state by viewModel.state.collectAsState()
+    // Resolved here, never inside HomeContent: a preview's LocalContext is not an Application.
     val application = LocalContext.current.applicationContext as Application
+
+    // Built once per view model: these carriers have identity equality, so rebuilding them on
+    // every recomposition would stop the cards below from ever skipping.
+    val actions = remember(viewModel) {
+        HomeActions(
+            onRainApiKeyChanged = viewModel::onRainApiKeyChanged,
+            onUserIdChanged = viewModel::onUserIdChanged,
+            onModeChanged = viewModel::onModeChanged,
+            onRefreshSession = viewModel::refreshSession,
+            onReplacementPortalTokenChanged = viewModel::onReplacementPortalTokenChanged,
+            onUpdatePortalSessionToken = viewModel::updatePortalSessionToken,
+            onClearSession = viewModel::clearSession,
+        )
+    }
+    val providerActions = remember(viewModel, application) {
+        ProviderCardActions(
+            onSessionTokenChanged = viewModel::onSessionTokenChanged,
+            onInitializeSdk = viewModel::initializeSdk,
+            onTurnkeyOrgIdChanged = viewModel::onTurnkeyOrgIdChanged,
+            onTurnkeyAuthProxyConfigIdChanged = viewModel::onTurnkeyAuthProxyConfigIdChanged,
+            onTurnkeyChannelChanged = viewModel::onTurnkeyChannelChanged,
+            onTurnkeyEmailChanged = viewModel::onTurnkeyEmailChanged,
+            onTurnkeyPhoneChanged = viewModel::onTurnkeyPhoneChanged,
+            onTurnkeyOtpCodeChanged = viewModel::onTurnkeyOtpCodeChanged,
+            onSendTurnkeyCode = { viewModel.sendTurnkeyOtp(application) },
+            onVerifyTurnkeyOtp = viewModel::verifyTurnkeyOtp,
+            onInitializeRainWithTurnkey = viewModel::initializeRainWithTurnkey,
+            onPrivyAppIdChanged = viewModel::onPrivyAppIdChanged,
+            onPrivyAppClientIdChanged = viewModel::onPrivyAppClientIdChanged,
+            onPrivyEmailChanged = viewModel::onPrivyEmailChanged,
+            onPrivyOtpCodeChanged = viewModel::onPrivyOtpCodeChanged,
+            onSendPrivyCode = { viewModel.sendPrivyOtp(application) },
+            onVerifyPrivyOtp = viewModel::verifyPrivyOtp,
+            onInitializeRainWithPrivy = viewModel::initializeRainWithPrivy,
+        )
+    }
+
+    HomeContent(
+        innerPadding = innerPadding,
+        state = state,
+        selectedChain = selectedChain,
+        onChainSelected = onChainSelected,
+        onNavigate = onNavigate,
+        actions = actions,
+        providerActions = providerActions,
+    )
+}
+
+/** Callbacks Home's own chrome raises, so [HomeContent] can be previewed without a view model. */
+@Suppress("LongParameterList") // One callback per user action on the screen chrome.
+internal class HomeActions(
+    val onRainApiKeyChanged: (String) -> Unit,
+    val onUserIdChanged: (String) -> Unit,
+    val onModeChanged: (WalletMode) -> Unit,
+    val onRefreshSession: () -> Unit,
+    val onReplacementPortalTokenChanged: (String) -> Unit,
+    val onUpdatePortalSessionToken: () -> Unit,
+    val onClearSession: () -> Unit,
+) {
+    companion object {
+        /** Inert callbacks for previews. */
+        val None = HomeActions(
+            onRainApiKeyChanged = {},
+            onUserIdChanged = {},
+            onModeChanged = {},
+            onRefreshSession = {},
+            onReplacementPortalTokenChanged = {},
+            onUpdatePortalSessionToken = {},
+            onClearSession = {},
+        )
+    }
+}
+
+/** Stateless body of [HomeScreen], so previews can render every state without a view model. */
+@Suppress("LongParameterList") // Slot-style Compose API: state plus the screen's callbacks.
+@Composable
+private fun HomeContent(
+    innerPadding: PaddingValues,
+    state: HomeUiState,
+    selectedChain: WalletChain,
+    onChainSelected: (WalletChain) -> Unit,
+    onNavigate: (Screen) -> Unit,
+    actions: HomeActions,
+    providerActions: ProviderCardActions,
+) {
     val connected = state.isRecovered
     val sessionUsable = state.sessionStatus?.health != SessionHealth.Dead
 
@@ -129,7 +217,7 @@ fun HomeScreen(
                 RainSegmentedControl(
                     options = WalletMode.entries.map { it.displayName },
                     selectedIndex = state.mode.ordinal,
-                    onSelected = { viewModel.onModeChanged(WalletMode.entries[it]) },
+                    onSelected = { actions.onModeChanged(WalletMode.entries[it]) },
                     enabled = !state.isInitialized && !state.isLoading,
                 )
             }
@@ -137,13 +225,13 @@ fun HomeScreen(
             // Rain API credentials are independent of the wallet provider: they authenticate
             // contract/signature calls to the Rain dev API, so they live in their own card shown
             // for every provider.
-            RainApiCard(state, viewModel)
-            ProviderCard(state = state, viewModel = viewModel, application = application)
+            RainApiCard(state, actions)
+            ProviderCard(state = state, actions = providerActions)
         }
 
         // Stays visible when the session is dead so the hidden feature grid is explained.
         state.sessionStatus?.let { status ->
-            SessionCard(status = status, state = state, viewModel = viewModel)
+            SessionCard(status = status, state = state, actions = actions)
         }
 
         if (connected && sessionUsable) {
@@ -168,11 +256,11 @@ fun HomeScreen(
             // and the program keys pasted afterwards; the provider card shows what was used and,
             // after a resume, still offers a fresh sign-in.
             RainLabel("Connection")
-            RainApiCard(state, viewModel)
-            ProviderCard(state = state, viewModel = viewModel, application = application)
+            RainApiCard(state, actions)
+            ProviderCard(state = state, actions = providerActions)
             RainButton(
                 text = "Clear session",
-                onClick = viewModel::clearSession,
+                onClick = actions.onClearSession,
                 modifier = Modifier.fillMaxWidth(),
                 style = RainButtonStyle.Ghost,
             )
@@ -183,19 +271,19 @@ fun HomeScreen(
 }
 
 @Composable
-private fun RainApiCard(state: HomeUiState, viewModel: HomeViewModel) {
+private fun RainApiCard(state: HomeUiState, actions: HomeActions) {
     RainCard {
         RainStrong("Rain API credentials")
         RainField(
             label = "Api-Key",
             value = state.rainApiKey,
-            onValueChange = viewModel::onRainApiKeyChanged,
+            onValueChange = actions.onRainApiKeyChanged,
             placeholder = "Paste your program Api-Key",
         )
         RainField(
             label = "User ID",
             value = state.userId,
-            onValueChange = viewModel::onUserIdChanged,
+            onValueChange = actions.onUserIdChanged,
             placeholder = "Rain user ID",
         )
     }
@@ -203,7 +291,7 @@ private fun RainApiCard(state: HomeUiState, viewModel: HomeViewModel) {
 
 /** `sessionState`, `refreshSession()` and, for Portal, `updateSessionToken()`. */
 @Composable
-private fun SessionCard(status: WalletSessionStatus, state: HomeUiState, viewModel: HomeViewModel) {
+private fun SessionCard(status: WalletSessionStatus, state: HomeUiState, actions: HomeActions) {
     // Short details sit beside the headline, as in the design; longer ones drop below it.
     val detail = status.detail
     val detailInline = detail != null && detail.length <= INLINE_DETAIL_MAX_CHARS
@@ -226,7 +314,7 @@ private fun SessionCard(status: WalletSessionStatus, state: HomeUiState, viewMod
             (state.mode != WalletMode.Portal || state.replacementPortalToken.isNotBlank())
         RainButton(
             text = "Refresh session",
-            onClick = viewModel::refreshSession,
+            onClick = actions.onRefreshSession,
             modifier = Modifier.fillMaxWidth(),
             style = RainButtonStyle.Secondary,
             enabled = canRefresh,
@@ -240,12 +328,12 @@ private fun SessionCard(status: WalletSessionStatus, state: HomeUiState, viewMod
             RainField(
                 label = "Replacement session token",
                 value = state.replacementPortalToken,
-                onValueChange = viewModel::onReplacementPortalTokenChanged,
+                onValueChange = actions.onReplacementPortalTokenChanged,
                 placeholder = "Paste a new Portal session token",
             )
             RainButton(
                 text = "Update token",
-                onClick = viewModel::updatePortalSessionToken,
+                onClick = actions.onUpdatePortalSessionToken,
                 modifier = Modifier.fillMaxWidth(),
                 style = RainButtonStyle.Secondary,
                 enabled = state.replacementPortalToken.isNotBlank() && !state.isLoading,
@@ -327,3 +415,243 @@ private fun FeatureGrid(
         }
     }
 }
+
+// region Previews
+
+private const val PREVIEW_HOME_TURNKEY_ORG = "a1b2c3d4-5e6f-7890-abcd-ef1234567890"
+private const val PREVIEW_HOME_TURNKEY_PROXY = "9f8e7d6c-5b4a-3210-fedc-ba0987654321"
+private const val PREVIEW_HOME_EMAIL = "dev@rain.xyz"
+private const val PREVIEW_HOME_PHONE = "+15551234567"
+private const val PREVIEW_HOME_API_KEY = "rain_sk_live_9f2c4b7a1d8e35604c2fa9b7"
+private const val PREVIEW_HOME_USER_ID = "usr_7HqL2mNp9RtVx4Kd"
+private const val PREVIEW_HOME_PORTAL_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.portal.session.token"
+
+/** A connected Turnkey session: the state Home is in once a provider has logged in. */
+private fun connectedTurnkeyState(
+    status: WalletSessionStatus = WalletSessionStatus(
+        label = "Session healthy",
+        health = SessionHealth.Healthy,
+        detail = "Expires at 18:42:07, refreshed by the SDK",
+    ),
+) = HomeUiState(
+    mode = WalletMode.Turnkey,
+    rainApiKey = PREVIEW_HOME_API_KEY,
+    userId = PREVIEW_HOME_USER_ID,
+    turnkeyOrgId = PREVIEW_HOME_TURNKEY_ORG,
+    turnkeyAuthProxyConfigId = PREVIEW_HOME_TURNKEY_PROXY,
+    turnkeyEmail = PREVIEW_HOME_EMAIL,
+    turnkeyOtpSent = true,
+    turnkeySessionActive = true,
+    isInitialized = true,
+    isRecovered = true,
+    statusText = "Session resumed",
+    sessionStatus = status,
+)
+
+@Composable
+private fun HomePreview(state: HomeUiState, selectedChain: WalletChain = WalletChain.BASE_SEPOLIA) {
+    RainTheme {
+        HomeContent(
+            innerPadding = PaddingValues(),
+            state = state,
+            selectedChain = selectedChain,
+            onChainSelected = {},
+            onNavigate = {},
+            actions = HomeActions.None,
+            providerActions = ProviderCardActions.None,
+        )
+    }
+}
+
+@Preview(name = "Connect · Turnkey", showBackground = true, heightDp = 1250)
+@Composable
+private fun HomeConnectTurnkeyPreview() {
+    HomePreview(
+        HomeUiState(
+            mode = WalletMode.Turnkey,
+            turnkeyOrgId = PREVIEW_HOME_TURNKEY_ORG,
+            turnkeyAuthProxyConfigId = PREVIEW_HOME_TURNKEY_PROXY,
+            turnkeyEmail = PREVIEW_HOME_EMAIL,
+        ),
+    )
+}
+
+@Preview(name = "Connect · Turnkey by SMS", showBackground = true, heightDp = 1250)
+@Composable
+private fun HomeConnectTurnkeySmsPreview() {
+    HomePreview(
+        HomeUiState(
+            mode = WalletMode.Turnkey,
+            turnkeyOrgId = PREVIEW_HOME_TURNKEY_ORG,
+            turnkeyAuthProxyConfigId = PREVIEW_HOME_TURNKEY_PROXY,
+            turnkeyChannel = TurnkeyContactChannel.Phone,
+            turnkeyPhone = PREVIEW_HOME_PHONE,
+            turnkeyOtpSent = true,
+        ),
+    )
+}
+
+@Preview(name = "Connect · Portal", showBackground = true, heightDp = 1100)
+@Composable
+private fun HomeConnectPortalPreview() {
+    HomePreview(HomeUiState(mode = WalletMode.Portal, sessionToken = PREVIEW_HOME_PORTAL_TOKEN))
+}
+
+@Preview(name = "Connect · Privy", showBackground = true, heightDp = 1250)
+@Composable
+private fun HomeConnectPrivyPreview() {
+    HomePreview(
+        HomeUiState(
+            mode = WalletMode.Privy,
+            privyAppId = "clz1a2b3c4d5e6f7g8h9i0jk",
+            privyAppClientId = "client-WY1a2B3c4D5e6F7g8H9i0J",
+            privyEmail = PREVIEW_HOME_EMAIL,
+        ),
+    )
+}
+
+@Preview(name = "Connect · sending a code", showBackground = true, heightDp = 1250)
+@Composable
+private fun HomeConnectLoadingPreview() {
+    HomePreview(
+        HomeUiState(
+            mode = WalletMode.Turnkey,
+            turnkeyOrgId = PREVIEW_HOME_TURNKEY_ORG,
+            turnkeyAuthProxyConfigId = PREVIEW_HOME_TURNKEY_PROXY,
+            turnkeyEmail = PREVIEW_HOME_EMAIL,
+            isLoading = true,
+            statusText = "Sending a one-time code...",
+        ),
+    )
+}
+
+@Preview(name = "Connected · healthy", showBackground = true, heightDp = 1700)
+@Composable
+private fun HomeConnectedPreview() {
+    HomePreview(connectedTurnkeyState())
+}
+
+@Preview(name = "Connected · session expired", showBackground = true, heightDp = 1400)
+@Composable
+private fun HomeConnectedDeadSessionPreview() {
+    // Health Dead hides the chain picker and the feature grid, leaving the session card to explain why.
+    HomePreview(
+        connectedTurnkeyState(
+            status = WalletSessionStatus("Session expired", SessionHealth.Dead, "Log in again"),
+        ),
+    )
+}
+
+@Preview(name = "Connected · restoring", showBackground = true, heightDp = 1400)
+@Composable
+private fun HomeConnectedRestoringPreview() {
+    HomePreview(
+        connectedTurnkeyState(
+            status = WalletSessionStatus("Restoring session", SessionHealth.Transitional),
+        ),
+    )
+}
+
+@Preview(name = "Connected · Portal, replacement token", showBackground = true, heightDp = 1700)
+@Composable
+private fun HomeConnectedPortalPreview() {
+    // Portal is the only provider whose session card offers "Update token".
+    HomePreview(
+        HomeUiState(
+            mode = WalletMode.Portal,
+            sessionToken = PREVIEW_HOME_PORTAL_TOKEN,
+            rainApiKey = PREVIEW_HOME_API_KEY,
+            userId = PREVIEW_HOME_USER_ID,
+            replacementPortalToken = "eyJhbGciOiJIUzI1NiJ9.replacement.token",
+            isInitialized = true,
+            isRecovered = true,
+            statusText = "Session resumed",
+            sessionStatus = WalletSessionStatus(
+                label = "Session healthy",
+                health = SessionHealth.Healthy,
+                detail = "Last Portal call succeeded",
+            ),
+        ),
+        selectedChain = WalletChain.EVM,
+    )
+}
+
+@Preview(name = "Connected · Portal, refresh blocked", showBackground = true, heightDp = 1700)
+@Composable
+private fun HomeConnectedPortalNoReplacementPreview() {
+    // Portal refreshes through onSessionTokenNeeded, so a blank replacement disables "Refresh session".
+    HomePreview(
+        HomeUiState(
+            mode = WalletMode.Portal,
+            sessionToken = PREVIEW_HOME_PORTAL_TOKEN,
+            rainApiKey = PREVIEW_HOME_API_KEY,
+            userId = PREVIEW_HOME_USER_ID,
+            isInitialized = true,
+            isRecovered = true,
+            statusText = "Session resumed",
+            sessionStatus = WalletSessionStatus(
+                label = "Session healthy",
+                health = SessionHealth.Healthy,
+                detail = "Last Portal call succeeded",
+            ),
+        ),
+        selectedChain = WalletChain.EVM,
+    )
+}
+
+@Preview(name = "Connected · Portal, status unknown", showBackground = true, heightDp = 1700)
+@Composable
+private fun HomeConnectedPortalUnknownPreview() {
+    // Unknown is the fourth status-dot colour; Portal reports it before any call has completed.
+    HomePreview(
+        HomeUiState(
+            mode = WalletMode.Portal,
+            sessionToken = PREVIEW_HOME_PORTAL_TOKEN,
+            isInitialized = true,
+            isRecovered = true,
+            sessionStatus = WalletSessionStatus(
+                label = "Session unknown",
+                health = SessionHealth.Unknown,
+                detail = "No Portal call has completed yet",
+            ),
+        ),
+        selectedChain = WalletChain.EVM,
+    )
+}
+
+@Preview(name = "Connected · Turnkey by SMS, masked number", showBackground = true, heightDp = 1700)
+@Composable
+private fun HomeConnectedTurnkeyPhonePreview() {
+    // The subtitle masks the number, because this header shows up in screenshots.
+    HomePreview(
+        connectedTurnkeyState().copy(
+            turnkeyChannel = TurnkeyContactChannel.Phone,
+            turnkeyPhone = PREVIEW_HOME_PHONE,
+        ),
+    )
+}
+
+@Preview(name = "Connected · Privy", showBackground = true, heightDp = 1700)
+@Composable
+private fun HomeConnectedPrivyPreview() {
+    HomePreview(
+        HomeUiState(
+            mode = WalletMode.Privy,
+            privyAppId = "clz1a2b3c4d5e6f7g8h9i0jk",
+            privyAppClientId = "client-WY1a2B3c4D5e6F7g8H9i0J",
+            privyEmail = PREVIEW_HOME_EMAIL,
+            privyOtpSent = true,
+            privySessionActive = true,
+            isInitialized = true,
+            isRecovered = true,
+            statusText = "Session resumed",
+            sessionStatus = WalletSessionStatus(
+                label = "Session healthy",
+                health = SessionHealth.Healthy,
+                detail = "Privy refreshes the session itself",
+            ),
+        ),
+    )
+}
+
+// endregion

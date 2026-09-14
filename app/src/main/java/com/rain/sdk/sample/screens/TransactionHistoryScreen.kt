@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.interfaces.RainClient
@@ -46,7 +47,9 @@ import com.rain.sdk.sample.ui.RainStrong
 import com.rain.sdk.sample.ui.RainTextAction
 import com.rain.sdk.sample.ui.RainTitleBlock
 import com.rain.sdk.sample.ui.theme.RainColors
+import com.rain.sdk.sample.ui.theme.RainTheme
 import com.rain.sdk.sample.ui.theme.RainType
+import java.math.BigDecimal
 
 @Composable
 fun TransactionHistoryScreen(
@@ -57,12 +60,31 @@ fun TransactionHistoryScreen(
     viewModel: TransactionHistoryViewModel = viewModel(factory = TransactionHistoryViewModelFactory(rainClient)),
 ) {
     val state by viewModel.state.collectAsState()
-    val context = LocalContext.current
 
     // Re-fetch whenever the active chain changes.
     LaunchedEffect(selectedChain) {
         viewModel.fetchTransactions(selectedChain)
     }
+
+    TransactionHistoryContent(
+        innerPadding = innerPadding,
+        state = state,
+        selectedChain = selectedChain,
+        onBack = onBack,
+        onRefresh = { viewModel.fetchTransactions(selectedChain) },
+    )
+}
+
+/** Stateless body of [TransactionHistoryScreen], so previews can render every state without a view model. */
+@Composable
+private fun TransactionHistoryContent(
+    innerPadding: PaddingValues,
+    state: TransactionHistoryUiState,
+    selectedChain: WalletChain,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+) {
+    val context = LocalContext.current
 
     RainScreen(innerPadding) {
         RainBackHeader(onBack = onBack)
@@ -117,7 +139,7 @@ fun TransactionHistoryScreen(
 
         RainButton(
             text = "Refresh",
-            onClick = { viewModel.fetchTransactions(selectedChain) },
+            onClick = onRefresh,
             modifier = Modifier.fillMaxWidth(),
             style = RainButtonStyle.Secondary,
             enabled = !state.isLoading,
@@ -227,3 +249,130 @@ private fun TransactionAddresses(tx: RainTransaction) {
         }
     }
 }
+
+// region Previews
+
+private const val PREVIEW_WALLET = "0x1234567890abcdef1234567890abcdef12345678"
+private const val PREVIEW_COUNTERPARTY = "0x3cA8ac240F6ebeA8684b3E629A8e8C1f0E3bC0Ff"
+private const val PREVIEW_SOLANA_WALLET = "7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV"
+
+private val previewEvmTransactions = listOf(
+    RainTransaction(
+        hash = "0x7d2f9b1c4e8a6d3f5b9c2e1a7f4d8b6c3e9a1f5d7b2c4e6a8f1d3b5c7e9a2f4c",
+        from = PREVIEW_WALLET,
+        to = PREVIEW_COUNTERPARTY,
+        value = BigDecimal("0.001"),
+        asset = "ETH",
+        chainId = WalletChain.BASE_SEPOLIA.chainId,
+    ),
+    RainTransaction(
+        hash = "0xa41c3e9f2d7b5c8e1a4f6d3b9c2e7a5f8d1b4c6e3a9f2d5b7c1e4a8f6d3b9c2e",
+        from = PREVIEW_WALLET,
+        to = PREVIEW_COUNTERPARTY,
+        value = BigDecimal("25"),
+        asset = "USDC",
+        tokenAddress = WalletChain.BASE_SEPOLIA.defaultTokenAddress,
+        chainId = WalletChain.BASE_SEPOLIA.chainId,
+    ),
+    RainTransaction(
+        hash = "0x5b9c2e1a7f4d8b6c3e9a1f5d7b2c4e6a8f1d3b5c7e9a2f4c7d2f9b1c4e8a6d3f",
+        from = PREVIEW_COUNTERPARTY,
+        to = PREVIEW_WALLET,
+        value = BigDecimal("0.05"),
+        asset = "ETH",
+        chainId = WalletChain.BASE_SEPOLIA.chainId,
+    ),
+    // Self-transfer with a zero value: no amount is shown on the row.
+    RainTransaction(
+        hash = "0x1f5d7b2c4e6a8f1d3b5c7e9a2f4c7d2f9b1c4e8a6d3f5b9c2e1a7f4d8b6c3e9a",
+        from = PREVIEW_WALLET,
+        to = PREVIEW_WALLET,
+        value = BigDecimal.ZERO,
+        chainId = WalletChain.BASE_SEPOLIA.chainId,
+    ),
+)
+
+private val previewSolanaTransactions = listOf(
+    RainTransaction(
+        hash = "5UfDuX7WXY2rjwKk6yZK9GAaKhWzJrV4qGZx3xwTeVWABcdefGhijkLmnoPqrsTuvwXyz1234567890abcdefgh",
+        from = PREVIEW_SOLANA_WALLET,
+        to = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
+        value = BigDecimal("0.25"),
+        asset = "SOL",
+        chainId = WalletChain.SOLANA.chainId,
+    ),
+    // An unregistered SPL mint: no symbol, so the amount is bare and the mint identifies it.
+    RainTransaction(
+        hash = "3nRt8yGhJkLmNpQrStUvWxYz1234567890AbCdEfGhIjKlMnOpQrStUvWxYz1234567890AbCdEfGhIjKlMn",
+        from = PREVIEW_SOLANA_WALLET,
+        to = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin",
+        value = BigDecimal("1000"),
+        tokenAddress = "So11111111111111111111111111111111111111112",
+        chainId = WalletChain.SOLANA.chainId,
+    ),
+)
+
+@Composable
+private fun TransactionHistoryPreview(
+    state: TransactionHistoryUiState,
+    selectedChain: WalletChain = WalletChain.BASE_SEPOLIA,
+) {
+    RainTheme {
+        TransactionHistoryContent(
+            innerPadding = PaddingValues(),
+            state = state,
+            selectedChain = selectedChain,
+            onBack = {},
+            onRefresh = {},
+        )
+    }
+}
+
+@Preview(name = "Loading", showBackground = true)
+@Composable
+private fun TransactionHistoryLoadingPreview() {
+    TransactionHistoryPreview(TransactionHistoryUiState(isLoading = true))
+}
+
+@Preview(name = "Empty", showBackground = true)
+@Composable
+private fun TransactionHistoryEmptyPreview() {
+    TransactionHistoryPreview(TransactionHistoryUiState(walletAddress = PREVIEW_WALLET))
+}
+
+@Preview(name = "Error", showBackground = true)
+@Composable
+private fun TransactionHistoryErrorPreview() {
+    TransactionHistoryPreview(TransactionHistoryUiState(errorText = "429 Too Many Requests from the indexer"))
+}
+
+@Preview(name = "Loaded · EVM", showBackground = true, heightDp = 1100)
+@Composable
+private fun TransactionHistoryLoadedEvmPreview() {
+    TransactionHistoryPreview(
+        TransactionHistoryUiState(transactions = previewEvmTransactions, walletAddress = PREVIEW_WALLET),
+    )
+}
+
+@Preview(name = "Loaded · Solana, plain hashes", showBackground = true)
+@Composable
+private fun TransactionHistoryLoadedSolanaPreview() {
+    TransactionHistoryPreview(
+        TransactionHistoryUiState(transactions = previewSolanaTransactions, walletAddress = PREVIEW_SOLANA_WALLET),
+        selectedChain = WalletChain.SOLANA,
+    )
+}
+
+@Preview(name = "Refreshing · rows kept", showBackground = true, heightDp = 1100)
+@Composable
+private fun TransactionHistoryRefreshingPreview() {
+    TransactionHistoryPreview(
+        TransactionHistoryUiState(
+            transactions = previewEvmTransactions,
+            walletAddress = PREVIEW_WALLET,
+            isLoading = true,
+        ),
+    )
+}
+
+// endregion

@@ -23,9 +23,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rain.sdk.sample.R
 import com.rain.sdk.sample.ui.theme.RainColors
+import com.rain.sdk.sample.ui.theme.RainTheme
 import com.rain.sdk.sample.ui.theme.RainType
 
 /*
@@ -93,3 +95,30 @@ fun RainTitleBlock(title: String, subtitle: String? = null) {
         if (subtitle != null) Text(subtitle, style = RainType.BodyMuted)
     }
 }
+
+// region Previews
+
+@Preview(name = "Scaffold · home header", showBackground = true)
+@Composable
+private fun RainScaffoldHomePreview() {
+    RainTheme {
+        RainScreen(PaddingValues()) {
+            RainHomeHeader(environmentLabel = "Sandbox")
+            RainTitleBlock(title = "SDK sample", subtitle = "Connect a wallet provider to start.")
+        }
+    }
+}
+
+@Preview(name = "Scaffold · feature header", showBackground = true)
+@Composable
+private fun RainScaffoldFeaturePreview() {
+    RainTheme {
+        RainScreen(PaddingValues()) {
+            RainBackHeader(onBack = {})
+            RainTitleBlock(title = "Withdraw collateral", subtitle = "EVM · Base Sepolia")
+            RainTitleBlock(title = "Title with no subtitle")
+        }
+    }
+}
+
+// endregion
