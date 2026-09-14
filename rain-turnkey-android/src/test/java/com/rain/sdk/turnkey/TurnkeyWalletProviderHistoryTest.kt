@@ -63,7 +63,7 @@ class TurnkeyWalletProviderHistoryTest {
         turnkey: MockTurnkey = MockTurnkey(),
         history: TurnkeyHistoryProtocol = FakeTurnkeyHistory(),
         rpcEndpoints: Map<Int, String> = mapOf(1 to "https://eth.example/rpc")
-    ): TurnkeyWalletProvider = TurnkeyWalletProvider(
+    ): TurnkeyWalletProvider = turnkeyWalletProvider(
         turnkey = turnkey,
         rpcEndpoints = rpcEndpoints,
         httpClient = OkHttpClient(),

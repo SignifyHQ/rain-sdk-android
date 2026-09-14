@@ -221,15 +221,22 @@ class TurnkeyProvider internal constructor(
         // probe below could reject it for a missing account.
         managedAuth?.ensureAccounts()
 
-        val provider = TurnkeyWalletProvider(
+        // Built per create(), never lazily on the descriptor: reset() re-runs create(), and the
+        // manager's address cache belongs to the session that filled it.
+        val manager = TurnkeyManager(
             turnkey = turnkeyContext,
             rpcEndpoints = context.rpcEndpoints,
-            walletAddressOverride = config.walletAddress,
-            chainReader = context.evmChainReader,
-            solanaSupport = context.solanaSupport,
-            tokenStore = context.tokenStore,
-            sessionCoordinator = coordinator,
+            solanaRpcClient = context.solanaSupport.rpc,
             sponsorGas = config.sponsorGas,
+            walletAddressOverride = config.walletAddress,
+            sessionCoordinator = coordinator,
+        )
+        val provider = TurnkeyWalletProvider(
+            manager = manager,
+            chainReader = context.evmChainReader,
+            solanaChainReader = context.solanaSupport.chainReader,
+            solanaTransferComposer = context.solanaSupport.composer,
+            tokenStore = context.tokenStore,
         )
 
         // Probe — ensures Turnkey has an EVM wallet available before the provider is handed out.

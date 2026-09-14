@@ -1,11 +1,13 @@
 package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import com.turnkey.types.V1AssetBalance
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
+import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
 import java.math.BigInteger
@@ -30,7 +32,7 @@ class TurnkeyWalletProviderRoutingTest {
         val turnkey = MockTurnkey()
         // The MockTurnkeyClient on `turnkey` returns no balances by default — fine for chain
         // ID 1 since we override behavior via the chainReader only when off-allowlist.
-        return TurnkeyWalletProvider(
+        return turnkeyWalletProvider(
             turnkey = turnkey,
             rpcEndpoints = mapOf(chainId to "https://eth.example/rpc"),
             walletAddressOverride = MockTurnkey.DEFAULT_WALLET_ADDRESS,
@@ -57,7 +59,7 @@ class TurnkeyWalletProviderRoutingTest {
                 )
             )
         )
-        val provider = TurnkeyWalletProvider(
+        val provider = turnkeyWalletProvider(
             turnkey = turnkey,
             rpcEndpoints = mapOf(1 to "https://eth.example/rpc"),
             walletAddressOverride = MockTurnkey.DEFAULT_WALLET_ADDRESS,
@@ -142,7 +144,7 @@ class TurnkeyWalletProviderRoutingTest {
                 turnkey.wallets = listOf(MockTurnkey.defaultWallet())
             }
         }
-        val provider = TurnkeyWalletProvider(
+        val provider = turnkeyWalletProvider(
             turnkey = cached,
             rpcEndpoints = mapOf(1 to "https://eth.example/rpc"),
             httpClient = OkHttpClient(),
@@ -157,5 +159,34 @@ class TurnkeyWalletProviderRoutingTest {
         assertThat(second).isEqualTo(third)
         // wallets already contained a usable address, so refresh shouldn't have run at all.
         assertThat(refreshCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `a Turnkey balances failure on a supported chain propagates and never reaches the ChainReader`() {
+        val chainReader = MockChainReader()
+        val turnkey = MockTurnkey()
+        (turnkey.turnkeyClient as MockTurnkeyClient).walletAddressBalancesError =
+            RuntimeException("balances unavailable")
+        val provider = turnkeyWalletProvider(
+            turnkey = turnkey,
+            rpcEndpoints = mapOf(1 to "https://eth.example/rpc"),
+            walletAddressOverride = MockTurnkey.DEFAULT_WALLET_ADDRESS,
+            httpClient = OkHttpClient(),
+            chainReader = chainReader
+        )
+
+        val single = assertThrows(RainError::class.java) {
+            runBlocking { provider.getBalance(chainId = 1, token = Token.Native) }
+        }
+        val all = assertThrows(RainError::class.java) {
+            runBlocking { provider.getBalances(chainId = 1) }
+        }
+
+        // Turnkey is the source of truth on its balance chains: a failure there is reported,
+        // not papered over with a node read.
+        assertThat(single).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(all).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(chainReader.balanceCalls).isEmpty()
+        assertThat(chainReader.balancesCalls).isEmpty()
     }
 }

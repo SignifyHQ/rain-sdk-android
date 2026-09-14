@@ -86,6 +86,9 @@ internal class MockChainReader(
     val erc20Calls = mutableListOf<Erc20Call>()
     val balancesCalls = mutableListOf<BalancesCall>()
     val balanceCalls = mutableListOf<BalanceCall>()
+
+    /** Consumed one entry per [getBalance] read; a non-null entry is thrown. Models a node blip on one read. */
+    val balanceFailures: MutableList<Throwable?> = mutableListOf()
     val decimalsCalls = mutableListOf<DecimalsCall>()
     val symbolCalls = mutableListOf<SymbolCall>()
     val nameCalls = mutableListOf<NameCall>()
@@ -123,6 +126,7 @@ internal class MockChainReader(
         tokenInfo: TokenInfo?
     ): Balance {
         balanceCalls += BalanceCall(chainId, walletAddress, token, tokenInfo)
+        if (balanceFailures.isNotEmpty()) balanceFailures.removeAt(0)?.let { throw it }
         return balance ?: Balance(
             token = token,
             chainId = chainId,
