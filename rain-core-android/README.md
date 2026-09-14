@@ -54,9 +54,11 @@ graph TD
 A provider is registered on the builder and resolved into a `RainClient` bound to that one wallet.
 Core imports no wallet vendor; every adapter lives behind the port in its own module. Inside an
 adapter the wallet provider is the port: it routes by chain, gates sends and shapes each method.
-The manager is the vendor wrapper: every wallet-operation call to the vendor SDK runs there and
-comes back as a Rain type or a `RainError`. The adapter's session coordinator guards those calls,
-inside the manager for Turnkey and Privy and inside the wallet provider for Portal.
+The manager is the vendor wrapper: every wallet-operation call to the vendor SDK runs there. The
+adapter's session coordinator guards those calls and turns a vendor failure into a `RainError`,
+inside the manager for Turnkey and Privy and inside the wallet provider for Portal. Turnkey's and
+Portal's managers return Rain types; Privy's returns the vendor's transaction pages for its
+provider to shape.
 
 ## Entry points
 

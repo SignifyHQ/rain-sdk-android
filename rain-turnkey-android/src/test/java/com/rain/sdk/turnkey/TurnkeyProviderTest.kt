@@ -1,6 +1,7 @@
 package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.solana.SolanaSupport
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
@@ -14,8 +15,10 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
+import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Pins what the Turnkey descriptor advertises. `RainSdk` copies the descriptor's capability set
@@ -109,6 +112,42 @@ class TurnkeyProviderTest {
             val client = turnkey.turnkeyClient as MockTurnkeyClient
             assertThat(client.ethSendTransactionCalls.single().sponsor).isTrue()
             assertThat(hash).isEqualTo(client.mockTransactionHash)
+        } finally {
+            descriptor.close()
+        }
+    }
+
+    @Test
+    fun `the wallet create builds shares the descriptor's coordinator, so a death seen there stales its address`() {
+        val hookCalls = AtomicInteger(0)
+        val turnkey = MockTurnkey(wallets = emptyList())
+        turnkey.onRefreshWallets = { turnkey.wallets = listOf(MockTurnkey.defaultWallet()) }
+        val config = TurnkeyConfig(
+            turnkey = TurnkeyContext,
+            sponsorGas = false,
+            onSessionExpired = { hookCalls.incrementAndGet() }
+        )
+        val descriptor = TurnkeyProvider(config, contextOverride = turnkey)
+        try {
+            // The probe inside create() resolves through the coordinator, which has now seen a live session.
+            val wallet = runBlocking { descriptor.create(providerContext()) }
+            assertThat(runBlocking { wallet.getWalletAddress() }).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
+
+            // The session dies for good, seen through the descriptor and never through a wallet call.
+            turnkey.session = null
+            assertThrows(RainError.TokenExpired::class.java) {
+                runBlocking { descriptor.refreshSession() }
+            }
+            assertThat(hookCalls.get()).isEqualTo(1)
+
+            // Another user logs in against the same vendor singleton.
+            val other = "0x9999999999999999999999999999999999999999"
+            turnkey.wallets = listOf(MockTurnkey.walletWithEthereumAddress(other))
+            turnkey.session = MockTurnkey.defaultSession()
+
+            // A manager over a private coordinator never learns of that death and would still serve
+            // the first address here.
+            assertThat(runBlocking { wallet.getWalletAddress() }).isEqualTo(other)
         } finally {
             descriptor.close()
         }
