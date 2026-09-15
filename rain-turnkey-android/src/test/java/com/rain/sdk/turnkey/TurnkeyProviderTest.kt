@@ -50,6 +50,7 @@ class TurnkeyProviderTest {
         val descriptor = TurnkeyProvider(TurnkeyConfig(turnkey = TurnkeyContext))
 
         assertThat(descriptor.capabilities).containsExactly(
+            Capability.EXPORT,
             Capability.MULTI_CHAIN,
             Capability.BIOMETRIC_GATE,
             Capability.GAS_SPONSORSHIP
@@ -61,9 +62,18 @@ class TurnkeyProviderTest {
         val descriptor = TurnkeyProvider(config(sponsorGas = false))
 
         assertThat(descriptor.capabilities).containsExactly(
+            Capability.EXPORT,
             Capability.MULTI_CHAIN,
             Capability.BIOMETRIC_GATE
         )
+    }
+
+    @Test
+    fun `advertises EXPORT with gas sponsorship on and off`() {
+        listOf(true, false).forEach { sponsorGas ->
+            assertThat(TurnkeyProvider(config(sponsorGas)).capabilities).contains(Capability.EXPORT)
+            assertThat(TurnkeyWalletProvider.capabilitiesFor(sponsorGas)).contains(Capability.EXPORT)
+        }
     }
 
     @Test
