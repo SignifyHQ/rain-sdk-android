@@ -10,8 +10,8 @@ import com.rain.sdk.internal.solana.SolanaSupport
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
+import com.rain.sdk.provider.ProviderDescriptor
 import com.rain.sdk.provider.ProviderId
-import com.rain.sdk.provider.RainProvider
 import com.turnkey.core.TurnkeyContext
 import io.mockk.every
 import io.mockk.mockkStatic
@@ -83,7 +83,7 @@ class TurnkeyProviderTest {
     fun `resolving by EXPORT follows registration order now that Turnkey advertises it`(): Unit = runBlocking {
         mockkStatic(URLUtil::class)
         every { URLUtil.isValidUrl(any()) } returns true
-        val exportStub = object : RainProvider {
+        val exportStub = object : ProviderDescriptor {
             override val id = ProviderId("stub-export")
             override val capabilities = setOf(Capability.EXPORT)
             override suspend fun create(context: ProviderContext): WalletProvider = error("stub-export resolved")

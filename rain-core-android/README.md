@@ -5,7 +5,7 @@ The vendor-free core of the modular Rain Android SDK — the "one core" in *one 
 Contains:
 
 - The **`WalletProvider`** port (the capability the SDK needs from any wallet).
-- The **`RainProvider`** descriptor + **`RainSdk`** builder/registry
+- The **`ProviderDescriptor`** + **`RainSdk`** builder/registry
   (`RainSdk.builder().register(…).build()`, resolve via `provider(id)` / `first { }`).
 - The **`Capability`** model and **`ProviderId`**.
 - All Rain domain logic — EIP-712 message building, collateral withdraw flow (EVM and Solana),

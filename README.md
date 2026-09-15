@@ -10,7 +10,7 @@ balances and history, and estimate fees. Works on EVM chains and Solana.
 - **Privy wallet integration** — Register a `PrivyProvider` with an authenticated `Privy` instance; embedded EVM and Solana wallets are used for custody.
 - **Solana support** — Native SOL and SPL transfers, balances, history, and collateral withdrawal, on the same `RainClient` methods as EVM. See [Solana](#9-solana).
 - **Wallet-agnostic utilities** — The transaction-building methods (EIP-712 message, withdraw calldata) are available straight off `RainSdk` from the configured RPC endpoints, with no wallet provider resolved — use them with your own wallet or backend.
-- **Pluggable providers** — Bring your own `WalletProvider` behind a `RainProvider` descriptor and register it; resolve providers by id or by `Capability`.
+- **Pluggable providers** — Bring your own `WalletProvider` behind a `ProviderDescriptor` and register it; resolve providers by id or by `Capability`.
 - **EIP-712 message building** — Build typed data for admin signature required by the collateral contract.
 - **Withdrawal transaction building** — Build ABI-encoded withdraw calldata for submission.
 - **Full withdrawal flow** — Builds the transaction, signs via the backing provider, and submits; returns the transaction hash. `prepareWithdrawal` builds the same transaction without broadcasting.
@@ -154,7 +154,7 @@ See [docs/TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md) for both modes in full, i
 
 The registry is designed for the multi-provider case; a single-provider app is just the trivial
 `N = 1` instance of it. Register your own `WalletProvider` adapter (Coinbase, Privy, Dynamic, a custom
-MPC stack) behind a `RainProvider` descriptor, then resolve providers by id or by capability:
+MPC stack) behind a `ProviderDescriptor`, then resolve providers by id or by capability:
 
 ```kotlin
 import com.rain.sdk.provider.Capability

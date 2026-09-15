@@ -3,8 +3,8 @@ package com.rain.sdk.privy
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
+import com.rain.sdk.provider.ProviderDescriptor
 import com.rain.sdk.provider.ProviderId
-import com.rain.sdk.provider.RainProvider
 import io.privy.sdk.Privy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,7 +45,7 @@ class PrivyConfig(
 )
 
 /**
- * Privy adapter — the registrable [RainProvider] for Privy's embedded-key signer.
+ * Privy adapter — the registrable [ProviderDescriptor] for Privy's embedded-key signer.
  *
  * Lives in the `rain-privy-android` module and owns the Privy SDK as a dependency. Custody (signing,
  * broadcasting) routes through Privy's EIP-1193 embedded-wallet provider; balance/fee reads use
@@ -54,7 +54,7 @@ class PrivyConfig(
  */
 class PrivyProvider(
     private val config: PrivyConfig,
-) : RainProvider {
+) : ProviderDescriptor {
 
     override val id: ProviderId get() = ProviderId.PRIVY
 

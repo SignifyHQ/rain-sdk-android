@@ -36,7 +36,7 @@ module isn't on the classpath simply can't be registered.
 | Property | Type | Description |
 |----------|------|-------------|
 | `providerIds` | `Set<ProviderId>` | Ids of every provider the host registered. |
-| `providers` | `Collection<RainProvider>` | The registered provider descriptors, for capability resolution. |
+| `descriptors` | `Collection<ProviderDescriptor>` | The registered provider descriptors, for capability resolution. |
 | `transactionBuilder` | `RainTransactionBuilder` | **Deprecated** — the builder methods are now on `RainSdk` itself. |
 | `isRainApiConfigured` | `Boolean` | True once an Api-Key and userId have been supplied. |
 | `authPullChainIds` | `Set<Int>` | Chains Auth Pull is enabled on for this instance: the configured `RainAuthPullConfig`'s chains intersected with the chains that have an RPC endpoint. Empty when no `authPullConfig(...)` was supplied. Also exposed on `RainClient`; see [authPullChainIds](#authpullchainids). |
@@ -75,7 +75,7 @@ val exporter = rain.first { Capability.EXPORT in it.capabilities }
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `predicate` | `(RainProvider) -> Boolean` | Match tested against each registered provider descriptor. |
+| `predicate` | `(ProviderDescriptor) -> Boolean` | Match tested against each registered provider descriptor. |
 
 #### reset()
 
@@ -155,7 +155,7 @@ never names a vendor SDK itself.
 |--------|-------------|
 | `rpcEndpoints(endpoints: Map<Int, String>)` | Sets the `chainId → RPC URL` map every provider shares. **Required.** |
 | `rpcEndpoints(configs: List<NetworkConfig>)` | Same, as `NetworkConfig` values (chain id + RPC URL + optional display name). Replaces rather than appends; a later duplicate `chainId` wins. |
-| `register(provider: RainProvider)` | Registers a provider adapter (e.g. `PortalProvider`, `TurnkeyProvider`). Re-registering the same id replaces the prior one. |
+| `register(descriptor: ProviderDescriptor)` | Registers a provider adapter (e.g. `PortalProvider`, `TurnkeyProvider`). Re-registering the same id replaces the prior one. |
 | `registerTokens(tokens: List<TokenInfo>)` | Seeds the shared token store with extra token metadata. |
 | `rainApiEnvironment(environment: RainApiEnvironment)` | Selects the Rain issuing API environment. Defaults to `Dev`. |
 | `rainApiCredentials(apiKey: String, userId: String)` | Supplies the Rain program Api-Key and userId at build time — same effect as `configureRainApi` on the built instance. |
@@ -168,7 +168,7 @@ the transaction-building methods and the Rain API methods. Resolving `provider(i
 
 ### Provider adapters
 
-Each adapter is a `RainProvider` descriptor that owns its vendor SDK as a private dependency.
+Each adapter is a `ProviderDescriptor` that owns its vendor SDK as a private dependency.
 
 | Adapter | Module | Config | Notes |
 |---------|--------|--------|-------|
@@ -198,7 +198,7 @@ vendor-shaped details are worth knowing:
   configured chain. PortalSwift 7.x takes no such parameter, so iOS's `PortalConfig` has no
   `chainId` — an intentional, vendor-imposed divergence, not a parity gap.
 
-**Bring your own provider:** implement the `WalletProvider` port and a `RainProvider` descriptor
+**Bring your own provider:** implement the `WalletProvider` port and a `ProviderDescriptor`
 (with your own `ProviderId`), then `register(...)` it. Convert your vendor's exceptions to `RainError`
 before they leave your adapter, the way Rain's own adapters do in their session coordinators: core
 passes a `RainError` through with its code (the withdrawal paths alone rewrap a simulation failure
@@ -894,7 +894,7 @@ pre-set to `"0x0"`. Hosts can hand the result to any provider for signing / broa
 | **`Capability`** | Enum: `EXPORT`, `RECOVERY`, `MULTI_CHAIN`, `BIOMETRIC_GATE`, `GAS_SPONSORSHIP`. |
 | **`TurnkeyKeyFamily`** | Enum: `ETHEREUM`, `SOLANA`, and possibly more as Turnkey adds curves. Which of a Turnkey wallet's keys `TurnkeyProvider.exportPrivateKey` returns; see [Turnkey key export](#turnkey-key-export). |
 | **`RainEIP712Message`** | `message`, `salt`, `saltHex`. Returned by `buildEIP712Message`. |
-| **`RainProvider`** | Registrable provider descriptor: `id`, `capabilities`, and a suspend `create(context)` that materializes the `WalletProvider`. Implemented by `PortalProvider`, `TurnkeyProvider`, `PrivyProvider`, and host-supplied providers. |
+| **`ProviderDescriptor`** | Registrable provider descriptor: `id`, `capabilities`, and a suspend `create(context)` that materializes the `WalletProvider`. Implemented by `PortalProvider`, `TurnkeyProvider`, `PrivyProvider`, and host-supplied providers. |
 | **`WalletProvider`** | The port each adapter implements. Public so hosts can ship their own wallet stack. |
 | **`RainWithdrawAddresses`** | `proxyAddress`, `controllerAddress`, `tokenAddress`, `recipientAddress`. Has `validated()` method for address checksumming. |
 | **`RainAdminSignature`** | `salt` (String), `signature` (hex String), `expiresAt` (String, ISO-8601). |

@@ -19,7 +19,7 @@ import java.math.BigDecimal
  * imports a provider.
  *
  * Public so host apps can ship their own implementations and register them via a
- * [com.rain.sdk.provider.RainProvider] descriptor. The interface lives in the `internal.provider`
+ * [com.rain.sdk.provider.ProviderDescriptor]. The interface lives in the `internal.provider`
  * package for historical reasons but is part of the public API surface.
  *
  * Error contract: a failure leaves an implementation as a [com.rain.sdk.internal.error.RainError],
