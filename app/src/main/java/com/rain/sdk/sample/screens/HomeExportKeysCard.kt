@@ -6,6 +6,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.password
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -31,15 +33,21 @@ import com.rain.sdk.sample.ui.theme.RainType
 
 private val REVEALED_GAP = 8.dp
 
-/** Callbacks the export card raises, so it can be previewed without a view model. */
+/**
+ * Callbacks the export card raises, so it can be previewed without a view model. [onHide] is the
+ * button, which also clears a clipboard the sample loaded; [onLeave] fires when the card leaves
+ * composition or the activity stops, and leaves the clipboard alone so a copied value can be
+ * pasted into another wallet app.
+ */
 internal class ExportKeysActions(
     val onReveal: (TurnkeyExportKind) -> Unit,
     val onCopy: () -> Unit,
     val onHide: () -> Unit,
+    val onLeave: () -> Unit,
 ) {
     companion object {
         /** Inert callbacks for previews. */
-        val None = ExportKeysActions(onReveal = {}, onCopy = {}, onHide = {})
+        val None = ExportKeysActions(onReveal = {}, onCopy = {}, onHide = {}, onLeave = {})
     }
 }
 
@@ -49,7 +57,7 @@ internal fun ExportKeysCard(state: HomeUiState, actions: ExportKeysActions) {
     val inFlight = state.turnkeyExportInFlight
 
     SecureWindowWhile(active = revealed != null)
-    HideOnLeave(actions.onHide)
+    HideOnLeave(actions.onLeave)
 
     RainCard {
         CardTitle("Export keys", "Decrypted on this device")
@@ -69,8 +77,9 @@ internal fun ExportKeysCard(state: HomeUiState, actions: ExportKeysActions) {
         if (revealed != null) {
             Column(verticalArrangement = Arrangement.spacedBy(REVEALED_GAP)) {
                 RainLabel(revealed.kind.label)
-                // No SelectionContainer: the flagged Copy button is the only copy path.
-                RainPanel { Text(revealed.value, style = RainType.Body) }
+                // No SelectionContainer: the flagged Copy button is the only copy path. Password
+                // semantics make a screen reader mask the characters unless the user opted in.
+                RainPanel { Text(revealed.value, style = RainType.Body, modifier = Modifier.semantics { password() }) }
                 RainRow {
                     RainButton(
                         text = "Copy",

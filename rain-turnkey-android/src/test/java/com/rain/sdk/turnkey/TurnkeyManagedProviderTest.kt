@@ -77,7 +77,7 @@ class TurnkeyManagedProviderTest {
 
     @Test
     fun `BYO mode keeps its constructor and exposes no authentication`() = runTest {
-        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithVectorSolana()))
+        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithVectorAccounts()))
         val provider = TurnkeyProvider(
             TurnkeyConfig(turnkey = TurnkeyContext, sponsorGas = false),
             contextOverride = turnkey,
@@ -111,7 +111,7 @@ class TurnkeyManagedProviderTest {
         TurnkeyManagedConfigurator.initImpl = { _, organizationId, authProxyConfigId ->
             configured += organizationId to authProxyConfigId
         }
-        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithVectorSolana())) // restored live session
+        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithVectorAccounts())) // restored live session
         val provider = TurnkeyProvider(managedConfig("org-a", "proxy-a"), contextOverride = turnkey)
 
         val phrase = provider.exportRecoveryPhrase()
@@ -124,7 +124,7 @@ class TurnkeyManagedProviderTest {
         assertThat(provider.exportPrivateKey(TurnkeyKeyFamily.ETHEREUM)).isEqualTo("0x" + turnkey.stubbedKeyHex)
         assertThat(provider.exportPrivateKey(TurnkeyKeyFamily.SOLANA)).isEqualTo(MockTurnkey.VECTOR_SOLANA_KEYPAIR)
         assertThat(turnkey.exportAccountKeyCalls)
-            .containsExactly(MockTurnkey.DEFAULT_WALLET_ADDRESS, MockTurnkey.VECTOR_SOLANA_ADDRESS)
+            .containsExactly(MockTurnkey.VECTOR_ETHEREUM_ADDRESS, MockTurnkey.VECTOR_SOLANA_ADDRESS)
             .inOrder()
     }
 
@@ -250,8 +250,8 @@ class TurnkeyManagedProviderTest {
 
         val phrase = expectThrows<RainError.InvalidConfig> { provider.exportRecoveryPhrase() }
         val key = expectThrows<RainError.InvalidConfig> { provider.exportPrivateKey(TurnkeyKeyFamily.ETHEREUM) }
-        assertThat(phrase).hasMessageThat().contains("closed")
-        assertThat(key).hasMessageThat().contains("closed")
+        assertThat(phrase).hasMessageThat().contains(TURNKEY_PROVIDER_CLOSED_MESSAGE)
+        assertThat(key).hasMessageThat().contains(TURNKEY_PROVIDER_CLOSED_MESSAGE)
         assertThat(turnkey.exportMnemonicCalls).isEmpty()
         assertThat(turnkey.exportAccountKeyCalls).isEmpty()
 

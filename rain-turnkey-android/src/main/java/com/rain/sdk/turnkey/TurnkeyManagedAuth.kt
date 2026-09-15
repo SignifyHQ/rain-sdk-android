@@ -496,7 +496,7 @@ internal class TurnkeyManagedAuthController(
     internal suspend fun ensureConfigured() = prepare()
 
     private suspend fun requireOpenAndConfigured() {
-        if (closed.get()) throw RainError.InvalidConfig("This Turnkey provider was closed; build a new one")
+        if (closed.get()) throw RainError.InvalidConfig(TURNKEY_PROVIDER_CLOSED_MESSAGE)
         configure()?.let { throw it }
     }
 

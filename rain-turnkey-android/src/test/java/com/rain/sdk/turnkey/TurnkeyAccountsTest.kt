@@ -123,6 +123,17 @@ class TurnkeyAccountsTest {
         assertThat(solana?.walletId).isEqualTo("sol-wallet")
     }
 
+    @Test
+    fun `sameAddress compares hex ignoring case and every other form exactly`() {
+        assertThat(TurnkeyAccounts.sameAddress(ETH_A, ETH_A)).isTrue()
+        assertThat(TurnkeyAccounts.sameAddress(ETH_A, ETH_A.uppercase())).isTrue()
+        assertThat(TurnkeyAccounts.sameAddress(ETH_A.uppercase(), ETH_A)).isTrue()
+        assertThat(TurnkeyAccounts.sameAddress(ETH_A, ETH_B)).isFalse()
+        val solana = MockTurnkey.DEFAULT_SOLANA_ADDRESS
+        assertThat(TurnkeyAccounts.sameAddress(solana, solana)).isTrue()
+        assertThat(TurnkeyAccounts.sameAddress(solana, solana.lowercase())).isFalse()
+    }
+
     private companion object {
         const val ETH_A = "0xabcdef0123456789abcdef0123456789abcdef01"
         const val ETH_B = "0x0123456789abcdef0123456789abcdef01234567"

@@ -18,7 +18,8 @@ detekt = "1.23.8"
 # -- Core SDK Dependencies --
 portal-android = "8.4.0"
 turnkey = "2.0.0"
-# com.turnkey:crypto is versioned separately from sdk-kotlin, which pins it strictly at this value.
+# com.turnkey:crypto is versioned separately from sdk-kotlin, whose metadata requires this value
+# without pinning it, so a bump here would win: move it together with the sdk-kotlin version.
 turnkey-crypto = "1.0.1"
 privy = "0.13.1"
 # Security: pin Turnkey transitive deps above CVE-affected versions.
@@ -98,6 +99,7 @@ androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx
 androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "androidx-security-crypto" }
 androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "androidx-lifecycle" }
 androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidx-lifecycle" }
+androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidx-lifecycle" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity-compose" }
 
 # -- Compose (Managed by BOM) --

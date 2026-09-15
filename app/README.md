@@ -73,12 +73,16 @@ provider's own auth methods:
 - **Export keys** (Turnkey, in both SDK modes, managed here) — once the session is active, an *Export keys* card under the Turnkey card reveals the recovery phrase,
   the Ethereum private key or the Solana private key, one at a time, through `exportRecoveryPhrase`
   and `exportPrivateKey`, before *Initialize Rain* as well as after. While a value shows, the window
-  carries `FLAG_SECURE`, so screenshots, screen recordings and the recents thumbnail are blank.
-  Accessibility services still read the text. *Copy* puts the value on the clipboard flagged
+  carries `FLAG_SECURE`, so screenshots, screen recordings and the recents thumbnail are blank,
+  though `FLAG_SECURE` does not hide the text from accessibility services. *Copy* puts the value on
+  the clipboard flagged
   sensitive, so Android 13 and later mask the system preview, and the clipboard clears itself after
-  60 seconds whatever it holds by then. *Hide* clears it at once. The value is hidden when you leave
-  the screen, background the app, the session expires or *Clear session* runs, it is never written
-  to saved state, and the log records the kind and an error code only. To check an export, restore
+  60 seconds whatever it holds by then, so a copied value survives the switch to another wallet app
+  for a paste. *Hide* and *Clear session* clear it at once. The value is hidden when you leave the
+  screen, background the app, the session expires or *Clear session* runs, it is never written to
+  saved state, and the log records the kind, the error code and the error class only. The revealed
+  text carries password semantics, so a screen reader masks it unless the user chose to hear
+  passwords in the accessibility settings. To check an export, restore
   the phrase in MetaMask and in Phantom and compare the addresses with the Wallet screen, then import
   the Ethereum key in MetaMask and the Solana key in Phantom and compare again.
 - **Privy** (`PrivyAuthSample`) — app ID + app client ID + email OTP; embedded Ethereum and Solana

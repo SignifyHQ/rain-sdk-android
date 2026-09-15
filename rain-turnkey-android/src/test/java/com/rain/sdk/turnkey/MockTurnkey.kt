@@ -550,8 +550,16 @@ internal class MockTurnkey(
         const val VECTOR_SOLANA_KEYPAIR =
             "2Ana1pUpv2ZbMVkwF5FXapYeBEjdxDatLn7nvJkhgTSdZd8hbDHTd21as7EAsg7ypityqfsw2pMQKJcVDVcAEsd"
 
-        /** [defaultWallet] plus a Solana account whose address matches [MockTurnkey.stubbedKeyHex]. */
-        fun walletWithVectorSolana(): Wallet = walletWithEthAndSolana(VECTOR_SOLANA_ADDRESS)
+        /** The Ethereum address the stubbed `0102..1f20` seed controls as a secp256k1 key, computed outside the SDK. */
+        const val VECTOR_ETHEREUM_ADDRESS = "0x6370ef2f4db3611d657b90667de398a2cc2a370c"
+
+        /** [defaultWallet] re-addressed to the stubbed seed's Ethereum address; Ethereum only. */
+        fun vectorEthereumWallet(): Wallet = walletWithEthereumAddress(VECTOR_ETHEREUM_ADDRESS)
+
+        /** One wallet whose Ethereum and Solana accounts both match [MockTurnkey.stubbedKeyHex]. */
+        fun walletWithVectorAccounts(): Wallet = vectorEthereumWallet().let { wallet ->
+            wallet.copy(accounts = wallet.accounts + solanaAccount(VECTOR_SOLANA_ADDRESS))
+        }
 
         fun makeActivity(
             id: String,

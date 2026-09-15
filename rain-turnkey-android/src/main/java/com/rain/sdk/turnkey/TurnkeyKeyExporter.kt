@@ -33,13 +33,13 @@ internal val TurnkeyKeyFamily.curve: V1Curve
  * [TurnkeyAccounts] resolves them, and the phrase follows the wallet holding the Ethereum account,
  * else the first wallet, so the phrase and the exported Ethereum key always derive the same
  * address. A [walletAddressOverride] that names no Ethereum account of the organization is a
- * configuration error raised before any vendor call, because signing with it is already broken and
- * a phrase for another wallet would back up an account the app never signs with.
+ * configuration error raised before any export call, for every export, because signing with it is
+ * already broken and a phrase for another wallet would back up an account the app never signs with.
  *
  * The seam returns raw material, so every check that decides what a caller gets runs here: the
- * key must be 32 bytes, and a Solana public key must re-encode to the account's address. Nothing
- * on this path is logged. The vendor's `String` copy of the material cannot be wiped, so the
- * promise is never logged, cached or persisted, not zeroed.
+ * key must be 32 bytes, and the address it derives, on either curve, must be the account's.
+ * Nothing on this path is logged. The vendor's `String` copy of the material cannot be wiped, so
+ * the promise is never logged, cached or persisted, not zeroed.
  */
 internal class TurnkeyKeyExporter(
     private val turnkey: TurnkeyContextProtocol,
@@ -71,17 +71,25 @@ internal class TurnkeyKeyExporter(
                 withContext(dispatcher) { turnkey.exportAccountPrivateKeyHex(account.address) }
             }
         }
-        return encode(family, hex, account)
+        // The derivation is CPU work too, so it stays off the caller's dispatcher.
+        return withContext(dispatcher) { encode(family, hex, account) }
     }
 
     private suspend fun accountFor(family: TurnkeyKeyFamily): V1WalletAccount {
         val account = when (family) {
             TurnkeyKeyFamily.ETHEREUM -> ethereumAnchor()
-            TurnkeyKeyFamily.SOLANA -> resolve(TurnkeyAccounts::solanaAccount)
+            TurnkeyKeyFamily.SOLANA -> {
+                // A walletAddress that names no Ethereum account is a misconfigured provider, so the
+                // Solana key is refused too, before any export call, as the docs promise.
+                if (hasOverride) ethereumAnchor()
+                resolve(TurnkeyAccounts::solanaAccount)
+            }
         } ?: throw RainError.WalletUnavailable(noAccount(family))
         if (account.curve != family.curve) throw RainError.WalletUnavailable(CURVE_MISMATCH)
         return account
     }
+
+    private val hasOverride: Boolean get() = !walletAddressOverride.isNullOrEmpty()
 
     /**
      * The Ethereum account the SDK signs with: the account at the override when one is set, else
@@ -107,12 +115,23 @@ internal class TurnkeyKeyExporter(
         val seed = decodeHex(bare)?.takeIf { it.size == KEY_LENGTH } ?: throw RainError.InternalError(BAD_KEY_MATERIAL)
         try {
             return when (family) {
-                TurnkeyKeyFamily.ETHEREUM -> "0x" + bare.lowercase()
+                TurnkeyKeyFamily.ETHEREUM -> ethereumKey(seed, bare, account)
                 TurnkeyKeyFamily.SOLANA -> solanaKeypair(seed, account)
             }
         } finally {
             seed.fill(0)
         }
+    }
+
+    /** `0x` plus the lowercase hex, once the key sits inside the curve order and derives the account's address. */
+    private fun ethereumKey(seed: ByteArray, bare: String, account: V1WalletAccount): String {
+        val derived = try {
+            EthereumKeyEncoder.address(seed)
+        } catch (e: IllegalArgumentException) {
+            throw RainError.InternalError(BAD_KEY_MATERIAL, e)
+        }
+        if (!derived.equals(account.address, ignoreCase = true)) throw RainError.InternalError(ADDRESS_MISMATCH)
+        return "0x" + bare.lowercase()
     }
 
     private fun solanaKeypair(seed: ByteArray, account: V1WalletAccount): String {
@@ -145,9 +164,8 @@ internal class TurnkeyKeyExporter(
         const val NO_WALLET = "The Turnkey organization has no wallet to export a recovery phrase from"
         const val CURVE_MISMATCH =
             "The Turnkey account for this key family is on an unexpected curve, so nothing was exported"
-        const val BAD_KEY_MATERIAL = "The exported key was not a 32-byte key, so nothing was returned"
-        const val ADDRESS_MISMATCH =
-            "The exported Solana key does not derive the account's address, so nothing was returned"
+        const val BAD_KEY_MATERIAL = "The exported key was not a valid 32-byte key, so nothing was returned"
+        const val ADDRESS_MISMATCH = "The exported key does not derive the account's address, so nothing was returned"
         const val OVERRIDE_NOT_ETHEREUM = "walletAddress is not an Ethereum account of this Turnkey organization"
 
         fun noAccount(family: TurnkeyKeyFamily): String {

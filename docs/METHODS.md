@@ -220,9 +220,9 @@ Public API, on `TurnkeyProvider` in bring-your-own and managed mode alike. It li
 
 | Member | Signature | Notes |
 |--------|-----------|-------|
-| `exportRecoveryPhrase` | `suspend fun exportRecoveryPhrase(): String` | The wallet's BIP-39 phrase as the wallet was created: managed wallets have 12 words, a bring-your-own wallet the length it was created with. Anchored on the wallet holding the Ethereum account the SDK signs with, else the first wallet, so the phrase and `exportPrivateKey(ETHEREUM)` always derive the same address. It restores every account derived from that seed and nothing else. Managed wallets keep both accounts on one seed. A bring-your-own organization with several wallets gets one wallet's phrase. `RAIN_404` when the organization has no wallet. `RAIN_102` when `walletAddress` names no Ethereum account of the organization, or when the provider was closed. |
-| `exportPrivateKey` | `suspend fun exportPrivateKey(family: TurnkeyKeyFamily): String` | The private key of the account the SDK signs with for that family. `ETHEREUM`: `0x` plus 64 lowercase hex characters. `SOLANA`: the 64-byte keypair, the seed followed by the public key, in plain Base58, the string Solana wallets import. Before returning anything the SDK checks that the key is 32 bytes and, for Solana, that the derived public key is the account's address. A failed check is `RAIN_502` with nothing returned. `RAIN_404` when no account of the family exists, which in managed mode a new login provisions. `RAIN_102` for the `walletAddress` and closed-provider cases above. |
-| `TurnkeyKeyFamily` | `enum class TurnkeyKeyFamily { ETHEREUM, SOLANA }` | Which of the wallet's keys to export. A wallet holds one account per family, each with its own key derived from the wallet's seed. |
+| `exportRecoveryPhrase` | `suspend fun exportRecoveryPhrase(): String` | The wallet's BIP-39 phrase as the wallet was created: managed wallets have 12 words, a bring-your-own wallet the length it was created with. Anchored on the wallet holding the Ethereum account the SDK signs with, else the first wallet, so the phrase and `exportPrivateKey(ETHEREUM)` always derive the same address. It restores every account derived from that seed and nothing else. Managed wallets keep both accounts on one seed. A bring-your-own organization with several wallets gets one wallet's phrase. `RAIN_201` without a live session; `RAIN_202` when Turnkey answers the export with HTTP 403, a read-only session for example, while a 401 surfaces as `RAIN_201` after one refresh; `RAIN_404` when the organization has no wallet; `RAIN_102` when `walletAddress` names no Ethereum account of the organization, or when the provider was closed; `RAIN_501` when the activity is still pending after about four seconds or the bundle is rejected on the device. |
+| `exportPrivateKey` | `suspend fun exportPrivateKey(family: TurnkeyKeyFamily): String` | The private key of the account the SDK signs with for that family. `ETHEREUM`: `0x` plus 64 lowercase hex characters. `SOLANA`: the 64-byte keypair, the seed followed by the public key, in plain Base58, the string Solana wallets import. Before returning anything the SDK checks that the key is 32 bytes and that the address it derives, on either curve, is the account's. A failed check is `RAIN_502` with nothing returned. `RAIN_201`, `RAIN_202` and `RAIN_501` as for the phrase, plus `RAIN_501` when the enclave's bundle names another account than the one requested. `RAIN_404` when no account of the family exists, which in managed mode a new login provisions, or when that account sits on another curve than the family's. `RAIN_102` for the `walletAddress` case, for either family, and the closed-provider case above. |
+| `TurnkeyKeyFamily` | `enum class TurnkeyKeyFamily { ETHEREUM, SOLANA }` | Which of the wallet's keys to export. The SDK uses one account per family: the first the organization lists, or for Ethereum the account at `walletAddress`. Families may be added; prefer an `else` branch over an exhaustive `when`. |
 
 Host duties after the return are to gate the call, for example behind biometrics, to show the value where screenshots and screen recording are blocked, and to keep it off the clipboard or clear it. The vendor polls the export activity for up to about four seconds, and a pending activity surfaces as `RAIN_501`. A transient failure is retried with a new request, so Turnkey's audit log may show more than one export activity for one call. Turnkey marks the wallet as exported after a phrase export. Export is the backup path for a user who signs in with a passkey only. The formats are a cross-platform contract shared by Rain's SDKs.
 
@@ -773,7 +773,10 @@ old shape. Slated for removal in the next major version.
 
 A provider advertises optional behaviours via `Capability`, so hosts can resolve by feature
 (`rain.first { Capability.EXPORT in it.capabilities }`) and degrade gracefully instead of assuming
-a capability every provider has.
+a capability every provider has. `first` returns the earliest registered provider that matches, so
+registration order decides between two providers that both advertise a capability. `EXPORT` says
+the wallet can be backed up somewhere; the SDK-driven export methods exist on `TurnkeyProvider`
+only, see [Turnkey key export](#turnkey-key-export).
 
 | Capability | Meaning |
 |------------|---------|
@@ -889,7 +892,7 @@ pre-set to `"0x0"`. Hosts can hand the result to any provider for signing / broa
 |------|-------------|
 | **`ProviderId`** | Value class wrapping a provider id string. Well-known constants: `PORTAL`, `TURNKEY`, `PRIVY`. Host apps can ship a custom id. |
 | **`Capability`** | Enum: `EXPORT`, `RECOVERY`, `MULTI_CHAIN`, `BIOMETRIC_GATE`, `GAS_SPONSORSHIP`. |
-| **`TurnkeyKeyFamily`** | Enum: `ETHEREUM`, `SOLANA`. Which of a Turnkey wallet's keys `TurnkeyProvider.exportPrivateKey` returns; see [Turnkey key export](#turnkey-key-export). |
+| **`TurnkeyKeyFamily`** | Enum: `ETHEREUM`, `SOLANA`, and possibly more as Turnkey adds curves. Which of a Turnkey wallet's keys `TurnkeyProvider.exportPrivateKey` returns; see [Turnkey key export](#turnkey-key-export). |
 | **`RainEIP712Message`** | `message`, `salt`, `saltHex`. Returned by `buildEIP712Message`. |
 | **`RainProvider`** | Registrable provider descriptor: `id`, `capabilities`, and a suspend `create(context)` that materializes the `WalletProvider`. Implemented by `PortalProvider`, `TurnkeyProvider`, `PrivyProvider`, and host-supplied providers. |
 | **`WalletProvider`** | The port each adapter implements. Public so hosts can ship their own wallet stack. |
@@ -933,12 +936,12 @@ Format: `"RainSDK Error [CODE]: message"`
 | `RAIN_401` | `RainError.UserRejected` | User cancelled the signing request in the wallet. |
 | `RAIN_402` | `RainError.InsufficientFunds` | Balance too low for the requested amount or gas. |
 | `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight `eth_call` simulation failed (e.g. contract revert, insufficient funds), or the provider reported that the broadcast transaction reverted (Turnkey's decoded failure status). |
-| `RAIN_404` | `RainError.WalletUnavailable` | The backing provider returned no usable wallet address (e.g. Turnkey context has no Ethereum account), or a Turnkey export found no wallet to export a phrase from or no account of the requested chain family to export a key for. |
+| `RAIN_404` | `RainError.WalletUnavailable` | The backing provider returned no usable wallet address (e.g. Turnkey context has no Ethereum account), or a Turnkey export found no wallet to export a phrase from, no account of the requested chain family to export a key for, or an account of that family on another curve than the family's. |
 | `RAIN_405` | `RainError.WithdrawalRevertedByNetwork` | Withdrawal reverted on-chain (e.g. duplicate withdrawal, already-used signature). A fee-sponsored withdrawal skips the dry run; a revert the provider reports after broadcast maps here too. |
 | `RAIN_406` | `RainError.InvalidAmount` | The amount is invalid for the token — negative, more decimal places than the token supports, or past `uint256` max. |
 | `RAIN_407` | `RainError.WalletNotAuthorized` | The wallet is not an admin of the collateral contract; checked before a withdrawal is signed. |
-| `RAIN_501` | `RainError.ProviderError` | Portal, Turnkey, or other provider error. |
-| `RAIN_502` | `RainError.InternalError` | EIP-712 encoding, ABI encoding, or internal processing error. |
+| `RAIN_501` | `RainError.ProviderError` | Portal, Turnkey, or other provider error; for a Turnkey key export also an activity still pending after the vendor's polling, a bundle rejected on the device, or a bundle for another account. |
+| `RAIN_502` | `RainError.InternalError` | EIP-712 encoding, ABI encoding, or internal processing error; for a Turnkey key export also material that fails a check (not 32 bytes, outside the curve order, or deriving another address), in which case nothing is returned. |
 
 ### Error handling example
 

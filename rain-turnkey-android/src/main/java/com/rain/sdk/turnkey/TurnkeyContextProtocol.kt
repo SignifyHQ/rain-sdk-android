@@ -11,7 +11,6 @@ import com.turnkey.core.models.errors.TurnkeyKotlinError
 import com.turnkey.crypto.decryptExportBundle
 import com.turnkey.crypto.generateP256KeyPair
 import com.turnkey.crypto.models.KeyFormat
-import com.turnkey.crypto.utils.TurnkeyCryptoError
 import com.turnkey.http.TurnkeyClient
 import com.turnkey.types.TCreateWalletAccountsBody
 import com.turnkey.types.TEthSendTransactionBody
@@ -326,6 +325,11 @@ internal class TurnkeyContextAdapter(
                 targetPublicKey = targetPublicKey
             )
         )
+        // The enclave names the account the bundle is for. A bundle for another account is refused
+        // before anything is decrypted, with a fixed message that names no address.
+        if (!TurnkeyAccounts.sameAddress(response.result.address, address)) {
+            throw TurnkeyKotlinError.FailedToExportWallet(IllegalStateException("export bundle is for another account"))
+        }
         decryptExportBundle(
             exportBundle = response.result.exportBundle,
             organizationId = organizationId,
@@ -337,35 +341,16 @@ internal class TurnkeyContextAdapter(
 
     /**
      * Every export failure leaves as the vendor's `FailedToExportWallet`, so both paths share one
-     * type and one mapping. A cancellation passes through bare.
+     * type and one mapping, and a cancellation leaves bare even when the vendor wrapped it. The
+     * translation lives in [TurnkeyExportFailures], where unit tests reach it.
      */
-    @Suppress("TooGenericExceptionCaught") // the vendor's own export wrapper catches Throwable; this one sanitizes
+    @Suppress("TooGenericExceptionCaught") // the vendor's own export wrapper catches Throwable; this one translates
     private inline fun <T> exporting(block: () -> T): T = try {
         block()
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        throw sanitizeExportFailure(e)
-    }
-
-    /**
-     * A crypto failure anywhere in the cause chain is replaced by a cause-free description that
-     * names the variant only. The vendor's `InvalidHexString` carries the ephemeral private scalar
-     * in its message, and the session coordinator logs an unmapped failure with its throwable, so
-     * the original must not travel. A `FailedToExportWallet` with no crypto failure inside passes
-     * through, and this function wraps anything else.
-     */
-    private fun sanitizeExportFailure(e: Exception): TurnkeyKotlinError.FailedToExportWallet {
-        val rejected = generateSequence<Throwable>(e) { current -> current.cause?.takeIf { it !== current } }
-            .take(MAX_CAUSE_DEPTH)
-            .firstOrNull { it is TurnkeyCryptoError }
-        return when {
-            rejected != null -> TurnkeyKotlinError.FailedToExportWallet(
-                IllegalStateException("export bundle rejected: ${rejected.javaClass.simpleName}")
-            )
-            e is TurnkeyKotlinError.FailedToExportWallet -> e
-            else -> TurnkeyKotlinError.FailedToExportWallet(e)
-        }
+        throw TurnkeyExportFailures.rethrowable(e)
     }
 
     private fun List<TurnkeyAccountSpec>.toVendorParams(): List<V1WalletAccountParams> = map {
@@ -379,9 +364,6 @@ internal class TurnkeyContextAdapter(
 
     private companion object {
         const val MANAGED_WALLET_MNEMONIC_LENGTH = 12L
-
-        /** Bounds the cause walk so a cyclic cause chain cannot spin it. */
-        const val MAX_CAUSE_DEPTH = 8
     }
 }
 

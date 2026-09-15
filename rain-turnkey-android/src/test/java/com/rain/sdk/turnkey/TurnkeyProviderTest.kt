@@ -1,13 +1,21 @@
 package com.rain.sdk.turnkey
 
+import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.RainSdk
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
+import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.solana.SolanaSupport
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
+import com.rain.sdk.provider.ProviderId
+import com.rain.sdk.provider.RainProvider
 import com.turnkey.core.TurnkeyContext
+import io.mockk.every
+import io.mockk.mockkStatic
+import io.mockk.unmockkAll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
@@ -40,7 +48,10 @@ class TurnkeyProviderTest {
     }
 
     @After
-    fun tearDown() = Dispatchers.resetMain()
+    fun tearDown() {
+        unmockkAll()
+        Dispatchers.resetMain()
+    }
 
     private fun config(sponsorGas: Boolean) =
         TurnkeyConfig(turnkey = TurnkeyContext, sponsorGas = sponsorGas)
@@ -69,10 +80,43 @@ class TurnkeyProviderTest {
     }
 
     @Test
-    fun `advertises EXPORT with gas sponsorship on and off`() {
-        listOf(true, false).forEach { sponsorGas ->
-            assertThat(TurnkeyProvider(config(sponsorGas)).capabilities).contains(Capability.EXPORT)
-            assertThat(TurnkeyWalletProvider.capabilitiesFor(sponsorGas)).contains(Capability.EXPORT)
+    fun `resolving by EXPORT follows registration order now that Turnkey advertises it`(): Unit = runBlocking {
+        mockkStatic(URLUtil::class)
+        every { URLUtil.isValidUrl(any()) } returns true
+        val exportStub = object : RainProvider {
+            override val id = ProviderId("stub-export")
+            override val capabilities = setOf(Capability.EXPORT)
+            override suspend fun create(context: ProviderContext): WalletProvider = error("stub-export resolved")
+        }
+
+        // Turnkey first: the Turnkey client comes back where a host used to get the other provider.
+        val turnkeyFirst = MockTurnkey()
+        val rainTurnkeyFirst = RainSdk.builder()
+            .rpcEndpoints(mapOf(1 to "https://rpc.example/test"))
+            .register(TurnkeyProvider(config(sponsorGas = false), contextOverride = turnkeyFirst))
+            .register(exportStub)
+            .build()
+        try {
+            val client = rainTurnkeyFirst.first { Capability.EXPORT in it.capabilities }
+            assertThat(client.providerId).isEqualTo(ProviderId.TURNKEY)
+            assertThat(Capability.EXPORT in client.capabilities).isTrue()
+        } finally {
+            rainTurnkeyFirst.close()
+        }
+
+        // Stub first: the stub wins and Turnkey is never materialized.
+        val turnkeySecond = MockTurnkey(wallets = emptyList())
+        val rainStubFirst = RainSdk.builder()
+            .rpcEndpoints(mapOf(1 to "https://rpc.example/test"))
+            .register(exportStub)
+            .register(TurnkeyProvider(config(sponsorGas = false), contextOverride = turnkeySecond))
+            .build()
+        try {
+            val thrown = runCatching { rainStubFirst.first { Capability.EXPORT in it.capabilities } }.exceptionOrNull()
+            assertThat(thrown).isNotNull()
+            assertThat(turnkeySecond.refreshWalletsCallCount).isEqualTo(0)
+        } finally {
+            rainStubFirst.close()
         }
     }
 

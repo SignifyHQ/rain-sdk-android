@@ -32,6 +32,10 @@ internal object TurnkeyAccounts {
             account.addressFormat == format && sameAddress(account.address, address, format)
         }
 
+    /** True when [a] and [b] name the same account: hex addresses compare ignoring case, every other form exactly. */
+    fun sameAddress(a: String, b: String): Boolean =
+        a == b || (a.startsWith("0x", ignoreCase = true) && a.equals(b, ignoreCase = true))
+
     private fun firstOfFormat(wallets: List<Wallet>, format: V1AddressFormat): V1WalletAccount? =
         wallets.flatMap { it.accounts }.firstOrNull { it.addressFormat == format }
 

@@ -2,6 +2,7 @@ package com.rain.sdk.sample.screens
 
 import android.app.Application
 import android.content.Context
+import android.os.SystemClock
 import android.telephony.PhoneNumberUtils
 import android.telephony.TelephonyManager
 import androidx.lifecycle.ViewModel
@@ -692,7 +693,7 @@ class HomeViewModel(
                 }
             } catch (e: Exception) {
                 SampleLog.e("Turnkey.rainInit", "failed: ${e.message}", e)
-                hideTurnkeySecret()
+                hideTurnkeySecret(clearClipboard = true)
                 // reset() closes the prepared provider, so the flow restarts from "Send code".
                 session.reset()
                 _state.update {
@@ -882,8 +883,13 @@ class HomeViewModel(
 
     // ---------- Turnkey key export ----------
 
-    /** True while the last thing the sample copied was an exported value. */
-    private var clipboardHoldsSecret = false
+    /**
+     * When the sample last put an exported value on the clipboard, on the monotonic clock, or null.
+     * The 60 second timer in [copySensitiveToClipboard] empties the clipboard without telling the
+     * view model, so a clear here happens only inside that window; afterwards the clipboard holds
+     * whatever the user copied since, which is theirs to keep.
+     */
+    private var clipboardLoadedAtMs: Long? = null
 
     fun revealTurnkeySecret(kind: TurnkeyExportKind) {
         val provider = session.turnkeyProvider
@@ -916,27 +922,34 @@ class HomeViewModel(
         }
     }
 
-    /** Drops the revealed value and, when the sample put it on the clipboard, clears the clipboard too. */
-    fun hideTurnkeySecret() {
+    /**
+     * Drops the revealed value. With [clearClipboard] it also empties the clipboard when the sample
+     * loaded it within the last 60 seconds: the Hide button, Clear session and a failed Rain
+     * initialization pass true. Leaving the screen or backgrounding the app passes false, because
+     * pasting into another wallet app is what Copy is for, and the 60 second timer clears the
+     * clipboard either way. The session-expiry hook cannot reach this method and relies on that
+     * timer.
+     */
+    fun hideTurnkeySecret(clearClipboard: Boolean = false) {
         if (_state.value.turnkeyRevealedSecret != null) {
             _state.update { it.copy(turnkeyRevealedSecret = null) }
         }
-        if (clipboardHoldsSecret) {
-            clipboardHoldsSecret = false
-            clearClipboard(app)
-        }
+        if (!clearClipboard) return
+        val loadedAt = clipboardLoadedAtMs ?: return
+        clipboardLoadedAtMs = null
+        if (SystemClock.elapsedRealtime() - loadedAt < CLIPBOARD_CLEAR_MS) clearClipboard(app)
     }
 
     fun copyTurnkeySecret(context: Context) {
         val secret = _state.value.turnkeyRevealedSecret ?: return
         copySensitiveToClipboard(context.applicationContext, "Rain wallet secret", secret.value)
-        clipboardHoldsSecret = true
+        clipboardLoadedAtMs = SystemClock.elapsedRealtime()
         _state.update { it.copy(statusText = "Copied. The clipboard clears itself in 60 s") }
     }
 
     fun clearSession() {
         SampleLog.i("Home", "clearing session (provider logout + SDK reset + UI reset)")
-        hideTurnkeySecret()
+        hideTurnkeySecret(clearClipboard = true)
         viewModelScope.launch {
             // Managed Turnkey logout runs first, while the provider is still open: it clears the
             // stored session without firing the re-auth hook. A refused logout keeps everything —

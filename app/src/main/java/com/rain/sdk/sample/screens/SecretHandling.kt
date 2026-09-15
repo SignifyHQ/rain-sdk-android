@@ -22,7 +22,7 @@ import androidx.compose.ui.platform.LocalContext
  */
 
 /** How long a copied secret stays on the clipboard before the sample clears it. */
-private const val CLIPBOARD_CLEAR_MS = 60_000L
+internal const val CLIPBOARD_CLEAR_MS = 60_000L
 
 /**
  * Copies a secret. On API 33 and above the clip is flagged sensitive, so the system's clipboard

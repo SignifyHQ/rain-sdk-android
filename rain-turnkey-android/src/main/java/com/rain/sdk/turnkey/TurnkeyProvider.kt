@@ -17,6 +17,9 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 
+/** The message every call on a closed provider carries; one literal so the two guards cannot drift. */
+internal const val TURNKEY_PROVIDER_CLOSED_MESSAGE = "This Turnkey provider was closed; build a new one"
+
 /**
  * Configuration for the Turnkey provider.
  *
@@ -32,7 +35,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  *                the host in bring-your-own mode, configured and authenticated by the SDK in
  *                managed mode.
  * @param walletAddress Optional explicit EVM address override; when null Rain uses the first
- *                      available Ethereum account from the context.
+ *                      available Ethereum account from the context. It also anchors key export:
+ *                      the recovery phrase and the Ethereum key come from the account at this
+ *                      address, and a value that names no Ethereum account of the organization
+ *                      fails every export with `RainError.InvalidConfig` before any export call.
  * @param sessionPolicy Expiry/refresh/retry behavior for the session guarding every wallet call.
  * @param onSessionExpired Re-auth hook: invoked once per session death when the Turnkey session
  *                         dies and cannot be refreshed — whether that is discovered during a
@@ -220,7 +226,9 @@ class TurnkeyProvider internal constructor(
      * the SDK for a new login) so a stale provider stops observing the process-wide Turnkey
      * singleton and can never fire its expiry hook again. In managed mode the provider is inert
      * afterwards: every auth call throws `RainError.InvalidConfig`, [currentAuthState] reads
-     * `Unauthenticated` and [hasActiveSession] is false.
+     * `Unauthenticated` and [hasActiveSession] is false. In both modes [exportRecoveryPhrase] and
+     * [exportPrivateKey] refuse afterwards with the same error; the check runs on entry, so an
+     * export already in flight completes, and cancelling its coroutine is how to abort it.
      */
     override fun close() {
         closed.set(true)
@@ -283,11 +291,15 @@ class TurnkeyProvider internal constructor(
      * so the phrase and [exportPrivateKey] for [TurnkeyKeyFamily.ETHEREUM] always derive the same
      * address.
      *
-     * Throws `RainError.WalletUnavailable` (`RAIN_404`) when the organization has no wallet, and
+     * Throws `RainError.TokenExpired` (`RAIN_201`) without a live session, `RainError.Unauthorized`
+     * (`RAIN_202`) when Turnkey answers the export with HTTP 403, a read-only bring-your-own session
+     * for example, while a 401 surfaces as `RAIN_201` after one refresh attempt,
+     * `RainError.WalletUnavailable` (`RAIN_404`) when the organization has no wallet,
      * `RainError.InvalidConfig` (`RAIN_102`) when [TurnkeyConfig.walletAddress] names no Ethereum
-     * account of the organization, or when this provider was closed. The vendor polls the export
-     * activity for up to about four seconds, and a transient failure is retried with a new request.
-     * Export is the backup path for a user who signs in with a passkey only.
+     * account of the organization or when this provider was closed, and `RainError.ProviderError`
+     * (`RAIN_501`) when the export activity is still pending after the vendor's polling of about
+     * four seconds or its bundle is rejected on this device. A transient failure is retried with a
+     * new request. Export is the backup path for a user who signs in with a passkey only.
      */
     suspend fun exportRecoveryPhrase(): String {
         requireOpen()
@@ -300,8 +312,8 @@ class TurnkeyProvider internal constructor(
      * characters. For [TurnkeyKeyFamily.SOLANA] it is the 64-byte keypair, the seed followed by the
      * public key, in plain Base58, the string Solana wallets import. The key is decrypted on this
      * device and returned once. The SDK never logs, caches or persists it, and before returning
-     * anything it checks that the key is 32 bytes and, for Solana, that the derived public key is
-     * the account's address. Requires a live session, else `RainError.TokenExpired`, and works in
+     * anything it checks that the key is 32 bytes and that the address it derives, on either
+     * curve, is the account's. Requires a live session, else `RainError.TokenExpired`, and works in
      * bring-your-own and managed mode alike.
      *
      * Everything after the return is the host's duty. Gate the call, for example behind biometrics.
@@ -310,13 +322,17 @@ class TurnkeyProvider internal constructor(
      * On a bring-your-own organization with several wallets, each key comes from the account the SDK
      * signs with for that family, which may sit on another wallet than the phrase.
      *
-     * Throws `RainError.WalletUnavailable` (`RAIN_404`) when the organization has no account of
-     * that family, which in managed mode a new login provisions, `RainError.InvalidConfig`
-     * (`RAIN_102`) when [TurnkeyConfig.walletAddress] names no Ethereum account of the organization
-     * or when this provider was closed, and `RainError.InternalError` (`RAIN_502`) when the
-     * exported material fails a check, in which case nothing is returned. The vendor polls the
-     * export activity for up to about four seconds, and a transient failure is retried with a new
-     * request.
+     * Throws `RainError.TokenExpired` (`RAIN_201`) without a live session, `RainError.Unauthorized`
+     * (`RAIN_202`) when Turnkey answers the export with HTTP 403, `RainError.WalletUnavailable`
+     * (`RAIN_404`) when the organization has no account of that family, which in managed mode a new
+     * login provisions, or when that account sits on a curve other than the family's,
+     * `RainError.InvalidConfig` (`RAIN_102`) when [TurnkeyConfig.walletAddress] names no Ethereum
+     * account of the organization, for either family, or when this provider was closed,
+     * `RainError.ProviderError` (`RAIN_501`) when the export activity is still pending after the
+     * vendor's polling of about four seconds, its bundle is rejected on this device, or the bundle
+     * names another account than the one requested, and `RainError.InternalError` (`RAIN_502`) when
+     * the exported material fails a check, in which case nothing is returned. A transient failure
+     * is retried with a new request.
      */
     suspend fun exportPrivateKey(family: TurnkeyKeyFamily): String {
         requireOpen()
@@ -324,9 +340,7 @@ class TurnkeyProvider internal constructor(
     }
 
     private fun requireOpen() {
-        if (closed.get()) {
-            throw RainError.InvalidConfig("This Turnkey provider was closed; build a new one")
-        }
+        if (closed.get()) throw RainError.InvalidConfig(TURNKEY_PROVIDER_CLOSED_MESSAGE)
     }
 
     // ---------- Managed authentication (email or SMS one-time code) — internal API, see InternalRainTurnkeyApi ----------
