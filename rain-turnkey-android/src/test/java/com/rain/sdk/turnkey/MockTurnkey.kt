@@ -546,6 +546,10 @@ internal class MockTurnkey(
         /** Base58 of the ed25519 public key derived from the stubbed `0102..1f20` seed. */
         const val VECTOR_SOLANA_ADDRESS = "9C6hybhQ6Aycep9jaUnP6uL9ZYvDjUp1aSkFWPUFJtpj"
 
+        /** What `exportPrivateKey(SOLANA)` returns for the stubbed seed: plain Base58 of the seed then the public key. */
+        const val VECTOR_SOLANA_KEYPAIR =
+            "2Ana1pUpv2ZbMVkwF5FXapYeBEjdxDatLn7nvJkhgTSdZd8hbDHTd21as7EAsg7ypityqfsw2pMQKJcVDVcAEsd"
+
         /** [defaultWallet] plus a Solana account whose address matches [MockTurnkey.stubbedKeyHex]. */
         fun walletWithVectorSolana(): Wallet = walletWithEthAndSolana(VECTOR_SOLANA_ADDRESS)
 
