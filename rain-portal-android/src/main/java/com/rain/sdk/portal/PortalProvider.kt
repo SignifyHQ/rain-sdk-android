@@ -5,8 +5,8 @@ import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
+import com.rain.sdk.provider.ProviderDescriptor
 import com.rain.sdk.provider.ProviderId
-import com.rain.sdk.provider.RainProvider
 import io.portalhq.android.Portal
 import io.portalhq.android.mpc.data.FeatureFlags
 import kotlinx.coroutines.CancellationException
@@ -46,7 +46,7 @@ class PortalConfig(
 )
 
 /**
- * Portal adapter — the registrable [RainProvider] for Portal's MPC signer.
+ * Portal adapter — the registrable [ProviderDescriptor] for Portal's MPC signer.
  *
  * Lives in the `rain-portal-android` module and owns the `portal-android` dependency. Core never
  * imports Portal; linking this module is what pulls Portal onto the classpath.
@@ -59,7 +59,7 @@ class PortalProvider internal constructor(
     private val config: PortalConfig,
     private val onPortalCreated: ((Portal) -> Unit)?,
     private val portalManagerFactory: () -> PortalManager,
-) : RainProvider {
+) : ProviderDescriptor {
 
     constructor(
         config: PortalConfig,

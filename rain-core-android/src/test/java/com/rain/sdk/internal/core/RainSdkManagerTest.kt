@@ -8,8 +8,8 @@ import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
+import com.rain.sdk.provider.ProviderDescriptor
 import com.rain.sdk.provider.ProviderId
-import com.rain.sdk.provider.RainProvider
 import io.mockk.every
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
@@ -31,9 +31,9 @@ class RainSdkBuilderTest {
 
     /** A minimal host-supplied provider used to drive resolution without any vendor SDK. */
     private class FakeProvider(
-        private val walletProvider: WalletProvider
-    ) : RainProvider {
-        override val id: ProviderId = ProviderId("fake")
+        private val walletProvider: WalletProvider,
+        override val id: ProviderId = ProviderId("fake"),
+    ) : ProviderDescriptor {
         override val capabilities: Set<Capability> = emptySet()
         override suspend fun create(context: ProviderContext): WalletProvider = walletProvider
     }
@@ -97,8 +97,24 @@ class RainSdkBuilderTest {
         val client = sdk.provider(ProviderId("fake"))
 
         assertThat(client.providerId.value).isEqualTo("fake")
+        assertThat(sdk.descriptors.map { it.id }).containsExactly(ProviderId("fake"))
         assertThat(client.getWalletAddress())
             .isEqualTo("0xb0b0000000000000000000000000000000000000")
+    }
+
+    @Test
+    fun `first resolves the earliest registered descriptor matching the predicate`(): Unit = runBlocking {
+        val sdk = RainSdk.builder()
+            .rpcEndpoints(mapOf(1 to "https://rpc.test"))
+            .register(FakeProvider(StubWalletProvider()))
+            .register(FakeProvider(StubWalletProvider(), ProviderId("second")))
+            .build()
+
+        assertThat(sdk.first { it.id == ProviderId("second") }.providerId).isEqualTo(ProviderId("second"))
+        assertThat(sdk.first { true }.providerId).isEqualTo(ProviderId("fake"))
+        assertThat(sdk.descriptors.map { it.id })
+            .containsExactly(ProviderId("fake"), ProviderId("second"))
+            .inOrder()
     }
 
     @Test
