@@ -41,6 +41,11 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           log-accepted-android-sdk-licenses: false
+          # The action's default list also asks for the legacy `tools` package, which the SDK
+          # repository no longer offers, so sdkmanager exits 1 before Gradle runs
+          # (android-actions/setup-android#537). AGP fetches the platform and build-tools it
+          # needs itself.
+          packages: platform-tools
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -120,6 +125,7 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           log-accepted-android-sdk-licenses: false
+          packages: platform-tools
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
