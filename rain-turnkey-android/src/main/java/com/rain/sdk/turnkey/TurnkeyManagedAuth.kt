@@ -487,8 +487,15 @@ internal class TurnkeyManagedAuthController(
         ready()
     }
 
+    /**
+     * The same guard for a call outside authentication that needs the vendor configured and its
+     * session restore settled, such as key export. Without it, the first such call of a launch
+     * would wait out the coordinator's restore timeout and report `TokenExpired`.
+     */
+    internal suspend fun ensureConfigured() = prepare()
+
     private suspend fun requireOpenAndConfigured() {
-        if (closed.get()) throw RainError.InvalidConfig("This Turnkey provider was closed; build a new one")
+        if (closed.get()) throw RainError.InvalidConfig(TURNKEY_PROVIDER_CLOSED_MESSAGE)
         configure()?.let { throw it }
     }
 

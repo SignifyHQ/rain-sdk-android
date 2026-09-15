@@ -77,7 +77,7 @@ class TurnkeyManagedProviderTest {
 
     @Test
     fun `BYO mode keeps its constructor and exposes no authentication`() = runTest {
-        val turnkey = MockTurnkey()
+        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithVectorAccounts()))
         val provider = TurnkeyProvider(
             TurnkeyConfig(turnkey = TurnkeyContext, sponsorGas = false),
             contextOverride = turnkey,
@@ -94,9 +94,39 @@ class TurnkeyManagedProviderTest {
         expectThrows<RainError.InvalidConfig> { provider.logout() }
         assertThat(turnkey.sendOtpCalls).isEmpty()
         assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
+
+        // Key export is not an authentication member: with the host's live session it works here too.
+        assertThat(provider.exportRecoveryPhrase()).isEqualTo(turnkey.stubbedMnemonic)
+        assertThat(provider.exportPrivateKey(TurnkeyKeyFamily.ETHEREUM)).isEqualTo("0x" + turnkey.stubbedKeyHex)
+        assertThat(provider.exportPrivateKey(TurnkeyKeyFamily.SOLANA)).isEqualTo(MockTurnkey.VECTOR_SOLANA_KEYPAIR)
+        assertThat(turnkey.exportMnemonicCalls).containsExactly("wallet-id")
+        assertThat(turnkey.awaitReadyCallCount).isEqualTo(0) // no managed configuration to run
     }
 
     // ---------- managed mode ----------
+
+    @Test
+    fun `managed mode exports after running the one-shot configuration`() = runTest {
+        val configured = mutableListOf<Pair<String, String>>()
+        TurnkeyManagedConfigurator.initImpl = { _, organizationId, authProxyConfigId ->
+            configured += organizationId to authProxyConfigId
+        }
+        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithVectorAccounts())) // restored live session
+        val provider = TurnkeyProvider(managedConfig("org-a", "proxy-a"), contextOverride = turnkey)
+
+        val phrase = provider.exportRecoveryPhrase()
+
+        assertThat(phrase).isEqualTo(turnkey.stubbedMnemonic)
+        assertThat(configured).containsExactly("org-a" to "proxy-a")
+        assertThat(turnkey.awaitReadyCallCount).isEqualTo(1)
+        assertThat(turnkey.exportMnemonicCalls).containsExactly("wallet-id")
+
+        assertThat(provider.exportPrivateKey(TurnkeyKeyFamily.ETHEREUM)).isEqualTo("0x" + turnkey.stubbedKeyHex)
+        assertThat(provider.exportPrivateKey(TurnkeyKeyFamily.SOLANA)).isEqualTo(MockTurnkey.VECTOR_SOLANA_KEYPAIR)
+        assertThat(turnkey.exportAccountKeyCalls)
+            .containsExactly(MockTurnkey.VECTOR_ETHEREUM_ADDRESS, MockTurnkey.VECTOR_SOLANA_ADDRESS)
+            .inOrder()
+    }
 
     @Test
     fun `managed mode configures the vendor with the config's ids on the first auth call, not at construction`() = runTest {
@@ -192,5 +222,20 @@ class TurnkeyManagedProviderTest {
         expectThrows<RainError.InvalidConfig> { provider.logout() }
         assertThat(provider.hasActiveSession()).isFalse()
         assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
+
+        val phrase = expectThrows<RainError.InvalidConfig> { provider.exportRecoveryPhrase() }
+        val key = expectThrows<RainError.InvalidConfig> { provider.exportPrivateKey(TurnkeyKeyFamily.ETHEREUM) }
+        assertThat(phrase).hasMessageThat().contains(TURNKEY_PROVIDER_CLOSED_MESSAGE)
+        assertThat(key).hasMessageThat().contains(TURNKEY_PROVIDER_CLOSED_MESSAGE)
+        assertThat(turnkey.exportMnemonicCalls).isEmpty()
+        assertThat(turnkey.exportAccountKeyCalls).isEmpty()
+
+        // A closed bring-your-own provider refuses the same way, with no vendor call.
+        val byo = TurnkeyProvider(TurnkeyConfig(turnkey = TurnkeyContext), contextOverride = turnkey)
+        byo.close()
+        expectThrows<RainError.InvalidConfig> { byo.exportRecoveryPhrase() }
+        expectThrows<RainError.InvalidConfig> { byo.exportPrivateKey(TurnkeyKeyFamily.SOLANA) }
+        assertThat(turnkey.exportMnemonicCalls).isEmpty()
+        assertThat(turnkey.exportAccountKeyCalls).isEmpty()
     }
 }

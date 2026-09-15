@@ -149,6 +149,15 @@ fun HomeScreen(
         )
     }
 
+    val exportActions = remember(viewModel, application) {
+        ExportKeysActions(
+            onReveal = viewModel::revealTurnkeySecret,
+            onCopy = { viewModel.copyTurnkeySecret(application) },
+            onHide = { viewModel.hideTurnkeySecret(clearClipboard = true) },
+            onLeave = { viewModel.hideTurnkeySecret() },
+        )
+    }
+
     HomeContent(
         innerPadding = innerPadding,
         state = state,
@@ -157,6 +166,7 @@ fun HomeScreen(
         onNavigate = onNavigate,
         actions = actions,
         providerActions = providerActions,
+        exportActions = exportActions,
     )
 }
 
@@ -196,6 +206,7 @@ private fun HomeContent(
     onNavigate: (Screen) -> Unit,
     actions: HomeActions,
     providerActions: ProviderCardActions,
+    exportActions: ExportKeysActions,
 ) {
     val connected = state.isRecovered
     val sessionUsable = state.sessionStatus?.health != SessionHealth.Dead
@@ -227,6 +238,10 @@ private fun HomeContent(
             // for every provider.
             RainApiCard(state, actions)
             ProviderCard(state = state, actions = providerActions)
+            // Available as soon as the login step is done, before "Initialize Rain".
+            if (state.mode == WalletMode.Turnkey && state.turnkeySessionActive) {
+                ExportKeysCard(state = state, actions = exportActions)
+            }
         }
 
         // Stays visible when the session is dead so the hidden feature grid is explained.
@@ -258,6 +273,9 @@ private fun HomeContent(
             RainLabel("Connection")
             RainApiCard(state, actions)
             ProviderCard(state = state, actions = providerActions)
+            if (state.mode == WalletMode.Turnkey && state.turnkeySessionActive) {
+                ExportKeysCard(state = state, actions = exportActions)
+            }
             RainButton(
                 text = "Clear session",
                 onClick = actions.onClearSession,
@@ -459,6 +477,7 @@ private fun HomePreview(state: HomeUiState, selectedChain: WalletChain = WalletC
             onNavigate = {},
             actions = HomeActions.None,
             providerActions = ProviderCardActions.None,
+            exportActions = ExportKeysActions.None,
         )
     }
 }

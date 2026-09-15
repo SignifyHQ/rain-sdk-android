@@ -1,6 +1,6 @@
 # Turnkey Support
 
-Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provider, alongside the Portal MPC and Privy adapters. Turnkey ships as the `TurnkeyProvider` adapter in its own `rain-turnkey-android` module (package `com.rain.sdk.turnkey`). Authentication has two modes. **Bring-your-own** (public): the host app uses the official [Turnkey Kotlin SDK](https://docs.turnkey.com/sdks/kotlin/getting-started) to authenticate (passkeys, OAuth, OTP, auth proxy) and hands the live `TurnkeyContext` to Rain via `TurnkeyConfig(turnkey)`. **Managed** (internal API, `@InternalRainTurnkeyApi`): construct `TurnkeyConfig(application, organizationId, authProxyConfigId)` and the SDK owns the one-time-code flow, email or SMS, through Turnkey's auth proxy, with `sendLoginCode` / `confirmLoginCode` / `logout` / `authState` on `TurnkeyProvider` and Ethereum + Solana account provisioning on first login. It compiles only with the opt-in and exists for the upcoming RainWallet provider; see [Managed mode](#managed-mode-internal-api).
+Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provider, alongside the Portal MPC and Privy adapters. Turnkey ships as the `TurnkeyProvider` adapter in its own `rain-turnkey-android` module (package `com.rain.sdk.turnkey`). Authentication has two modes. **Bring-your-own** (public): the host app uses the official [Turnkey Kotlin SDK](https://docs.turnkey.com/sdks/kotlin/getting-started) to authenticate (passkeys, OAuth, OTP, auth proxy) and hands the live `TurnkeyContext` to Rain via `TurnkeyConfig(turnkey)`. **Managed** (internal API, `@InternalRainTurnkeyApi`): construct `TurnkeyConfig(application, organizationId, authProxyConfigId)` and the SDK owns the one-time-code flow, email or SMS, through Turnkey's auth proxy, with `sendLoginCode` / `confirmLoginCode` / `logout` / `authState` on `TurnkeyProvider` and Ethereum + Solana account provisioning on first login. It compiles only with the opt-in and exists for the upcoming RainWallet provider; see [Managed mode](#managed-mode-internal-api). In both modes the provider also exports the wallet's recovery phrase and private keys, decrypted on the device. See [Key export](#key-export).
 
 ## Requirements
 
@@ -23,6 +23,7 @@ An app that does not register Turnkey should not depend on this module: the Turn
 com.turnkey:sdk-kotlin:2.0.0
 com.turnkey:http:2.0.0
 com.turnkey:types:2.0.0
+com.turnkey:crypto:1.0.1
 ```
 
 ## Two modes
@@ -32,7 +33,7 @@ com.turnkey:types:2.0.0
 | **Bring-your-own** (public) | Your app, against Turnkey's Kotlin SDK | `TurnkeyConfig(turnkey = TurnkeyContext)` | None — `sendLoginCode` / `confirmLoginCode` / `logout` throw `RainError.InvalidConfig`; `awaitSessionRestore` is a no-op, `hasActiveSession()` is `false` and `authState` is `Unauthenticated` |
 | **Managed** (internal API, `@InternalRainTurnkeyApi`) | Rain SDK, through Turnkey's auth proxy | `TurnkeyConfig(application, organizationId, authProxyConfigId)` | `TurnkeyProvider.sendLoginCode` (a `LoginContact.Email` or `LoginContact.Sms`) / `confirmLoginCode` / `logout` / `authState` / `awaitSessionRestore` / `hasActiveSession` — compile only with the opt-in |
 
-In both modes the hand-off is the same boundary: register the `TurnkeyProvider` with the `RainSdk` builder, then resolve `rain.provider(ProviderId.TURNKEY)`. Everything after that — `getWalletAddress()`, balances, sends, `withdrawCollateral()` — is identical.
+In both modes the hand-off is the same boundary: register the `TurnkeyProvider` with the `RainSdk` builder, then resolve `rain.provider(ProviderId.TURNKEY)`. Everything after that — `getWalletAddress()`, balances, sends, `withdrawCollateral()` — is identical. Key export (`exportRecoveryPhrase`, `exportPrivateKey`) works in both modes as well. See [Key export](#key-export).
 
 ## Bring-your-own mode (the public Turnkey integration)
 
@@ -235,6 +236,40 @@ chain ids (`RainChain.SOLANA_MAINNET` 900 / `SOLANA_DEVNET` 901 / `SOLANA_TESTNE
 
 EIP-712 signing uses `TurnkeyContext.signRawPayload` with `PAYLOAD_ENCODING_EIP712` + `HASH_FUNCTION_NO_OP`. Rain normalizes the returned `r`, `s`, `v` components into a `0x`-prefixed 65-byte hex signature compatible with `eth_signTypedData_v4` responses (recovery id auto-adjusted to 27/28 range when needed).
 
+## Key export
+
+`TurnkeyProvider` exports the wallet's recovery phrase and one private key per chain family, in bring-your-own and managed mode alike. The methods live on the descriptor, so a host can offer a backup right after login, before the SDK is built.
+
+```kotlin
+val provider = TurnkeyProvider(TurnkeyConfig(turnkey = TurnkeyContext))
+
+val phrase = provider.exportRecoveryPhrase()                              // space-separated BIP-39 words
+val ethereumKey = provider.exportPrivateKey(TurnkeyKeyFamily.ETHEREUM)   // "0x" + 64 lowercase hex characters
+val solanaKey = provider.exportPrivateKey(TurnkeyKeyFamily.SOLANA)       // plain Base58 of the 64-byte seed || public key
+```
+
+**Formats**, a cross-platform contract shared by Rain's SDKs:
+
+- Recovery phrase: the wallet's BIP-39 phrase as the wallet was created. Managed wallets have 12 words. A bring-your-own wallet has the length it was created with.
+- Ethereum: the 32-byte secp256k1 key as `0x` plus 64 lowercase hex characters, the form MetaMask's *Import account* accepts.
+- Solana: the 64-byte keypair, the seed followed by the ed25519 public key, in plain Base58 with no checksum, the form Phantom's *Import private key* accepts.
+
+**Which wallet and account.** Keys follow the accounts the SDK signs with. The Ethereum key is the account behind `getWalletAddress()`, including a `walletAddress` override, and the Solana key is the account behind the Solana address. The phrase is the wallet holding that Ethereum account, else the first wallet, so the phrase and the Ethereum key always derive the same address. It restores every account derived from that wallet's seed and nothing else. A managed wallet keeps both accounts on one seed, so one phrase covers both. A bring-your-own organization with several wallets gets one wallet's phrase, and a key may come from another wallet. Before returning anything the SDK checks that the key is 32 bytes and that the address it derives, on either curve, is the account's. A `walletAddress` that names no Ethereum account of the organization fails every export with `RainError.InvalidConfig` (`RAIN_102`) before any export call, the Solana key included, because the provider it configures cannot sign either.
+
+**Session.** Export is a Turnkey submit activity, so it needs a session that can submit; the one-time-code login produces one. Any live session suffices, including one the vendor restored from disk at launch: the SDK performs no re-authentication of its own, so a host that wants a fresh login or a biometric prompt before export adds it. Without a live session the call throws `RainError.TokenExpired` (`RAIN_201`). A session Turnkey refuses to submit with, a read-only bring-your-own session for example, surfaces as `RainError.Unauthorized` (`RAIN_202`) when Turnkey answers 403 and as `RainError.TokenExpired` (`RAIN_201`) after one refresh attempt when it answers 401; which status Turnkey sends for a read-only session is not confirmed against the sandbox yet. In managed mode the first export of a launch runs the one-shot configuration first, like every auth call. Export is the backup path for a user who signs in with a passkey only.
+
+**Timing and retries.** The vendor polls the export activity for up to about four seconds. A pending activity surfaces as `RainError.ProviderError` (`RAIN_501`). A transient failure (408, 429, 5xx, a dropped connection) is retried with a new request, so Turnkey's audit log may show more than one export activity for one call. Turnkey marks the wallet as exported after a phrase export, and its delete-wallet and delete-sub-organization activities key on that flag, so a phrase export changes what an organization can later delete without a force option.
+
+**Host duties.** The SDK decrypts on the device and hands the value back once. It never logs, caches or persists it. After the return, gate the call, for example behind biometrics, show the value where screenshots and screen recording are blocked, and keep it off the clipboard or clear it. The sample app's *Export keys* card shows one way to do each. See [app/README.md](../app/README.md).
+
+**What leaves the device.** The wallet id or the account address, the organization id and a fresh P-256 public key go to Turnkey's export endpoints; an enclave-signed bundle encrypted to that key comes back and is decrypted on the device. Nothing goes to Rain.
+
+**Capability resolution.** `TurnkeyProvider` now advertises `Capability.EXPORT`, so `rain.first { Capability.EXPORT in it.capabilities }` returns the Turnkey client in a host that registered Turnkey before Portal or Privy, where it returned one of those before. `first` returns the earliest registered match. The client it returns has no export method; the methods live on the `TurnkeyProvider` the host registered.
+
+**Checking an import.** Restore the phrase in MetaMask: the first Ethereum account equals `getWalletAddress()`. Restore it in Phantom: the Solana account equals the Solana address. Import the Ethereum key in MetaMask and the Solana key in Phantom: the same two addresses.
+
+**Minified builds.** Export makes the vendor's `decryptExportBundle` reachable. Its Solana branch, which Rain never takes because it builds the Solana keypair itself, calls a helper in `com.turnkey:encoding` that links `org.bitcoinj.core.Base58`, a class bitcoinj 0.17.1 (the project's security floor) no longer ships. The adapter's published consumer rules carry `-dontwarn org.bitcoinj.core.Base58`, so a minified host build does not fail on the dangling reference. The branch is dead code on this classpath. The rule reaches the host's whole R8 configuration, so host code that still references `org.bitcoinj.core.Base58` itself, or calls the vendor's Solana export format directly, is silenced too and throws `NoClassDefFoundError` at runtime; move such code to `org.bitcoinj.base.Base58` or the SDK's export. The rule goes once Turnkey's encoding artifact targets `org.bitcoinj.base.Base58`.
+
 ## Accessing the Turnkey instance
 
 Rain exposes no vendor getters (the old `RainSdk.turnkey` / `client.turnkey` are gone — core
@@ -255,6 +290,13 @@ Turnkey-specific errors are mapped into the standard `RainError` hierarchy:
 | `TurnkeyKotlinError.FailedToInitOtp`, any auth-proxy HTTP status (managed mode) | `RainError.ProviderError` (`RAIN_501`): the code request failed. No session exists while a code is requested, so a 401 or 403 here is not `TokenExpired` or `Unauthorized`. The reason (the channel not enabled on the proxy configuration, an undeliverable number, a rate limit) is in the response body the Kotlin SDK drops, so only the status reaches the message. Request the code again or check the configuration |
 | Turnkey API HTTP 401 | `RainError.TokenExpired` |
 | Turnkey API HTTP 403 | `RainError.Unauthorized` |
+| `TurnkeyKotlinError.FailedToExportWallet` wrapping a Turnkey API HTTP 401 / 403 / other status | `RainError.TokenExpired` after one refresh attempt / `RainError.Unauthorized` (a read-only session cannot export) / `RainError.ProviderError`: the same cause inspection as every other wrapper |
+| `TurnkeyKotlinError.FailedToExportWallet` for an export bundle rejected on the device (signature, organization mismatch, malformed) | `RainError.ProviderError` (`RAIN_501`) naming the rejection kind only. The vendor's own message can carry the ephemeral decryption key, so the adapter drops it before anything is logged |
+| No account of the requested chain family, or no wallet to export a phrase from (before any export call) | `RainError.WalletUnavailable` (`RAIN_404`). In managed mode, logging in again provisions the account |
+| The account of the requested family sits on another curve than the family's (before any export call) | `RainError.WalletUnavailable` (`RAIN_404`). Inconsistent vendor data; logging in again does not repair it |
+| `walletAddress` names no Ethereum account of the organization, for the phrase and both keys (before any export call) | `RainError.InvalidConfig` (`RAIN_102`) |
+| Exported key material fails a check: not 32 bytes, outside the curve order, or it does not derive the account's address | `RainError.InternalError` (`RAIN_502`) with a fixed message. Nothing is returned |
+| The enclave's bundle names another account than the one requested | `RainError.ProviderError` (`RAIN_501`) with a fixed message, before anything is decrypted |
 | Config / setup errors (`MissingRpId`, `MissingConfigParam`, `ClientNotInitialized`, `InvalidParameter`, `InvalidResponse`, `InvalidMessage`, `InvalidRefreshTTL`, `OAuthStateMismatch`, `KeyAlreadyExists`, `KeyNotFound`) | `RainError.InternalError` |
 | Wrapper errors whose underlying cause is a user cancellation | `RainError.UserRejected` |
 | Anything else | `RainError.ProviderError` |
@@ -302,9 +344,10 @@ What every wallet call now does:
 3. **Refresh-on-401** — a call rejected with HTTP 401 / `InvalidSession` is refreshed and
    retried exactly once. A 401 means Turnkey rejected the request before executing it, so this
    is safe for sends too. A second 401 surfaces as `RainError.TokenExpired`.
-4. **Transient backoff** — idempotent reads (balances, history, transaction-status polls)
-   retry HTTP 5xx/429/408 and network I/O failures with exponential backoff. Sends and signing
-   are never retried on transient failures.
+4. **Transient backoff** — idempotent reads (balances, history, transaction-status polls) and
+   key export retry HTTP 5xx/429/408 and network I/O failures with exponential backoff; a retried
+   export is a new activity with a fresh ephemeral key. Sends and signing are never retried on
+   transient failures.
 5. **Re-auth hook** — when the session dies for good (refresh failed, or Turnkey's own expiry
    timer cleared it while the app was idle), `onSessionExpired` fires once — even with no Rain
    call in flight, via a passive watcher over Turnkey's auth state.
@@ -371,7 +414,7 @@ Duplicate class org.bouncycastle.asn1.pkcs.EncryptionScheme found in modules
   bcprov-jdk18on-1.73.jar  -> jetified-bcprov-jdk18on-1.73  (org.bouncycastle:bcprov-jdk18on:1.73)
 ```
 
-The two artifacts are parallel builds of the same library for different JDK targets — their class APIs are interchangeable. Rain SDK standardizes on `bcprov-jdk15to18`, floored at 1.84 by a published constraint, and publishes the `bcprov-jdk18on` exclusion on every dependency edge that would otherwise pull it: web3j in core, Portal and Privy, and `privy-core` in the Privy module.
+The two artifacts are parallel builds of the same library for different JDK targets — their class APIs are interchangeable. Rain SDK standardizes on `bcprov-jdk15to18`, floored at 1.84 by a published constraint, and publishes the `bcprov-jdk18on` exclusion on every dependency edge that would otherwise pull it: web3j in core, Portal and Privy, and `privy-core` in the Privy module. The Turnkey adapter declares `bcprov-jdk15to18` itself as well, for the ed25519 derivation behind the exported Solana keypair. It is the same artifact at the same floor, so nothing new reaches a consumer's classpath, and the `bcprov-jdk18on` exclusion is unchanged.
 
 **Gradle consumers** (resolve via Module Metadata): no action required as long as you reach the vendor SDKs only through Rain's modules. The exclusions above are part of the published metadata, and Gradle inherits them along each edge that declares them.
 

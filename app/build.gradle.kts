@@ -66,6 +66,9 @@ dependencies {
     implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    // LocalLifecycleOwner for the export card; Compose UI carries it transitively, declared so a
+    // BOM bump cannot drop it silently.
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
     // implementation("androidx.activity:activity-compose:1.9.3")
 

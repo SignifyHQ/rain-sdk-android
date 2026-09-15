@@ -28,7 +28,7 @@ screens otherwise need a real provider login to reach.
 
 | Screen | What it exercises |
 |---|---|
-| **Home** | Provider choice (Portal MPC / Turnkey / Privy), Rain API credentials, auth, `RainSdk` build, session card, active-wallet dropdown, feature grid |
+| **Home** | Provider choice (Portal MPC / Turnkey / Privy), Rain API credentials, auth, `RainSdk` build, session card, active-wallet dropdown, feature grid, and for a signed-in Turnkey session the *Export keys* card (`exportRecoveryPhrase`, `exportPrivateKey`) |
 | **Wallet & QR** | `getWalletAddress(chainId)` and the collateral deposit address from `fetchCollateralContracts()`, each with a QR bitmap from `generateAddressQRCode(address)` |
 | **Balances** | Collateral balances (Rain API) plus the wallet's own native and token balances (`getBalance`, `getTokenBalances`) |
 | **Send tokens** | `sendNative` and `sendToken` (ERC-20 on EVM, SPL on Solana) |
@@ -70,6 +70,21 @@ provider's own auth methods:
   login by the same person are two different Turnkey accounts. SMS needs SMS OTP enabled on the
   auth-proxy configuration; in Turnkey's sandbox the test number `+1 999-999-9999` with the code
   `000000` works once the proxy's code format is numeric and 6 characters.
+- **Export keys** (Turnkey, in both SDK modes, managed here) — once the session is active, an *Export keys* card under the Turnkey card reveals the recovery phrase,
+  the Ethereum private key or the Solana private key, one at a time, through `exportRecoveryPhrase`
+  and `exportPrivateKey`, before *Initialize Rain* as well as after. While a value shows, the window
+  carries `FLAG_SECURE`, so screenshots, screen recordings and the recents thumbnail are blank,
+  though `FLAG_SECURE` does not hide the text from accessibility services. *Copy* puts the value on
+  the clipboard flagged
+  sensitive, so Android 13 and later mask the system preview, and the clipboard clears itself after
+  60 seconds whatever it holds by then, so a copied value survives the switch to another wallet app
+  for a paste. *Hide* and *Clear session* clear it at once. The value is hidden when you leave the
+  screen, background the app, the session expires or *Clear session* runs, it is never written to
+  saved state, and the log records the kind, the error code and the error class only. The revealed
+  text carries password semantics, so a screen reader masks it unless the user chose to hear
+  passwords in the accessibility settings. To check an export, restore
+  the phrase in MetaMask and in Phantom and compare the addresses with the Wallet screen, then import
+  the Ethereum key in MetaMask and the Solana key in Phantom and compare again.
 - **Privy** (`PrivyAuthSample`) — app ID + app client ID + email OTP; embedded Ethereum and Solana
   wallets are created on first sign-in.
 
@@ -111,7 +126,9 @@ app/src/main/java/com/rain/sdk/sample/
 │   └── Rain*.kt             # Buttons, inputs, surfaces, text, scaffold, defaults
 └── screens/                 # One Screen + ViewModel pair per feature, plus shared helpers
     ├── Common.kt            # Address/hash/money formatting, TransactionResultCard
+    ├── SecretHandling.kt    # Sensitive clipboard copy with a timed clear, FLAG_SECURE while a secret shows
     ├── HomeProviderCards.kt # Portal / Turnkey / Privy connection cards
+    ├── HomeExportKeysCard.kt # Export keys card for a signed-in Turnkey session
     ├── HomeScreen / HomeViewModel
     ├── WalletInfoScreen / WalletInfoViewModel
     ├── BalancesScreen / BalancesViewModel

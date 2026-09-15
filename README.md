@@ -6,7 +6,7 @@ messages, compose withdrawal transactions, sign and submit via a registered wall
 balances and history, and estimate fees. Works on EVM chains and Solana.
 
 - **Portal wallet integration** — Register a `PortalProvider` with a Portal session token and resolve a client; use the connected MPC wallet for signing and sending transactions. Session refresh is host-driven via `PortalConfig.onSessionTokenNeeded` / `onSessionExpired`; see the adapter table in [docs/METHODS.md](docs/METHODS.md#provider-adapters).
-- **Turnkey wallet integration** — Register a `TurnkeyProvider` with a `TurnkeyContext` your app authenticated (passkeys / auth proxy / OAuth / OTP). The SDK also carries a managed one-time-code mode (email or SMS) behind the `@InternalRainTurnkeyApi` opt-in marker: the building block of the upcoming RainWallet provider, not a host-facing API. See [docs/TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md).
+- **Turnkey wallet integration** — Register a `TurnkeyProvider` with a `TurnkeyContext` your app authenticated (passkeys / auth proxy / OAuth / OTP). The SDK also carries a managed one-time-code mode (email or SMS) behind the `@InternalRainTurnkeyApi` opt-in marker: the building block of the upcoming RainWallet provider, not a host-facing API. In both modes the provider exports the wallet's recovery phrase and private keys, decrypted on the device, through `exportRecoveryPhrase` and `exportPrivateKey`. See [docs/TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md).
 - **Privy wallet integration** — Register a `PrivyProvider` with an authenticated `Privy` instance; embedded EVM and Solana wallets are used for custody.
 - **Solana support** — Native SOL and SPL transfers, balances, history, and collateral withdrawal, on the same `RainClient` methods as EVM. See [Solana](#9-solana).
 - **Wallet-agnostic utilities** — The transaction-building methods (EIP-712 message, withdraw calldata) are available straight off `RainSdk` from the configured RPC endpoints, with no wallet provider resolved — use them with your own wallet or backend.
@@ -92,11 +92,16 @@ val client = rain.provider(ProviderId.PORTAL)
 `TurnkeyConfig(turnkey = TurnkeyContext)` and register it like any provider:
 
 ```kotlin
+val provider = TurnkeyProvider(TurnkeyConfig(turnkey = TurnkeyContext))
 val rain = RainSdk.builder()
     .rpcEndpoints(mapOf(8453 to "https://mainnet.base.org", 84532 to "https://sepolia.base.org"))
-    .register(TurnkeyProvider(TurnkeyConfig(turnkey = TurnkeyContext)))
+    .register(provider)
     .build()
 val client = rain.provider(ProviderId.TURNKEY)
+
+// Backup, in either mode: the recovery phrase, or one private key per chain family, decrypted on the device.
+val phrase = provider.exportRecoveryPhrase()
+val solanaKey = provider.exportPrivateKey(TurnkeyKeyFamily.SOLANA)
 ```
 
 **Managed mode (internal API)** — the SDK owns authentication (a one-time code by email or SMS via
@@ -157,6 +162,10 @@ import com.rain.sdk.provider.Capability
 // …or resolve the first registered provider with a given capability
 val exporter = rain.first { Capability.EXPORT in it.capabilities }
 ```
+
+A client resolved by `Capability.EXPORT` has no export method of its own. The export methods live on
+the descriptor you registered, `TurnkeyProvider.exportRecoveryPhrase` and `exportPrivateKey`, so keep
+a reference to it.
 
 ### 4. Get Wallet Address
 

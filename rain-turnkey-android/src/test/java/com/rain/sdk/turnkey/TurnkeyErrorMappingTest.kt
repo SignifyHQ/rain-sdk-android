@@ -9,8 +9,9 @@ import org.junit.Test
 /**
  * Turnkey-error classification tests for [TurnkeyErrorMapping] — covers each `TurnkeyKotlinError`
  * variant it routes (InvalidSession, InvalidParameter, ClientNotInitialized,
- * FailedToSignRawPayload, FailedToCreateWallet, FailedToVerifyOtp, FailedToInitOtp), the
- * wrapper-recurse paths, and the HTTP statuses the vendor reports as plain exceptions.
+ * FailedToSignRawPayload, FailedToCreateWallet, FailedToVerifyOtp, FailedToInitOtp,
+ * FailedToExportWallet), the wrapper-recurse paths, and the HTTP statuses the vendor reports as
+ * plain exceptions.
  *
  * These assert the mapping itself. That the session coordinator applies [TurnkeyErrorMapping.map]
  * to every failure leaving the adapter is covered by [TurnkeySessionCoordinatorTest]; that core
@@ -388,5 +389,44 @@ class TurnkeyErrorMappingTest {
         val e = RuntimeException("Something failed for wallet 401")
         assertThat(mapping.turnkeyHttpStatus(e)).isNull()
         assertThat(mapping.map(e)).isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    // ---- key export: the unlisted FailedToExportWallet variant takes the cause inspection ----
+
+    @Test
+    fun `an export failure wrapping HTTP 401 maps to TokenExpired`() {
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToExportWallet(
+            RuntimeException("HTTP error from /public/v1/submit/export_wallet: 401")
+        )
+        assertThat(mapping.mapTurnkeyError(error)).isInstanceOf(RainError.TokenExpired::class.java)
+    }
+
+    @Test
+    fun `an export failure wrapping HTTP 403 maps to Unauthorized`() {
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToExportWallet(
+            RuntimeException("HTTP error from /public/v1/submit/export_wallet_account: 403")
+        )
+        assertThat(mapping.mapTurnkeyError(error)).isInstanceOf(RainError.Unauthorized::class.java)
+    }
+
+    @Test
+    fun `an export failure wrapping HTTP 500 stays ProviderError carrying the status`() {
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToExportWallet(
+            RuntimeException("HTTP error from /public/v1/submit/export_wallet_account: 500")
+        )
+        val mapped = mapping.mapTurnkeyError(error)
+        assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
+        val chain = generateSequence<Throwable>(mapped) { it.cause?.takeIf { c -> c !== it } }.toList()
+        assertThat(chain.any { it.message?.contains("500") == true }).isTrue()
+    }
+
+    @Test
+    fun `the export translator's cause-free rejection shape maps to ProviderError`() {
+        // TurnkeyExportFailures produces this shape for a vendor crypto error; that it drops the
+        // material is pinned in TurnkeyExportFailuresTest, this pins only where the shape lands.
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToExportWallet(
+            IllegalStateException("export bundle rejected: OrgIdMismatch")
+        )
+        assertThat(mapping.mapTurnkeyError(error)).isInstanceOf(RainError.ProviderError::class.java)
     }
 }

@@ -380,6 +380,32 @@ internal class MockTurnkey(
         onCreateWalletAccounts?.invoke(call)
     }
 
+    // ---- Key export ----
+
+    /** Twelve tokens that are not BIP-39 words, so a leaked value can never read as a real phrase. */
+    var stubbedMnemonic: String = "stub1 stub2 stub3 stub4 stub5 stub6 stub7 stub8 stub9 stub10 stub11 stub12"
+
+    /** The published `0102..1f20` seed, whose ed25519 public key is the address [VECTOR_SOLANA_ADDRESS]. */
+    var stubbedKeyHex: String = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
+
+    val exportMnemonicCalls = mutableListOf<String>()
+    val exportAccountKeyCalls = mutableListOf<String>()
+
+    /** When set, both export members throw this after recording the call. */
+    var exportError: Exception? = null
+
+    override suspend fun exportWalletMnemonic(walletId: String): String {
+        exportMnemonicCalls += walletId
+        exportError?.let { throw it }
+        return stubbedMnemonic
+    }
+
+    override suspend fun exportAccountPrivateKeyHex(address: String): String {
+        exportAccountKeyCalls += address
+        exportError?.let { throw it }
+        return stubbedKeyHex
+    }
+
     /** Installs a live default session, the way a completed login leaves the vendor. */
     fun authenticate() {
         session = defaultSession()
@@ -515,6 +541,24 @@ internal class MockTurnkey(
                 name = "wallet",
                 accounts = eth + solanaAccount(solanaAddress)
             )
+        }
+
+        /** Base58 of the ed25519 public key derived from the stubbed `0102..1f20` seed. */
+        const val VECTOR_SOLANA_ADDRESS = "9C6hybhQ6Aycep9jaUnP6uL9ZYvDjUp1aSkFWPUFJtpj"
+
+        /** What `exportPrivateKey(SOLANA)` returns for the stubbed seed: plain Base58 of the seed then the public key. */
+        const val VECTOR_SOLANA_KEYPAIR =
+            "2Ana1pUpv2ZbMVkwF5FXapYeBEjdxDatLn7nvJkhgTSdZd8hbDHTd21as7EAsg7ypityqfsw2pMQKJcVDVcAEsd"
+
+        /** The Ethereum address the stubbed `0102..1f20` seed controls as a secp256k1 key, computed outside the SDK. */
+        const val VECTOR_ETHEREUM_ADDRESS = "0x6370ef2f4db3611d657b90667de398a2cc2a370c"
+
+        /** [defaultWallet] re-addressed to the stubbed seed's Ethereum address; Ethereum only. */
+        fun vectorEthereumWallet(): Wallet = walletWithEthereumAddress(VECTOR_ETHEREUM_ADDRESS)
+
+        /** One wallet whose Ethereum and Solana accounts both match [MockTurnkey.stubbedKeyHex]. */
+        fun walletWithVectorAccounts(): Wallet = vectorEthereumWallet().let { wallet ->
+            wallet.copy(accounts = wallet.accounts + solanaAccount(VECTOR_SOLANA_ADDRESS))
         }
 
         fun makeActivity(
