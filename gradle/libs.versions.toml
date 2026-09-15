@@ -18,6 +18,8 @@ detekt = "1.23.8"
 # -- Core SDK Dependencies --
 portal-android = "8.4.0"
 turnkey = "2.0.0"
+# com.turnkey:crypto is versioned separately from sdk-kotlin, which pins it strictly at this value.
+turnkey-crypto = "1.0.1"
 privy = "0.13.1"
 # Security: pin Turnkey transitive deps above CVE-affected versions.
 # bitcoinj < 0.17.1 = GHSA-hfcf-v2f8-x9pc (P2PKH/P2WPKH verify bypass).
@@ -69,6 +71,8 @@ portal-android = { module = "io.portalhq.android:portal-android", version.ref = 
 turnkey-sdk-kotlin = { module = "com.turnkey:sdk-kotlin", version.ref = "turnkey" }
 turnkey-http = { module = "com.turnkey:http", version.ref = "turnkey" }
 turnkey-types = { module = "com.turnkey:types", version.ref = "turnkey" }
+# Declared so the module names what it imports. sdk-kotlin already carries it transitively.
+turnkey-crypto = { module = "com.turnkey:crypto", version.ref = "turnkey-crypto" }
 # Pulls Privy's KMP model artifacts (kmp-embedded-wallet-public / kmp-authentication-public) transitively.
 privy-core = { module = "io.privy:privy-core", version.ref = "privy" }
 web3j-core = { module = "org.web3j:core", version.ref = "web3j" }

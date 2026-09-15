@@ -380,6 +380,32 @@ internal class MockTurnkey(
         onCreateWalletAccounts?.invoke(call)
     }
 
+    // ---- Key export ----
+
+    /** Twelve tokens that are not BIP-39 words, so a leaked value can never read as a real phrase. */
+    var stubbedMnemonic: String = "stub1 stub2 stub3 stub4 stub5 stub6 stub7 stub8 stub9 stub10 stub11 stub12"
+
+    /** The published `0102..1f20` seed, whose ed25519 public key is the address [VECTOR_SOLANA_ADDRESS]. */
+    var stubbedKeyHex: String = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
+
+    val exportMnemonicCalls = mutableListOf<String>()
+    val exportAccountKeyCalls = mutableListOf<String>()
+
+    /** When set, both export members throw this after recording the call. */
+    var exportError: Exception? = null
+
+    override suspend fun exportWalletMnemonic(walletId: String): String {
+        exportMnemonicCalls += walletId
+        exportError?.let { throw it }
+        return stubbedMnemonic
+    }
+
+    override suspend fun exportAccountPrivateKeyHex(address: String): String {
+        exportAccountKeyCalls += address
+        exportError?.let { throw it }
+        return stubbedKeyHex
+    }
+
     /** Installs a live default session, the way a completed login leaves the vendor. */
     fun authenticate() {
         session = defaultSession()
@@ -516,6 +542,12 @@ internal class MockTurnkey(
                 accounts = eth + solanaAccount(solanaAddress)
             )
         }
+
+        /** Base58 of the ed25519 public key derived from the stubbed `0102..1f20` seed. */
+        const val VECTOR_SOLANA_ADDRESS = "9C6hybhQ6Aycep9jaUnP6uL9ZYvDjUp1aSkFWPUFJtpj"
+
+        /** [defaultWallet] plus a Solana account whose address matches [MockTurnkey.stubbedKeyHex]. */
+        fun walletWithVectorSolana(): Wallet = walletWithEthAndSolana(VECTOR_SOLANA_ADDRESS)
 
         fun makeActivity(
             id: String,
