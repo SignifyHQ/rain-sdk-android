@@ -262,7 +262,7 @@ private fun PrivyCard(state: HomeUiState, actions: ProviderCardActions) {
 }
 
 @Composable
-private fun CardTitle(title: String, subtitle: String) {
+internal fun CardTitle(title: String, subtitle: String) {
     Column {
         RainStrong(title)
         RainLabel(subtitle)

@@ -1,6 +1,7 @@
 package com.rain.sdk.sample.screens
 
 import android.app.Application
+import android.content.Context
 import android.telephony.PhoneNumberUtils
 import android.telephony.TelephonyManager
 import androidx.lifecycle.ViewModel
@@ -18,7 +19,9 @@ import com.rain.sdk.sample.WalletChain
 import com.rain.sdk.sample.WalletSessionStatus
 import com.rain.sdk.turnkey.LoginContact
 import com.rain.sdk.turnkey.TurnkeyAuthState
+import com.rain.sdk.turnkey.TurnkeyKeyFamily
 import com.rain.sdk.turnkey.TurnkeyProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,6 +43,18 @@ enum class TurnkeyContactChannel(
 ) {
     Email("Email", "Email", "check your email", "Code from your email"),
     Phone("Phone", "Phone number", "check your text messages", "Code from your text message"),
+}
+
+/** The values the export card can reveal, one at a time. */
+enum class TurnkeyExportKind(val label: String) {
+    RecoveryPhrase("Recovery phrase"),
+    EthereumKey("Ethereum private key"),
+    SolanaKey("Solana private key"),
+}
+
+/** A revealed export value. `toString` hides the value, so state logging and diffs never print it. */
+data class RevealedSecret(val kind: TurnkeyExportKind, val value: String) {
+    override fun toString(): String = "RevealedSecret(kind=$kind)"
 }
 
 @Suppress("LargeClass") // one sample ViewModel for three providers' flows; a split is a sample-only refactor
@@ -384,6 +399,7 @@ class HomeViewModel(
                     turnkeySessionActive = false,
                     turnkeyOtpSent = false,
                     turnkeyOtpCode = "",
+                    turnkeyRevealedSecret = null,
                     statusText = "Turnkey session expired — log in again"
                 )
             }
@@ -676,6 +692,7 @@ class HomeViewModel(
                 }
             } catch (e: Exception) {
                 SampleLog.e("Turnkey.rainInit", "failed: ${e.message}", e)
+                hideTurnkeySecret()
                 // reset() closes the prepared provider, so the flow restarts from "Send code".
                 session.reset()
                 _state.update {
@@ -863,8 +880,63 @@ class HomeViewModel(
         store.rainUserId = _state.value.userId.trim()
     }
 
+    // ---------- Turnkey key export ----------
+
+    /** True while the last thing the sample copied was an exported value. */
+    private var clipboardHoldsSecret = false
+
+    fun revealTurnkeySecret(kind: TurnkeyExportKind) {
+        val provider = session.turnkeyProvider
+        if (provider == null || !_state.value.turnkeySessionActive) {
+            _state.update { it.copy(statusText = "Sign in with Turnkey first") }
+            return
+        }
+        if (_state.value.turnkeyExportInFlight != null) return
+        _state.update { it.copy(turnkeyExportInFlight = kind) }
+        viewModelScope.launch {
+            try {
+                val value = when (kind) {
+                    TurnkeyExportKind.RecoveryPhrase -> provider.exportRecoveryPhrase()
+                    TurnkeyExportKind.EthereumKey -> provider.exportPrivateKey(TurnkeyKeyFamily.ETHEREUM)
+                    TurnkeyExportKind.SolanaKey -> provider.exportPrivateKey(TurnkeyKeyFamily.SOLANA)
+                }
+                // The kind only, so the value never reaches a log line.
+                SampleLog.i("Turnkey.export", "revealed ${kind.name}")
+                _state.update {
+                    it.copy(turnkeyRevealedSecret = RevealedSecret(kind, value), statusText = "${kind.label} revealed")
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RainError) {
+                SampleLog.w("Turnkey.export", "export failed ${e.errorCode.code} (${e.javaClass.simpleName})")
+                _state.update { it.copy(statusText = "Export failed (${e.errorCode.code})") }
+            } finally {
+                _state.update { it.copy(turnkeyExportInFlight = null) }
+            }
+        }
+    }
+
+    /** Drops the revealed value and, when the sample put it on the clipboard, clears the clipboard too. */
+    fun hideTurnkeySecret() {
+        if (_state.value.turnkeyRevealedSecret != null) {
+            _state.update { it.copy(turnkeyRevealedSecret = null) }
+        }
+        if (clipboardHoldsSecret) {
+            clipboardHoldsSecret = false
+            clearClipboard(app)
+        }
+    }
+
+    fun copyTurnkeySecret(context: Context) {
+        val secret = _state.value.turnkeyRevealedSecret ?: return
+        copySensitiveToClipboard(context.applicationContext, "Rain wallet secret", secret.value)
+        clipboardHoldsSecret = true
+        _state.update { it.copy(statusText = "Copied. The clipboard clears itself in 60 s") }
+    }
+
     fun clearSession() {
         SampleLog.i("Home", "clearing session (provider logout + SDK reset + UI reset)")
+        hideTurnkeySecret()
         viewModelScope.launch {
             // Managed Turnkey logout runs first, while the provider is still open: it clears the
             // stored session without firing the re-auth hook. A refused logout keeps everything —
@@ -897,6 +969,10 @@ data class HomeUiState(
     val turnkeyOtpSent: Boolean = false,
     val turnkeyOtpCode: String = "",
     val turnkeySessionActive: Boolean = false,
+    /** The export value on screen, one at a time; never written to saved state. */
+    val turnkeyRevealedSecret: RevealedSecret? = null,
+    /** The export row whose reveal is running; the other rows disable meanwhile. */
+    val turnkeyExportInFlight: TurnkeyExportKind? = null,
     val privyAppId: String = "",
     val privyAppClientId: String = "",
     val privyEmail: String = "",
