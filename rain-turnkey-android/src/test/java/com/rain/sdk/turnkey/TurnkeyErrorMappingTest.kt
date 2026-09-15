@@ -421,13 +421,12 @@ class TurnkeyErrorMappingTest {
     }
 
     @Test
-    fun `a sanitized export rejection maps to ProviderError whose message carries no key material`() {
-        // The adapter replaces a vendor crypto error with this cause-free shape before it can be logged.
+    fun `the export translator's cause-free rejection shape maps to ProviderError`() {
+        // TurnkeyExportFailures produces this shape for a vendor crypto error; that it drops the
+        // material is pinned in TurnkeyExportFailuresTest, this pins only where the shape lands.
         val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToExportWallet(
             IllegalStateException("export bundle rejected: OrgIdMismatch")
         )
-        val mapped = mapping.mapTurnkeyError(error)
-        assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
-        assertThat(mapped.message.orEmpty()).doesNotContainMatch("[0-9a-fA-F]{32}")
+        assertThat(mapping.mapTurnkeyError(error)).isInstanceOf(RainError.ProviderError::class.java)
     }
 }

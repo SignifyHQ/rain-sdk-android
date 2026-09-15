@@ -153,7 +153,8 @@ fun HomeScreen(
         ExportKeysActions(
             onReveal = viewModel::revealTurnkeySecret,
             onCopy = { viewModel.copyTurnkeySecret(application) },
-            onHide = viewModel::hideTurnkeySecret,
+            onHide = { viewModel.hideTurnkeySecret(clearClipboard = true) },
+            onLeave = { viewModel.hideTurnkeySecret() },
         )
     }
 
