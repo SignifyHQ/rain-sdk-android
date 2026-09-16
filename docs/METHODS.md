@@ -91,16 +91,14 @@ via `builder()` to change configuration.
 
 The SDK talks to the Rain issuing API directly: supply a program **Api-Key** and Rain **userId**
 (builder `rainApiCredentials(apiKey, userId)` or `configureRainApi(apiKey, userId)` at runtime) and
-it mints, caches, and refreshes the client session token internally. Credentials are never
-persisted. Select the environment with `rainApiEnvironment(...)` (`Dev` default, `Production`,
-`Custom(url)`).
+every call authenticates with the Api-Key header. Credentials are never persisted. Select the
+environment with `rainApiEnvironment(...)` (`Dev` default, `Production`, `Custom(url)`).
 
 These methods need no wallet provider — only the credentials and RPC endpoints.
 
 #### configureRainApi(apiKey, userId)
 
-Sets or replaces the Api-Key / userId pair at runtime. The cached session token is discarded lazily;
-the next API call re-mints against the new pair.
+Sets or replaces the Api-Key / userId pair at runtime; the next API call carries the new pair.
 
 - **Suspend:** No
 
@@ -115,7 +113,8 @@ Fetches the user's collateral contracts (`GET /v1/issuing/users/{userId}/contrac
 `name` / `symbol` / `decimals` are enriched from the SDK token store (registry, host-registered
 tokens, or an on-chain read) — best-effort, so a failed lookup leaves them null.
 
-- **Throws:** `RainError.ApiNotConfigured` when no credentials were supplied.
+- **Throws:** `RainError.ApiNotConfigured` when no credentials were supplied; `RainError.Unauthorized`
+  (`RAIN_202`) when Rain rejects the Api-Key, which no retry can fix.
 - **Suspend:** Yes
 
 #### fetchCollateralContract(): RainCollateralContract

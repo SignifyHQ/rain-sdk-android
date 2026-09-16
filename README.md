@@ -357,10 +357,10 @@ val result = client.sendToken(
 
 ### 7. Rain API: Collateral Contracts & Admin Signature
 
-The SDK talks to the Rain issuing API directly — supply your program **Api-Key** and Rain
-**userId** and it handles session (CST) minting, caching, and refresh internally. Credentials
-are never persisted by the SDK. In production, prefer minting server-to-server and keeping the
-Api-Key off the device.
+The SDK talks to the Rain issuing API directly: supply your program **Api-Key** and Rain
+**userId**, and every call carries the Api-Key header. Credentials are never persisted by the
+SDK. In production, keep the Api-Key off the device by proxying these calls through your own
+backend.
 
 ```kotlin
 import com.rain.sdk.models.RainApiEnvironment

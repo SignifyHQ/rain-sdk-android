@@ -25,6 +25,7 @@ class RainApiServiceTest {
     /** Per-path responses consumed in order; a path's last entry repeats. */
     private val responses = mutableMapOf<String, MutableList<MockResponse>>()
     private val recordedPaths = mutableListOf<String>()
+    private val recordedApiKeys = mutableListOf<String?>()
 
     @Before
     fun setUp() {
@@ -32,7 +33,10 @@ class RainApiServiceTest {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.requestUrl!!.encodedPath
-                synchronized(recordedPaths) { recordedPaths += path }
+                synchronized(recordedPaths) {
+                    recordedPaths += path
+                    recordedApiKeys += request.getHeader("Api-Key")
+                }
                 val queue = responses.entries.firstOrNull { path.endsWith(it.key) }?.value
                     ?: return MockResponse().setResponseCode(404)
                 return if (queue.size > 1) queue.removeAt(0) else queue.first()
@@ -41,8 +45,6 @@ class RainApiServiceTest {
         configStore = RainApiConfigStore(baseUrl = server.url("/").toString().trimEnd('/'))
         configStore.setCredentials("key", "user")
         chainReader = MockChainReader(decimals = 6, symbol = "USDC", name = "USD Coin")
-
-        stub("/sessions", session())
     }
 
     @After
@@ -67,30 +69,28 @@ class RainApiServiceTest {
         }
     }
 
-    // ---------- 401 retry ----------
+    // ---------- Authentication ----------
 
     @Test
-    fun `401 on a data call re-mints the session and retries once`() = runBlocking {
-        stub(
-            "/contracts",
-            MockResponse().setResponseCode(401).setBody("expired"),
-            contracts(),
-        )
+    fun `data calls carry the Api-Key directly and never mint a session`() = runBlocking {
+        stub("/contracts", contracts())
 
-        val contracts = service().fetchCollateralContracts()
+        service().fetchCollateralContracts()
 
-        assertThat(contracts).hasSize(1)
-        assertThat(sessionMints()).isEqualTo(2)
+        assertThat(recordedPaths.none { it.endsWith("/sessions") }).isTrue()
+        assertThat(recordedApiKeys).containsExactly("key").inOrder()
     }
 
     @Test
-    fun `persistent 401 surfaces Unauthorized after one retry`() {
+    fun `401 surfaces Unauthorized without a retry`() {
+        // Client session tokens are not issued for Rain's tenants, so there is nothing to re-mint:
+        // a rejected key is terminal and a second attempt would only repeat the rejection.
         stub("/contracts", MockResponse().setResponseCode(401).setBody("nope"))
 
         assertThrows(RainError.Unauthorized::class.java) {
             runBlocking { service().fetchCollateralContracts() }
         }
-        assertThat(recordedPaths.count { it.endsWith("/contracts") }).isEqualTo(2)
+        assertThat(recordedPaths.count { it.endsWith("/contracts") }).isEqualTo(1)
     }
 
     // ---------- Enrichment ----------
@@ -179,16 +179,9 @@ class RainApiServiceTest {
         responses[pathSuffix] = queue.toMutableList()
     }
 
-    private fun sessionMints(): Int = synchronized(recordedPaths) {
-        recordedPaths.count { it.endsWith("/sessions") }
-    }
-
     private fun json(body: String): MockResponse = MockResponse()
         .setHeader("Content-Type", "application/json")
         .setBody(body)
-
-    private fun session(): MockResponse =
-        json("""{"token":"cst_abc","expiresAt":"2030-01-01T00:00:00Z","userId":"user"}""")
 
     /** One contract on an unknown chain (999888) with one unknown token, so the token store
      *  always enriches through the chain reader rather than the built-in registry. */

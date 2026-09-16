@@ -15,12 +15,13 @@ import kotlinx.coroutines.coroutineScope
 import java.math.BigInteger
 
 /**
- * Orchestrates the Rain issuing API: composes credentials ([RainApiConfigStore]), the CST
- * cache ([RainSessionStore]) and the HTTP client ([RainApiClient]), and enriches contract
- * tokens through the SDK token store.
+ * Orchestrates the Rain issuing API: composes credentials ([RainApiConfigStore]) with the HTTP
+ * client ([RainApiClient]) and enriches contract tokens through the SDK token store.
  *
- * A Bearer call rejected as [RainError.Unauthorized] invalidates the cached CST and retries
- * exactly once with a freshly minted token before rethrowing.
+ * Every call authenticates directly with the program key (`Api-Key` header); the client session
+ * token layer was removed on 2026-09-16 because client session tokens are not enabled for Rain's
+ * tenants. A [RainError.Unauthorized] is therefore terminal: retrying with the same key cannot
+ * succeed, so nothing here retries.
  */
 internal class RainApiService(
     private val configStore: RainApiConfigStore,
@@ -28,14 +29,8 @@ internal class RainApiService(
     private val chainReader: ChainReader,
     private val client: RainApiClient = RainApiClient(),
 ) {
-    private val sessionStore = RainSessionStore { credentials ->
-        client.createSession(configStore.baseUrl, credentials)
-    }
-
     suspend fun fetchCollateralContracts(): List<RainCollateralContract> {
-        val contracts = withCst { cst, credentials ->
-            client.getContracts(configStore.baseUrl, cst, credentials.userId)
-        }
+        val contracts = client.getContracts(configStore.baseUrl, configStore.credentials())
         return contracts.map { enrichTokens(it) }
     }
 
@@ -46,37 +41,18 @@ internal class RainApiService(
         adminAddress: String,
         recipientAddress: String,
         isAmountNative: Boolean,
-    ): RainAdminSignature = withCst { cst, credentials ->
-        client.getWithdrawalSignature(
-            baseUrl = configStore.baseUrl,
-            cst = cst,
-            userId = credentials.userId,
-            chainId = chainId,
-            tokenAddress = tokenAddress,
-            amountBaseUnits = amountBaseUnits,
-            adminAddress = adminAddress,
-            recipientAddress = recipientAddress,
-            isAmountNative = isAmountNative,
-        )
-    }
-
-    /** Clears the cached CST (credentials changed or SDK reset). */
-    suspend fun invalidateSession() = sessionStore.invalidate()
+    ): RainAdminSignature = client.getWithdrawalSignature(
+        baseUrl = configStore.baseUrl,
+        credentials = configStore.credentials(),
+        chainId = chainId,
+        tokenAddress = tokenAddress,
+        amountBaseUnits = amountBaseUnits,
+        adminAddress = adminAddress,
+        recipientAddress = recipientAddress,
+        isAmountNative = isAmountNative,
+    )
 
     // ---------- Internals ----------
-
-    private suspend fun <T> withCst(block: suspend (cst: String, credentials: RainApiCredentials) -> T): T {
-        val credentials = configStore.credentials()
-        val cst = sessionStore.validToken(credentials)
-        return try {
-            block(cst, credentials)
-        } catch (e: RainError.Unauthorized) {
-            // The CST may have been revoked before its expiry — re-mint once and retry.
-            sessionStore.invalidate()
-            val fresh = configStore.credentials()
-            block(sessionStore.validToken(fresh), fresh)
-        }
-    }
 
     /**
      * Fills token `name`/`symbol`/`decimals`: known tokens (registry + host-registered) first,

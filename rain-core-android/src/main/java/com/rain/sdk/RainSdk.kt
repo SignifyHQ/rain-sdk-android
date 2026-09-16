@@ -298,9 +298,8 @@ class RainSdk private constructor(
     val isRainApiConfigured: Boolean get() = rainApiConfig.isConfigured
 
     /**
-     * Sets or replaces the Rain program Api-Key and userId at runtime. The cached client
-     * session token is discarded lazily — the next API call re-mints against the new pair.
-     * The SDK never persists these values.
+     * Sets or replaces the Rain program Api-Key and userId at runtime; the next API call carries
+     * the new pair. The SDK never persists these values.
      */
     fun configureRainApi(apiKey: String, userId: String) {
         rainApiConfig.setCredentials(apiKey, userId)

@@ -10,27 +10,24 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import timber.log.Timber
 import java.io.IOException
 import java.math.BigInteger
-import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 /**
  * HTTP client for the Rain issuing REST API.
  *
- * Auth model:
- *  1. `POST /v1/issuing/users/{userId}/sessions` with an `Api-Key` header exchanges the
- *     program key for a short-lived client session token (CST).
- *  2. Data endpoints (contracts, withdrawal signatures) are called with
- *     `Authorization: Bearer cst_…`.
+ * Auth model: every endpoint authenticates directly with the program key in the `Api-Key`
+ * header. The earlier exchange of that key for a short-lived client session token was removed
+ * on 2026-09-16: client session tokens are not enabled for Rain's tenants, so the exchange
+ * failed with 403 before any data call could run.
  *
- * Stateless: base URL and auth material are passed per call; caching lives in
- * [RainSessionStore] and orchestration in [RainApiService]. Follows the [com.rain.sdk.internal.network.chainreader.JsonRpcClient]
+ * Stateless: base URL and credentials are passed per call; orchestration lives in
+ * [RainApiService]. Follows the [com.rain.sdk.internal.network.chainreader.JsonRpcClient]
  * conventions — blocking OkHttp `execute()` on [Dispatchers.IO], `org.json` parsing, typed
  * [RainError]s.
  */
@@ -43,44 +40,11 @@ internal class RainApiClient(
         .readTimeout(timeoutSeconds, TimeUnit.SECONDS)
         .build()
 
-    /**
-     * Mints a client session token.
-     *
-     * The request body must be empty AND carry no `Content-Type` header — Rain rejects an
-     * empty body that declares a content type with a 400. An OkHttp request body built from
-     * an empty byte array with a null media type produces exactly that shape.
-     */
-    suspend fun createSession(baseUrl: String, credentials: RainApiCredentials): RainSession {
+    /** `GET /v1/issuing/users/{userId}/contracts` (Api-Key auth). Tokens are not yet enriched. */
+    suspend fun getContracts(baseUrl: String, credentials: RainApiCredentials): List<RainCollateralContract> {
         val request = Request.Builder()
-            .url(url(baseUrl, "v1/issuing/users/${credentials.userId}/sessions"))
+            .url(url(baseUrl, "v1/issuing/users/${credentials.userId}/contracts"))
             .addHeader("Api-Key", credentials.apiKey)
-            .addHeader("accept", "application/json")
-            .post(ByteArray(0).toRequestBody())
-            .build()
-
-        val body = executeChecked(request, "create session")
-        val json = parseObject(body, "create session")
-        val token = json.stringOrNull("token")
-        if (token.isNullOrBlank()) {
-            throw RainError.NetworkError("Create session returned no token")
-        }
-        val expiresAt = json.stringOrNull("expiresAt")?.let(::parseInstantLenient)
-        return RainSession(token = token, expiresAt = expiresAt)
-    }
-
-    /**
-     * Parses an ISO-8601 timestamp accepting both `Z` and offset forms (`+00:00`); a strict
-     * [Instant.parse] alone would silently degrade offset forms to the fallback session TTL.
-     */
-    private fun parseInstantLenient(value: String): Instant? =
-        runCatching { Instant.parse(value) }.getOrNull()
-            ?: runCatching { java.time.OffsetDateTime.parse(value).toInstant() }.getOrNull()
-
-    /** `GET /v1/issuing/users/{userId}/contracts` (CST auth). Tokens are not yet enriched. */
-    suspend fun getContracts(baseUrl: String, cst: String, userId: String): List<RainCollateralContract> {
-        val request = Request.Builder()
-            .url(url(baseUrl, "v1/issuing/users/$userId/contracts"))
-            .addHeader("Authorization", "Bearer $cst")
             .addHeader("accept", "application/json")
             .get()
             .build()
@@ -96,15 +60,14 @@ internal class RainApiClient(
     }
 
     /**
-     * `GET /v1/issuing/users/{userId}/signatures/withdrawals` (CST auth).
+     * `GET /v1/issuing/users/{userId}/signatures/withdrawals` (Api-Key auth).
      *
      * @param amountBaseUnits Withdrawal amount in the token's base units.
      * @throws RainError.SignatureNotReady when `status != "ready"` or the signature is missing.
      */
     suspend fun getWithdrawalSignature(
         baseUrl: String,
-        cst: String,
-        userId: String,
+        credentials: RainApiCredentials,
         chainId: Int,
         tokenAddress: String,
         amountBaseUnits: BigInteger,
@@ -112,7 +75,7 @@ internal class RainApiClient(
         recipientAddress: String,
         isAmountNative: Boolean,
     ): RainAdminSignature {
-        val url = url(baseUrl, "v1/issuing/users/$userId/signatures/withdrawals")
+        val url = url(baseUrl, "v1/issuing/users/${credentials.userId}/signatures/withdrawals")
             .newBuilder()
             .addQueryParameter("chainId", chainId.toString())
             .addQueryParameter("token", tokenAddress)
@@ -124,7 +87,7 @@ internal class RainApiClient(
 
         val request = Request.Builder()
             .url(url)
-            .addHeader("Authorization", "Bearer $cst")
+            .addHeader("Api-Key", credentials.apiKey)
             .addHeader("accept", "application/json")
             .get()
             .build()

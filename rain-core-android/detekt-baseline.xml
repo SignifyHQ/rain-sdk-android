@@ -135,7 +135,6 @@
     <ID>ReturnCount:TokenMetadataStore.kt:TokenMetadataStore$suspend fun decimalsOrNull: Int?</ID>
     <ID>ReturnCount:TokenMetadataStore.kt:TokenMetadataStore$suspend fun tokenInfo: TokenInfo</ID>
     <ID>ReturnCount:VendorErrorClassifier.kt:VendorErrorClassifier$fun fromVendorMessage: RainError?</ID>
-    <ID>SwallowedException:RainApiService.kt:RainApiService$e: RainError.Unauthorized</ID>
     <ID>SwallowedException:RainHexUtils.kt:RainHexUtils$e: Exception</ID>
     <ID>SwallowedException:RainSdkManager.kt:RainSdkManager$e: ArithmeticException</ID>
     <ID>SwallowedException:SolanaCollateralWithdraw.kt:SolanaCollateralWithdrawComposer$e: Exception</ID>

@@ -58,7 +58,7 @@ import java.math.BigInteger
  * Construction now happens through [com.rain.sdk.RainSdk] / a [com.rain.sdk.provider.ProviderDescriptor],
  * which materializes the provider (Portal, Turnkey, or a host-supplied one) and hands the
  * built `WalletProvider` here. The manager itself imports no provider SDK — it only orchestrates
- * Rain domain logic (CST auth, collateral flows, balances, tx) against the port.
+ * Rain domain logic (Rain API calls, collateral flows, balances, tx) against the port.
  *
  * @param walletProvider The resolved provider this client routes every operation through.
  * @param rpcEndpoints The chains the SDK was configured with; used by [getAllBalances] to fan out.
