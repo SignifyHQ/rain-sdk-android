@@ -87,7 +87,7 @@ internal object TurnkeyErrorMapping {
             is TurnkeyKotlinError.MissingConfigParam,
             is TurnkeyKotlinError.OAuthStateMismatch,
             is TurnkeyKotlinError.KeyAlreadyExists,
-            is TurnkeyKotlinError.KeyNotFound -> return RainError.InternalError("Turnkey: ${e.message}", e)
+            is TurnkeyKotlinError.KeyNotFound -> return RainError.InternalError("Wallet backend: ${e.message}", e)
 
             // A rejected one-time login code: the auth proxy answers the verify call with a 4xx.
             // Gated on the status because the vendor wraps *every* failure of verifyOtp in this
@@ -150,7 +150,7 @@ internal object TurnkeyErrorMapping {
     private fun mapTurnkeyHttpStatus(e: Throwable): RainError? {
         return when (val status = turnkeyHttpStatus(e) ?: return null) {
             401 -> RainError.TokenExpired()
-            403 -> RainError.Unauthorized("Turnkey rejected the request: HTTP $status")
+            403 -> RainError.Unauthorized("The wallet backend rejected the request: HTTP $status")
             else -> null
         }
     }

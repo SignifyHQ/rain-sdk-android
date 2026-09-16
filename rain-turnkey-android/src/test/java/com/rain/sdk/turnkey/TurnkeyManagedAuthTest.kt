@@ -577,6 +577,18 @@ class TurnkeyManagedAuthTest {
     }
 
     @Test
+    fun `a cancelled first initialization replayed by the vendor surfaces as InternalError, not a cancellation`() = runTest {
+        // The vendor stores whatever ended its first init, a caller's cancellation included, in its
+        // process-wide readiness signal and replays it to every later caller.
+        val turnkey = MockTurnkey(session = null)
+        turnkey.awaitReadyError = CancellationException("an earlier caller was cancelled during init")
+        val controller = controller(turnkey)
+
+        expectThrows<RainError.InternalError> { controller.awaitSessionRestore(timeoutMs = 100) }
+        expectThrows<RainError.InternalError> { controller.sendLoginCode("user@example.com") }
+    }
+
+    @Test
     fun `a vendor that never becomes ready surfaces as InternalError after the bound instead of hanging`() = runTest {
         val turnkey = MockTurnkey(session = null)
         turnkey.awaitReadyGate = CompletableDeferred()
@@ -743,5 +755,18 @@ class TurnkeyManagedAuthTest {
         assertThat(controller.hasActiveSession()).isFalse()
         assertThat(controller.currentAuthState()).isEqualTo(TurnkeyAuthState.Unauthenticated)
         assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `close emits Unauthenticated on authState while the vendor session is still active`() = runTest {
+        val turnkey = MockTurnkey()
+        val controller = controller(turnkey)
+        assertThat(controller.authState.first()).isEqualTo(TurnkeyAuthState.Authenticated)
+
+        controller.close()
+
+        // The vendor session did not change; the emission comes from the close itself.
+        assertThat(controller.authState.first()).isEqualTo(TurnkeyAuthState.Unauthenticated)
+        assertThat(turnkey.authStateFlow.value).isNotNull()
     }
 }

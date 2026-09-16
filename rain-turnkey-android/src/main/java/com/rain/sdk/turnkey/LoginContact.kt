@@ -7,7 +7,7 @@ package com.rain.sdk.turnkey
  * account unless the two contacts were linked outside the SDK. `sendLoginCode` canonicalizes the
  * value once (trim for an email; trim, separator removal and an E.164 check for a phone number)
  * and sends that same string on confirm. `toString()` hides the value, which is personal data.
- * Internal API ([InternalRainTurnkeyApi]): hosts see it through the RainWallet provider.
+ * Internal API ([InternalRainTurnkeyApi]): hosts see it through the Rain wallet provider, `RainProvider` in `rain-wallet-android`.
  */
 @InternalRainTurnkeyApi
 sealed interface LoginContact {

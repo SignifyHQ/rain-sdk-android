@@ -149,7 +149,7 @@ internal class TurnkeySessionCoordinator(
      */
     fun startMonitoring(scope: CoroutineScope) {
         if (stopped.get()) {
-            Timber.w("Rain SDK: Turnkey session watcher not started — this provider was closed; build a new one")
+            Timber.w("Rain SDK: wallet session watcher not started — this provider was closed; build a new one")
             return
         }
         if (!monitoringStarted.compareAndSet(false, true)) return
@@ -212,7 +212,7 @@ internal class TurnkeySessionCoordinator(
                         transientRetries++
                         Timber.w(
                             e,
-                            "Rain SDK: transient Turnkey failure, retry %d/%d",
+                            "Rain SDK: transient wallet backend failure, retry %d/%d",
                             transientRetries,
                             policy.maxTransientRetries
                         )
@@ -287,13 +287,13 @@ internal class TurnkeySessionCoordinator(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Timber.w(e, "Rain SDK: Turnkey session refresh failed")
+            Timber.w(e, "Rain SDK: wallet session refresh failed")
             RefreshOutcome.Dead(e)
         }
     }
 
     private fun expireAndThrow(cause: Throwable? = null): Nothing {
-        if (cause != null) Timber.w(cause, "Rain SDK: Turnkey session is no longer usable")
+        if (cause != null) Timber.w(cause, "Rain SDK: wallet session is no longer usable")
         notifyExpired()
         throw RainError.TokenExpired()
     }
@@ -327,7 +327,7 @@ internal class TurnkeySessionCoordinator(
      * needs no vendor log.
      */
     private fun logUnmappedFailure(e: Exception) {
-        if (e !is RainError) Timber.w(e, "Rain SDK: Turnkey call failed")
+        if (e !is RainError) Timber.w(e, "Rain SDK: wallet backend call failed")
     }
 
     private fun isAuthFailure(e: Throwable): Boolean = anyInChain(e) { t ->

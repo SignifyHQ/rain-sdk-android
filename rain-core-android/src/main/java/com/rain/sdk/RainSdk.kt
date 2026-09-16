@@ -399,6 +399,16 @@ class RainSdk private constructor(
     }
 
     companion object {
+        /**
+         * Why `Builder.build()` refuses the Rain wallet and the Turnkey provider together; one literal so
+         * the test cannot drift. It names the vendor on purpose: the host registered `TurnkeyProvider`
+         * by that name, so the name is what makes the message actionable. The wallet module's own
+         * docs stay vendor-free, which is a different surface with a different reader.
+         */
+        internal const val RAIN_AND_TURNKEY_CONFLICT_MESSAGE: String =
+            "The Rain wallet provider and the Turnkey provider cannot both be registered; " +
+                "they share one process-wide wallet backend"
+
         /** Starts a new [Builder]. */
         fun builder(): Builder = Builder()
     }
@@ -429,9 +439,19 @@ class RainSdk private constructor(
             rpcEndpoints = configs.associate { it.chainId to it.rpcUrl }
         }
 
-        /** Registers a provider adapter. Re-registering the same id replaces the prior one. */
+        private val replaced = mutableListOf<ProviderDescriptor>()
+
+        /**
+         * Registers a provider adapter. Re-registering the same id replaces the prior descriptor;
+         * [build] closes the replaced instance once the registry is valid, so a replaced descriptor's
+         * session watcher does not outlive the registry and a failed build leaves the host's object
+         * untouched. Registering the same instance twice is a no-op.
+         */
         fun register(descriptor: ProviderDescriptor): Builder = apply {
-            descriptors[descriptor.id] = descriptor
+            val previous = descriptors.put(descriptor.id, descriptor)
+            // Registered again after being replaced: it is live, so it must not be closed at build.
+            replaced.removeAll { it === descriptor }
+            if (previous != null && previous !== descriptor) replaced += previous
         }
 
         /** Seeds the shared token store with extra token metadata. */
@@ -465,8 +485,9 @@ class RainSdk private constructor(
          * exposing [RainSdk.transactionBuilder] and the Rain API methods; resolving a
          * [RainSdk.provider] still throws [RainError.ProviderNotRegistered] until one is registered.
          *
-         * @throws RainError.InvalidConfig if no RPC endpoints were configured, or the Rain API
-         *   base URL doesn't parse.
+         * @throws RainError.InvalidConfig if no RPC endpoints were configured, the Rain API
+         *   base URL doesn't parse, or both the Rain wallet provider and the Turnkey provider are
+         *   registered: they drive one process-wide wallet backend, so an app uses one or the other.
          */
         fun build(): RainSdk {
             if (rpcEndpoints.isEmpty()) {
@@ -478,6 +499,11 @@ class RainSdk private constructor(
                 )
             }
             validateAuthPullConfig()
+            requireOneWalletBackendProvider()
+            // Ownership moves here: descriptors replaced during registration are closed only once the
+            // registry is valid, and a throwing host `close()` cannot abort the build.
+            replaced.forEach { runCatching { it.close() } }
+            replaced.clear()
             return RainSdk(
                 rpcEndpoints = rpcEndpoints.toMap(),
                 registered = descriptors.toMap(),
@@ -486,6 +512,17 @@ class RainSdk private constructor(
                 authPullConfig = authPullConfig,
                 initialRainApiCredentials = rainApiCredentials,
             )
+        }
+
+        /**
+         * Best-effort: a second RainSdk instance, or a provider that is never registered, can still
+         * collide on the backend, and the backend's own configuration check reports that on the
+         * first authentication call.
+         */
+        private fun requireOneWalletBackendProvider() {
+            if (ProviderId.RAIN in descriptors && ProviderId.TURNKEY in descriptors) {
+                throw RainError.InvalidConfig(RAIN_AND_TURNKEY_CONFLICT_MESSAGE)
+            }
         }
 
         private fun validateAuthPullConfig() {

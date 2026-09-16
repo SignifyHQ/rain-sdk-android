@@ -56,7 +56,7 @@ internal fun interface TurnkeyRequestStamper {
 internal class TurnkeyHistoryError(
     val statusCode: Int,
     message: String
-) : Exception("Turnkey history query failed with HTTP $statusCode: $message")
+) : Exception("Wallet backend history query failed with HTTP $statusCode: $message")
 
 // ---------- wire models (hand-rolled; the Kotlin SDK has no types for these queries) ----------
 

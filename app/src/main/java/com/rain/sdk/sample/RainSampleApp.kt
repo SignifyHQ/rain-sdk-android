@@ -22,6 +22,11 @@ class RainSampleApp : Application() {
     var vendorInit: Job? = null
         private set
 
+    /** Why the launch-time vendor init failed, if it did; `vendorInit` completes normally either way. */
+    @Volatile
+    var vendorInitFailure: Throwable? = null
+        private set
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onCreate() {
@@ -34,16 +39,27 @@ class RainSampleApp : Application() {
         vendorInit = scope.launch {
             runCatching {
                 when (store.provider) {
-                    // Turnkey needs nothing here: the SDK's managed mode configures itself when the
+                    // The Rain wallet needs nothing here: it configures its backend when the
                     // provider is prepared during resume.
-                    SessionStore.Provider.Turnkey -> Unit
+                    SessionStore.Provider.RainWallet -> Unit
+                    SessionStore.Provider.Turnkey ->
+                        if (store.turnkeyOrgId.isNotBlank() && store.turnkeyAuthProxyConfigId.isNotBlank()) {
+                            TurnkeyAuthSample.init(
+                                this@RainSampleApp,
+                                store.turnkeyOrgId,
+                                store.turnkeyAuthProxyConfigId,
+                            )
+                        }
                     SessionStore.Provider.Privy ->
                         if (store.privyAppId.isNotBlank() && store.privyAppClientId.isNotBlank()) {
                             PrivyAuthSample.init(this@RainSampleApp, store.privyAppId, store.privyAppClientId)
                         }
                     SessionStore.Provider.Portal, null -> Unit
                 }
-            }.onFailure { SampleLog.w("Launch", "vendor init failed: ${it.message}", it) }
+            }.onFailure {
+                vendorInitFailure = it
+                SampleLog.w("Launch", "vendor init failed: ${it.javaClass.simpleName}")
+            }
         }
     }
 }

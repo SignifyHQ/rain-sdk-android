@@ -44,7 +44,7 @@ internal class TurnkeyWalletProvider(
     override val id: ProviderId get() = ProviderId.TURNKEY
 
     /**
-     * Turnkey holds EVM + Solana accounts (multi-chain) and gates signing behind passkeys/biometrics.
+     * Turnkey holds EVM + Solana accounts (multi-chain) and signs with a device key (no biometric prompt gates signing).
      * With [sponsorGas] on it also advertises [Capability.GAS_SPONSORSHIP], which tells core to
      * skip the self-paid preflights that would charge the fee to the wallet (the Solana
      * collateral-withdrawal dry run) when composing transactions this provider will sign.
@@ -75,11 +75,12 @@ internal class TurnkeyWalletProvider(
          * reads when composing transactions), so a host and core can never disagree about
          * whether this provider's sends are sponsored. [Capability.EXPORT] is always on, because
          * the descriptor exports the recovery phrase and private keys in both modes.
+         * [Capability.BIOMETRIC_GATE] is not advertised: the vendor stamps with a device key without
+         * a user-verification prompt, so nothing here gates signing behind biometrics.
          */
         fun capabilitiesFor(sponsorGas: Boolean): Set<Capability> = buildSet {
             add(Capability.EXPORT)
             add(Capability.MULTI_CHAIN)
-            add(Capability.BIOMETRIC_GATE)
             if (sponsorGas) add(Capability.GAS_SPONSORSHIP)
         }
     }
@@ -332,7 +333,7 @@ internal class TurnkeyWalletProvider(
             // The activity path needs the same session, so falling back would only fail again.
             throw e
         } catch (e: Exception) {
-            Timber.w(e, "Rain SDK: Turnkey indexed history unavailable, falling back to activities")
+            Timber.w(e, "Rain SDK: indexed history unavailable, falling back to activities")
         }
         return if (SolanaChains.isSolanaChain(chainId)) {
             manager.getSolanaTransactionsFromActivities(chainId, limit, offset, order)

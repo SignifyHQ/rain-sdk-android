@@ -12,6 +12,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -58,7 +60,11 @@ internal object TurnkeyManagedConfigurator {
         // The vendor's own `init` launches `initSuspend` on Dispatchers.Main.immediate. Running it
         // there ourselves keeps its lifecycle-observer registration on the main thread while
         // surfacing a failure to this coroutine instead of an uncaught crash on the vendor's scope.
-        withContext(Dispatchers.Main.immediate) {
+        // NonCancellable, because the vendor records whatever ends its first init in a process-wide
+        // readiness signal and replays it to every later caller: a caller cancelled mid-init must
+        // not be what ends it. The cost is that the configure mutex is held across a vendor init
+        // that hangs.
+        withContext(NonCancellable + Dispatchers.Main.immediate) {
             TurnkeyContext.initSuspend(
                 app,
                 VendorTurnkeyConfig(organizationId = organizationId, authProxyConfigId = authProxyConfigId)
@@ -105,8 +111,8 @@ internal object TurnkeyManagedConfigurator {
             }
             vendorInitializedProbe() && !initAttempted -> RainError.InvalidConfig(
                 "The wallet backend was already configured outside the SDK for this app launch; " +
-                    "managed mode has to own that configuration — hand the authenticated TurnkeyContext " +
-                    "to the bring-your-own TurnkeyConfig instead"
+                    "managed mode has to own that configuration; remove the app's own wallet-backend " +
+                    "initialization, or use the bring-your-own provider instead"
             )
             else -> initializeVendor(application, requested)
         }
@@ -168,12 +174,17 @@ internal class TurnkeyManagedAuthController(
     private val pendingLock = ReentrantLock()
     private var pendingOtp: PendingOtp? = null
     private val closed = AtomicBoolean(false)
+    private val closedFlow = MutableStateFlow(false)
 
-    /** [TurnkeySessionCoordinator.sessionStates] as a login screen sees them. */
+    /**
+     * [TurnkeySessionCoordinator.sessionStates] as a login screen sees them. Combined with the
+     * closed flag so [close] itself emits [TurnkeyAuthState.Unauthenticated]; the session flow alone
+     * would stay silent until the session next changed.
+     */
     val authState: Flow<TurnkeyAuthState> =
-        coordinator.sessionStates
-            .map { if (closed.get()) TurnkeyAuthState.Unauthenticated else it.toAuthState() }
-            .distinctUntilChanged()
+        combine(coordinator.sessionStates, closedFlow) { state, isClosed ->
+            if (isClosed) TurnkeyAuthState.Unauthenticated else state.toAuthState()
+        }.distinctUntilChanged()
 
     fun currentAuthState(): TurnkeyAuthState =
         if (closed.get()) TurnkeyAuthState.Unauthenticated else coordinator.currentState().toAuthState()
@@ -375,6 +386,7 @@ internal class TurnkeyManagedAuthController(
     /** Makes this controller inert: every auth call throws, and the state reads unauthenticated. */
     fun close() {
         closed.set(true)
+        closedFlow.value = true
     }
 
     private suspend fun ensureAccountsLocked() {
@@ -452,7 +464,7 @@ internal class TurnkeyManagedAuthController(
         } catch (e: Exception) {
             // The death did not happen, so the host must still hear about a later one.
             coordinator.releaseHostHookSuppression()
-            Timber.w(e, "Rain SDK: could not clear the superseded Turnkey session")
+            Timber.w(e, "Rain SDK: could not clear the superseded wallet session")
         }
     }
 
@@ -467,7 +479,7 @@ internal class TurnkeyManagedAuthController(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Timber.w(e, "Rain SDK: could not clear a stale Turnkey session")
+            Timber.w(e, "Rain SDK: could not clear a stale wallet session")
         }
     }
 
@@ -515,7 +527,13 @@ internal class TurnkeyManagedAuthController(
                 true
             } ?: false
         } catch (e: CancellationException) {
-            throw e
+            // The vendor stores a cancelled first initialization in its process-wide readiness signal
+            // and replays it to every later caller, so only this coroutine's own cancellation passes.
+            currentCoroutineContext().ensureActive()
+            throw RainError.InternalError(
+                "The wallet backend failed to initialize for this app launch; relaunch the app to retry",
+                e
+            )
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
             throw RainError.InternalError(

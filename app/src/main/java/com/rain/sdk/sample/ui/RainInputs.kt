@@ -397,6 +397,7 @@ fun RainFeatureTile(
 
 @Preview(name = "Inputs", showBackground = true, heightDp = 1250)
 @Composable
+@Suppress("LongMethod") // a gallery: one call per input variant, by design
 private fun RainInputsGalleryPreview() {
     RainTheme {
         Column(
@@ -426,7 +427,11 @@ private fun RainInputsGalleryPreview() {
             RainDropdownField(text = "EVM · Base Sepolia", onClick = {})
             RainDropdownField(text = "Disabled", onClick = {}, enabled = false)
 
-            RainSegmentedControl(options = listOf("Portal MPC", "Turnkey", "Privy"), selectedIndex = 1, onSelected = {})
+            RainSegmentedControl(
+                options = listOf("Portal MPC", "Rain Wallet", "Turnkey", "Privy"),
+                selectedIndex = 1,
+                onSelected = {},
+            )
             RainSegmentedControl(
                 options = listOf("Email", "Phone"),
                 selectedIndex = 0,

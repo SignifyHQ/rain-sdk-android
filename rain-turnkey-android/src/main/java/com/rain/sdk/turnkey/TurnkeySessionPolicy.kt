@@ -73,7 +73,7 @@ sealed class TurnkeySessionState {
  * [TurnkeySessionState.Unauthenticated] both read as [Unauthenticated] here, because a login
  * screen only needs to know whether a one-time code is required. Observable via
  * [TurnkeyProvider.authState]; snapshot via [TurnkeyProvider.currentAuthState]. Internal API
- * ([InternalRainTurnkeyApi]): hosts see it through the RainWallet provider.
+ * ([InternalRainTurnkeyApi]): hosts see it through the Rain wallet provider, `RainProvider` in `rain-wallet-android`.
  */
 @InternalRainTurnkeyApi
 sealed class TurnkeyAuthState {

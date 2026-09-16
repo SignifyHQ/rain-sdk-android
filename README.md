@@ -1,12 +1,13 @@
 # Rain SDK for Android
 
-Android SDK that connects an MPC or embedded wallet — [Portal](https://portalhq.io),
-[Turnkey](https://turnkey.com), or [Privy](https://privy.io) — to Rain collateral: build EIP-712
+Android SDK that connects a wallet — the Rain wallet, or an MPC or embedded wallet from
+[Portal](https://portalhq.io), [Turnkey](https://turnkey.com), or [Privy](https://privy.io) — to Rain collateral: build EIP-712
 messages, compose withdrawal transactions, sign and submit via a registered wallet provider, read
 balances and history, and estimate fees. Works on EVM chains and Solana.
 
+- **Rain wallet** — Register a `RainProvider` (`rain-wallet-android`); the SDK runs one-time-code login by email or SMS, provisions one wallet with Ethereum and Solana accounts on first login, manages the session and exports the recovery phrase and private keys, all under Rain's names with no wallet-vendor type on its surface. See [rain-wallet-android/README.md](rain-wallet-android/README.md).
 - **Portal wallet integration** — Register a `PortalProvider` with a Portal session token and resolve a client; use the connected MPC wallet for signing and sending transactions. Session refresh is host-driven via `PortalConfig.onSessionTokenNeeded` / `onSessionExpired`; see the adapter table in [docs/METHODS.md](docs/METHODS.md#provider-adapters).
-- **Turnkey wallet integration** — Register a `TurnkeyProvider` with a `TurnkeyContext` your app authenticated (passkeys / auth proxy / OAuth / OTP). The SDK also carries a managed one-time-code mode (email or SMS) behind the `@InternalRainTurnkeyApi` opt-in marker: the building block of the upcoming RainWallet provider, not a host-facing API. In both modes the provider exports the wallet's recovery phrase and private keys, decrypted on the device, through `exportRecoveryPhrase` and `exportPrivateKey`. See [docs/TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md).
+- **Turnkey wallet integration** — Register a `TurnkeyProvider` with a `TurnkeyContext` your app authenticated (passkeys / auth proxy / OAuth / OTP). The SDK also carries a managed one-time-code mode (email or SMS) behind the `@InternalRainTurnkeyApi` opt-in marker: the building block of the Rain wallet provider (`rain-wallet-android`), not a host-facing API. In both modes the provider exports the wallet's recovery phrase and private keys, decrypted on the device, through `exportRecoveryPhrase` and `exportPrivateKey`. See [docs/TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md).
 - **Privy wallet integration** — Register a `PrivyProvider` with an authenticated `Privy` instance; embedded EVM and Solana wallets are used for custody.
 - **Solana support** — Native SOL and SPL transfers, balances, history, and collateral withdrawal, on the same `RainClient` methods as EVM. See [Solana](#9-solana).
 - **Wallet-agnostic utilities** — The transaction-building methods (EIP-712 message, withdraw calldata) are available straight off `RainSdk` from the configured RPC endpoints, with no wallet provider resolved — use them with your own wallet or backend.
@@ -30,27 +31,52 @@ your dependency graph.
 
 ```kotlin
 dependencies {
-    // Turnkey-only app: pulls rain-core-android transitively. Portal and Privy are never fetched.
-    implementation("io.github.spartan-quanhongtran:rain-turnkey-android:1.0.1")
+    // Pick the module for the wallet you use. Each one pulls rain-core-android in; the other
+    // vendors' SDKs never enter your dependency graph.
 
-    // Portal-only app: the Turnkey SDK is never fetched or shipped.
+    // The Rain wallet: SDK-owned login, sessions and key export under Rain's names. Pulls in
+    // rain-turnkey-android and with it the Turnkey Kotlin SDK; no vendor type is on the surface
+    // you compile against.
+    implementation("io.github.spartan-quanhongtran:rain-wallet-android:1.0.1")
+
+    // Turnkey, bring-your-own: your app authenticates the TurnkeyContext.
+    // implementation("io.github.spartan-quanhongtran:rain-turnkey-android:1.0.1")
+
+    // Portal MPC.
     // implementation("io.github.spartan-quanhongtran:rain-portal-android:1.0.1")
+
+    // Privy embedded wallets.
+    // implementation("io.github.spartan-quanhongtran:rain-privy-android:1.0.1")
+
+    // Your own wallet or signer: core alone. See "Bring your own provider" below.
+    // implementation("io.github.spartan-quanhongtran:rain-core-android:1.0.1")
 }
 ```
 
 Each adapter depends on core, so one line is enough. Add a second adapter only if the app offers a
-choice of wallet provider at runtime.
+choice of wallet provider at runtime. The one pair that cannot share a `RainSdk` is
+`rain-wallet-android` and `rain-turnkey-android`: both drive one process-wide wallet backend, so
+`build()` refuses a registry holding both.
+
+All Rain modules share one version number and release together. Use the same version for every
+Rain module in one app; a core from one release with an adapter from another is not supported.
 
 Upgrading from a core-only dependency: the `com.rain.sdk.turnkey` package used to ship inside
 `rain-core-android`. It now lives in `rain-turnkey-android`, so an app that registers
 `TurnkeyProvider` swaps its core coordinate for the adapter's. Imports do not change. Take both
 artifacts from the first release that carries the split; the version printed above is the catalog
-version at the time of writing.
+version at the time of writing. In the same release the descriptor interface `RainProvider` became
+`ProviderDescriptor` and `RainSdk.providers` became `RainSdk.descriptors`; `RainProvider` now names
+the Rain wallet's class in `com.rain.sdk.wallet`, so an auto-import that offers it after the upgrade
+is pointing at the wrong type. The Turnkey adapter and the Rain wallet no longer advertise
+`Capability.BIOMETRIC_GATE`, because nothing gates signing behind a biometric prompt; a lookup by
+that capability finds no bundled provider.
 
 | Module        | Contains                                                                 |
 |---------------|--------------------------------------------------------------------------|
 | `rain-core-android`   | The `WalletProvider` port, capability model, provider registry, and all Rain domain logic. No wallet vendor SDK. |
 | `rain-turnkey-android` | The Turnkey adapter (`TurnkeyProvider`, `com.rain.sdk.turnkey`); depends on `rain-core-android` + the Turnkey Kotlin SDK. |
+| `rain-wallet-android` | The Rain wallet (`RainProvider`, `com.rain.sdk.wallet`): SDK-owned login, provisioning, sessions and key export under Rain's names; depends on `rain-core-android` + `rain-turnkey-android`. Not registrable beside `TurnkeyProvider` on one `RainSdk`. |
 | `rain-portal-android` | The Portal MPC adapter (`PortalProvider`); depends on `rain-core-android` + `portal-android`. |
 | `rain-privy-android`  | The Privy embedded-key adapter (`PrivyProvider`); depends on `rain-core-android` + `privy-core`. |
 
@@ -105,10 +131,12 @@ val solanaKey = provider.exportPrivateKey(TurnkeyKeyFamily.SOLANA)
 ```
 
 **Managed mode (internal API)** — the SDK owns authentication (a one-time code by email or SMS via
-Turnkey's auth proxy) and provisions Ethereum + Solana accounts on first login. It is the building
-block of the upcoming RainWallet provider and is marked `@InternalRainTurnkeyApi`: host apps get a
-compile error, Rain's own modules and the sample app opt in with
-`-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi`. Shown here for completeness:
+Turnkey's auth proxy) and provisions Ethereum + Solana accounts on first login. It ships to hosts as
+the Rain wallet provider, `RainProvider` in `rain-wallet-android`, under Rain's names; on
+`TurnkeyProvider` itself it is marked `@InternalRainTurnkeyApi`, so a host app gets a compile error
+and, outside the declaring module, only the wallet module opts in with
+`-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi`. Shown
+here for completeness:
 
 ```kotlin
 import com.rain.sdk.RainSdk
@@ -148,13 +176,107 @@ val client = rain.provider(ProviderId.TURNKEY)
 ```
 
 See [docs/TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md) for both modes in full, including
-`authState`, `logout()`, and the one-shot configuration rule.
+`authState`, `logout()`, and the one-shot configuration rule. Hosts use this flow through the Rain
+wallet: `RainProvider(application)` in [rain-wallet-android/README.md](rain-wallet-android/README.md)
+exposes the same steps with no vendor type or name.
 
 ### 3. Bring your own provider, or resolve by capability
 
 The registry is designed for the multi-provider case; a single-provider app is just the trivial
-`N = 1` instance of it. Register your own `WalletProvider` adapter (Coinbase, Privy, Dynamic, a custom
-MPC stack) behind a `ProviderDescriptor`, then resolve providers by id or by capability:
+`N = 1` instance of it. A wallet Rain ships no adapter for (Coinbase, Dynamic, a custom MPC stack,
+your own signing backend) plugs in through core alone: implement the `WalletProvider` port, wrap it
+in a `ProviderDescriptor`, and register that. Only `rain-core-android` is needed.
+
+`WalletProvider` lives in the package `com.rain.sdk.internal.provider` for historical reasons; it is
+public API meant for hosts to implement. Nine members are required, the rest have defaults, and an
+EVM-only wallet keeps the default `sendSolanaTransaction`, which refuses with `RAIN_102`.
+
+```kotlin
+import com.rain.sdk.RainSdk
+import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.internal.provider.WalletProvider
+import com.rain.sdk.models.Balance
+import com.rain.sdk.models.RainTransaction
+import com.rain.sdk.models.RainTransactionOrder
+import com.rain.sdk.models.Token
+import com.rain.sdk.provider.Capability
+import com.rain.sdk.provider.ProviderContext
+import com.rain.sdk.provider.ProviderDescriptor
+import com.rain.sdk.provider.ProviderId
+import java.math.BigDecimal
+import kotlinx.coroutines.CancellationException
+
+/** What you register. `create` runs once, on the first `rain.provider(id)`. */
+class MyWalletDescriptor(private val wallet: MyWalletSdk) : ProviderDescriptor {
+    override val id = ProviderId("my-wallet")
+    override val capabilities = emptySet<Capability>() // add EXPORT, MULTI_CHAIN, ... as you support them
+
+    override suspend fun create(context: ProviderContext): WalletProvider =
+        MyWalletProvider(wallet, context.rpcEndpoints)
+}
+
+/** The port. Every call on the resolved `RainClient` ends in one of these. */
+class MyWalletProvider(
+    private val wallet: MyWalletSdk, // your wallet SDK, whatever its shape
+    private val rpcEndpoints: Map<Int, String>,
+) : WalletProvider {
+    override val id = ProviderId("my-wallet")
+
+    // A chain your wallet cannot broadcast on fails closed here, before any read or signing prompt.
+    override fun requireSendSupport(chainId: Int) {
+        if (chainId !in rpcEndpoints) throw RainError.ChainNotSupported(chainId, "no RPC endpoint configured")
+    }
+
+    override suspend fun getWalletAddress(): String = guarded { wallet.address() }
+
+    override suspend fun signTypedData(chainId: Int, walletAddress: String, typedDataJson: String): String =
+        guarded { wallet.signTypedData(chainId, typedDataJson) }
+
+    override suspend fun sendTransaction(chainId: Int, from: String, to: String, data: String, value: String): String =
+        guarded { wallet.send(chainId, to, data, value) }
+
+    override suspend fun estimateTransactionFee(chainId: Int, from: String, to: String, data: String, value: String): BigDecimal =
+        guarded { wallet.estimateFee(chainId, to, data, value) }
+
+    override suspend fun sendNativeToken(chainId: Int, toAddress: String, amountInEth: BigDecimal): String =
+        guarded { wallet.sendNative(chainId, toAddress, amountInEth) }
+
+    override suspend fun sendToken(chainId: Int, contractAddress: String, toAddress: String, amount: BigDecimal, decimals: Int): String =
+        guarded { wallet.sendToken(chainId, contractAddress, toAddress, amount, decimals) }
+
+    override suspend fun getBalance(chainId: Int, token: Token): Balance = guarded {
+        val (raw, decimals) = wallet.balance(chainId, (token as? Token.Contract)?.address)
+        Balance(token = token, chainId = chainId, rawAmount = raw, decimals = decimals)
+    }
+
+    override suspend fun getBalances(chainId: Int): List<Balance> = listOf(getBalance(chainId, Token.Native))
+
+    override suspend fun getTransactions(chainId: Int, limit: Int?, offset: Int?, order: RainTransactionOrder?): List<RainTransaction> =
+        emptyList() // or map your indexer's rows onto RainTransaction
+
+    // The error contract: a vendor exception never leaves the adapter. Core keeps a RainError's code,
+    // so an expired session reaches the host as RAIN_201 and its re-authentication path runs.
+    private inline fun <T> guarded(block: () -> T): T = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: RainError) {
+        throw e // already carries its code; wrapping it would replace the code with RAIN_501
+    } catch (e: MyWalletSdk.SessionExpired) {
+        throw RainError.TokenExpired()
+    } catch (e: Exception) {
+        throw RainError.ProviderError(e)
+    }
+}
+
+val rain = RainSdk.builder()
+    .rpcEndpoints(mapOf(8453 to "https://mainnet.base.org"))
+    .register(MyWalletDescriptor(myWalletSdk))
+    .build()
+val client = rain.provider(ProviderId("my-wallet"))
+```
+
+With several providers registered, resolve by id as above or by capability:
 
 ```kotlin
 import com.rain.sdk.provider.Capability
@@ -164,8 +286,9 @@ val exporter = rain.first { Capability.EXPORT in it.capabilities }
 ```
 
 A client resolved by `Capability.EXPORT` has no export method of its own. The export methods live on
-the descriptor you registered, `TurnkeyProvider.exportRecoveryPhrase` and `exportPrivateKey`, so keep
-a reference to it.
+the descriptor you registered: `exportRecoveryPhrase` and `exportPrivateKey` on `TurnkeyProvider` and
+on the Rain wallet's `RainProvider` (see [rain-wallet-android/README.md](rain-wallet-android/README.md)),
+so keep a reference to it.
 
 ### 4. Get Wallet Address
 

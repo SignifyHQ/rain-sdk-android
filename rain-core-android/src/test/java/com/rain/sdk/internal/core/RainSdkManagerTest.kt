@@ -33,9 +33,13 @@ class RainSdkBuilderTest {
     private class FakeProvider(
         private val walletProvider: WalletProvider,
         override val id: ProviderId = ProviderId("fake"),
+        override val capabilities: Set<Capability> = emptySet(),
     ) : ProviderDescriptor {
-        override val capabilities: Set<Capability> = emptySet()
+        var closed = false
         override suspend fun create(context: ProviderContext): WalletProvider = walletProvider
+        override fun close() {
+            closed = true
+        }
     }
 
     @Before
@@ -115,6 +119,138 @@ class RainSdkBuilderTest {
         assertThat(sdk.descriptors.map { it.id })
             .containsExactly(ProviderId("fake"), ProviderId("second"))
             .inOrder()
+    }
+
+    @Test
+    fun `build rejects the Rain wallet and Turnkey providers together`() {
+        val error = assertThrows(RainError.InvalidConfig::class.java) {
+            RainSdk.builder()
+                .rpcEndpoints(mapOf(1 to "https://rpc.test"))
+                .register(FakeProvider(StubWalletProvider(), ProviderId.RAIN))
+                .register(FakeProvider(StubWalletProvider(), ProviderId.TURNKEY))
+                .build()
+        }
+        assertThat(error).hasMessageThat().contains(RainSdk.RAIN_AND_TURNKEY_CONFLICT_MESSAGE)
+    }
+
+    @Test
+    fun `re-registering an id replaces the descriptor and closes the replaced instance`() {
+        val first = FakeProvider(StubWalletProvider(), ProviderId.RAIN)
+        val second = FakeProvider(StubWalletProvider(), ProviderId.RAIN)
+
+        val sdk = RainSdk.builder()
+            .rpcEndpoints(mapOf(1 to "https://rpc.test"))
+            .register(first)
+            .register(second)
+            .build()
+
+        assertThat(sdk.descriptors).containsExactly(second)
+        assertThat(first.closed).isTrue()
+        assertThat(second.closed).isFalse()
+    }
+
+    @Test
+    fun `re-registering a replaced instance keeps it open and closes the one it displaced`() {
+        val first = FakeProvider(StubWalletProvider(), ProviderId.RAIN)
+        val second = FakeProvider(StubWalletProvider(), ProviderId.RAIN)
+
+        val sdk = RainSdk.builder()
+            .rpcEndpoints(mapOf(1 to "https://rpc.test"))
+            .register(first)
+            .register(second)
+            .register(first)
+            .build()
+
+        assertThat(sdk.descriptors).containsExactly(first)
+        assertThat(first.closed).isFalse()
+        assertThat(second.closed).isTrue()
+    }
+
+    @Test
+    fun `a build that fails leaves a replaced descriptor open`() {
+        val first = FakeProvider(StubWalletProvider(), ProviderId.RAIN)
+        val second = FakeProvider(StubWalletProvider(), ProviderId.RAIN)
+
+        assertThrows(RainError.InvalidConfig::class.java) {
+            RainSdk.builder().register(first).register(second).build() // no RPC endpoints
+        }
+
+        assertThat(first.closed).isFalse()
+        assertThat(second.closed).isFalse()
+    }
+
+    @Test
+    fun `registering the same instance twice is a no-op`() {
+        val only = FakeProvider(StubWalletProvider(), ProviderId.RAIN)
+
+        val sdk = RainSdk.builder()
+            .rpcEndpoints(mapOf(1 to "https://rpc.test"))
+            .register(only)
+            .register(only)
+            .build()
+
+        assertThat(sdk.descriptors).containsExactly(only)
+        assertThat(only.closed).isFalse()
+    }
+
+    @Test
+    fun `build rejects the pair in either registration order`() {
+        val error = assertThrows(RainError.InvalidConfig::class.java) {
+            RainSdk.builder()
+                .rpcEndpoints(mapOf(1 to "https://rpc.test"))
+                .register(FakeProvider(StubWalletProvider(), ProviderId.TURNKEY))
+                .register(FakeProvider(StubWalletProvider(), ProviderId.RAIN))
+                .build()
+        }
+        assertThat(error).hasMessageThat().contains(RainSdk.RAIN_AND_TURNKEY_CONFLICT_MESSAGE)
+    }
+
+    @Test
+    fun `build accepts the Rain wallet provider alone`() {
+        val sdk = RainSdk.builder()
+            .rpcEndpoints(mapOf(1 to "https://rpc.test"))
+            .register(FakeProvider(StubWalletProvider(), ProviderId.RAIN))
+            .build()
+
+        assertThat(sdk.providerIds).containsExactly(ProviderId.RAIN)
+    }
+
+    @Test
+    fun `build accepts the Turnkey provider alone`() {
+        val sdk = RainSdk.builder()
+            .rpcEndpoints(mapOf(1 to "https://rpc.test"))
+            .register(FakeProvider(StubWalletProvider(), ProviderId.TURNKEY))
+            .build()
+
+        assertThat(sdk.providerIds).containsExactly(ProviderId.TURNKEY)
+    }
+
+    @Test
+    fun `build accepts the Rain wallet provider beside Portal and Privy`() {
+        val sdk = RainSdk.builder()
+            .rpcEndpoints(mapOf(1 to "https://rpc.test"))
+            .register(FakeProvider(StubWalletProvider(), ProviderId.RAIN))
+            .register(FakeProvider(StubWalletProvider(), ProviderId.PORTAL))
+            .register(FakeProvider(StubWalletProvider(), ProviderId.PRIVY))
+            .build()
+
+        assertThat(sdk.descriptors.map { it.id })
+            .containsExactly(ProviderId.RAIN, ProviderId.PORTAL, ProviderId.PRIVY)
+            .inOrder()
+    }
+
+    @Test
+    fun `resolving by EXPORT follows registration order when the Rain wallet advertises it`(): Unit = runBlocking {
+        fun build(first: ProviderId, second: ProviderId) = RainSdk.builder()
+            .rpcEndpoints(mapOf(1 to "https://rpc.test"))
+            .register(FakeProvider(StubWalletProvider(), first, setOf(Capability.EXPORT)))
+            .register(FakeProvider(StubWalletProvider(), second, setOf(Capability.EXPORT)))
+            .build()
+
+        assertThat(build(ProviderId.RAIN, ProviderId.PORTAL).first { Capability.EXPORT in it.capabilities }.providerId)
+            .isEqualTo(ProviderId.RAIN)
+        assertThat(build(ProviderId.PORTAL, ProviderId.RAIN).first { Capability.EXPORT in it.capabilities }.providerId)
+            .isEqualTo(ProviderId.PORTAL)
     }
 
     @Test

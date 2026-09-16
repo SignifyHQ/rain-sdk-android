@@ -88,9 +88,9 @@ internal object TurnkeyBroadcastChains {
         if (!supportsSend(chainId)) {
             throw RainError.ChainNotSupported(
                 chainId = chainId,
-                details = "Turnkey-managed broadcast does not cover this chain; " +
+                details = "Managed broadcast does not cover this chain; " +
                     "this wallet can read balances and history on it, but cannot send. " +
-                    "See docs.turnkey.com/features/transaction-management for covered networks."
+                    "See the SDK documentation for the chains that support sending."
             )
         }
     }
