@@ -3,6 +3,9 @@
 minSdk = "28"
 compileSdk = "36"
 targetSdk = "36"
+# Stamped into every published AAR. AGP 9 would otherwise stamp compileSdk, forcing partner apps to 37
+# while Play asks for 36 today.
+minCompileSdk = "36"
 
 # -- Project --
 rain-sdk = "1.0.1"
@@ -12,7 +15,6 @@ android-gradle-plugin = "8.13.2"
 # Consumers need Kotlin 2.1 or newer to read our metadata (one language release back), the same floor
 # Turnkey already sets. 2.3 would move partners to 2.2 and 2.4 to 2.3; revisit after launch.
 kotlin = "2.2.21"
-ksp = "2.2.20-2.0.3"
 dokka = "1.9.20"
 maven-publish = "0.30.0"
 detekt = "1.23.8"
@@ -142,7 +144,6 @@ android-library = { id = "com.android.library", version.ref = "android-gradle-pl
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
 vanniktech-maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "maven-publish" }
 detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
