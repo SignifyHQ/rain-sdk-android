@@ -22,6 +22,8 @@ import com.turnkey.types.TGetNoncesBody
 import com.turnkey.types.TGetSendTransactionStatusBody
 import com.turnkey.types.TGetSendTransactionStatusResponse
 import com.turnkey.types.TGetWalletAddressBalancesBody
+import com.turnkey.types.TListEthTransactionHistoryBody
+import com.turnkey.types.TListSolTransactionHistoryBody
 import com.turnkey.types.TSolSendTransactionBody
 import com.turnkey.types.V1ActivityType
 import com.turnkey.types.V1AssetBalance
@@ -29,6 +31,8 @@ import com.turnkey.types.V1HashFunction
 import com.turnkey.types.V1Pagination
 import com.turnkey.types.V1PayloadEncoding
 import com.turnkey.types.V1SignRawPayloadResult
+import com.turnkey.types.V1TransactionHistoryBlock
+import com.turnkey.types.V1TransactionHistoryTransfer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -67,10 +71,7 @@ internal class TurnkeyManager(
     httpClient: OkHttpClient = OkHttpClient(),
     private val pollingIntervalMs: Long = POLLING_INTERVAL_MS,
     private val jsonRpcClient: JsonRpcClient = JsonRpcClient(httpClient),
-    history: TurnkeyHistoryProtocol? = null,
 ) {
-
-    private val history: TurnkeyHistoryProtocol = history ?: TurnkeyHistoryClient(httpClient)
 
     // Guards every Turnkey call: expiry check, proactive refresh, refresh-on-401, backoff. Always the
     // descriptor's coordinator, never a private one: a death or a managed re-login seen there is what
@@ -428,17 +429,18 @@ internal class TurnkeyManager(
         order: RainTransactionOrder?
     ): List<RainTransaction> {
         val walletAddress = getWalletAddress(chainId)
-        val response = sessions.executeRead { session, _ ->
-            history.listEthTransactionHistory(
-                organizationId = session.organizationId,
-                sessionPublicKey = session.publicKey,
-                address = walletAddress,
-                caip2 = caip2For(chainId),
-                limit = requestedHistoryLimit(limit, offset)
+        val response = sessions.executeRead { session, client ->
+            client.listEthTransactionHistory(
+                TListEthTransactionHistoryBody(
+                    organizationId = session.organizationId,
+                    address = walletAddress,
+                    caip2 = caip2For(chainId),
+                    paginationOptions = historyPagination(limit, offset)
+                )
             )
         }
         val rows = response.transactions.map { tx ->
-            rfc3339EpochSeconds(tx.block?.timestamp) to indexedTransaction(
+            rfc3339EpochSeconds(tx.block.timestamp) to indexedTransaction(
                 chainId = chainId,
                 walletAddress = walletAddress,
                 hash = tx.transactionHash,
@@ -460,17 +462,18 @@ internal class TurnkeyManager(
         order: RainTransactionOrder?
     ): List<RainTransaction> {
         val walletAddress = getWalletAddress(chainId)
-        val response = sessions.executeRead { session, _ ->
-            history.listSolTransactionHistory(
-                organizationId = session.organizationId,
-                sessionPublicKey = session.publicKey,
-                address = walletAddress,
-                caip2 = caip2For(chainId),
-                limit = requestedHistoryLimit(limit, offset)
+        val response = sessions.executeRead { session, client ->
+            client.listSolTransactionHistory(
+                TListSolTransactionHistoryBody(
+                    organizationId = session.organizationId,
+                    address = walletAddress,
+                    caip2 = caip2For(chainId),
+                    paginationOptions = historyPagination(limit, offset)
+                )
             )
         }
         val rows = response.transactions.map { tx ->
-            rfc3339EpochSeconds(tx.block?.timestamp) to indexedTransaction(
+            rfc3339EpochSeconds(tx.block.timestamp) to indexedTransaction(
                 chainId = chainId,
                 walletAddress = walletAddress,
                 hash = tx.signature,
@@ -495,11 +498,11 @@ internal class TurnkeyManager(
         chainId: Int,
         walletAddress: String,
         hash: String,
-        block: TurnkeyHistoryBlock?,
-        status: String?,
-        txFrom: String?,
+        block: V1TransactionHistoryBlock,
+        status: String,
+        txFrom: String,
         txTo: String?,
-        transfer: TurnkeyHistoryTransfer?,
+        transfer: V1TransactionHistoryTransfer?,
         sponsored: Boolean?
     ): RainTransaction {
         val incoming = transfer?.direction.equals("IN", ignoreCase = true)
@@ -508,7 +511,7 @@ internal class TurnkeyManager(
         val asset = transfer?.asset?.caip19?.let { caip19Asset(it, caip2For(chainId)) }
         val tokenAddress = asset?.takeIf { it.namespace != NATIVE_ASSET_NAMESPACE }?.reference
         // Indexer-supplied; a value outside any real token's range must not scale the amount.
-        val decimals = transfer?.asset?.decimals?.takeIf { it in 0..MAX_TOKEN_DECIMALS }
+        val decimals = transfer?.asset?.decimals?.takeIf { it in 0..MAX_TOKEN_DECIMALS }?.toInt()
         val displayValues = buildMap {
             transfer?.display?.crypto?.let { put("crypto", it) }
             transfer?.display?.usd?.let { put("usd", it) }
@@ -517,11 +520,11 @@ internal class TurnkeyManager(
         return RainTransaction(
             hash = hash,
             uniqueId = hash,
-            blockNumber = block?.number,
-            timestamp = normalizedTimestamp(block?.timestamp),
+            blockNumber = block.number,
+            timestamp = normalizedTimestamp(block.timestamp),
             from = when {
-                transfer == null -> txFrom ?: walletAddress
-                incoming -> counterparty ?: txFrom ?: walletAddress
+                transfer == null -> txFrom
+                incoming -> counterparty ?: txFrom
                 // OUT is relative to the queried address: the wallet is the sender even when the
                 // transaction-level `from` is a sponsor, relayer or bundler.
                 else -> walletAddress
@@ -576,7 +579,7 @@ internal class TurnkeyManager(
         }
 
     /** `EXECUTION_REVERTED` becomes `executionReverted`, matching the Privy rows' vocabulary. */
-    private fun indexerStatus(status: String?): String? {
+    private fun indexerStatus(status: String): String? {
         val parts = status?.lowercase(Locale.ROOT)?.split('_')?.filter { it.isNotEmpty() }
         if (parts.isNullOrEmpty()) return null
         return parts.first() + parts.drop(1).joinToString("") { part ->
@@ -584,9 +587,12 @@ internal class TurnkeyManager(
         }
     }
 
-    /** Same fetch window as the activity path: enough rows to honor offset, capped by the API. */
-    private fun requestedHistoryLimit(limit: Int?, offset: Int?): Int =
-        minOf(maxOf((limit ?: 10) + (offset ?: 0), 1), 100)
+    /**
+     * Same fetch window as the activity path: enough rows to honor offset, capped by the API. The
+     * API is proto3-JSON and takes the limit as a string.
+     */
+    private fun historyPagination(limit: Int?, offset: Int?): V1Pagination =
+        V1Pagination(limit = minOf(maxOf((limit ?: 10) + (offset ?: 0), 1), 100).toString())
 
     private fun sortAndSlice(
         rows: List<Pair<Double, RainTransaction>>,
@@ -614,9 +620,9 @@ internal class TurnkeyManager(
     }
 
     /**
-     * Epoch seconds for an RFC 3339 timestamp. A row without one (not mined yet, or a form the
-     * parser does not know) sorts as newest rather than 1970, so a pending send stays on the
-     * first page instead of being sliced off the end.
+     * Epoch seconds for an RFC 3339 timestamp. A row whose timestamp is empty or in a form the
+     * parser does not know sorts as newest rather than 1970, so it stays on the first page instead
+     * of being sliced off the end.
      */
     private fun rfc3339EpochSeconds(timestamp: String?): Double {
         if (timestamp.isNullOrEmpty()) return PENDING_ROW_EPOCH

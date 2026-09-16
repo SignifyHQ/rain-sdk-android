@@ -23,7 +23,6 @@ class TurnkeyWalletProviderSessionTest {
         turnkey: MockTurnkey,
         policy: TurnkeySessionPolicy = TurnkeySessionPolicy(),
         onSessionExpired: (() -> Unit)? = null,
-        history: TurnkeyHistoryProtocol = ThrowingTurnkeyHistory,
         solanaChainReader: MockChainReader? = null,
     ): TurnkeyWalletProvider = turnkeyWalletProvider(
         turnkey = turnkey,
@@ -31,7 +30,6 @@ class TurnkeyWalletProviderSessionTest {
         httpClient = OkHttpClient(),
         chainReader = MockChainReader(),
         solanaChainReader = solanaChainReader,
-        history = history,
         sessionCoordinator = TurnkeySessionCoordinator(
             turnkey = turnkey,
             policy = policy,
@@ -50,7 +48,6 @@ class TurnkeyWalletProviderSessionTest {
             rpcEndpoints = mapOf(1 to "https://eth.example/rpc"),
             httpClient = OkHttpClient(),
             chainReader = MockChainReader(),
-            history = ThrowingTurnkeyHistory,
             sessionCoordinator = coordinator,
         ) to coordinator
     }
@@ -158,37 +155,22 @@ class TurnkeyWalletProviderSessionTest {
     fun `getTransactions surfaces TokenExpired from indexed history without the activity fallback`() {
         val turnkey = MockTurnkey()
         turnkey.refreshSessionError = RuntimeException("refresh rejected")
-        val history = object : TurnkeyHistoryProtocol {
-            override suspend fun listEthTransactionHistory(
-                organizationId: String,
-                sessionPublicKey: String,
-                address: String,
-                caip2: String,
-                limit: Int
-            ): TurnkeyEthHistoryResponse = throw TurnkeyHistoryError(401, "unauthorized")
-
-            override suspend fun listSolTransactionHistory(
-                organizationId: String,
-                sessionPublicKey: String,
-                address: String,
-                caip2: String,
-                limit: Int
-            ): TurnkeySolHistoryResponse = throw TurnkeyHistoryError(401, "unauthorized")
-        }
-        val provider = makeProvider(turnkey, history = history)
+        val client = turnkey.turnkeyClient as MockTurnkeyClient
+        client.listEthHistoryError = MockTurnkey.historyHttpError(MockTurnkey.ETH_HISTORY_PATH, 401)
+        val provider = makeProvider(turnkey)
 
         assertThrows(RainError.TokenExpired::class.java) {
             runBlocking { provider.getTransactions(chainId = 1, limit = 10, offset = 0, order = null) }
         }
-        val client = turnkey.turnkeyClient as MockTurnkeyClient
         assertThat(client.getActivitiesCalls).isEmpty()
     }
 
     @Test
     fun `getTransactions falls back to activities when indexed history is feature-gated`() =
         runBlocking {
+            // The mock client's default history answer is the vendor's HTTP 403 for a feature-gated org.
             val turnkey = MockTurnkey()
-            val provider = makeProvider(turnkey, history = ThrowingTurnkeyHistory)
+            val provider = makeProvider(turnkey)
 
             val transactions =
                 provider.getTransactions(chainId = 1, limit = 10, offset = 0, order = null)
@@ -280,7 +262,6 @@ class TurnkeyWalletProviderSessionTest {
                 rpcEndpoints = mapOf(1 to "https://eth.example/rpc"),
                 httpClient = OkHttpClient(),
                 chainReader = MockChainReader(),
-                history = ThrowingTurnkeyHistory,
                 sessionCoordinator = coordinator,
             )
         }

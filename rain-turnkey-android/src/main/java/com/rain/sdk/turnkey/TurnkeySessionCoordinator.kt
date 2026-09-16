@@ -25,8 +25,7 @@ import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Guards every Turnkey call behind session-expiry checks, proactive refresh, refresh-on-401
- * retry, and transient-failure backoff, per [TurnkeySessionPolicy]. Mirrors the CST handling
- * in `RainSessionStore`/`RainApiService.withCst`, adapted to Turnkey's externally-owned
+ * retry, and transient-failure backoff, per [TurnkeySessionPolicy], for Turnkey's externally-owned
  * session.
  *
  * Terminal auth failures always surface as [RainError.TokenExpired], advance [deathEpoch] and
@@ -333,13 +332,11 @@ internal class TurnkeySessionCoordinator(
     private fun isAuthFailure(e: Throwable): Boolean = anyInChain(e) { t ->
         t is RainError.TokenExpired ||
             t is TurnkeyKotlinError.InvalidSession ||
-            (t is TurnkeyHistoryError && t.statusCode == 401) ||
             TurnkeyErrorMapping.turnkeyHttpStatus(t) == 401
     }
 
     private fun isTransient(e: Throwable): Boolean = anyInChain(e) { t ->
         t is IOException ||
-            (t is TurnkeyHistoryError && isTransientStatus(t.statusCode)) ||
             TurnkeyErrorMapping.turnkeyHttpStatus(t)?.let { isTransientStatus(it) } == true
     }
 

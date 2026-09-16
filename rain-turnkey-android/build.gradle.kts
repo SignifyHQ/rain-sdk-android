@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.dokka)
     alias(libs.plugins.vanniktech.maven.publish)
 }
@@ -97,9 +96,6 @@ dependencies {
     // same bcprov-jdk15to18 build and 1.84 floor are already on every consumer's runtime classpath
     // through core and the vendor; the bcprov-jdk18on exclusion above is unchanged.
     implementation(libs.bouncycastle.bcprov)
-
-    // The indexed-history client parses Turnkey's JSON responses.
-    implementation(libs.kotlinx.serialization.json)
 
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)

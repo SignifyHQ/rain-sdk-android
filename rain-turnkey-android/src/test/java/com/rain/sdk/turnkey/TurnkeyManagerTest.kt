@@ -8,7 +8,11 @@ import com.rain.sdk.internal.network.chainreader.JsonRpcClient
 import com.rain.sdk.internal.solana.SolanaRpcClient
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.Token
+import com.turnkey.types.TListEthTransactionHistoryResponse
 import com.turnkey.types.V1AssetBalance
+import com.turnkey.types.V1EthTransactionHistoryItem
+import com.turnkey.types.V1TransactionHistoryBlock
+import com.turnkey.types.V1TransactionHistoryFee
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -53,7 +57,6 @@ class TurnkeyManagerTest {
     private fun manager(
         turnkey: MockTurnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana())),
         sponsorGas: Boolean = false,
-        history: TurnkeyHistoryProtocol = ThrowingTurnkeyHistory,
     ): TurnkeyManager {
         val httpClient = OkHttpClient()
         val jsonRpcClient = JsonRpcClient(httpClient)
@@ -65,7 +68,6 @@ class TurnkeyManagerTest {
             httpClient = httpClient,
             pollingIntervalMs = 0L,
             jsonRpcClient = jsonRpcClient,
-            history = history,
             sessionCoordinator = TurnkeySessionCoordinator(turnkey = turnkey, retryDelay = { }),
         )
     }
@@ -265,57 +267,35 @@ class TurnkeyManagerTest {
 
     // ---------- history ----------
 
-    private class FakeHistory(
-        private val eth: TurnkeyEthHistoryResponse = TurnkeyEthHistoryResponse(),
-        private val sol: TurnkeySolHistoryResponse = TurnkeySolHistoryResponse(),
-    ) : TurnkeyHistoryProtocol {
-        val addresses = mutableListOf<Pair<String, String>>()
-
-        override suspend fun listEthTransactionHistory(
-            organizationId: String,
-            sessionPublicKey: String,
-            address: String,
-            caip2: String,
-            limit: Int
-        ): TurnkeyEthHistoryResponse {
-            addresses += address to caip2
-            return eth
-        }
-
-        override suspend fun listSolTransactionHistory(
-            organizationId: String,
-            sessionPublicKey: String,
-            address: String,
-            caip2: String,
-            limit: Int
-        ): TurnkeySolHistoryResponse {
-            addresses += address to caip2
-            return sol
-        }
-    }
-
-    private fun ethRow(hash: String, timestamp: String) = TurnkeyEthHistoryTransaction(
-        transactionHash = hash,
-        block = TurnkeyHistoryBlock(number = "1", hash = "0xblock", timestamp = timestamp),
-        status = "CONFIRMED",
+    private fun ethRow(hash: String, timestamp: String) = V1EthTransactionHistoryItem(
+        block = V1TransactionHistoryBlock(hash = "0xblock", number = "1", timestamp = timestamp),
+        fee = V1TransactionHistoryFee(amount = "21000000000000", caip19 = "eip155:1/slip44:60"),
         from = from,
-        to = to
+        origin = "TRANSACTION_ORIGIN_EXTERNAL",
+        status = "CONFIRMED",
+        to = to,
+        transactionHash = hash,
+        transfers = emptyList()
     )
 
     @Test
     fun `indexedEvmTransactions maps history rows for the wallet's address and returns them newest first`(): Unit = runBlocking {
-        val history = FakeHistory(
-            eth = TurnkeyEthHistoryResponse(
-                transactions = listOf(ethRow("0xold", "2026-08-12T10:00:00Z"), ethRow("0xnew", "2026-08-13T10:00:00Z"))
-            )
+        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()))
+        val client = clientOf(turnkey)
+        client.mockEthHistory = TListEthTransactionHistoryResponse(
+            transactions = listOf(ethRow("0xold", "2026-08-12T10:00:00Z"), ethRow("0xnew", "2026-08-13T10:00:00Z"))
         )
 
-        val transactions = manager(history = history).indexedEvmTransactions(1, limit = 10, offset = 0, order = null)
+        val transactions = manager(turnkey).indexedEvmTransactions(1, limit = 10, offset = 0, order = null)
 
         assertThat(transactions.map { it.hash }).containsExactly("0xnew", "0xold").inOrder()
         assertThat(transactions.first().from).isEqualTo(from)
         assertThat(transactions.first().to).isEqualTo(to)
-        assertThat(history.addresses).containsExactly(from to "eip155:1")
+        val request = client.listEthHistoryCalls.single()
+        assertThat(request.organizationId).isEqualTo(MockTurnkey.DEFAULT_ORG_ID)
+        assertThat(request.address).isEqualTo(from)
+        assertThat(request.caip2).isEqualTo("eip155:1")
+        assertThat(request.paginationOptions?.limit).isEqualTo("10")
     }
 
     @Test

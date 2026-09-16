@@ -24,6 +24,10 @@ import com.turnkey.types.TGetSendTransactionStatusBody
 import com.turnkey.types.TGetSendTransactionStatusResponse
 import com.turnkey.types.TGetWalletAddressBalancesBody
 import com.turnkey.types.TGetWalletAddressBalancesResponse
+import com.turnkey.types.TListEthTransactionHistoryBody
+import com.turnkey.types.TListEthTransactionHistoryResponse
+import com.turnkey.types.TListSolTransactionHistoryBody
+import com.turnkey.types.TListSolTransactionHistoryResponse
 import com.turnkey.types.TSolSendTransactionBody
 import com.turnkey.types.TSolSendTransactionResponse
 import com.turnkey.types.V1AddressFormat
@@ -68,6 +72,18 @@ internal interface TurnkeyClientProtocol {
     suspend fun getNonces(
         input: TGetNoncesBody
     ): TGetNoncesResponse
+
+    /**
+     * Indexed history queries. Both go through the vendor's client, which signs with the key it
+     * was built from at login or refresh, so a rotated session key is never read from storage here.
+     */
+    suspend fun listEthTransactionHistory(
+        input: TListEthTransactionHistoryBody
+    ): TListEthTransactionHistoryResponse
+
+    suspend fun listSolTransactionHistory(
+        input: TListSolTransactionHistoryBody
+    ): TListSolTransactionHistoryResponse
 }
 
 /**
@@ -211,6 +227,12 @@ internal class TurnkeyContextAdapter(
         } else {
             context.refreshSession(expirationSeconds = expirationSeconds)
         }
+        // Turnkey 2.0.1's refreshSession rotates the session key pair, deletes the old one and
+        // rebuilds its client, but never rewrites its public `session` flow: the flow keeps the
+        // pre-refresh session, whose public key no longer has a key pair and whose expiry is the
+        // old one. Re-selecting the session is the one public call that reloads the stored session
+        // into the flow. It saves the selection, swaps the client and flows, and makes no request.
+        context.selectedSessionKey.value?.let { context.setSelectedSession(it) }
     }
 
     override suspend fun signRawPayload(
@@ -394,4 +416,12 @@ internal class TurnkeyClientAdapter(
     override suspend fun getNonces(
         input: TGetNoncesBody
     ): TGetNoncesResponse = client.getNonces(input)
+
+    override suspend fun listEthTransactionHistory(
+        input: TListEthTransactionHistoryBody
+    ): TListEthTransactionHistoryResponse = client.listEthTransactionHistory(input)
+
+    override suspend fun listSolTransactionHistory(
+        input: TListSolTransactionHistoryBody
+    ): TListSolTransactionHistoryResponse = client.listSolTransactionHistory(input)
 }

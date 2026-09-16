@@ -5,6 +5,16 @@ import com.rain.sdk.RainChain
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.models.RainTransactionCategory
 import com.rain.sdk.models.RainTransactionOrder
+import com.turnkey.types.TListEthTransactionHistoryResponse
+import com.turnkey.types.TListSolTransactionHistoryResponse
+import com.turnkey.types.V1EthTransactionHistoryItem
+import com.turnkey.types.V1SolTransactionHistoryItem
+import com.turnkey.types.V1TransactionHistoryAsset
+import com.turnkey.types.V1TransactionHistoryBlock
+import com.turnkey.types.V1TransactionHistoryDisplay
+import com.turnkey.types.V1TransactionHistoryFee
+import com.turnkey.types.V1TransactionHistoryTransfer
+import com.turnkey.types.V1TransactionHistoryTurnkey
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertThrows
@@ -12,108 +22,121 @@ import org.junit.Before
 import org.junit.Test
 import java.math.BigDecimal
 
+/**
+ * Indexed history through the vendor client's `list_eth_transaction_history` and
+ * `list_sol_transaction_history` queries, and the fallback to the activity log when they fail.
+ */
 class TurnkeyWalletProviderHistoryTest {
 
     @Before
     fun requireJdk24() = assumeJdk24()
 
-    private class FakeTurnkeyHistory(
-        var ethResponse: TurnkeyEthHistoryResponse = TurnkeyEthHistoryResponse(),
-        var solResponse: TurnkeySolHistoryResponse = TurnkeySolHistoryResponse(),
-        var error: Exception? = null
-    ) : TurnkeyHistoryProtocol {
-
-        data class Call(
-            val organizationId: String,
-            val sessionPublicKey: String,
-            val address: String,
-            val caip2: String,
-            val limit: Int
-        )
-
-        val ethCalls = mutableListOf<Call>()
-        val solCalls = mutableListOf<Call>()
-
-        override suspend fun listEthTransactionHistory(
-            organizationId: String,
-            sessionPublicKey: String,
-            address: String,
-            caip2: String,
-            limit: Int
-        ): TurnkeyEthHistoryResponse {
-            ethCalls += Call(organizationId, sessionPublicKey, address, caip2, limit)
-            error?.let { throw it }
-            return ethResponse
-        }
-
-        override suspend fun listSolTransactionHistory(
-            organizationId: String,
-            sessionPublicKey: String,
-            address: String,
-            caip2: String,
-            limit: Int
-        ): TurnkeySolHistoryResponse {
-            solCalls += Call(organizationId, sessionPublicKey, address, caip2, limit)
-            error?.let { throw it }
-            return solResponse
-        }
-    }
+    private val caip2Devnet = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
 
     private fun makeProvider(
         turnkey: MockTurnkey = MockTurnkey(),
-        history: TurnkeyHistoryProtocol = FakeTurnkeyHistory(),
         rpcEndpoints: Map<Int, String> = mapOf(1 to "https://eth.example/rpc")
     ): TurnkeyWalletProvider = turnkeyWalletProvider(
         turnkey = turnkey,
         rpcEndpoints = rpcEndpoints,
         httpClient = OkHttpClient(),
-        chainReader = MockChainReader(),
-        history = history
+        chainReader = MockChainReader()
     )
+
+    private fun clientOf(turnkey: MockTurnkey) = turnkey.turnkeyClient as MockTurnkeyClient
+
+    /** A provider over a mock whose client answers the EVM history query with [rows]. */
+    private fun evmProvider(vararg rows: V1EthTransactionHistoryItem): Pair<TurnkeyWalletProvider, MockTurnkeyClient> {
+        val turnkey = MockTurnkey()
+        clientOf(turnkey).mockEthHistory = TListEthTransactionHistoryResponse(transactions = rows.toList())
+        return makeProvider(turnkey) to clientOf(turnkey)
+    }
+
+    /** A provider over a wallet with a Solana account whose client answers the Solana query with [rows]. */
+    private fun solanaProvider(vararg rows: V1SolTransactionHistoryItem): Pair<TurnkeyWalletProvider, MockTurnkeyClient> {
+        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()))
+        clientOf(turnkey).mockSolHistory = TListSolTransactionHistoryResponse(transactions = rows.toList())
+        val provider = makeProvider(turnkey, rpcEndpoints = mapOf(RainChain.SOLANA_DEVNET to "https://sol.example/rpc"))
+        return provider to clientOf(turnkey)
+    }
+
+    private fun block(number: String = "123", timestamp: String = "2026-08-12T10:00:00Z") =
+        V1TransactionHistoryBlock(hash = "0xblock", number = number, timestamp = timestamp)
 
     private fun ethTransaction(
         hash: String = "0xhash",
         timestamp: String = "2026-08-12T10:00:00Z",
         blockNumber: String = "123",
-        status: String? = "CONFIRMED",
-        from: String? = "0xsender",
+        status: String = "CONFIRMED",
+        from: String = "0xsender",
         to: String? = "0xrecipient",
-        transfers: List<TurnkeyHistoryTransfer> = emptyList(),
+        transfers: List<V1TransactionHistoryTransfer> = emptyList(),
         sponsored: Boolean? = false
-    ) = TurnkeyEthHistoryTransaction(
-        transactionHash = hash,
-        block = TurnkeyHistoryBlock(number = blockNumber, hash = "0xblock", timestamp = timestamp),
-        status = status,
+    ) = V1EthTransactionHistoryItem(
+        block = block(blockNumber, timestamp),
+        fee = V1TransactionHistoryFee(amount = "21000000000000", caip19 = "eip155:1/slip44:60"),
         from = from,
+        origin = "TRANSACTION_ORIGIN_EXTERNAL",
+        status = status,
         to = to,
+        transactionHash = hash,
         transfers = transfers,
-        turnkey = sponsored?.let { TurnkeyHistoryOrigin(sponsored = it) }
+        turnkey = sponsored?.let { V1TransactionHistoryTurnkey(sponsored = it) }
+    )
+
+    private fun solTransaction(
+        signature: String,
+        timestamp: String,
+        blockNumber: String = "9",
+        status: String = "FINALIZED",
+        feePayer: String = MockTurnkey.DEFAULT_SOLANA_ADDRESS,
+        transfers: List<V1TransactionHistoryTransfer> = emptyList(),
+        sponsored: Boolean? = null
+    ) = V1SolTransactionHistoryItem(
+        block = block(blockNumber, timestamp),
+        fee = V1TransactionHistoryFee(amount = "5000", caip19 = "$caip2Devnet/slip44:501"),
+        feePayer = feePayer,
+        origin = "TRANSACTION_ORIGIN_EXTERNAL",
+        signature = signature,
+        signers = emptyList(),
+        status = status,
+        transfers = transfers,
+        turnkey = sponsored?.let { V1TransactionHistoryTurnkey(sponsored = it) }
+    )
+
+    private fun asset(caip19: String, symbol: String, decimals: Long, name: String = symbol) =
+        V1TransactionHistoryAsset(caip19 = caip19, decimals = decimals, name = name, symbol = symbol)
+
+    private fun transfer(
+        direction: String,
+        asset: V1TransactionHistoryAsset?,
+        amount: String,
+        counterparty: String,
+        display: V1TransactionHistoryDisplay? = null
+    ) = V1TransactionHistoryTransfer(
+        amount = amount,
+        asset = asset,
+        counterparty = counterparty,
+        direction = direction,
+        display = display
     )
 
     private fun nativeOut(
         amount: String = "1500000000000000000",
         counterparty: String = "0xrecipient"
-    ) = TurnkeyHistoryTransfer(
+    ) = transfer(
         direction = "OUT",
-        asset = TurnkeyHistoryAsset(
-            caip19 = "eip155:1/slip44:60",
-            symbol = "ETH",
-            name = "Ether",
-            decimals = 18
-        ),
+        asset = asset("eip155:1/slip44:60", "ETH", 18, name = "Ether"),
         amount = amount,
         counterparty = counterparty,
-        display = TurnkeyHistoryDisplay(crypto = "1.5", usd = "5000.00")
+        display = V1TransactionHistoryDisplay(crypto = "1.5", usd = "5000.00")
     )
 
     // ---------- EVM mapping ----------
 
     @Test
     fun `evm native OUT transfer maps hash block value and counterparty`() = runBlocking<Unit> {
-        val history = FakeTurnkeyHistory(
-            ethResponse = TurnkeyEthHistoryResponse(listOf(ethTransaction(transfers = listOf(nativeOut()))))
-        )
-        val provider = makeProvider(history = history)
+        val (provider, _) = evmProvider(ethTransaction(transfers = listOf(nativeOut())))
 
         val tx = provider.getTransactions(1, null, null, null).single()
 
@@ -140,18 +163,13 @@ class TurnkeyWalletProviderHistoryTest {
 
     @Test
     fun `evm IN transfer swaps counterparty into from and wallet into to`() = runBlocking {
-        val incoming = TurnkeyHistoryTransfer(
+        val incoming = transfer(
             direction = "IN",
-            asset = TurnkeyHistoryAsset(caip19 = "eip155:1/slip44:60", symbol = "ETH", decimals = 18),
+            asset = asset("eip155:1/slip44:60", "ETH", 18),
             amount = "1000000000000000000",
             counterparty = "0xpayer"
         )
-        val history = FakeTurnkeyHistory(
-            ethResponse = TurnkeyEthHistoryResponse(
-                listOf(ethTransaction(from = "0xpayer", to = null, transfers = listOf(incoming)))
-            )
-        )
-        val provider = makeProvider(history = history)
+        val (provider, _) = evmProvider(ethTransaction(from = "0xpayer", to = null, transfers = listOf(incoming)))
 
         val tx = provider.getTransactions(1, null, null, null).single()
 
@@ -162,20 +180,13 @@ class TurnkeyWalletProviderHistoryTest {
 
     @Test
     fun `evm erc20 transfer carries token address and erc20 category`() = runBlocking {
-        val tokenOut = TurnkeyHistoryTransfer(
+        val tokenOut = transfer(
             direction = "OUT",
-            asset = TurnkeyHistoryAsset(
-                caip19 = "eip155:1/erc20:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-                symbol = "USDC",
-                decimals = 6
-            ),
+            asset = asset("eip155:1/erc20:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "USDC", 6),
             amount = "2500000",
             counterparty = "0xrecipient"
         )
-        val history = FakeTurnkeyHistory(
-            ethResponse = TurnkeyEthHistoryResponse(listOf(ethTransaction(transfers = listOf(tokenOut))))
-        )
-        val provider = makeProvider(history = history)
+        val (provider, _) = evmProvider(ethTransaction(transfers = listOf(tokenOut)))
 
         val tx = provider.getTransactions(1, null, null, null).single()
 
@@ -187,10 +198,7 @@ class TurnkeyWalletProviderHistoryTest {
 
     @Test
     fun `evm row without transfers keeps transaction addresses and carries no amount`() = runBlocking {
-        val history = FakeTurnkeyHistory(
-            ethResponse = TurnkeyEthHistoryResponse(listOf(ethTransaction(transfers = emptyList())))
-        )
-        val provider = makeProvider(history = history)
+        val (provider, _) = evmProvider(ethTransaction(transfers = emptyList()))
 
         val tx = provider.getTransactions(1, null, null, null).single()
 
@@ -204,11 +212,7 @@ class TurnkeyWalletProviderHistoryTest {
 
     @Test
     fun `evm large amount scales exactly without Double precision loss`() = runBlocking {
-        val transfer = nativeOut(amount = "123456789012345678901")
-        val history = FakeTurnkeyHistory(
-            ethResponse = TurnkeyEthHistoryResponse(listOf(ethTransaction(transfers = listOf(transfer))))
-        )
-        val provider = makeProvider(history = history)
+        val (provider, _) = evmProvider(ethTransaction(transfers = listOf(nativeOut(amount = "123456789012345678901"))))
 
         val tx = provider.getTransactions(1, null, null, null).single()
 
@@ -218,46 +222,39 @@ class TurnkeyWalletProviderHistoryTest {
     // ---------- request parameters ----------
 
     @Test
-    fun `evm history request carries session wallet caip2 and clamped limit`() = runBlocking {
-        val history = FakeTurnkeyHistory()
-        val provider = makeProvider(history = history)
+    fun `evm history request carries the session's organization wallet caip2 and clamped limit`() = runBlocking {
+        val (provider, client) = evmProvider()
 
         provider.getTransactions(1, 7, 5, null)
 
-        val call = history.ethCalls.single()
-        assertThat(call.organizationId).isEqualTo(MockTurnkey.DEFAULT_ORG_ID)
-        assertThat(call.sessionPublicKey).isEqualTo("pubkey")
-        assertThat(call.address).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
-        assertThat(call.caip2).isEqualTo("eip155:1")
-        assertThat(call.limit).isEqualTo(12)
+        val request = client.listEthHistoryCalls.single()
+        assertThat(request.organizationId).isEqualTo(MockTurnkey.DEFAULT_ORG_ID)
+        assertThat(request.address).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
+        assertThat(request.caip2).isEqualTo("eip155:1")
+        assertThat(request.paginationOptions?.limit).isEqualTo("12")
+        assertThat(client.listSolHistoryCalls).isEmpty()
     }
 
     @Test
     fun `history limit defaults to 10 and caps at 100`() = runBlocking {
-        val history = FakeTurnkeyHistory()
-        val provider = makeProvider(history = history)
+        val (provider, client) = evmProvider()
 
         provider.getTransactions(1, null, null, null)
         provider.getTransactions(1, 90, 40, null)
 
-        assertThat(history.ethCalls[0].limit).isEqualTo(10)
-        assertThat(history.ethCalls[1].limit).isEqualTo(100)
+        assertThat(client.listEthHistoryCalls[0].paginationOptions?.limit).isEqualTo("10")
+        assertThat(client.listEthHistoryCalls[1].paginationOptions?.limit).isEqualTo("100")
     }
 
     // ---------- ordering and slicing ----------
 
     @Test
     fun `rows sort DESC by default and honor ASC offset and limit`() = runBlocking<Unit> {
-        val history = FakeTurnkeyHistory(
-            ethResponse = TurnkeyEthHistoryResponse(
-                listOf(
-                    ethTransaction(hash = "0xnewest", timestamp = "2026-08-12T12:00:00Z"),
-                    ethTransaction(hash = "0xoldest", timestamp = "2026-08-12T10:00:00Z"),
-                    ethTransaction(hash = "0xmiddle", timestamp = "2026-08-12T11:00:00Z")
-                )
-            )
+        val (provider, _) = evmProvider(
+            ethTransaction(hash = "0xnewest", timestamp = "2026-08-12T12:00:00Z"),
+            ethTransaction(hash = "0xoldest", timestamp = "2026-08-12T10:00:00Z"),
+            ethTransaction(hash = "0xmiddle", timestamp = "2026-08-12T11:00:00Z")
         )
-        val provider = makeProvider(history = history)
 
         val desc = provider.getTransactions(1, null, null, null)
         assertThat(desc.map { it.hash }).containsExactly("0xnewest", "0xmiddle", "0xoldest").inOrder()
@@ -271,18 +268,40 @@ class TurnkeyWalletProviderHistoryTest {
 
     @Test
     fun `offset timestamps with explicit zone parse for sorting`() = runBlocking {
-        val history = FakeTurnkeyHistory(
-            ethResponse = TurnkeyEthHistoryResponse(
-                listOf(
-                    ethTransaction(hash = "0xolder", timestamp = "2026-08-12T10:00:00+00:00"),
-                    ethTransaction(hash = "0xnewer", timestamp = "2026-08-12T11:00:00+00:00")
-                )
-            )
+        val (provider, _) = evmProvider(
+            ethTransaction(hash = "0xolder", timestamp = "2026-08-12T10:00:00+00:00"),
+            ethTransaction(hash = "0xnewer", timestamp = "2026-08-12T11:00:00+00:00")
         )
-        val provider = makeProvider(history = history)
 
         val desc = provider.getTransactions(1, null, null, null)
         assertThat(desc.map { it.hash }).containsExactly("0xnewer", "0xolder").inOrder()
+    }
+
+    @Test
+    fun `unparsable timestamp sorts newest so the row stays on the first page`() = runBlocking<Unit> {
+        val (provider, _) = evmProvider(
+            ethTransaction(hash = "0xmined", timestamp = "2026-08-12T12:00:00Z"),
+            ethTransaction(hash = "0xodd", timestamp = "not-a-timestamp")
+        )
+
+        val firstPage = provider.getTransactions(1, 1, null, null)
+
+        assertThat(firstPage.single().hash).isEqualTo("0xodd")
+        assertThat(firstPage.single().timestamp).isEqualTo("not-a-timestamp")
+    }
+
+    @Test
+    fun `rows sharing a timestamp keep API order under DESC and reverse under ASC`() = runBlocking<Unit> {
+        val (provider, _) = evmProvider(
+            ethTransaction(hash = "0xfirstListed", timestamp = "2026-08-12T10:00:00Z"),
+            ethTransaction(hash = "0xsecondListed", timestamp = "2026-08-12T10:00:00Z")
+        )
+
+        val desc = provider.getTransactions(1, null, null, RainTransactionOrder.DESC)
+        assertThat(desc.map { it.hash }).containsExactly("0xfirstListed", "0xsecondListed").inOrder()
+
+        val asc = provider.getTransactions(1, null, null, RainTransactionOrder.ASC)
+        assertThat(asc.map { it.hash }).containsExactly("0xsecondListed", "0xfirstListed").inOrder()
     }
 
     // ---------- Solana ----------
@@ -290,63 +309,44 @@ class TurnkeyWalletProviderHistoryTest {
     @Test
     fun `solana history maps signature native SOL and SPL rows`() = runBlocking {
         val wallet = MockTurnkey.DEFAULT_SOLANA_ADDRESS
-        val caip2Devnet = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
-        val history = FakeTurnkeyHistory(
-            solResponse = TurnkeySolHistoryResponse(
-                listOf(
-                    TurnkeySolHistoryTransaction(
-                        signature = "5solSig",
-                        block = TurnkeyHistoryBlock(number = "9", timestamp = "2026-08-12T11:00:00Z"),
-                        status = "FINALIZED",
-                        feePayer = wallet,
-                        transfers = listOf(
-                            TurnkeyHistoryTransfer(
-                                direction = "OUT",
-                                asset = TurnkeyHistoryAsset(
-                                    caip19 = "$caip2Devnet/slip44:501",
-                                    symbol = "SOL",
-                                    decimals = 9
-                                ),
-                                amount = "1000000000",
-                                counterparty = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
-                            )
-                        ),
-                        turnkey = TurnkeyHistoryOrigin(sponsored = false)
-                    ),
-                    TurnkeySolHistoryTransaction(
-                        signature = "5splSig",
-                        block = TurnkeyHistoryBlock(number = "8", timestamp = "2026-08-12T10:00:00Z"),
-                        status = "CONFIRMED",
-                        feePayer = wallet,
-                        transfers = listOf(
-                            TurnkeyHistoryTransfer(
-                                direction = "IN",
-                                asset = TurnkeyHistoryAsset(
-                                    caip19 = "$caip2Devnet/token:MintAddr111",
-                                    symbol = "USDC",
-                                    decimals = 6
-                                ),
-                                amount = "2500000",
-                                counterparty = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
-                            )
-                        )
+        val (provider, client) = solanaProvider(
+            solTransaction(
+                signature = "5solSig",
+                timestamp = "2026-08-12T11:00:00Z",
+                blockNumber = "9",
+                status = "FINALIZED",
+                transfers = listOf(
+                    transfer(
+                        direction = "OUT",
+                        asset = asset("$caip2Devnet/slip44:501", "SOL", 9),
+                        amount = "1000000000",
+                        counterparty = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
+                    )
+                ),
+                sponsored = false
+            ),
+            solTransaction(
+                signature = "5splSig",
+                timestamp = "2026-08-12T10:00:00Z",
+                blockNumber = "8",
+                status = "CONFIRMED",
+                transfers = listOf(
+                    transfer(
+                        direction = "IN",
+                        asset = asset("$caip2Devnet/token:MintAddr111", "USDC", 6),
+                        amount = "2500000",
+                        counterparty = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
                     )
                 )
             )
         )
-        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()))
-        val provider = makeProvider(
-            turnkey = turnkey,
-            history = history,
-            rpcEndpoints = mapOf(RainChain.SOLANA_DEVNET to "https://sol.example/rpc")
-        )
 
         val txs = provider.getTransactions(RainChain.SOLANA_DEVNET, null, null, null)
 
-        val call = history.solCalls.single()
-        assertThat(call.address).isEqualTo(wallet)
-        assertThat(call.caip2).isEqualTo(caip2Devnet)
-        assertThat(history.ethCalls).isEmpty()
+        val request = client.listSolHistoryCalls.single()
+        assertThat(request.address).isEqualTo(wallet)
+        assertThat(request.caip2).isEqualTo(caip2Devnet)
+        assertThat(client.listEthHistoryCalls).isEmpty()
 
         val native = txs[0]
         assertThat(native.hash).isEqualTo("5solSig")
@@ -370,17 +370,13 @@ class TurnkeyWalletProviderHistoryTest {
 
     @Test
     fun `erc721 transfer maps the collection address and erc721 category`() = runBlocking<Unit> {
-        val nftIn = TurnkeyHistoryTransfer(
+        val nftIn = transfer(
             direction = "IN",
-            asset = TurnkeyHistoryAsset(caip19 = "eip155:1/erc721:0xNftContract/1234", symbol = "COOL"),
+            asset = asset("eip155:1/erc721:0xNftContract/1234", "COOL", 0),
             amount = "1",
             counterparty = "0xminter"
         )
-        val provider = makeProvider(
-            history = FakeTurnkeyHistory(
-                ethResponse = TurnkeyEthHistoryResponse(listOf(ethTransaction(transfers = listOf(nftIn))))
-            )
-        )
+        val (provider, _) = evmProvider(ethTransaction(transfers = listOf(nftIn)))
 
         val tx = provider.getTransactions(1, null, null, null).single()
 
@@ -389,23 +385,17 @@ class TurnkeyWalletProviderHistoryTest {
     }
 
     @Test
-    fun `amount without decimals keeps value null and rawValue set`() = runBlocking<Unit> {
-        val unknownScale = TurnkeyHistoryTransfer(
-            direction = "OUT",
-            asset = TurnkeyHistoryAsset(caip19 = "eip155:1/erc20:0xtoken", symbol = "MYS"),
-            amount = "12345",
-            counterparty = "0xrecipient"
-        )
-        val provider = makeProvider(
-            history = FakeTurnkeyHistory(
-                ethResponse = TurnkeyEthHistoryResponse(listOf(ethTransaction(transfers = listOf(unknownScale))))
-            )
-        )
+    fun `transfer without an asset keeps value null and rawValue set`() = runBlocking<Unit> {
+        val unknownAsset = transfer(direction = "OUT", asset = null, amount = "12345", counterparty = "0xrecipient")
+        val (provider, _) = evmProvider(ethTransaction(transfers = listOf(unknownAsset)))
 
         val tx = provider.getTransactions(1, null, null, null).single()
 
         assertThat(tx.value).isNull()
+        assertThat(tx.decimals).isNull()
+        assertThat(tx.asset).isNull()
         assertThat(tx.rawValue).isEqualTo("12345")
+        assertThat(tx.category).isEqualTo(RainTransactionCategory.External)
     }
 
     @Test
@@ -413,17 +403,15 @@ class TurnkeyWalletProviderHistoryTest {
         val swap = ethTransaction(
             transfers = listOf(
                 nativeOut(amount = "1000000000000000000"),
-                TurnkeyHistoryTransfer(
+                transfer(
                     direction = "IN",
-                    asset = TurnkeyHistoryAsset(caip19 = "eip155:1/erc20:0xweth", symbol = "WETH", decimals = 18),
+                    asset = asset("eip155:1/erc20:0xweth", "WETH", 18),
                     amount = "300000000000000000",
                     counterparty = "0xpool"
                 )
             )
         )
-        val provider = makeProvider(
-            history = FakeTurnkeyHistory(ethResponse = TurnkeyEthHistoryResponse(listOf(swap)))
-        )
+        val (provider, _) = evmProvider(swap)
 
         val tx = provider.getTransactions(1, null, null, null).single()
 
@@ -433,11 +421,7 @@ class TurnkeyWalletProviderHistoryTest {
 
     @Test
     fun `multi-word status maps to the privy-style camelCase vocabulary`() = runBlocking<Unit> {
-        val provider = makeProvider(
-            history = FakeTurnkeyHistory(
-                ethResponse = TurnkeyEthHistoryResponse(listOf(ethTransaction(status = "EXECUTION_REVERTED")))
-            )
-        )
+        val (provider, _) = evmProvider(ethTransaction(status = "EXECUTION_REVERTED"))
 
         val tx = provider.getTransactions(1, null, null, null).single()
 
@@ -446,13 +430,7 @@ class TurnkeyWalletProviderHistoryTest {
 
     @Test
     fun `fractional timestamp is normalized to second-precision Zulu`() = runBlocking<Unit> {
-        val provider = makeProvider(
-            history = FakeTurnkeyHistory(
-                ethResponse = TurnkeyEthHistoryResponse(
-                    listOf(ethTransaction(timestamp = "2026-08-12T10:00:00.123Z"))
-                )
-            )
-        )
+        val (provider, _) = evmProvider(ethTransaction(timestamp = "2026-08-12T10:00:00.123Z"))
 
         val tx = provider.getTransactions(1, null, null, null).single()
 
@@ -460,76 +438,23 @@ class TurnkeyWalletProviderHistoryTest {
     }
 
     @Test
-    fun `row without a block sorts newest so a pending send stays on the first page`() = runBlocking<Unit> {
-        val pending = TurnkeyEthHistoryTransaction(transactionHash = "0xpending")
-        val provider = makeProvider(
-            history = FakeTurnkeyHistory(
-                ethResponse = TurnkeyEthHistoryResponse(
-                    listOf(
-                        ethTransaction(hash = "0xmined", timestamp = "2026-08-12T12:00:00Z"),
-                        pending
-                    )
-                )
-            )
-        )
-
-        val firstPage = provider.getTransactions(1, 1, null, null)
-
-        assertThat(firstPage.single().hash).isEqualTo("0xpending")
-        assertThat(firstPage.single().timestamp).isNull()
-    }
-
-    @Test
-    fun `rows sharing a timestamp keep API order under DESC and reverse under ASC`() = runBlocking<Unit> {
-        val provider = makeProvider(
-            history = FakeTurnkeyHistory(
-                ethResponse = TurnkeyEthHistoryResponse(
-                    listOf(
-                        ethTransaction(hash = "0xfirstListed", timestamp = "2026-08-12T10:00:00Z"),
-                        ethTransaction(hash = "0xsecondListed", timestamp = "2026-08-12T10:00:00Z")
-                    )
-                )
-            )
-        )
-
-        val desc = provider.getTransactions(1, null, null, RainTransactionOrder.DESC)
-        assertThat(desc.map { it.hash }).containsExactly("0xfirstListed", "0xsecondListed").inOrder()
-
-        val asc = provider.getTransactions(1, null, null, RainTransactionOrder.ASC)
-        assertThat(asc.map { it.hash }).containsExactly("0xsecondListed", "0xfirstListed").inOrder()
-    }
-
-    @Test
     fun `sponsored solana OUT reports the wallet as sender, not the fee payer`() = runBlocking<Unit> {
         val wallet = MockTurnkey.DEFAULT_SOLANA_ADDRESS
-        val caip2Devnet = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
-        val provider = makeProvider(
-            turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana())),
-            history = FakeTurnkeyHistory(
-                solResponse = TurnkeySolHistoryResponse(
-                    listOf(
-                        TurnkeySolHistoryTransaction(
-                            signature = "sponsoredSig",
-                            block = TurnkeyHistoryBlock(timestamp = "2026-08-13T18:31:47Z"),
-                            feePayer = "SponsorFeePayer111",
-                            transfers = listOf(
-                                TurnkeyHistoryTransfer(
-                                    direction = "OUT",
-                                    asset = TurnkeyHistoryAsset(
-                                        caip19 = "$caip2Devnet/slip44:501",
-                                        symbol = "SOL",
-                                        decimals = 9
-                                    ),
-                                    amount = "1000000000",
-                                    counterparty = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
-                                )
-                            ),
-                            turnkey = TurnkeyHistoryOrigin(sponsored = true)
-                        )
+        val (provider, _) = solanaProvider(
+            solTransaction(
+                signature = "sponsoredSig",
+                timestamp = "2026-08-13T18:31:47Z",
+                feePayer = "SponsorFeePayer111",
+                transfers = listOf(
+                    transfer(
+                        direction = "OUT",
+                        asset = asset("$caip2Devnet/slip44:501", "SOL", 9),
+                        amount = "1000000000",
+                        counterparty = MockTurnkey.DEFAULT_SOLANA_RECIPIENT
                     )
-                )
-            ),
-            rpcEndpoints = mapOf(RainChain.SOLANA_DEVNET to "https://sol.example/rpc")
+                ),
+                sponsored = true
+            )
         )
 
         val tx = provider.getTransactions(RainChain.SOLANA_DEVNET, null, null, null).single()
@@ -541,18 +466,14 @@ class TurnkeyWalletProviderHistoryTest {
 
     @Test
     fun `hostile payload shapes render defensively instead of crashing or scaling absurdly`() = runBlocking<Unit> {
-        val hostile = TurnkeyHistoryTransfer(
+        val hostile = transfer(
             direction = "OUT",
-            // Malformed CAIP-19: empty reference before a trailing slash.
-            asset = TurnkeyHistoryAsset(caip19 = "eip155:1/erc20:/", symbol = "EVIL", decimals = 999_999_999),
+            // Malformed CAIP-19: empty reference before a trailing slash; decimals beyond any token.
+            asset = asset("eip155:1/erc20:/", "EVIL", 999_999_999),
             amount = "12345",
             counterparty = "0xrecipient"
         )
-        val provider = makeProvider(
-            history = FakeTurnkeyHistory(
-                ethResponse = TurnkeyEthHistoryResponse(listOf(ethTransaction(transfers = listOf(hostile))))
-            )
-        )
+        val (provider, _) = evmProvider(ethTransaction(transfers = listOf(hostile)))
 
         val tx = provider.getTransactions(1, null, null, null).single()
 
@@ -566,37 +487,17 @@ class TurnkeyWalletProviderHistoryTest {
     @Test
     fun `blank counterparty falls back to transaction addresses instead of empty strings`() = runBlocking<Unit> {
         val wallet = MockTurnkey.DEFAULT_SOLANA_ADDRESS
-        val caip2Devnet = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
 
         // Live shape: Turnkey sends counterparty as "" (not null) when it is unknown.
-        fun transfer(direction: String) = TurnkeyHistoryTransfer(
+        fun blankTransfer(direction: String) = transfer(
             direction = direction,
-            asset = TurnkeyHistoryAsset(caip19 = "$caip2Devnet/token:Mint111", symbol = "USDC", decimals = 6),
+            asset = asset("$caip2Devnet/token:Mint111", "USDC", 6),
             amount = "1000000",
             counterparty = ""
         )
-        val history = FakeTurnkeyHistory(
-            solResponse = TurnkeySolHistoryResponse(
-                listOf(
-                    TurnkeySolHistoryTransaction(
-                        signature = "inSig",
-                        block = TurnkeyHistoryBlock(timestamp = "2026-08-13T18:31:47Z"),
-                        feePayer = wallet,
-                        transfers = listOf(transfer("IN"))
-                    ),
-                    TurnkeySolHistoryTransaction(
-                        signature = "outSig",
-                        block = TurnkeyHistoryBlock(timestamp = "2026-08-13T18:14:24Z"),
-                        feePayer = wallet,
-                        transfers = listOf(transfer("OUT"))
-                    )
-                )
-            )
-        )
-        val provider = makeProvider(
-            turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana())),
-            history = history,
-            rpcEndpoints = mapOf(RainChain.SOLANA_DEVNET to "https://sol.example/rpc")
+        val (provider, _) = solanaProvider(
+            solTransaction(signature = "inSig", timestamp = "2026-08-13T18:31:47Z", transfers = listOf(blankTransfer("IN"))),
+            solTransaction(signature = "outSig", timestamp = "2026-08-13T18:14:24Z", transfers = listOf(blankTransfer("OUT")))
         )
 
         val txs = provider.getTransactions(RainChain.SOLANA_DEVNET, null, null, null)
@@ -626,13 +527,12 @@ class TurnkeyWalletProviderHistoryTest {
                 )
             )
         )
-        val turnkey = MockTurnkey(turnkeyClient = client)
-        val history = FakeTurnkeyHistory(error = TurnkeyHistoryError(403, "feature is not enabled"))
-        val provider = makeProvider(turnkey = turnkey, history = history)
+        client.listEthHistoryError = MockTurnkey.historyHttpError(MockTurnkey.ETH_HISTORY_PATH, 403)
+        val provider = makeProvider(MockTurnkey(turnkeyClient = client))
 
         val txs = provider.getTransactions(1, null, null, null)
 
-        assertThat(history.ethCalls).hasSize(1)
+        assertThat(client.listEthHistoryCalls).hasSize(1)
         assertThat(client.getActivitiesCalls).hasSize(1)
         assertThat(txs.single().uniqueId).isEqualTo("activity-1")
         assertThat(txs.single().value).isEqualTo(BigDecimal("1"))
@@ -640,12 +540,7 @@ class TurnkeyWalletProviderHistoryTest {
 
     @Test
     fun `history success does not touch the activity log`() = runBlocking {
-        val client = MockTurnkeyClient()
-        val turnkey = MockTurnkey(turnkeyClient = client)
-        val history = FakeTurnkeyHistory(
-            ethResponse = TurnkeyEthHistoryResponse(listOf(ethTransaction()))
-        )
-        val provider = makeProvider(turnkey = turnkey, history = history)
+        val (provider, client) = evmProvider(ethTransaction())
 
         provider.getTransactions(1, null, null, null)
 
@@ -655,11 +550,12 @@ class TurnkeyWalletProviderHistoryTest {
     @Test
     fun `missing session throws TokenExpired without consulting the activity log`() {
         val client = MockTurnkeyClient()
-        val provider = makeProvider(turnkey = MockTurnkey(session = null, turnkeyClient = client))
+        val provider = makeProvider(MockTurnkey(session = null, turnkeyClient = client))
 
         assertThrows(RainError.TokenExpired::class.java) {
             runBlocking { provider.getTransactions(1, null, null, null) }
         }
+        assertThat(client.listEthHistoryCalls).isEmpty()
         assertThat(client.getActivitiesCalls).isEmpty()
     }
 }

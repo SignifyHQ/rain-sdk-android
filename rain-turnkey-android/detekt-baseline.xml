@@ -11,7 +11,6 @@
     <ID>DoubleMutabilityForCollection:MockTurnkey.kt:MockTurnkeyClient$/** * Optional queue of status responses returned sequentially by `getSendTransactionStatus`. * When non-empty, each call consumes the next entry; the final entry is reused for * subsequent calls. When empty (default), a single BROADCASTED status containing * [mockTransactionHash] is returned. */ var sendTransactionStatusQueue: MutableList&lt;StatusFixture> = mutableListOf()</ID>
     <ID>ImplicitDefaultLocale:EthereumKeyEncoder.kt:EthereumKeyEncoder$"%02x".format(it)</ID>
     <ID>ImplicitDefaultLocale:SolanaKeyEncoderTest.kt:SolanaKeyEncoderTest$"%02x".format(it)</ID>
-    <ID>InjectDispatcher:TurnkeyHistoryClient.kt:TurnkeyHistoryClient$IO</ID>
     <ID>InjectDispatcher:TurnkeyProvider.kt:TurnkeyProvider$Default</ID>
     <ID>InjectDispatcher:TurnkeyProvider.kt:TurnkeyProvider$IO</ID>
     <ID>LargeClass:TurnkeyManager.kt:TurnkeyManager</ID>
@@ -22,7 +21,6 @@
     <ID>LongParameterList:MockChainReader.kt:MockChainReader</ID>
     <ID>LongParameterList:MockTurnkey.kt:MockTurnkey.Companion$fun makeActivity: V1Activity</ID>
     <ID>LongParameterList:MockTurnkey.kt:MockTurnkey.Companion$fun makeSolanaActivity: V1Activity</ID>
-    <ID>LongParameterList:TurnkeyHistoryClient.kt:TurnkeyHistoryClient$private suspend fun post: String</ID>
     <ID>LongParameterList:TurnkeyManager.kt:TurnkeyManager</ID>
     <ID>LongParameterList:TurnkeyManager.kt:TurnkeyManager$private fun indexedTransaction: RainTransaction</ID>
     <ID>LongParameterList:TurnkeyManager.kt:TurnkeyManager$private suspend fun buildSendTransactionBody: TEthSendTransactionBody</ID>

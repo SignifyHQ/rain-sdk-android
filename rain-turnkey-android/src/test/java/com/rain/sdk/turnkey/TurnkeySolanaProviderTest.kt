@@ -73,8 +73,6 @@ class TurnkeySolanaProviderTest {
             chainReader = evmReader,
             solanaChainReader = solanaReader,
             pollingIntervalMs = 0L,
-            // Indexed history fails like a feature-gated org, so these tests cover the activity path.
-            history = ThrowingTurnkeyHistory,
             sponsorGas = sponsorGas
         )
     }

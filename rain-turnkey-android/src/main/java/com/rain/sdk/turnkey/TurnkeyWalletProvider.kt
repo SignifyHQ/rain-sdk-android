@@ -309,11 +309,11 @@ internal class TurnkeyWalletProvider(
     // ---------- transactions ----------
 
     /**
-     * Transaction history. Turnkey's indexed history queries are the primary source, since they
-     * cover the wallet's full on-chain history (receives and externally-submitted transactions
-     * included). When the indexed query is unavailable, most commonly because the history feature
-     * is not enabled for the Turnkey organization, the provider falls back to the activity log,
-     * which lists only transactions sent through Turnkey.
+     * Transaction history. Turnkey's indexed history queries, issued through the vendor's own
+     * client, are the primary source, since they cover the wallet's full on-chain history (receives
+     * and externally-submitted transactions included). When the indexed query is unavailable, most
+     * commonly because the history feature is not enabled for the Turnkey organization, the
+     * provider falls back to the activity log, which lists only transactions sent through Turnkey.
      */
     override suspend fun getTransactions(
         chainId: Int,
