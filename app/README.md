@@ -28,7 +28,7 @@ screens otherwise need a real provider login to reach.
 
 | Screen | What it exercises |
 |---|---|
-| **Home** | Provider choice (Portal MPC / Rain Wallet / Turnkey / Privy), Rain API credentials, auth, `RainSdk` build, session card, active-wallet dropdown, feature grid, and for a signed-in Rain Wallet session the *Export keys* card (`exportRecoveryPhrase`, `exportPrivateKey`) |
+| **Home** | Provider choice (Rain Wallet / Turnkey / Portal MPC / Privy), Rain API credentials, auth, `RainSdk` build, session card, active-wallet dropdown, feature grid, and for a signed-in Rain Wallet session the *Export keys* card (`exportRecoveryPhrase`, `exportPrivateKey`) |
 | **Wallet & QR** | `getWalletAddress(chainId)` and the collateral deposit address from `fetchCollateralContracts()`, each with a QR bitmap from `generateAddressQRCode(address)` |
 | **Balances** | Collateral balances (Rain API) plus the wallet's own native and token balances (`getBalance`, `getTokenBalances`) |
 | **Send tokens** | `sendNative` and `sendToken` (ERC-20 on EVM, SPL on Solana) |
@@ -61,7 +61,8 @@ methods:
   converted with the device's region before it reaches the SDK, which requires E.164 and removes
   spaces, dots, hyphens and parentheses. The SDK sends and confirms the one-time code, signs up
   (creating one wallet with the Ethereum and Solana accounts) or logs in, and backfills a missing
-  account. A rejected code keeps the challenge for a retry, and *Resend code* requests a new one (the
+  account, then initializes Rain on its own, as it does for a resumed session. A rejected code keeps
+  the challenge for a retry, and *Resend code* requests a new one (the
   channel and the contact stay locked); the code field takes letters on both channels
   because the backend's code format is one shared setting and may be alphanumeric. If the login
   itself succeeded but a later step failed, the sample carries on signed in (Rain's initialization
@@ -76,7 +77,8 @@ methods:
   the public `TurnkeyConfig(turnkey = …)`. The Rain wallet and this tab share one process-wide
   Turnkey singleton, so after one of them has configured it in a launch the other refuses to start
   until the app is relaunched: the Rain wallet with `RainError.InvalidConfig`, this tab with an
-  error from `TurnkeyAuthSample.init`, which probes the singleton before configuring it.
+  error from `TurnkeyAuthSample.init`, which probes the singleton before configuring it. Both tabs
+  stay selectable; the one that did not configure the backend shows a notice saying so.
 - **Export keys** — once the Rain Wallet session is active, an *Export keys* card under the Rain Wallet card reveals the recovery phrase,
   the Ethereum private key or the Solana private key, one at a time, through `exportRecoveryPhrase`
   and `exportPrivateKey`, before *Initialize Rain* as well as after. While a value shows, the window

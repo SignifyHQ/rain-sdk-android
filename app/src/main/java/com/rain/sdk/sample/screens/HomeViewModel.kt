@@ -34,7 +34,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 
-enum class WalletMode { Portal, RainWallet, Turnkey, Privy }
+/** The provider tabs, in display order. */
+enum class WalletMode { RainWallet, Turnkey, Portal, Privy }
 
 /**
  * The channel the sample asks Rain Wallet to send the login code on. The per-channel copy lives here so
@@ -294,21 +295,13 @@ class HomeViewModel(
         }
     }
 
+    /**
+     * Every tab is selectable until Rain is initialized. The Rain Wallet and Turnkey tabs share one
+     * process-wide backend, configured once per launch; the tab that did not configure it shows a
+     * notice ([HomeUiState.sharedBackendNotice]) and its login fails with the SDK's error until a
+     * relaunch, instead of the tab being refused here.
+     */
     fun onModeChanged(mode: WalletMode) {
-        val owner = _state.value.backendOwner
-        // The Rain wallet and the Turnkey tab share one process-wide backend, configured once per
-        // launch; the tab that did not configure it stays unavailable until a relaunch, logged in or not.
-        val blocked = (mode == WalletMode.Turnkey && owner == SessionStore.Provider.RainWallet) ||
-            (mode == WalletMode.RainWallet && owner == SessionStore.Provider.Turnkey)
-        if (blocked) {
-            _state.update {
-                it.copy(
-                    statusText = "That tab is unavailable this launch: the other wallet-backend tab already " +
-                        "configured the shared backend — relaunch the app to switch",
-                )
-            }
-            return
-        }
         SampleLog.d("Home", "mode changed: $mode")
         _state.update { it.copy(mode = mode) }
     }
@@ -594,9 +587,12 @@ class HomeViewModel(
                     it.copy(
                         isLoading = false,
                         rainWalletSessionActive = true,
-                        statusText = "Session active — initialize Rain to continue"
+                        statusText = "Session active — initializing Rain..."
                     )
                 }
+                // No manual step: Rain initializes right away, as it does for a resumed session. A
+                // failure there resets the flow to "Send code", as every init failure does.
+                initializeRainWithRainWallet()
             } catch (e: RainError.InvalidLoginCode) {
                 SampleLog.w("RainWallet.otpVerify", "login code rejected", e)
                 // The SDK guarantees a rejected code leaves the live session untouched, so the
@@ -1296,17 +1292,26 @@ data class HomeUiState(
     /** Portal only: installed by "Update token" or handed to `onSessionTokenNeeded`. */
     val replacementPortalToken: String = "",
 ) {
-    /** True while any provider tab holds a live session; the provider picker locks on it. */
-    val anySessionActive: Boolean
-        get() = rainWalletSessionActive || turnkeySessionActive || privySessionActive
-
     /**
-     * The provider picker is enabled until an SDK is built or a login is in flight, and locked while
-     * any tab holds a live session: the tabs share one backend session, and a switch mid-login would
-     * resume the other tab's user under this tab's name.
+     * The provider picker is enabled until Rain is initialized or a login is in flight; "Clear
+     * session" unlocks it. A tab with a live session stays switchable: each tab's login checks whose
+     * session the shared backend holds before reusing it.
      */
     val providerPickerEnabled: Boolean
-        get() = !isInitialized && !isLoading && !anySessionActive
+        get() = !isInitialized && !isLoading
+
+    /**
+     * Shown on the Rain Wallet and Turnkey cards when the other of the two configured the shared
+     * wallet backend this launch: a login here fails with the SDK's error until the app relaunches.
+     */
+    val sharedBackendNotice: String?
+        get() = when {
+            mode == WalletMode.RainWallet && backendOwner == SessionStore.Provider.Turnkey ->
+                "The Turnkey tab configured the shared wallet backend this launch — relaunch the app to log in here"
+            mode == WalletMode.Turnkey && backendOwner == SessionStore.Provider.RainWallet ->
+                "The Rain Wallet tab configured the shared wallet backend this launch — relaunch the app to log in here"
+            else -> null
+        }
 
     /** The contact the selected Rain Wallet channel sends to. */
     val rainWalletContact: String

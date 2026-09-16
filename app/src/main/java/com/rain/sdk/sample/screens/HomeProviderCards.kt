@@ -7,10 +7,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
+import com.rain.sdk.sample.SessionStore
 import com.rain.sdk.sample.ui.RainButton
 import com.rain.sdk.sample.ui.RainCard
 import com.rain.sdk.sample.ui.RainField
 import com.rain.sdk.sample.ui.RainLabel
+import com.rain.sdk.sample.ui.RainMuted
 import com.rain.sdk.sample.ui.RainSegmentedControl
 import com.rain.sdk.sample.ui.RainStrong
 import com.rain.sdk.sample.ui.theme.RainTheme
@@ -25,9 +27,9 @@ import com.rain.sdk.sample.ui.theme.RainTheme
 @Composable
 internal fun ProviderCard(state: HomeUiState, actions: ProviderCardActions) {
     when (state.mode) {
-        WalletMode.Portal -> PortalCard(state, actions)
         WalletMode.RainWallet -> RainWalletCard(state, actions)
         WalletMode.Turnkey -> TurnkeyCard(state, actions)
+        WalletMode.Portal -> PortalCard(state, actions)
         WalletMode.Privy -> PrivyCard(state, actions)
     }
 }
@@ -152,6 +154,8 @@ private fun RainWalletCard(state: HomeUiState, actions: ProviderCardActions) {
     val codeSent = state.rainWalletOtpSent
     RainCard {
         CardTitle("Rain Wallet", "One-time code by email or SMS")
+        // The Turnkey tab configured the shared backend this launch: a login here fails until a relaunch.
+        state.sharedBackendNotice?.let { RainMuted(it) }
         RainWalletContactFields(
             state,
             actions,
@@ -235,6 +239,7 @@ private fun TurnkeyCard(state: HomeUiState, actions: ProviderCardActions) {
     val locked = state.turnkeyOtpSent || state.turnkeySessionActive
     RainCard {
         CardTitle("Turnkey", "Bring your own: email one-time code")
+        state.sharedBackendNotice?.let { RainMuted(it) }
         RainField(
             label = "Parent organization ID",
             value = state.turnkeyOrgId,
@@ -470,6 +475,12 @@ private fun RainWalletCardPhonePreview() {
 @Composable
 private fun RainWalletCardSendingPreview() {
     ProviderCardPreview(previewRainWalletState.copy(isLoading = true))
+}
+
+@Preview(name = "Rain Wallet · other tab owns the backend", showBackground = true)
+@Composable
+private fun RainWalletCardSharedBackendPreview() {
+    ProviderCardPreview(previewRainWalletState.copy(backendOwner = SessionStore.Provider.Turnkey))
 }
 
 @Preview(name = "Rain Wallet · code sent by email", showBackground = true, heightDp = 700)
