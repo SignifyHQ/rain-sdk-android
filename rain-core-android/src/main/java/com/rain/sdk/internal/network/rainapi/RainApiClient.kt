@@ -170,7 +170,7 @@ internal class RainApiClient(
         val (code, body) = try {
             withContext(Dispatchers.IO) {
                 client.newCall(request).execute().use { response ->
-                    response.code to (response.body?.string() ?: "")
+                    response.code to response.body.string()
                 }
             }
         } catch (e: IOException) {

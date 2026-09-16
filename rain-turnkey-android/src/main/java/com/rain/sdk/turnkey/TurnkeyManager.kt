@@ -1061,7 +1061,7 @@ internal class TurnkeyManager(
                 TSolSendTransactionBody(
                     organizationId = session.organizationId,
                     unsignedTransaction = unsigned.transactionHex,
-                    signWith = from,
+                    signWiths = listOf(from),
                     // Sponsored: Turnkey covers the fee. Turnkey documents the construction rules
                     // for sponsored Solana sends (the System Program among the static keys, one
                     // signer) but not whether its own key replaces the fee payer or it pre-funds

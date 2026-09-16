@@ -33,6 +33,7 @@ import com.turnkey.types.V1Result
 import com.turnkey.types.V1SignRawPayloadResult
 import com.turnkey.types.V1SolSendTransactionIntent
 import com.turnkey.types.V1SolSendTransactionResult
+import com.turnkey.types.V1SolSendTransactionResultV2
 import com.turnkey.types.V1SolanaSendTransactionStatus
 import com.turnkey.types.V1WalletAccount
 import kotlinx.coroutines.CompletableDeferred
@@ -147,14 +148,14 @@ internal class MockTurnkeyClient(
         return TSolSendTransactionResponse(
             activity = MockTurnkey.makeActivity(
                 id = UUID.randomUUID().toString(),
-                from = input.signWith,
-                to = input.signWith,
+                from = input.signWiths.single(),
+                to = input.signWiths.single(),
                 caip2 = input.caip2,
                 value = null,
                 data = null,
                 sendTransactionStatusId = mockSolSendTransactionStatusId
             ),
-            result = V1SolSendTransactionResult(sendTransactionStatusId = mockSolSendTransactionStatusId)
+            result = V1SolSendTransactionResultV2(sendTransactionStatusId = mockSolSendTransactionStatusId)
         )
     }
 
