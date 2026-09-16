@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>AbstractClassCanBeInterface:RainWalletSessionPolicy.kt:RainWalletAuthState$RainWalletAuthState</ID>
+    <ID>AbstractClassCanBeInterface:RainWalletSessionPolicy.kt:RainWalletSessionState$RainWalletSessionState</ID>
+  </CurrentIssues>
+</SmellBaseline>

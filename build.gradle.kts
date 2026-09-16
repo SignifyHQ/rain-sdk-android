@@ -53,11 +53,11 @@ val sdkTestModules =
 // not one occurrence — a new identical catch in a baselined class would pass silently.
 // Captured at root scope: the type-safe `libs` accessor does not resolve inside
 // a `subprojects {}` block (it evaluates against the subproject, which has no catalog).
-val detektFormatting = libs.detekt.formatting
+val detektKtlintWrapper = libs.detekt.ktlint.wrapper
 
 subprojects {
-    apply(plugin = "io.gitlab.arturbosch.detekt")
-    extensions.configure<io.gitlab.arturbosch.detekt.extensions.DetektExtension> {
+    apply(plugin = "dev.detekt")
+    extensions.configure<dev.detekt.gradle.extensions.DetektExtension> {
         buildUponDefaultConfig = true
         config.setFrom(rootProject.files("config/detekt/detekt.yml"))
         baseline = file("detekt-baseline.xml")
@@ -70,7 +70,7 @@ subprojects {
     }
     dependencies {
         // ktlint rules (android_studio code style, see .editorconfig) inside detekt.
-        "detektPlugins"(detektFormatting)
+        "detektPlugins"(detektKtlintWrapper)
     }
 
     // Dokka is a CI check (dokkaHtml leg): with the 1.9.20 defaults it can only fail on a

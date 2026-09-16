@@ -306,6 +306,7 @@ class SolanaRpcClient(
 }
 
 /** The fields of a `getAccountInfo` result the SDK reads. */
+
 /** Raw account bytes plus the program that owns the account. */
 internal data class SolanaRawAccount(
     val ownerProgram: String,

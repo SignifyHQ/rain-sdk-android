@@ -60,7 +60,9 @@ class PrivySolanaProviderTest {
             val transaction = slot<ByteArray>()
             coEvery {
                 manager.signAndSendSolanaTransaction(
-                    capture(transaction), SolanaCluster.DevNet, rpc.url()
+                    capture(transaction),
+                    SolanaCluster.DevNet,
+                    rpc.url()
                 )
             } returns SIGNATURE
 
@@ -92,7 +94,9 @@ class PrivySolanaProviderTest {
         val transaction = slot<ByteArray>()
         coEvery {
             manager.signAndSendSolanaTransaction(
-                capture(transaction), SolanaCluster.DevNet, rpc.url()
+                capture(transaction),
+                SolanaCluster.DevNet,
+                rpc.url()
             )
         } returns SIGNATURE
 
@@ -151,7 +155,9 @@ class PrivySolanaProviderTest {
             val transaction = slot<ByteArray>()
             coEvery {
                 manager.signAndSendSolanaTransaction(
-                    capture(transaction), SolanaCluster.DevNet, rpc.url()
+                    capture(transaction),
+                    SolanaCluster.DevNet,
+                    rpc.url()
                 )
             } returns SIGNATURE
 

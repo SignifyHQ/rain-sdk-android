@@ -17,7 +17,9 @@ android-gradle-plugin = "8.13.2"
 kotlin = "2.2.21"
 dokka = "1.9.20"
 maven-publish = "0.30.0"
-detekt = "1.23.8"
+# The 2.0 line (group dev.detekt) is the first detekt that understands AGP's built-in Kotlin. Pre-release,
+# so pinned exactly.
+detekt = "2.0.0-alpha.6"
 
 # -- Core SDK Dependencies --
 portal-android = "9.2.0"
@@ -123,7 +125,7 @@ androidx-navigation-compose = { module = "androidx.navigation:navigation-compose
 
 # -- Static analysis --
 # ktlint formatting rules wrapped as a detekt ruleset (loaded via detektPlugins).
-detekt-formatting = { module = "io.gitlab.arturbosch.detekt:detekt-formatting", version.ref = "detekt" }
+detekt-ktlint-wrapper = { module = "dev.detekt:detekt-rules-ktlint-wrapper", version.ref = "detekt" }
 
 # -- Testing --
 junit = { module = "junit:junit", version.ref = "junit" }
@@ -146,4 +148,4 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
 vanniktech-maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "maven-publish" }
-detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
+detekt = { id = "dev.detekt", version.ref = "detekt" }

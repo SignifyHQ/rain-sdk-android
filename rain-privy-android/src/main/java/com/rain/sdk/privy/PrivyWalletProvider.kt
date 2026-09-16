@@ -404,8 +404,11 @@ internal class PrivyWalletProvider(
             manager.getTransactions(
                 walletAddress,
                 GetTransactionsParams(
-                    chain = chain.chain, assets = listOf(chain.nativeAsset), tokens = null,
-                    limit = pageLimit, cursor = cursor,
+                    chain = chain.chain,
+                    assets = listOf(chain.nativeAsset),
+                    tokens = null,
+                    limit = pageLimit,
+                    cursor = cursor,
                 ),
             )
         }
@@ -417,8 +420,11 @@ internal class PrivyWalletProvider(
                     manager.getTransactions(
                         walletAddress,
                         GetTransactionsParams(
-                            chain = chain.chain, assets = null, tokens = chunk,
-                            limit = pageLimit, cursor = cursor,
+                            chain = chain.chain,
+                            assets = null,
+                            tokens = chunk,
+                            limit = pageLimit,
+                            cursor = cursor,
                         ),
                     )
                 }
@@ -439,8 +445,10 @@ internal class PrivyWalletProvider(
             manager.getSolanaTransactions(
                 GetTransactionsParams(
                     chain = TransactionChain.Solana.Mainnet,
-                    assets = listOf(SOLANA_NATIVE_ASSET), tokens = null,
-                    limit = pageLimit, cursor = cursor,
+                    assets = listOf(SOLANA_NATIVE_ASSET),
+                    tokens = null,
+                    limit = pageLimit,
+                    cursor = cursor,
                 ),
             )
         }
@@ -452,8 +460,10 @@ internal class PrivyWalletProvider(
                     manager.getSolanaTransactions(
                         GetTransactionsParams(
                             chain = TransactionChain.Solana.Mainnet,
-                            assets = null, tokens = chunk,
-                            limit = pageLimit, cursor = cursor,
+                            assets = null,
+                            tokens = chunk,
+                            limit = pageLimit,
+                            cursor = cursor,
                         ),
                     )
                 }
