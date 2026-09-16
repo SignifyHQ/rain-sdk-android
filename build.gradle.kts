@@ -2,6 +2,9 @@
 plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.android.library) apply false
+    // Applied nowhere: AGP's built-in Kotlin compiles every module. Kept so the Kotlin Gradle plugin at
+    // the catalog's version sits on the build classpath and pins the compiler AGP uses (its own
+    // default is older).
     alias(libs.plugins.kotlin.android) apply false
     alias(libs.plugins.kotlin.serialization) apply false
     alias(libs.plugins.compose.compiler) apply false

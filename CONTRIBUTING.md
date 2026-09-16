@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- JDK 17+ on `PATH` (AGP 8.11). Unit tests fork a JDK 24 launcher; Gradle auto-provisions
+- JDK 17+ on `PATH` (AGP 9.4). Unit tests fork a JDK 24 launcher; Gradle auto-provisions
   it through the foojay resolver, so there is nothing extra to install.
 - Android SDK — point `sdk.dir` at it in `local.properties`, or set `ANDROID_HOME`.
 

@@ -82,8 +82,9 @@ that capability finds no bundled provider.
 
 ## Requirements
 
-- Android SDK 28+ (Turnkey-compatible)
-- Kotlin 2.2.x (the SDK is built with Kotlin 2.2.20)
+- minSdk 28 or higher (the wallet vendors require it)
+- compileSdk 36 or higher (the AARs declare minCompileSdk 36; the SDK itself compiles against 37)
+- Kotlin 2.1 or newer (the SDK is built with Kotlin 2.2.21 and ships Java 11 bytecode)
 
 ## Quick Start
 

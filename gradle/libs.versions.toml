@@ -1,8 +1,9 @@
 [versions]
 # -- Build Config --
 minSdk = "28"
-compileSdk = "36"
-targetSdk = "36"
+compileSdk = "37"
+# Libraries carry no targetSdk of their own since AGP 9; they lint against this level and the sample app targets it.
+targetSdk = "37"
 # Stamped into every published AAR. AGP 9 would otherwise stamp compileSdk, forcing partner apps to 37
 # while Play asks for 36 today.
 minCompileSdk = "36"
@@ -11,7 +12,7 @@ minCompileSdk = "36"
 rain-sdk = "1.0.1"
 
 # -- Plugins --
-android-gradle-plugin = "8.13.2"
+android-gradle-plugin = "9.4.0"
 # Consumers need Kotlin 2.1 or newer to read our metadata (one language release back), the same floor
 # Turnkey already sets. 2.3 would move partners to 2.2 and 2.4 to 2.3; revisit after launch.
 kotlin = "2.2.21"
