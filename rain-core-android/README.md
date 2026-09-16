@@ -5,7 +5,7 @@ The vendor-free core of the modular Rain Android SDK — the "one core" in *one 
 Contains:
 
 - The **`WalletProvider`** port (the capability the SDK needs from any wallet).
-- The **`RainProvider`** descriptor + **`RainSdk`** builder/registry
+- The **`ProviderDescriptor`** + **`RainSdk`** builder/registry
   (`RainSdk.builder().register(…).build()`, resolve via `provider(id)` / `first { }`).
 - The **`Capability`** model and **`ProviderId`**.
 - All Rain domain logic — EIP-712 message building, collateral withdraw flow (EVM and Solana),
@@ -17,10 +17,12 @@ Contains:
 
 `rain-core-android` has **no wallet-vendor dependency at all**. Every vendor SDK lives in its own
 adapter module, so a Portal-only app never fetches Turnkey and a Turnkey-only app never fetches
-Portal.
+Portal. The Rain wallet (`rain-wallet-android`) is a product over the Turnkey adapter: SDK-owned
+login, sessions and key export under Rain's names, with the adapter hidden from a host's compile
+classpath.
 
 Add a wallet provider by depending on its adapter, which pulls core transitively:
-`:rain-turnkey-android`, `:rain-portal-android` or `:rain-privy-android`.
+`:rain-wallet-android`, `:rain-turnkey-android`, `:rain-portal-android` or `:rain-privy-android`.
 
 ```kotlin
 // Bring-your-own Turnkey, from :rain-turnkey-android — the host authenticated turnkeyContext.

@@ -8,8 +8,8 @@ import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
+import com.rain.sdk.provider.ProviderDescriptor
 import com.rain.sdk.provider.ProviderId
-import com.rain.sdk.provider.RainProvider
 import io.mockk.every
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
@@ -41,7 +41,7 @@ class RainSdkAdapterErrorPassthroughTest {
         override suspend fun getWalletAddress(): String = throw failure
     }
 
-    private class StubProvider(private val wallet: WalletProvider) : RainProvider {
+    private class StubProvider(private val wallet: WalletProvider) : ProviderDescriptor {
         override val id = ProviderId("stub-vendor")
         override val capabilities: Set<Capability> = emptySet()
         override suspend fun create(context: ProviderContext): WalletProvider = wallet

@@ -11,6 +11,10 @@ import com.rain.sdk.privy.PrivyProvider
 import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.turnkey.TurnkeyConfig
 import com.rain.sdk.turnkey.TurnkeyProvider
+import com.rain.sdk.wallet.RainProvider
+import com.rain.sdk.wallet.RainWalletConfig
+import com.rain.sdk.wallet.RainWalletSessionPolicy
+import com.turnkey.core.TurnkeyContext
 import io.portalhq.android.Portal
 import io.portalhq.android.storage.mobile.PortalNamespace
 import io.privy.sdk.Privy
@@ -24,7 +28,7 @@ import kotlinx.coroutines.flow.map
 /**
  * App-side holder around the modular [RainSdk].
  *
- * The sample picks a provider at runtime (Portal, Turnkey or Privy), so it builds the [RainSdk] lazily
+ * The sample picks a provider at runtime (Portal, Rain wallet, Turnkey or Privy), so it builds the [RainSdk] lazily
  * once the user supplies credentials and then keeps the resolved [RainClient] here. Screens read
  * the real [client] directly — there is no fake `RainClient` wrapper. [client] is `null` until one
  * of the `initialize*` helpers has run.
@@ -44,6 +48,7 @@ class RainSession {
     /** Typed because the session surface lives on the provider, not on [RainClient]. */
     private sealed interface ActiveProvider {
         data class Portal(val provider: PortalProvider) : ActiveProvider
+        data class RainWallet(val provider: RainProvider) : ActiveProvider
         data class Turnkey(val provider: TurnkeyProvider) : ActiveProvider
         data class Privy(val provider: PrivyProvider) : ActiveProvider
     }
@@ -56,6 +61,7 @@ class RainSession {
         when (active) {
             null -> flowOf(null)
             is ActiveProvider.Portal -> active.provider.sessionState.map { it.toStatus() }
+            is ActiveProvider.RainWallet -> active.provider.sessionState.map { it.toStatus() }
             is ActiveProvider.Turnkey -> active.provider.sessionState.map { it.toStatus() }
             is ActiveProvider.Privy -> active.provider.sessionState.map { it.toStatus() }
         }
@@ -65,6 +71,7 @@ class RainSession {
     suspend fun refreshSession() {
         when (val active = activeProvider.value) {
             null -> throw RainError.SdkNotInitialized()
+            is ActiveProvider.RainWallet -> active.provider.refreshSession()
             is ActiveProvider.Turnkey -> active.provider.refreshSession()
             is ActiveProvider.Privy -> active.provider.refreshSession()
             is ActiveProvider.Portal -> active.provider.refreshSession()
@@ -181,58 +188,57 @@ class RainSession {
     }
 
     /**
-     * The managed Turnkey provider, created by [prepareTurnkey]. Authentication (`sendLoginCode` /
+     * The Rain wallet provider, created by [prepareRainWallet]. Authentication (`sendLoginCode` /
      * `confirmLoginCode`) runs on it before Rain is initialized.
      */
-    var turnkeyProvider: TurnkeyProvider? = null
+    var rainWalletProvider: RainProvider? = null
         private set
 
     /**
-     * Creates the managed Turnkey provider. The SDK owns Turnkey configuration and the one-time-code
-     * flow, email or SMS, from here on — the sample never touches the vendor SDK. The previous
-     * provider is retired first, whether or not it was built into an SDK: two providers must never
-     * share the process-wide vendor context.
+     * Creates the Rain wallet provider. The SDK owns the wallet backend's configuration and the
+     * one-time-code flow, email or SMS, from here on. The previous provider is retired first,
+     * whether or not it was built into an SDK: two providers must never share the process-wide
+     * wallet backend.
      */
-    fun prepareTurnkey(
+    fun prepareRainWallet(
         application: Application,
-        organizationId: String,
-        authProxyConfigId: String,
         onSessionExpired: (() -> Unit)? = null,
-    ): TurnkeyProvider {
-        val previous = turnkeyProvider
+    ): RainProvider {
+        val previous = rainWalletProvider
         if (previous != null) {
-            if ((activeProvider.value as? ActiveProvider.Turnkey)?.provider === previous) {
+            if ((activeProvider.value as? ActiveProvider.RainWallet)?.provider === previous) {
                 closeActiveProvider()
             } else {
                 previous.close()
             }
         }
-        val provider = TurnkeyProvider(
-            TurnkeyConfig(
-                application = application,
-                organizationId = organizationId,
-                authProxyConfigId = authProxyConfigId,
+        // The defaults, spelled out, so every knob of the config runs through the SDK on a device.
+        val provider = RainProvider(
+            application,
+            RainWalletConfig(
+                sessionPolicy = RainWalletSessionPolicy(),
                 onSessionExpired = onSessionExpired,
-            )
+                sponsorGas = true,
+            ),
         )
-        turnkeyProvider = provider
+        rainWalletProvider = provider
         return provider
     }
 
     /**
-     * Builds the SDK with the prepared, authenticated Turnkey provider and resolves the
-     * Turnkey-backed client. When that same provider is already registered (a second tap), the
+     * Builds the SDK with the prepared, authenticated Rain Wallet provider and resolves the
+     * Rain Wallet-backed client. When that same provider is already registered (a second tap), the
      * existing SDK is kept — rebuilding would close the very provider about to be used. Each new
-     * login goes through [prepareTurnkey] first, so the sample otherwise starts from a clean SDK;
+     * login goes through [prepareRainWallet] first, so the sample otherwise starts from a clean SDK;
      * the SDK itself also supports keeping one provider across logins (a fresh login evicts the
      * previous user's cached accounts).
      */
-    suspend fun initializeTurnkey(rpcEndpoints: Map<Int, String>) {
-        val provider = turnkeyProvider
-            ?: throw RainError.InvalidConfig("Call prepareTurnkey before initializeTurnkey")
+    suspend fun initializeRainWallet(rpcEndpoints: Map<Int, String>) {
+        val provider = rainWalletProvider
+            ?: throw RainError.InvalidConfig("Call prepareRainWallet before initializeRainWallet")
         val existing = rain
-        if (existing != null && (activeProvider.value as? ActiveProvider.Turnkey)?.provider === provider) {
-            client = existing.provider(ProviderId.TURNKEY)
+        if (existing != null && (activeProvider.value as? ActiveProvider.RainWallet)?.provider === provider) {
+            client = existing.provider(ProviderId.RAIN)
             return
         }
         closeActiveProvider()
@@ -242,24 +248,45 @@ class RainSession {
             .withSharedConfig()
             .build()
         rain = sdk
-        client = sdk.provider(ProviderId.TURNKEY)
-        activeProvider.value = ActiveProvider.Turnkey(provider)
+        client = sdk.provider(ProviderId.RAIN)
+        activeProvider.value = ActiveProvider.RainWallet(provider)
     }
 
     /**
-     * Managed Turnkey logout: clears the stored session so the next run needs a fresh code.
+     * Managed Rain Wallet logout: clears the stored session so the next run needs a fresh code.
      * Returns false when the SDK refused, so the caller keeps its own state instead of pretending
      * the device is signed out while the session is still on it.
      */
-    suspend fun logoutTurnkey(): Boolean {
-        val provider = turnkeyProvider ?: return true
+    suspend fun logoutRainWallet(): Boolean {
+        val provider = rainWalletProvider ?: return true
         return try {
             provider.logout()
             true
         } catch (e: RainError) {
-            SampleLog.w("Turnkey.session", "logout failed: ${e.message}", e)
+            SampleLog.w("RainWallet.session", "logout failed: ${e.message}", e)
             false
         }
+    }
+
+    /**
+     * Builds the SDK with a Turnkey context the host authenticated itself (bring-your-own mode) and
+     * resolves the Turnkey-backed client. See [TurnkeyAuthSample] for the host-side login.
+     */
+    suspend fun initializeTurnkey(
+        turnkey: TurnkeyContext,
+        rpcEndpoints: Map<Int, String>,
+        onSessionExpired: (() -> Unit)? = null,
+    ) {
+        closeActiveProvider()
+        val provider = TurnkeyProvider(TurnkeyConfig(turnkey = turnkey, onSessionExpired = onSessionExpired))
+        val sdk = RainSdk.builder()
+            .rpcEndpoints(rpcEndpoints)
+            .register(provider)
+            .withSharedConfig()
+            .build()
+        rain = sdk
+        client = sdk.provider(ProviderId.TURNKEY)
+        activeProvider.value = ActiveProvider.Turnkey(provider)
     }
 
     /** Builds the SDK with the Privy provider and resolves the Privy-backed client. */
@@ -296,7 +323,7 @@ class RainSession {
         rain = null
         portal = null
         // Closing the SDK closed a registered provider; a prepared-but-unbuilt one is closed here.
-        turnkeyProvider?.close()
-        turnkeyProvider = null
+        rainWalletProvider?.close()
+        rainWalletProvider = null
     }
 }

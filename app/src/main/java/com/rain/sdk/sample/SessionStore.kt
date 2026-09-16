@@ -11,7 +11,7 @@ import kotlin.reflect.KProperty
 @Suppress("DEPRECATION")
 class SessionStore(context: Context) {
 
-    enum class Provider { Portal, Turnkey, Privy }
+    enum class Provider { Portal, RainWallet, Turnkey, Privy }
 
     // Unavailable store (broken keystore) behaves like a first run instead of crashing.
     private val prefs: SharedPreferences? = runCatching {
@@ -24,6 +24,12 @@ class SessionStore(context: Context) {
         )
     }.onFailure { SampleLog.w("SessionStore", "unavailable: ${it.message}") }.getOrNull()
 
+    init {
+        // Keys an earlier sample wrote for the managed one-time-code flow before it moved to the
+        // Rain Wallet card. Nothing reads them any more, and one holds a phone number, so they go.
+        prefs?.edit()?.remove("turnkeyPhone")?.remove("turnkeyChannel")?.apply()
+    }
+
     var provider: Provider?
         get() = prefs?.getString("provider", null)?.let { name -> Provider.entries.firstOrNull { it.name == name } }
         set(value) { prefs?.edit()?.putString("provider", value?.name)?.apply() }
@@ -34,10 +40,11 @@ class SessionStore(context: Context) {
     var turnkeyOrgId: String by string("turnkeyOrgId")
     var turnkeyAuthProxyConfigId: String by string("turnkeyAuthProxyConfigId")
     var turnkeyEmail: String by string("turnkeyEmail")
-    var turnkeyPhone: String by string("turnkeyPhone")
+    var rainWalletEmail: String by string("rainWalletEmail")
+    var rainWalletPhone: String by string("rainWalletPhone")
 
-    /** Name of the channel the recorded Turnkey session owner logged in on; blank means none recorded. */
-    var turnkeyChannel: String by string("turnkeyChannel")
+    /** Name of the channel the recorded Rain Wallet session owner logged in on; blank means none recorded. */
+    var rainWalletChannel: String by string("rainWalletChannel")
     var privyAppId: String by string("privyAppId")
     var privyAppClientId: String by string("privyAppClientId")
     var privyEmail: String by string("privyEmail")

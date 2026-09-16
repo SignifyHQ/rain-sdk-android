@@ -23,8 +23,8 @@ import com.rain.sdk.models.RainTransactionParameters
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.models.TokenInfo
 import com.rain.sdk.provider.ProviderContext
+import com.rain.sdk.provider.ProviderDescriptor
 import com.rain.sdk.provider.ProviderId
-import com.rain.sdk.provider.RainProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -38,7 +38,7 @@ import java.util.concurrent.ConcurrentHashMap
  * Entry point for the modular Rain SDK.
  *
  * Built via [builder]; the host registers exactly the provider adapters it ships
- * ([com.rain.sdk.provider.RainProvider] descriptors such as `rain-portal-android`'s `PortalProvider`
+ * (each a [com.rain.sdk.provider.ProviderDescriptor], such as `rain-portal-android`'s `PortalProvider`
  * or `rain-turnkey-android`'s `TurnkeyProvider`) and the chains it talks to. Nothing here references a concrete vendor
  * type — a provider whose module isn't on the classpath simply can't be registered.
  *
@@ -59,7 +59,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class RainSdk private constructor(
     private val rpcEndpoints: Map<Int, String>,
-    private val registered: Map<ProviderId, RainProvider>,
+    private val registered: Map<ProviderId, ProviderDescriptor>,
     private val seedTokens: List<TokenInfo>,
     rainApiEnvironment: RainApiEnvironment,
     private val authPullConfig: RainAuthPullConfig?,
@@ -135,7 +135,7 @@ class RainSdk private constructor(
     val providerIds: Set<ProviderId> get() = registered.keys
 
     /** The capability-advertising descriptors the host registered, for capability resolution. */
-    val providers: Collection<RainProvider> get() = registered.values
+    val descriptors: Collection<ProviderDescriptor> get() = registered.values
 
     /**
      * Wallet-agnostic transaction-building helpers (EIP-712 typed-data + withdraw calldata).
@@ -284,7 +284,7 @@ class RainSdk private constructor(
      *
      * @throws RainError.ProviderNotRegistered if no registered provider matches.
      */
-    suspend fun first(predicate: (RainProvider) -> Boolean): RainClient {
+    suspend fun first(predicate: (ProviderDescriptor) -> Boolean): RainClient {
         val match = registered.values.firstOrNull(predicate)
             ?: throw RainError.ProviderNotRegistered(
                 "no registered provider matches the requested capability"
@@ -399,6 +399,11 @@ class RainSdk private constructor(
     }
 
     companion object {
+        /** Why `Builder.build()` refuses the Rain wallet and the Turnkey provider together; one literal so the test cannot drift. */
+        internal const val RAIN_AND_TURNKEY_CONFLICT_MESSAGE: String =
+            "The Rain wallet provider and the Turnkey provider cannot both be registered; " +
+                "they share one process-wide wallet backend"
+
         /** Starts a new [Builder]. */
         fun builder(): Builder = Builder()
     }
@@ -408,7 +413,7 @@ class RainSdk private constructor(
      * builder never names a vendor SDK itself.
      */
     class Builder internal constructor() {
-        private val providers = LinkedHashMap<ProviderId, RainProvider>()
+        private val descriptors = LinkedHashMap<ProviderId, ProviderDescriptor>()
         private var rpcEndpoints: Map<Int, String> = emptyMap()
         private val seedTokens = mutableListOf<TokenInfo>()
         private var rainApiEnvironment: RainApiEnvironment = RainApiEnvironment.Dev
@@ -430,8 +435,8 @@ class RainSdk private constructor(
         }
 
         /** Registers a provider adapter. Re-registering the same id replaces the prior one. */
-        fun register(provider: RainProvider): Builder = apply {
-            providers[provider.id] = provider
+        fun register(descriptor: ProviderDescriptor): Builder = apply {
+            descriptors[descriptor.id] = descriptor
         }
 
         /** Seeds the shared token store with extra token metadata. */
@@ -465,8 +470,9 @@ class RainSdk private constructor(
          * exposing [RainSdk.transactionBuilder] and the Rain API methods; resolving a
          * [RainSdk.provider] still throws [RainError.ProviderNotRegistered] until one is registered.
          *
-         * @throws RainError.InvalidConfig if no RPC endpoints were configured, or the Rain API
-         *   base URL doesn't parse.
+         * @throws RainError.InvalidConfig if no RPC endpoints were configured, the Rain API
+         *   base URL doesn't parse, or both the Rain wallet provider and the Turnkey provider are
+         *   registered: they drive one process-wide wallet backend, so an app uses one or the other.
          */
         fun build(): RainSdk {
             if (rpcEndpoints.isEmpty()) {
@@ -478,14 +484,26 @@ class RainSdk private constructor(
                 )
             }
             validateAuthPullConfig()
+            requireOneWalletBackendProvider()
             return RainSdk(
                 rpcEndpoints = rpcEndpoints.toMap(),
-                registered = providers.toMap(),
+                registered = descriptors.toMap(),
                 seedTokens = seedTokens.toList(),
                 rainApiEnvironment = rainApiEnvironment,
                 authPullConfig = authPullConfig,
                 initialRainApiCredentials = rainApiCredentials,
             )
+        }
+
+        /**
+         * Best-effort: a second RainSdk instance, or a provider that is never registered, can still
+         * collide on the backend, and the backend's own configuration check reports that on the
+         * first authentication call.
+         */
+        private fun requireOneWalletBackendProvider() {
+            if (ProviderId.RAIN in descriptors && ProviderId.TURNKEY in descriptors) {
+                throw RainError.InvalidConfig(RAIN_AND_TURNKEY_CONFLICT_MESSAGE)
+            }
         }
 
         private fun validateAuthPullConfig() {

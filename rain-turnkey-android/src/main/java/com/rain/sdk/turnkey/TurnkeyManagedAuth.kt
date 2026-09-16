@@ -105,8 +105,8 @@ internal object TurnkeyManagedConfigurator {
             }
             vendorInitializedProbe() && !initAttempted -> RainError.InvalidConfig(
                 "The wallet backend was already configured outside the SDK for this app launch; " +
-                    "managed mode has to own that configuration — hand the authenticated TurnkeyContext " +
-                    "to the bring-your-own TurnkeyConfig instead"
+                    "managed mode has to own that configuration; remove the app's own wallet-backend " +
+                    "initialization, or use the bring-your-own provider instead"
             )
             else -> initializeVendor(application, requested)
         }
@@ -451,7 +451,7 @@ internal class TurnkeyManagedAuthController(
         } catch (e: Exception) {
             // The death did not happen, so the host must still hear about a later one.
             coordinator.releaseHostHookSuppression()
-            Timber.w(e, "Rain SDK: could not clear the superseded Turnkey session")
+            Timber.w(e, "Rain SDK: could not clear the superseded wallet session")
         }
     }
 
@@ -466,7 +466,7 @@ internal class TurnkeyManagedAuthController(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Timber.w(e, "Rain SDK: could not clear a stale Turnkey session")
+            Timber.w(e, "Rain SDK: could not clear a stale wallet session")
         }
     }
 

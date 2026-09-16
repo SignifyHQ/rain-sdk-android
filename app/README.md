@@ -9,8 +9,8 @@ connect a wallet, read balances, send tokens, withdraw collateral, and list tran
 
 - Android Studio with its bundled JBR (JDK 21)
 - An emulator or device on API 28+
-- The SDK modules in this repo (`:rain-core-android`, `:rain-turnkey-android`, `:rain-portal-android`,
-  `:rain-privy-android`)
+- The SDK modules this sample uses (`:rain-core-android`, `:rain-wallet-android`, `:rain-turnkey-android`,
+  `:rain-portal-android`, `:rain-privy-android`)
 
 ## How to run
 
@@ -28,7 +28,7 @@ screens otherwise need a real provider login to reach.
 
 | Screen | What it exercises |
 |---|---|
-| **Home** | Provider choice (Portal MPC / Turnkey / Privy), Rain API credentials, auth, `RainSdk` build, session card, active-wallet dropdown, feature grid, and for a signed-in Turnkey session the *Export keys* card (`exportRecoveryPhrase`, `exportPrivateKey`) |
+| **Home** | Provider choice (Portal MPC / Rain Wallet / Turnkey / Privy), Rain API credentials, auth, `RainSdk` build, session card, active-wallet dropdown, feature grid, and for a signed-in Rain Wallet session the *Export keys* card (`exportRecoveryPhrase`, `exportPrivateKey`) |
 | **Wallet & QR** | `getWalletAddress(chainId)` and the collateral deposit address from `fetchCollateralContracts()`, each with a QR bitmap from `generateAddressQRCode(address)` |
 | **Balances** | Collateral balances (Rain API) plus the wallet's own native and token balances (`getBalance`, `getTokenBalances`) |
 | **Send tokens** | `sendNative` and `sendToken` (ERC-20 on EVM, SPL on Solana) |
@@ -49,28 +49,34 @@ chains.
 
 ## Providers
 
-Portal and Privy auth are the host app's responsibility; the SDK only wants an authenticated
-provider handle, and the Privy driver is reference code you would write yourself. Turnkey runs in the
-SDK's managed mode — an internal API behind the `@InternalRainTurnkeyApi` opt-in marker, which the
-sample enables in its Gradle file the way the RainWallet provider will — so the sample calls the
-provider's own auth methods:
+Portal, Turnkey and Privy auth are the host app's responsibility; the SDK only wants an
+authenticated provider handle, and the Turnkey and Privy drivers are reference code you would write
+yourself. The Rain wallet owns its authentication, so the sample calls the provider's own auth
+methods:
 
 - **Portal MPC** — paste a Portal session token on Home and tap *Initialize SDK*.
-- **Turnkey** (managed mode, `RainSession.prepareTurnkey`) — parent organization ID + auth proxy
-  config ID + a contact: an email address, or a phone number when the *Send code by* switch is on
-  Phone. A phone number needs its country code (`+15551234567`); a number typed without one is
+- **Rain Wallet** (`RainSession.prepareRainWallet`) — a contact: an email address, or a phone number
+  when the *Send code by* switch is on Phone. The wallet backend's identity is embedded in the SDK,
+  so there is nothing else to enter. A phone number needs its country code (`+15551234567`); a number typed without one is
   converted with the device's region before it reaches the SDK, which requires E.164 and removes
   spaces, dots, hyphens and parentheses. The SDK sends and confirms the one-time code, signs up
   (creating one wallet with the Ethereum and Solana accounts) or logs in, and backfills a missing
   account. A rejected code keeps the challenge for a retry, and *Resend code* requests a new one (the
-  ids, the channel and the contact stay locked); the code field takes letters on both channels
-  because the auth proxy's code format is one shared setting and may be alphanumeric. If the login
+  channel and the contact stay locked); the code field takes letters on both channels
+  because the backend's code format is one shared setting and may be alphanumeric. If the login
   itself succeeded but a later step failed, the sample carries on signed in (Rain's initialization
   finishes the wallet setup); any other failure restarts from *Send code*. An email login and a phone
-  login by the same person are two different Turnkey accounts. SMS needs SMS OTP enabled on the
-  auth-proxy configuration; in Turnkey's sandbox the test number `+1 999-999-9999` with the code
-  `000000` works once the proxy's code format is numeric and 6 characters.
-- **Export keys** (Turnkey, in both SDK modes, managed here) — once the session is active, an *Export keys* card under the Turnkey card reveals the recovery phrase,
+  login by the same person are two different accounts. SMS needs SMS one-time codes enabled on the
+  backend configuration; in the sandbox the test number `+1 999-999-9999` with the code `000000`
+  works once the code format is numeric and 6 characters.
+- **Turnkey** (bring-your-own, `TurnkeyAuthSample` + `RainSession.initializeTurnkey`) — parent
+  organization ID + auth proxy config ID + email. The sample initializes the Turnkey Kotlin SDK
+  itself, sends and verifies the email one-time code through it, provisions one wallet holding an
+  Ethereum and a Solana account on first sign-in, and hands the authenticated `TurnkeyContext` to
+  the public `TurnkeyConfig(turnkey = …)`. The Rain wallet and this tab share one process-wide
+  Turnkey singleton, so after one of them has configured it in a launch the other fails with
+  `RainError.InvalidConfig` until the app is relaunched.
+- **Export keys** — once the Rain Wallet session is active, an *Export keys* card under the Rain Wallet card reveals the recovery phrase,
   the Ethereum private key or the Solana private key, one at a time, through `exportRecoveryPhrase`
   and `exportPrivateKey`, before *Initialize Rain* as well as after. While a value shows, the window
   carries `FLAG_SECURE`, so screenshots, screen recordings and the recents thumbnail are blank,
@@ -91,7 +97,7 @@ provider's own auth methods:
 Rain API credentials (program `Api-Key` + Rain `userId`) are separate from the wallet provider: they
 authenticate the contract and withdrawal-signature calls, and are entered in their own card on Home.
 The last working values — provider choice, Rain API credentials, and each provider's ids and contact
-(email, or phone and channel for Turnkey) — are kept in an encrypted store (`SessionStore`) so the
+(email, or phone and channel for the Rain wallet) — are kept in an encrypted store (`SessionStore`) so the
 next launch pre-fills them and resumes the session; *Clear session* wipes them.
 
 `RainSession` also registers each demo chain's testnet token (`WalletChain.defaultTokenInfo`) via
@@ -104,7 +110,7 @@ mainnet-only, so naming the testnet tokens keeps the balance screen readable.
 
 - **Portal wallet recovery** is unavailable: the Rain API has no backup-share endpoint yet (it is
   slated to move behind `POST /v1/issuing/users/{userId}/wallet`), so the app has no recovery UI.
-- **Solana history** rows carry the Turnkey activity id rather than a resolvable signature, so those
+- **Solana history** rows carry the wallet backend's activity id rather than a resolvable signature, so those
   rows are not linked to an explorer.
 
 ## Project structure
@@ -114,21 +120,22 @@ app/src/main/java/com/rain/sdk/sample/
 ├── MainActivity.kt          # App entry + Compose navigation host (wrapped in RainTheme)
 ├── RainSampleApp.kt         # Application: session store + vendor init at launch
 ├── Screen.kt                # Route definitions for the seven screens
-├── RainSession.kt           # Holds the built RainSdk + resolved RainClient; prepares the Turnkey provider
+├── RainSession.kt           # Holds the built RainSdk + resolved RainClient; prepares the Rain wallet provider, builds Turnkey
 ├── SessionStore.kt          # Encrypted store of the last working ids and credentials
 ├── WalletSessionStatus.kt   # Provider session state as the Home screen shows it
 ├── WalletChain.kt           # Demo networks, explorer links, address validation
 ├── SampleEnvironment.kt     # Sandbox vs production: Rain API host, Auth pull operator
 ├── SampleLog.kt             # Logging helper
 ├── PrivyAuthSample.kt       # Privy email-OTP + embedded wallets
+├── TurnkeyAuthSample.kt     # Turnkey bring-your-own: init, email OTP, one wallet with both accounts
 ├── ui/                      # Rain design system port (see Design below)
 │   ├── theme/               # RainColors, RainType, RainRadius, RainTheme
 │   └── Rain*.kt             # Buttons, inputs, surfaces, text, scaffold, defaults
 └── screens/                 # One Screen + ViewModel pair per feature, plus shared helpers
     ├── Common.kt            # Address/hash/money formatting, TransactionResultCard
     ├── SecretHandling.kt    # Sensitive clipboard copy with a timed clear, FLAG_SECURE while a secret shows
-    ├── HomeProviderCards.kt # Portal / Turnkey / Privy connection cards
-    ├── HomeExportKeysCard.kt # Export keys card for a signed-in Turnkey session
+    ├── HomeProviderCards.kt # Portal / Rain Wallet / Turnkey / Privy connection cards
+    ├── HomeExportKeysCard.kt # Export keys card for a signed-in Rain Wallet session
     ├── HomeScreen / HomeViewModel
     ├── WalletInfoScreen / WalletInfoViewModel
     ├── BalancesScreen / BalancesViewModel
@@ -171,11 +178,11 @@ provider and the `ProviderId` resolved:
 ```kotlin
 val sdk = RainSdk.builder()
     .rpcEndpoints(rpcEndpoints)                                   // Map<Int, String>
-    .register(turnkeyProvider)                                    // prepared + authenticated first
+    .register(rainWalletProvider)                                 // prepared + authenticated first
     .registerTokens(WalletChain.entries.map { it.defaultTokenInfo })
     .rainApiCredentials(apiKey, userId)                           // optional
     .build()
-val client = sdk.provider(ProviderId.TURNKEY)
+val client = sdk.provider(ProviderId.RAIN)
 ```
 
 For the SDK methods the screens call and their full parameter lists, see

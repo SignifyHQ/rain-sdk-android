@@ -5,8 +5,8 @@ import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
+import com.rain.sdk.provider.ProviderDescriptor
 import com.rain.sdk.provider.ProviderId
-import com.rain.sdk.provider.RainProvider
 import com.turnkey.core.TurnkeyContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,7 +18,7 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** The message every call on a closed provider carries; one literal so the two guards cannot drift. */
-internal const val TURNKEY_PROVIDER_CLOSED_MESSAGE = "This Turnkey provider was closed; build a new one"
+internal const val TURNKEY_PROVIDER_CLOSED_MESSAGE = "This provider was closed; build a new one"
 
 /**
  * Configuration for the Turnkey provider.
@@ -131,7 +131,7 @@ class TurnkeyConfig internal constructor(
 }
 
 /**
- * Turnkey adapter — the registrable [RainProvider] for Turnkey's P256-stamper signer.
+ * Turnkey adapter — the registrable [ProviderDescriptor] for Turnkey's P256-stamper signer.
  *
  * Ships as `rain-turnkey-android` and owns the Turnkey SDK as its own dependency, so an app that
  * registers another provider never links Turnkey. It implements the port and owns all
@@ -146,7 +146,7 @@ class TurnkeyConfig internal constructor(
 class TurnkeyProvider internal constructor(
     private val config: TurnkeyConfig,
     private val contextOverride: TurnkeyContextProtocol?,
-) : RainProvider {
+) : ProviderDescriptor {
 
     constructor(config: TurnkeyConfig) : this(config, contextOverride = null)
 

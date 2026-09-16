@@ -8,7 +8,7 @@ import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 
 /**
  * Vendor-free infrastructure that core builds once from the configured RPC endpoints and hands
- * to each [RainProvider] when it materializes its [com.rain.sdk.internal.provider.WalletProvider].
+ * to each [ProviderDescriptor] when it materializes its [com.rain.sdk.internal.provider.WalletProvider].
  *
  * Adapters use these shared pieces instead of constructing their own, so every provider sees one
  * token store and one RPC view. [tokenStore] and [solanaSupport] are public because every adapter
