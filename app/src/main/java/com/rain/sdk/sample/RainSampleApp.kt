@@ -34,9 +34,17 @@ class RainSampleApp : Application() {
         vendorInit = scope.launch {
             runCatching {
                 when (store.provider) {
-                    // Turnkey needs nothing here: the SDK's managed mode configures itself when the
+                    // The Rain wallet needs nothing here: it configures its backend when the
                     // provider is prepared during resume.
-                    SessionStore.Provider.Turnkey -> Unit
+                    SessionStore.Provider.RainWallet -> Unit
+                    SessionStore.Provider.Turnkey ->
+                        if (store.turnkeyOrgId.isNotBlank() && store.turnkeyAuthProxyConfigId.isNotBlank()) {
+                            TurnkeyAuthSample.init(
+                                this@RainSampleApp,
+                                store.turnkeyOrgId,
+                                store.turnkeyAuthProxyConfigId,
+                            )
+                        }
                     SessionStore.Provider.Privy ->
                         if (store.privyAppId.isNotBlank() && store.privyAppClientId.isNotBlank()) {
                             PrivyAuthSample.init(this@RainSampleApp, store.privyAppId, store.privyAppClientId)

@@ -16,12 +16,13 @@ import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.SessionHealth
 import com.rain.sdk.sample.SessionStore
+import com.rain.sdk.sample.TurnkeyAuthSample
 import com.rain.sdk.sample.WalletChain
 import com.rain.sdk.sample.WalletSessionStatus
-import com.rain.sdk.turnkey.LoginContact
-import com.rain.sdk.turnkey.TurnkeyAuthState
-import com.rain.sdk.turnkey.TurnkeyKeyFamily
-import com.rain.sdk.turnkey.TurnkeyProvider
+import com.rain.sdk.wallet.RainProvider
+import com.rain.sdk.wallet.RainWalletAuthState
+import com.rain.sdk.wallet.RainWalletContact
+import com.rain.sdk.wallet.RainWalletKeyAccount
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,13 +31,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-enum class WalletMode { Portal, Turnkey, Privy }
+enum class WalletMode { Portal, RainWallet, Turnkey, Privy }
 
 /**
- * The channel the sample asks Turnkey to send the login code on. The per-channel copy lives here so
+ * The channel the sample asks Rain Wallet to send the login code on. The per-channel copy lives here so
  * the send and confirm flows stay free of channel branches.
  */
-enum class TurnkeyContactChannel(
+enum class RainWalletContactChannel(
     val label: String,
     val fieldLabel: String,
     val inboxHint: String,
@@ -47,18 +48,18 @@ enum class TurnkeyContactChannel(
 }
 
 /** The values the export card can reveal, one at a time. */
-enum class TurnkeyExportKind(val label: String) {
+enum class RainWalletExportKind(val label: String) {
     RecoveryPhrase("Recovery phrase"),
     EthereumKey("Ethereum private key"),
     SolanaKey("Solana private key"),
 }
 
 /** A revealed export value. `toString` hides the value, so state logging and diffs never print it. */
-data class RevealedSecret(val kind: TurnkeyExportKind, val value: String) {
+data class RevealedSecret(val kind: RainWalletExportKind, val value: String) {
     override fun toString(): String = "RevealedSecret(kind=$kind)"
 }
 
-@Suppress("LargeClass") // one sample ViewModel for three providers' flows; a split is a sample-only refactor
+@Suppress("LargeClass") // one sample ViewModel for four providers' flows; a split is a sample-only refactor
 class HomeViewModel(
     private val app: RainSampleApp
 ) : ViewModel() {
@@ -67,7 +68,7 @@ class HomeViewModel(
     private val store: SessionStore get() = app.store
 
     // Fields start from the last working values; empty on first run.
-    private val _state = MutableStateFlow(seededState(store.provider?.toMode() ?: WalletMode.Turnkey))
+    private val _state = MutableStateFlow(seededState(store.provider?.toMode() ?: WalletMode.RainWallet))
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
     private fun seededState(mode: WalletMode) = HomeUiState(
@@ -75,11 +76,12 @@ class HomeViewModel(
         sessionToken = store.portalSessionToken,
         rainApiKey = store.rainApiKey,
         userId = store.rainUserId,
+        rainWalletChannel = store.rainWalletChannelOrEmail(),
+        rainWalletEmail = store.rainWalletEmail,
+        rainWalletPhone = store.rainWalletPhone,
         turnkeyOrgId = store.turnkeyOrgId,
         turnkeyAuthProxyConfigId = store.turnkeyAuthProxyConfigId,
-        turnkeyChannel = store.turnkeyChannelOrEmail(),
         turnkeyEmail = store.turnkeyEmail,
-        turnkeyPhone = store.turnkeyPhone,
         privyAppId = store.privyAppId,
         privyAppClientId = store.privyAppClientId,
         privyEmail = store.privyEmail,
@@ -116,6 +118,7 @@ class HomeViewModel(
             it.copy(
                 isInitialized = true,
                 isRecovered = true,
+                rainWalletSessionActive = it.mode == WalletMode.RainWallet,
                 turnkeySessionActive = it.mode == WalletMode.Turnkey,
                 privySessionActive = it.mode == WalletMode.Privy,
                 statusText = "Session resumed"
@@ -131,12 +134,16 @@ class HomeViewModel(
             when (provider) {
                 SessionStore.Provider.Portal ->
                     if (_state.value.sessionToken.isNotBlank()) initializeSdk() else resumeFallback("Ready")
+                SessionStore.Provider.RainWallet -> resumeRainWallet()
                 SessionStore.Provider.Turnkey -> {
-                    val s = _state.value
-                    if (s.turnkeyOrgId.isBlank() || s.turnkeyAuthProxyConfigId.isBlank()) {
-                        resumeFallback("Saved Turnkey ids missing — log in again")
+                    app.vendorInit?.join()
+                    if (!TurnkeyAuthSample.hasActiveSession()) {
+                        resumeFallback("Saved Turnkey session expired — log in again")
+                    } else if (!TurnkeyAuthSample.activeSessionEmail().matches(_state.value.turnkeyEmail)) {
+                        resumeFallback("Saved Turnkey session belongs to another email — log in again")
                     } else {
-                        resumeTurnkey(s.turnkeyOrgId, s.turnkeyAuthProxyConfigId)
+                        _state.update { it.copy(turnkeySessionActive = true) }
+                        initializeRainWithTurnkey()
                     }
                 }
                 SessionStore.Provider.Privy -> {
@@ -155,33 +162,33 @@ class HomeViewModel(
     }
 
     /**
-     * Managed mode configures Turnkey itself when the provider is prepared and restores any
+     * The Rain wallet configures its backend when the provider is prepared and restores any
      * persisted session; nothing runs at process launch. The restore can throw — a configuration
-     * conflict, or Turnkey failing to initialize on this device — and an uncaught exception here
+     * conflict, or the backend failing to initialize on this device — and an uncaught exception here
      * would crash every launch, so it falls back to the manual screen instead. A live session with
      * no recorded owner (a confirm that failed after the login itself went through) is not resumed
      * either: logging in again replaces it safely.
      */
-    private suspend fun resumeTurnkey(organizationId: String, authProxyConfigId: String) {
+    private suspend fun resumeRainWallet() {
         try {
-            val turnkey = session.prepareTurnkey(app, organizationId, authProxyConfigId, turnkeyExpiryHandler())
-            turnkey.awaitSessionRestore()
+            val rainWallet = session.prepareRainWallet(app, rainWalletExpiryHandler())
+            rainWallet.awaitSessionRestore()
             when {
                 // A restore that merely has not settled yet is not an expired session.
-                turnkey.currentAuthState() == TurnkeyAuthState.Loading ->
-                    resumeFallback("Still restoring the Turnkey session — try again in a moment")
-                !turnkey.hasActiveSession() ->
-                    resumeFallback("No active Turnkey session — log in again")
-                recordedTurnkeyOwner() == null ->
-                    resumeFallback("Saved Turnkey session has no recorded owner — log in again")
+                rainWallet.currentAuthState() == RainWalletAuthState.Loading ->
+                    resumeFallback("Still restoring the Rain Wallet session — try again in a moment")
+                !rainWallet.hasActiveSession() ->
+                    resumeFallback("No active Rain Wallet session — log in again")
+                recordedRainWalletOwner() == null ->
+                    resumeFallback("Saved Rain Wallet session has no recorded owner — log in again")
                 else -> {
-                    _state.update { it.copy(turnkeySessionActive = true) }
-                    initializeRainWithTurnkey()
+                    _state.update { it.copy(rainWalletSessionActive = true) }
+                    initializeRainWithRainWallet()
                 }
             }
         } catch (e: Exception) {
-            SampleLog.e("Resume", "Turnkey resume failed: ${e.message}", e)
-            resumeFallback("Turnkey resume failed — log in again: ${e.message}")
+            SampleLog.e("Resume", "Rain Wallet resume failed: ${e.message}", e)
+            resumeFallback("Rain Wallet resume failed — log in again: ${e.message}")
         }
     }
 
@@ -259,6 +266,23 @@ class HomeViewModel(
         session.configureRainApi(_state.value.rainApiKey, value)
     }
 
+    fun onRainWalletEmailChanged(value: String) {
+        _state.update { it.copy(rainWalletEmail = value) }
+    }
+
+    fun onRainWalletPhoneChanged(value: String) {
+        _state.update { it.copy(rainWalletPhone = value) }
+    }
+
+    /** Ignored once a code is out: the contact it went to stays frozen until the flow completes or restarts. */
+    fun onRainWalletChannelChanged(channel: RainWalletContactChannel) {
+        _state.update { if (it.rainWalletOtpSent) it else it.copy(rainWalletChannel = channel) }
+    }
+
+    fun onRainWalletOtpCodeChanged(value: String) {
+        _state.update { it.copy(rainWalletOtpCode = value) }
+    }
+
     fun onTurnkeyOrgIdChanged(value: String) {
         _state.update { it.copy(turnkeyOrgId = value) }
     }
@@ -269,15 +293,6 @@ class HomeViewModel(
 
     fun onTurnkeyEmailChanged(value: String) {
         _state.update { it.copy(turnkeyEmail = value) }
-    }
-
-    fun onTurnkeyPhoneChanged(value: String) {
-        _state.update { it.copy(turnkeyPhone = value) }
-    }
-
-    /** Ignored once a code is out: the contact it went to stays frozen until the flow completes or restarts. */
-    fun onTurnkeyChannelChanged(channel: TurnkeyContactChannel) {
-        _state.update { if (it.turnkeyOtpSent) it else it.copy(turnkeyChannel = channel) }
     }
 
     fun onTurnkeyOtpCodeChanged(value: String) {
@@ -389,46 +404,40 @@ class HomeViewModel(
      * the provider (it watches the process-wide session), so Rain is not re-initialized. A
      * deliberate logout never fires it.
      */
-    private fun turnkeyExpiryHandler(): () -> Unit {
+    private fun rainWalletExpiryHandler(): () -> Unit {
         // The provider keeps this for its lifetime, which can outlive the ViewModel: capture the
         // state flow, not `this`.
         val uiState = _state
         return {
-            SampleLog.w("Turnkey.session", "Turnkey session expired, re-auth required")
+            SampleLog.w("RainWallet.session", "Rain Wallet session expired, re-auth required")
             uiState.update {
                 it.copy(
-                    turnkeySessionActive = false,
-                    turnkeyOtpSent = false,
-                    turnkeyOtpCode = "",
-                    turnkeyRevealedSecret = null,
-                    statusText = "Turnkey session expired — log in again"
+                    rainWalletSessionActive = false,
+                    rainWalletOtpSent = false,
+                    rainWalletOtpCode = "",
+                    rainWalletRevealedSecret = null,
+                    statusText = "Rain Wallet session expired — log in again"
                 )
             }
         }
     }
 
-    fun sendTurnkeyOtp(app: Application) {
+    fun sendRainWalletOtp(app: Application) {
         val s = _state.value
-        val channel = s.turnkeyChannel
-        if (s.turnkeyOrgId.isBlank() || s.turnkeyAuthProxyConfigId.isBlank() || s.turnkeyContact.isBlank()) {
-            _state.update {
-                it.copy(statusText = "Org ID, Auth Proxy Config ID, and ${channel.fieldLabel} are required")
-            }
+        val channel = s.rainWalletChannel
+        if (s.rainWalletContact.isBlank()) {
+            _state.update { it.copy(statusText = "${channel.fieldLabel} is required") }
             return
         }
-        val organizationId = s.turnkeyOrgId.trim()
-        val authProxyConfigId = s.turnkeyAuthProxyConfigId.trim()
-        val resend = s.turnkeyOtpSent
+        val resend = s.rainWalletOtpSent
 
         SampleLog.i(
-            "Turnkey.otpInit",
+            "RainWallet.otpInit",
             (if (resend) "requesting a new login code" else "starting login-code flow") + " channel=${channel.name}"
         )
-        // The ids are saved before the provider is prepared so a relaunch (the only way to change
-        // them) picks up the new values. The contact is saved only after a successful confirm.
-        store.provider = SessionStore.Provider.Turnkey
-        store.turnkeyOrgId = organizationId
-        store.turnkeyAuthProxyConfigId = authProxyConfigId
+        // The provider is recorded before it is prepared so a relaunch resumes it. The contact is
+        // saved only after a successful confirm.
+        store.provider = SessionStore.Provider.RainWallet
         _state.update {
             it.copy(
                 isLoading = true,
@@ -439,12 +448,12 @@ class HomeViewModel(
             try {
                 // Resolved inside the try so a telephony or parsing failure is reported like every
                 // other failure of this flow instead of escaping the click handler.
-                val contact = resolveTurnkeyContact(app, s)
-                SampleLog.i("Turnkey.otpInit", "contact=${channel.mask(contact)}")
-                // A resend reuses the prepared provider: the ids cannot have changed while a code is
-                // out, and the SDK replaces the pending challenge with the new one.
-                val provider = session.turnkeyProvider?.takeIf { resend }
-                    ?: session.prepareTurnkey(app, organizationId, authProxyConfigId, turnkeyExpiryHandler())
+                val contact = resolveRainWalletContact(app, s)
+                SampleLog.i("RainWallet.otpInit", "contact=${channel.mask(contact)}")
+                // A resend reuses the prepared provider; the SDK replaces the pending challenge with
+                // the new one.
+                val provider = session.rainWalletProvider?.takeIf { resend }
+                    ?: session.prepareRainWallet(app, rainWalletExpiryHandler())
                 provider.awaitSessionRestore()
 
                 // The SDK restores a valid session from secure storage. Reuse it only when it
@@ -453,12 +462,12 @@ class HomeViewModel(
                 // session's owner. Any other contact, the same person on the other channel
                 // included, runs the full code flow, which logs in under a fresh session and
                 // leaves the current one untouched until the switch succeeds.
-                if (provider.hasActiveSession() && isRecordedTurnkeyOwner(channel, contact)) {
-                    SampleLog.i("Turnkey.otpInit", "existing session restored for this contact — skipping the code")
+                if (provider.hasActiveSession() && isRecordedRainWalletOwner(channel, contact)) {
+                    SampleLog.i("RainWallet.otpInit", "existing session restored for this contact — skipping the code")
                     _state.update {
                         it.copy(
                             isLoading = false,
-                            turnkeySessionActive = true,
+                            rainWalletSessionActive = true,
                             statusText = "Existing session restored — initialize Rain to continue"
                         )
                     }
@@ -467,81 +476,81 @@ class HomeViewModel(
 
                 _state.update { it.copy(statusText = "Sending login code to ${channel.mask(contact)}...") }
                 provider.sendLoginCode(channel.toLoginContact(contact))
-                SampleLog.i("Turnkey.otpInit", if (resend) "new login code sent" else "login code sent")
+                SampleLog.i("RainWallet.otpInit", if (resend) "new login code sent" else "login code sent")
                 _state.update {
                     // The code went to this contact on this channel: pin both (the field stays
                     // editable while the send is in flight; a converted phone number shows its
                     // E.164 form) and stop treating any live session as this contact's — the
                     // confirm decides whose session it is.
-                    it.withTurnkeyContact(channel, contact).copy(
+                    it.withRainWalletContact(channel, contact).copy(
                         isLoading = false,
-                        turnkeySessionActive = false,
-                        turnkeyOtpSent = true,
-                        turnkeyOtpCode = "",
+                        rainWalletSessionActive = false,
+                        rainWalletOtpSent = true,
+                        rainWalletOtpCode = "",
                         statusText = (if (resend) "New login code sent — " else "Login code sent — ") + channel.inboxHint
                     )
                 }
             } catch (e: Exception) {
-                SampleLog.e("Turnkey.otpInit", "failed: ${e.message}", e)
+                SampleLog.e("RainWallet.otpInit", "failed: ${e.message}", e)
                 _state.update {
                     it.copy(
                         isLoading = false,
-                        statusText = "Turnkey login failed: ${e.message}"
+                        statusText = "Rain Wallet login failed: ${e.message}"
                     )
                 }
             }
         }
     }
 
-    fun verifyTurnkeyOtp() {
+    fun verifyRainWalletOtp() {
         val s = _state.value
-        val provider = session.turnkeyProvider
-        if (!s.turnkeyOtpSent || provider == null) {
+        val provider = session.rainWalletProvider
+        if (!s.rainWalletOtpSent || provider == null) {
             _state.update { it.copy(statusText = "Send a login code first") }
             return
         }
-        if (s.turnkeyOtpCode.isBlank()) {
+        if (s.rainWalletOtpCode.isBlank()) {
             _state.update { it.copy(statusText = "Login code required") }
             return
         }
 
-        SampleLog.i("Turnkey.otpVerify", "confirming login code")
+        SampleLog.i("RainWallet.otpVerify", "confirming login code")
         _state.update { it.copy(isLoading = true, statusText = "Confirming login code...") }
         viewModelScope.launch {
-            val channel = s.turnkeyChannel
-            val contact = s.turnkeyContact.trim()
-            val previousOwner = snapshotTurnkeyOwner()
+            val channel = s.rainWalletChannel
+            val contact = s.rainWalletContact.trim()
+            val previousOwner = snapshotRainWalletOwner()
             val hadSession = provider.hasActiveSession()
             try {
                 // A confirm may switch the device's session to this contact and then fail before it
                 // returns, so the owner recorded for the previous session is forgotten first and
                 // the new one is written only on success: the restored-session checks trust it.
-                forgetTurnkeyOwner()
+                forgetRainWalletOwner()
                 // Sign-up or login, plus EVM + Solana account provisioning — all inside the SDK.
-                provider.confirmLoginCode(s.turnkeyOtpCode.trim())
-                recordTurnkeyOwner(channel, contact)
-                SampleLog.i("Turnkey.otpVerify", "session active")
+                provider.confirmLoginCode(s.rainWalletOtpCode.trim())
+                recordRainWalletOwner(channel, contact)
+                SampleLog.i("RainWallet.otpVerify", "session active")
                 _state.update {
                     it.copy(
                         isLoading = false,
-                        turnkeySessionActive = true,
+                        rainWalletSessionActive = true,
                         statusText = "Session active — initialize Rain to continue"
                     )
                 }
             } catch (e: RainError.InvalidLoginCode) {
-                SampleLog.w("Turnkey.otpVerify", "login code rejected", e)
+                SampleLog.w("RainWallet.otpVerify", "login code rejected", e)
                 // The SDK guarantees a rejected code leaves the live session untouched, so the
                 // previous owner is still the owner.
-                restoreTurnkeyOwner(previousOwner)
+                restoreRainWalletOwner(previousOwner)
                 _state.update {
                     it.copy(
                         isLoading = false,
-                        turnkeyOtpCode = "",
+                        rainWalletOtpCode = "",
                         statusText = "That code was not accepted — check it and try again"
                     )
                 }
             } catch (e: Exception) {
-                onTurnkeyConfirmFailed(provider, channel, contact, hadSession, e)
+                onRainWalletConfirmFailed(provider, channel, contact, hadSession, e)
             }
         }
     }
@@ -553,20 +562,20 @@ class HomeViewModel(
      * (a switch may or may not have happened), so the owner stays unrecorded and the flow restarts
      * from "Send code" — that path always works; a challenge the SDK kept is simply replaced.
      */
-    private fun onTurnkeyConfirmFailed(
-        provider: TurnkeyProvider,
-        channel: TurnkeyContactChannel,
+    private fun onRainWalletConfirmFailed(
+        provider: RainProvider,
+        channel: RainWalletContactChannel,
         contact: String,
         hadSession: Boolean,
         e: Exception,
     ) {
-        SampleLog.e("Turnkey.otpVerify", "failed: ${e.message}", e)
+        SampleLog.e("RainWallet.otpVerify", "failed: ${e.message}", e)
         if (!hadSession && provider.hasActiveSession()) {
-            recordTurnkeyOwner(channel, contact)
+            recordRainWalletOwner(channel, contact)
             _state.update {
                 it.copy(
                     isLoading = false,
-                    turnkeySessionActive = true,
+                    rainWalletSessionActive = true,
                     statusText = "Signed in — wallet setup finishes when Rain initializes (${e.message})"
                 )
             }
@@ -574,8 +583,8 @@ class HomeViewModel(
             _state.update {
                 it.copy(
                     isLoading = false,
-                    turnkeyOtpSent = false,
-                    turnkeyOtpCode = "",
+                    rainWalletOtpSent = false,
+                    rainWalletOtpCode = "",
                     statusText = "Login failed — request a new code: ${e.message}"
                 )
             }
@@ -583,56 +592,56 @@ class HomeViewModel(
     }
 
     /**
-     * Who the device's Turnkey session belongs to, as the sample records it: the channel of the last
+     * Who the device's Rain Wallet session belongs to, as the sample records it: the channel of the last
      * successful login and the contact in that channel's slot. Null when nothing is recorded. The
      * slots double as the prefill for the fields, and an install from before the phone channel
      * recorded only the email, so a blank channel reads as an email owner.
      */
-    private fun recordedTurnkeyOwner(): Pair<TurnkeyContactChannel, String>? {
-        val channel = store.turnkeyChannelOrEmail()
+    private fun recordedRainWalletOwner(): Pair<RainWalletContactChannel, String>? {
+        val channel = store.rainWalletChannelOrEmail()
         val contact = when (channel) {
-            TurnkeyContactChannel.Email -> store.turnkeyEmail
-            TurnkeyContactChannel.Phone -> store.turnkeyPhone
+            RainWalletContactChannel.Email -> store.rainWalletEmail
+            RainWalletContactChannel.Phone -> store.rainWalletPhone
         }.trim()
         return if (contact.isBlank()) null else channel to contact
     }
 
     /** Email compares ignoring case; a phone number compares on its `+` and digits only. */
-    private fun isRecordedTurnkeyOwner(channel: TurnkeyContactChannel, contact: String): Boolean {
-        val (ownerChannel, owner) = recordedTurnkeyOwner() ?: return false
+    private fun isRecordedRainWalletOwner(channel: RainWalletContactChannel, contact: String): Boolean {
+        val (ownerChannel, owner) = recordedRainWalletOwner() ?: return false
         return ownerChannel == channel && when (channel) {
-            TurnkeyContactChannel.Email -> owner.equals(contact, ignoreCase = true)
-            TurnkeyContactChannel.Phone -> owner.phoneKey() == contact.phoneKey()
+            RainWalletContactChannel.Email -> owner.equals(contact, ignoreCase = true)
+            RainWalletContactChannel.Phone -> owner.phoneKey() == contact.phoneKey()
         }
     }
 
-    private fun recordTurnkeyOwner(channel: TurnkeyContactChannel, contact: String) {
-        store.turnkeyChannel = channel.name
+    private fun recordRainWalletOwner(channel: RainWalletContactChannel, contact: String) {
+        store.rainWalletChannel = channel.name
         when (channel) {
-            TurnkeyContactChannel.Email -> store.turnkeyEmail = contact
-            TurnkeyContactChannel.Phone -> store.turnkeyPhone = contact
+            RainWalletContactChannel.Email -> store.rainWalletEmail = contact
+            RainWalletContactChannel.Phone -> store.rainWalletPhone = contact
         }
     }
 
     /** Both slots go blank too, so a blank channel cannot read as a legacy email owner. */
-    private fun forgetTurnkeyOwner() {
-        store.turnkeyChannel = ""
-        store.turnkeyEmail = ""
-        store.turnkeyPhone = ""
+    private fun forgetRainWalletOwner() {
+        store.rainWalletChannel = ""
+        store.rainWalletEmail = ""
+        store.rainWalletPhone = ""
     }
 
-    private data class TurnkeyOwnerSnapshot(val channel: String, val email: String, val phone: String)
+    private data class RainWalletOwnerSnapshot(val channel: String, val email: String, val phone: String)
 
-    private fun snapshotTurnkeyOwner() = TurnkeyOwnerSnapshot(
-        channel = store.turnkeyChannel,
-        email = store.turnkeyEmail,
-        phone = store.turnkeyPhone,
+    private fun snapshotRainWalletOwner() = RainWalletOwnerSnapshot(
+        channel = store.rainWalletChannel,
+        email = store.rainWalletEmail,
+        phone = store.rainWalletPhone,
     )
 
-    private fun restoreTurnkeyOwner(snapshot: TurnkeyOwnerSnapshot) {
-        store.turnkeyChannel = snapshot.channel
-        store.turnkeyEmail = snapshot.email
-        store.turnkeyPhone = snapshot.phone
+    private fun restoreRainWalletOwner(snapshot: RainWalletOwnerSnapshot) {
+        store.rainWalletChannel = snapshot.channel
+        store.rainWalletEmail = snapshot.email
+        store.rainWalletPhone = snapshot.phone
     }
 
     /**
@@ -653,25 +662,25 @@ class HomeViewModel(
     }
 
     /** The string the selected channel sends to, trimmed; a phone number is converted to E.164 first. */
-    private fun resolveTurnkeyContact(app: Application, s: HomeUiState): String = when (s.turnkeyChannel) {
-        TurnkeyContactChannel.Email -> s.turnkeyEmail.trim()
-        TurnkeyContactChannel.Phone -> normalizePhoneNumber(app, s.turnkeyPhone)
+    private fun resolveRainWalletContact(app: Application, s: HomeUiState): String = when (s.rainWalletChannel) {
+        RainWalletContactChannel.Email -> s.rainWalletEmail.trim()
+        RainWalletContactChannel.Phone -> normalizePhoneNumber(app, s.rainWalletPhone)
     }
 
-    fun initializeRainWithTurnkey() {
-        if (!_state.value.turnkeySessionActive) {
+    fun initializeRainWithRainWallet() {
+        if (!_state.value.rainWalletSessionActive) {
             _state.update { it.copy(statusText = "Confirm the login code first") }
             return
         }
-        SampleLog.i("Turnkey.rainInit", "initializing Rain w/ Turnkey (EVM + Solana)")
-        _state.update { it.copy(isLoading = true, statusText = "Initializing Rain with Turnkey...") }
+        SampleLog.i("RainWallet.rainInit", "initializing Rain with the Rain wallet (EVM + Solana)")
+        _state.update { it.copy(isLoading = true, statusText = "Initializing Rain with the Rain wallet...") }
         viewModelScope.launch {
             try {
                 // Accounts were provisioned inside confirmLoginCode (and are re-checked at
                 // resolution); the expiry handler was installed when the provider was prepared.
                 // Every supported chain's RPC goes in so the dropdown can switch between the EVM
                 // and Solana wallets without re-initializing.
-                session.initializeTurnkey(rpcEndpoints = WalletChain.rpcEndpoints)
+                session.initializeRainWallet(rpcEndpoints = WalletChain.rpcEndpoints)
                 val evmAddress = runCatching { session.client?.getWalletAddress(WalletChain.EVM.chainId) }.getOrNull()
                 val solAddress = runCatching {
                     session.client?.getWalletAddress(
@@ -679,21 +688,21 @@ class HomeViewModel(
                     )
                 }.getOrNull()
                 SampleLog.i(
-                    "Turnkey.rainInit",
+                    "RainWallet.rainInit",
                     "success — isInitialized=${session.isInitialized} evm=$evmAddress sol=$solAddress"
                 )
-                persistRainCredentials(SessionStore.Provider.Turnkey)
+                persistRainCredentials(SessionStore.Provider.RainWallet)
                 _state.update {
                     it.copy(
                         isLoading = false,
                         isInitialized = session.isInitialized,
                         isRecovered = true,
-                        statusText = "Rain initialized with Turnkey — wallet ready"
+                        statusText = "Rain initialized with the Rain wallet — wallet ready"
                     )
                 }
             } catch (e: Exception) {
-                SampleLog.e("Turnkey.rainInit", "failed: ${e.message}", e)
-                hideTurnkeySecret(clearClipboard = true)
+                SampleLog.e("RainWallet.rainInit", "failed: ${e.message}", e)
+                hideRainWalletSecret(clearClipboard = true)
                 // reset() closes the prepared provider, so the flow restarts from "Send code".
                 session.reset()
                 _state.update {
@@ -701,11 +710,188 @@ class HomeViewModel(
                         isLoading = false,
                         isInitialized = false,
                         sessionStatus = null,
-                        turnkeySessionActive = false,
-                        turnkeyOtpSent = false,
-                        statusText = "Rain Turnkey init failed: ${e.message}"
+                        rainWalletSessionActive = false,
+                        rainWalletOtpSent = false,
+                        statusText = "Rain wallet init failed: ${e.message}"
                     )
                 }
+            }
+        }
+    }
+
+    // ---------- Turnkey, bring-your-own: the sample drives the Turnkey SDK (TurnkeyAuthSample) ----------
+
+    /** The pending one-time code's id and encryption bundle; consumed by [verifyTurnkeyOtp]. */
+    private var turnkeyOtpId: String? = null
+    private var turnkeyOtpEncryptionBundle: String? = null
+
+    fun sendTurnkeyOtp(app: Application) {
+        val s = _state.value
+        if (s.turnkeyOrgId.isBlank() || s.turnkeyAuthProxyConfigId.isBlank() || s.turnkeyEmail.isBlank()) {
+            _state.update { it.copy(statusText = "Organization ID, Auth Proxy Config ID, and Email are required") }
+            return
+        }
+        val email = s.turnkeyEmail.trim()
+        SampleLog.i("Turnkey.otpInit", "starting email-OTP flow email=${SampleLog.maskEmail(email)}")
+        // Saved before init so a relaunch (the only way to change the ids) picks up the new values.
+        store.provider = SessionStore.Provider.Turnkey
+        store.turnkeyOrgId = s.turnkeyOrgId.trim()
+        store.turnkeyAuthProxyConfigId = s.turnkeyAuthProxyConfigId.trim()
+        store.turnkeyEmail = email
+        _state.update { it.copy(isLoading = true, statusText = "Initializing Turnkey...") }
+        viewModelScope.launch {
+            try {
+                TurnkeyAuthSample.init(app, s.turnkeyOrgId.trim(), s.turnkeyAuthProxyConfigId.trim())
+                if (reuseRestoredTurnkeySession(email)) return@launch
+                _state.update { it.copy(statusText = "Sending OTP to ${SampleLog.maskEmail(email)}...") }
+                val otpResult = TurnkeyAuthSample.sendEmailOtp(email)
+                turnkeyOtpId = otpResult.otpId
+                turnkeyOtpEncryptionBundle = otpResult.otpEncryptionTargetBundle
+                SampleLog.i("Turnkey.otpInit", "OTP sent")
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        turnkeyOtpSent = true,
+                        turnkeyOtpCode = "",
+                        statusText = "OTP sent — check your email",
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                SampleLog.e("Turnkey.otpInit", "failed: ${e.message}", e)
+                _state.update { it.copy(isLoading = false, statusText = "Turnkey OTP init failed: ${e.message}") }
+            }
+        }
+    }
+
+    /**
+     * Turnkey restores a valid session from secure storage during init. It is reused only when it
+     * provably belongs to [email]; any other owner is logged out so the code flow runs as [email].
+     */
+    private suspend fun reuseRestoredTurnkeySession(email: String): Boolean {
+        if (!TurnkeyAuthSample.hasActiveSession()) return false
+        val sessionEmail = TurnkeyAuthSample.activeSessionEmail()
+        val sameOwner = sessionEmail != null && sessionEmail.trim().equals(email, ignoreCase = true)
+        if (sameOwner) {
+            SampleLog.i("Turnkey.otpInit", "existing session restored for this email — skipping OTP")
+            _state.update {
+                it.copy(
+                    isLoading = false,
+                    turnkeySessionActive = true,
+                    statusText = "Existing Turnkey session restored — initialize Rain to continue",
+                )
+            }
+        } else {
+            val owner = SampleLog.maskEmail(sessionEmail)
+            val requested = SampleLog.maskEmail(email)
+            SampleLog.w("Turnkey.otpInit", "restored session belongs to $owner, not $requested — logging out")
+            TurnkeyAuthSample.logout()
+        }
+        return sameOwner
+    }
+
+    fun verifyTurnkeyOtp() {
+        val s = _state.value
+        val otpId = turnkeyOtpId
+        val bundle = turnkeyOtpEncryptionBundle
+        if (!s.turnkeyOtpSent || otpId.isNullOrBlank() || bundle.isNullOrBlank()) {
+            _state.update { it.copy(statusText = "Send OTP first") }
+            return
+        }
+        if (s.turnkeyOtpCode.isBlank()) {
+            _state.update { it.copy(statusText = "OTP code required") }
+            return
+        }
+        SampleLog.i("Turnkey.otpVerify", "verifying OTP")
+        _state.update { it.copy(isLoading = true, statusText = "Verifying OTP...") }
+        viewModelScope.launch {
+            try {
+                TurnkeyAuthSample.verifyEmailOtp(otpId, s.turnkeyOtpCode.trim(), bundle, s.turnkeyEmail.trim())
+                turnkeyOtpId = null
+                turnkeyOtpEncryptionBundle = null
+                SampleLog.i(
+                    "Turnkey.otpVerify",
+                    "session active subOrgId=${SampleLog.maskToken(TurnkeyAuthSample.subOrganizationId)}",
+                )
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        turnkeySessionActive = true,
+                        statusText = "Turnkey session active — initialize Rain to continue",
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                SampleLog.e("Turnkey.otpVerify", "failed: ${e.message}", e)
+                _state.update { it.copy(isLoading = false, statusText = "OTP verification failed: ${e.message}") }
+            }
+        }
+    }
+
+    fun initializeRainWithTurnkey() {
+        if (!_state.value.turnkeySessionActive) {
+            _state.update { it.copy(statusText = "Verify OTP first") }
+            return
+        }
+        SampleLog.i("Turnkey.rainInit", "initializing Rain with a host-authenticated Turnkey context")
+        _state.update { it.copy(isLoading = true, statusText = "Initializing Rain with Turnkey...") }
+        viewModelScope.launch {
+            try {
+                if (TurnkeyAuthSample.ensureWallets()) {
+                    _state.update { it.copy(statusText = "Provisioned the Turnkey wallet, initializing Rain...") }
+                }
+                // Every supported chain's RPC goes in so the dropdown can switch between the EVM
+                // and Solana wallets without re-initializing.
+                session.initializeTurnkey(
+                    turnkey = TurnkeyAuthSample.context,
+                    rpcEndpoints = WalletChain.rpcEndpoints,
+                    onSessionExpired = turnkeyExpiryHandler(),
+                )
+                SampleLog.i("Turnkey.rainInit", "success — isInitialized=${session.isInitialized}")
+                persistRainCredentials(SessionStore.Provider.Turnkey)
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        isInitialized = session.isInitialized,
+                        isRecovered = true,
+                        statusText = "Rain initialized with Turnkey — wallet ready",
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                SampleLog.e("Turnkey.rainInit", "failed: ${e.message}", e)
+                session.reset()
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        isInitialized = false,
+                        sessionStatus = null,
+                        statusText = "Rain Turnkey init failed: ${e.message}",
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Expiry hook: restart the code flow. A fresh login revives the provider (it watches the
+     * process-wide Turnkey singleton), so Rain is not re-initialized. Captures the state flow, not
+     * the ViewModel, because the provider can outlive it.
+     */
+    private fun turnkeyExpiryHandler(): () -> Unit {
+        val uiState = _state
+        return {
+            SampleLog.w("Turnkey.session", "Turnkey session expired, re-auth required")
+            uiState.update {
+                it.copy(
+                    turnkeySessionActive = false,
+                    turnkeyOtpSent = false,
+                    turnkeyOtpCode = "",
+                    statusText = "Turnkey session expired — log in again",
+                )
             }
         }
     }
@@ -821,7 +1007,7 @@ class HomeViewModel(
                     _state.update { it.copy(statusText = "Provisioned Privy wallets, initializing Rain...") }
                 }
 
-                // Initialize with every supported chain's RPC (as on Turnkey) so the dropdown can
+                // Initialize with every supported chain's RPC (as on the Rain wallet) so the dropdown can
                 // switch between the EVM and Solana wallets without re-initializing.
                 session.initializePrivy(
                     privy = PrivyAuthSample.privy,
@@ -881,7 +1067,7 @@ class HomeViewModel(
         store.rainUserId = _state.value.userId.trim()
     }
 
-    // ---------- Turnkey key export ----------
+    // ---------- Rain Wallet key export ----------
 
     /**
      * When the sample last put an exported value on the clipboard, on the monotonic clock, or null.
@@ -891,33 +1077,36 @@ class HomeViewModel(
      */
     private var clipboardLoadedAtMs: Long? = null
 
-    fun revealTurnkeySecret(kind: TurnkeyExportKind) {
-        val provider = session.turnkeyProvider
-        if (provider == null || !_state.value.turnkeySessionActive) {
-            _state.update { it.copy(statusText = "Sign in with Turnkey first") }
+    fun revealRainWalletSecret(kind: RainWalletExportKind) {
+        val provider = session.rainWalletProvider
+        if (provider == null || !_state.value.rainWalletSessionActive) {
+            _state.update { it.copy(statusText = "Sign in with the Rain wallet first") }
             return
         }
-        if (_state.value.turnkeyExportInFlight != null) return
-        _state.update { it.copy(turnkeyExportInFlight = kind) }
+        if (_state.value.rainWalletExportInFlight != null) return
+        _state.update { it.copy(rainWalletExportInFlight = kind) }
         viewModelScope.launch {
             try {
                 val value = when (kind) {
-                    TurnkeyExportKind.RecoveryPhrase -> provider.exportRecoveryPhrase()
-                    TurnkeyExportKind.EthereumKey -> provider.exportPrivateKey(TurnkeyKeyFamily.ETHEREUM)
-                    TurnkeyExportKind.SolanaKey -> provider.exportPrivateKey(TurnkeyKeyFamily.SOLANA)
+                    RainWalletExportKind.RecoveryPhrase -> provider.exportRecoveryPhrase()
+                    RainWalletExportKind.EthereumKey -> provider.exportPrivateKey(RainWalletKeyAccount.ETHEREUM)
+                    RainWalletExportKind.SolanaKey -> provider.exportPrivateKey(RainWalletKeyAccount.SOLANA)
                 }
                 // The kind only, so the value never reaches a log line.
-                SampleLog.i("Turnkey.export", "revealed ${kind.name}")
+                SampleLog.i("RainWallet.export", "revealed ${kind.name}")
                 _state.update {
-                    it.copy(turnkeyRevealedSecret = RevealedSecret(kind, value), statusText = "${kind.label} revealed")
+                    it.copy(
+                        rainWalletRevealedSecret = RevealedSecret(kind, value),
+                        statusText = "${kind.label} revealed",
+                    )
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: RainError) {
-                SampleLog.w("Turnkey.export", "export failed ${e.errorCode.code} (${e.javaClass.simpleName})")
+                SampleLog.w("RainWallet.export", "export failed ${e.errorCode.code} (${e.javaClass.simpleName})")
                 _state.update { it.copy(statusText = "Export failed (${e.errorCode.code})") }
             } finally {
-                _state.update { it.copy(turnkeyExportInFlight = null) }
+                _state.update { it.copy(rainWalletExportInFlight = null) }
             }
         }
     }
@@ -930,9 +1119,9 @@ class HomeViewModel(
      * clipboard either way. The session-expiry hook cannot reach this method and relies on that
      * timer.
      */
-    fun hideTurnkeySecret(clearClipboard: Boolean = false) {
-        if (_state.value.turnkeyRevealedSecret != null) {
-            _state.update { it.copy(turnkeyRevealedSecret = null) }
+    fun hideRainWalletSecret(clearClipboard: Boolean = false) {
+        if (_state.value.rainWalletRevealedSecret != null) {
+            _state.update { it.copy(rainWalletRevealedSecret = null) }
         }
         if (!clearClipboard) return
         val loadedAt = clipboardLoadedAtMs ?: return
@@ -940,8 +1129,8 @@ class HomeViewModel(
         if (SystemClock.elapsedRealtime() - loadedAt < CLIPBOARD_CLEAR_MS) clearClipboard(app)
     }
 
-    fun copyTurnkeySecret(context: Context) {
-        val secret = _state.value.turnkeyRevealedSecret ?: return
+    fun copyRainWalletSecret(context: Context) {
+        val secret = _state.value.rainWalletRevealedSecret ?: return
         copySensitiveToClipboard(context.applicationContext, "Rain wallet secret", secret.value)
         clipboardLoadedAtMs = SystemClock.elapsedRealtime()
         _state.update { it.copy(statusText = "Copied. The clipboard clears itself in 60 s") }
@@ -949,20 +1138,21 @@ class HomeViewModel(
 
     fun clearSession() {
         SampleLog.i("Home", "clearing session (provider logout + SDK reset + UI reset)")
-        hideTurnkeySecret(clearClipboard = true)
+        hideRainWalletSecret(clearClipboard = true)
         viewModelScope.launch {
-            // Managed Turnkey logout runs first, while the provider is still open: it clears the
+            // Managed Rain Wallet logout runs first, while the provider is still open: it clears the
             // stored session without firing the re-auth hook. A refused logout keeps everything —
             // the session is still on this device, so the app must not forget whose it is.
-            if (!session.logoutTurnkey()) {
+            if (!session.logoutRainWallet()) {
                 _state.update {
-                    it.copy(statusText = "Turnkey logout failed — the session is still on this device; try again")
+                    it.copy(statusText = "Rain Wallet logout failed — the session is still on this device; try again")
                 }
                 return@launch
             }
             session.reset()
             store.clear()
             // Real logout so the next run requires fresh auth (and resume detects no session).
+            TurnkeyAuthSample.logout()
             PrivyAuthSample.logout()
             _state.update { seededState(it.mode).copy(statusText = "Session cleared") }
         }
@@ -970,22 +1160,26 @@ class HomeViewModel(
 }
 
 data class HomeUiState(
-    val mode: WalletMode = WalletMode.Turnkey,
+    val mode: WalletMode = WalletMode.RainWallet,
     val sessionToken: String = "",
     val rainApiKey: String = "",
     val userId: String = "",
+    val rainWalletChannel: RainWalletContactChannel = RainWalletContactChannel.Email,
+    val rainWalletEmail: String = "",
+    val rainWalletPhone: String = "",
+    val rainWalletOtpSent: Boolean = false,
+    val rainWalletOtpCode: String = "",
+    val rainWalletSessionActive: Boolean = false,
+    /** The export value on screen, one at a time; never written to saved state. */
+    val rainWalletRevealedSecret: RevealedSecret? = null,
+    /** The export row whose reveal is running; the other rows disable meanwhile. */
+    val rainWalletExportInFlight: RainWalletExportKind? = null,
     val turnkeyOrgId: String = "",
     val turnkeyAuthProxyConfigId: String = "",
-    val turnkeyChannel: TurnkeyContactChannel = TurnkeyContactChannel.Email,
     val turnkeyEmail: String = "",
-    val turnkeyPhone: String = "",
     val turnkeyOtpSent: Boolean = false,
     val turnkeyOtpCode: String = "",
     val turnkeySessionActive: Boolean = false,
-    /** The export value on screen, one at a time; never written to saved state. */
-    val turnkeyRevealedSecret: RevealedSecret? = null,
-    /** The export row whose reveal is running; the other rows disable meanwhile. */
-    val turnkeyExportInFlight: TurnkeyExportKind? = null,
     val privyAppId: String = "",
     val privyAppClientId: String = "",
     val privyEmail: String = "",
@@ -1000,35 +1194,35 @@ data class HomeUiState(
     /** Portal only: installed by "Update token" or handed to `onSessionTokenNeeded`. */
     val replacementPortalToken: String = "",
 ) {
-    /** The contact the selected Turnkey channel sends to. */
-    val turnkeyContact: String
-        get() = when (turnkeyChannel) {
-            TurnkeyContactChannel.Email -> turnkeyEmail
-            TurnkeyContactChannel.Phone -> turnkeyPhone
+    /** The contact the selected Rain Wallet channel sends to. */
+    val rainWalletContact: String
+        get() = when (rainWalletChannel) {
+            RainWalletContactChannel.Email -> rainWalletEmail
+            RainWalletContactChannel.Phone -> rainWalletPhone
         }
 
     /**
      * Pins the channel and its field to what the code went to. The channel is pinned too because
      * the switch can be flipped while a send is in flight; confirm reads both from this state.
      */
-    fun withTurnkeyContact(channel: TurnkeyContactChannel, contact: String): HomeUiState = when (channel) {
-        TurnkeyContactChannel.Email -> copy(turnkeyChannel = channel, turnkeyEmail = contact)
-        TurnkeyContactChannel.Phone -> copy(turnkeyChannel = channel, turnkeyPhone = contact)
+    fun withRainWalletContact(channel: RainWalletContactChannel, contact: String): HomeUiState = when (channel) {
+        RainWalletContactChannel.Email -> copy(rainWalletChannel = channel, rainWalletEmail = contact)
+        RainWalletContactChannel.Phone -> copy(rainWalletChannel = channel, rainWalletPhone = contact)
     }
 }
 
 /** The recorded channel; an install from before the phone channel recorded only the email. */
-private fun SessionStore.turnkeyChannelOrEmail(): TurnkeyContactChannel =
-    TurnkeyContactChannel.entries.firstOrNull { it.name == turnkeyChannel } ?: TurnkeyContactChannel.Email
+private fun SessionStore.rainWalletChannelOrEmail(): RainWalletContactChannel =
+    RainWalletContactChannel.entries.firstOrNull { it.name == rainWalletChannel } ?: RainWalletContactChannel.Email
 
-private fun TurnkeyContactChannel.toLoginContact(contact: String): LoginContact = when (this) {
-    TurnkeyContactChannel.Email -> LoginContact.Email(contact)
-    TurnkeyContactChannel.Phone -> LoginContact.Sms(contact)
+private fun RainWalletContactChannel.toLoginContact(contact: String): RainWalletContact = when (this) {
+    RainWalletContactChannel.Email -> RainWalletContact.Email(contact)
+    RainWalletContactChannel.Phone -> RainWalletContact.Sms(contact)
 }
 
-private fun TurnkeyContactChannel.mask(contact: String): String = when (this) {
-    TurnkeyContactChannel.Email -> SampleLog.maskEmail(contact)
-    TurnkeyContactChannel.Phone -> SampleLog.maskPhone(contact)
+private fun RainWalletContactChannel.mask(contact: String): String = when (this) {
+    RainWalletContactChannel.Email -> SampleLog.maskEmail(contact)
+    RainWalletContactChannel.Phone -> SampleLog.maskPhone(contact)
 }
 
 /** The part of a phone number that identifies it: the leading `+` and the digits. */
@@ -1036,6 +1230,7 @@ private fun String.phoneKey(): String = filter { it == '+' || it.isDigit() }
 
 private fun SessionStore.Provider.toMode(): WalletMode = when (this) {
     SessionStore.Provider.Portal -> WalletMode.Portal
+    SessionStore.Provider.RainWallet -> WalletMode.RainWallet
     SessionStore.Provider.Turnkey -> WalletMode.Turnkey
     SessionStore.Provider.Privy -> WalletMode.Privy
 }

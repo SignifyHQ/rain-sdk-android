@@ -18,7 +18,7 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** The message every call on a closed provider carries; one literal so the two guards cannot drift. */
-internal const val TURNKEY_PROVIDER_CLOSED_MESSAGE = "This Turnkey provider was closed; build a new one"
+internal const val TURNKEY_PROVIDER_CLOSED_MESSAGE = "This provider was closed; build a new one"
 
 /**
  * Configuration for the Turnkey provider.

@@ -332,7 +332,7 @@ internal class TurnkeyWalletProvider(
             // The activity path needs the same session, so falling back would only fail again.
             throw e
         } catch (e: Exception) {
-            Timber.w(e, "Rain SDK: Turnkey indexed history unavailable, falling back to activities")
+            Timber.w(e, "Rain SDK: indexed history unavailable, falling back to activities")
         }
         return if (SolanaChains.isSolanaChain(chainId)) {
             manager.getSolanaTransactionsFromActivities(chainId, limit, offset, order)

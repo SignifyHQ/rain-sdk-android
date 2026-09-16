@@ -399,6 +399,11 @@ class RainSdk private constructor(
     }
 
     companion object {
+        /** Why `Builder.build()` refuses the Rain wallet and the Turnkey provider together; one literal so the test cannot drift. */
+        internal const val RAIN_AND_TURNKEY_CONFLICT_MESSAGE: String =
+            "The Rain wallet provider and the Turnkey provider cannot both be registered; " +
+                "they share one process-wide wallet backend"
+
         /** Starts a new [Builder]. */
         fun builder(): Builder = Builder()
     }
@@ -465,8 +470,9 @@ class RainSdk private constructor(
          * exposing [RainSdk.transactionBuilder] and the Rain API methods; resolving a
          * [RainSdk.provider] still throws [RainError.ProviderNotRegistered] until one is registered.
          *
-         * @throws RainError.InvalidConfig if no RPC endpoints were configured, or the Rain API
-         *   base URL doesn't parse.
+         * @throws RainError.InvalidConfig if no RPC endpoints were configured, the Rain API
+         *   base URL doesn't parse, or both the Rain wallet provider and the Turnkey provider are
+         *   registered: they drive one process-wide wallet backend, so an app uses one or the other.
          */
         fun build(): RainSdk {
             if (rpcEndpoints.isEmpty()) {
@@ -478,6 +484,7 @@ class RainSdk private constructor(
                 )
             }
             validateAuthPullConfig()
+            requireOneWalletBackendProvider()
             return RainSdk(
                 rpcEndpoints = rpcEndpoints.toMap(),
                 registered = descriptors.toMap(),
@@ -486,6 +493,17 @@ class RainSdk private constructor(
                 authPullConfig = authPullConfig,
                 initialRainApiCredentials = rainApiCredentials,
             )
+        }
+
+        /**
+         * Best-effort: a second RainSdk instance, or a provider that is never registered, can still
+         * collide on the backend, and the backend's own configuration check reports that on the
+         * first authentication call.
+         */
+        private fun requireOneWalletBackendProvider() {
+            if (ProviderId.RAIN in descriptors && ProviderId.TURNKEY in descriptors) {
+                throw RainError.InvalidConfig(RAIN_AND_TURNKEY_CONFLICT_MESSAGE)
+            }
         }
 
         private fun validateAuthPullConfig() {

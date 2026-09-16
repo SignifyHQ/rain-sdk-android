@@ -39,7 +39,7 @@ val allowedSkippedTests = setOf(
         ".getLatestNonce uses real network and returns nonce gt 0"
 )
 val sdkTestModules =
-    listOf("rain-core-android", "rain-turnkey-android", "rain-portal-android", "rain-privy-android")
+    listOf("rain-core-android", "rain-turnkey-android", "rain-portal-android", "rain-privy-android", "rain-wallet-android")
 
 // detekt: static analysis on all modules, defaults + config/detekt/detekt.yml overrides.
 // CI runs the type-resolving tasks (`detektMain detektTest`) — the bare `detekt` task has
@@ -92,6 +92,10 @@ val allowedVendorGroups = mapOf(
     "rain-turnkey-android" to setOf("com.turnkey"),
     "rain-portal-android" to setOf("io.portalhq"),
     "rain-privy-android" to setOf("io.privy"),
+    // The Rain wallet wraps the Turnkey adapter, so the vendor SDK is on both of its classpaths by
+    // design. Its neutrality is a property of its public signatures, which this classpath check
+    // does not cover.
+    "rain-wallet-android" to setOf("com.turnkey"),
 )
 require(allowedVendorGroups.values.flatten().all { it in vendorGroupIds }) {
     "allowedVendorGroups names a vendor group missing from vendorGroupIds, " +

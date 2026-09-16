@@ -156,7 +156,7 @@ internal class TurnkeyManager(
                     // than as the vendor's raw refresh-wallets failure.
                     sessions.executeRead { _, _ -> turnkey.refreshWallets() }
                     resolveEthereumWalletAddress(turnkey.wallets)?.let(::cache)
-                        ?: throw RainError.WalletUnavailable("No Ethereum wallet available from Turnkey context")
+                        ?: throw RainError.WalletUnavailable("No Ethereum wallet available from the wallet backend")
                 }
         }
     }
@@ -183,7 +183,7 @@ internal class TurnkeyManager(
                 ?: run {
                     sessions.executeRead { _, _ -> turnkey.refreshWallets() }
                     resolveSolanaWalletAddress(turnkey.wallets)?.let(::cache)
-                        ?: throw RainError.WalletUnavailable("No Solana wallet available from Turnkey context")
+                        ?: throw RainError.WalletUnavailable("No Solana wallet available from the wallet backend")
                 }
         }
     }
@@ -989,7 +989,7 @@ internal class TurnkeyManager(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Timber.w(e, "Rain SDK: Turnkey status read failed after submission; reporting pending")
+                Timber.w(e, "Rain SDK: wallet backend status read failed after submission; reporting pending")
                 throw RainError.TransactionPending(sendTransactionStatusId)
             }
 
@@ -1001,7 +1001,7 @@ internal class TurnkeyManager(
                 normalized.contains("REJECTED") ||
                 status.txError != null ||
                 status.error?.message != null
-            if (failed) throw statusFailure(status, "Turnkey transaction submission failed")
+            if (failed) throw statusFailure(status, "Wallet backend transaction submission failed")
 
             if (attempt + 1 < DEFAULT_POLLING_ATTEMPTS) {
                 delay(pollingIntervalMs)
@@ -1134,7 +1134,7 @@ internal class TurnkeyManager(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Timber.w(e, "Rain SDK: Turnkey Solana status read failed after submission")
+                Timber.w(e, "Rain SDK: wallet backend Solana status read failed after submission")
                 return null
             }
 
@@ -1143,7 +1143,7 @@ internal class TurnkeyManager(
                 status.error?.message != null ||
                 normalized.contains("FAILED") ||
                 normalized.contains("REJECTED")
-            if (failed) throw statusFailure(status, "Turnkey Solana transaction submission failed")
+            if (failed) throw statusFailure(status, "Wallet backend Solana transaction submission failed")
 
             // Turnkey SDK 2.0 populates solana.signature once the tx is Included.
             status.solana?.signature?.takeIf { it.isNotEmpty() }?.let { return it }

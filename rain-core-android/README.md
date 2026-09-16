@@ -17,10 +17,12 @@ Contains:
 
 `rain-core-android` has **no wallet-vendor dependency at all**. Every vendor SDK lives in its own
 adapter module, so a Portal-only app never fetches Turnkey and a Turnkey-only app never fetches
-Portal.
+Portal. The Rain wallet (`rain-wallet-android`) is a product over the Turnkey adapter: SDK-owned
+login, sessions and key export under Rain's names, with the adapter hidden from a host's compile
+classpath.
 
 Add a wallet provider by depending on its adapter, which pulls core transitively:
-`:rain-turnkey-android`, `:rain-portal-android` or `:rain-privy-android`.
+`:rain-wallet-android`, `:rain-turnkey-android`, `:rain-portal-android` or `:rain-privy-android`.
 
 ```kotlin
 // Bring-your-own Turnkey, from :rain-turnkey-android — the host authenticated turnkeyContext.

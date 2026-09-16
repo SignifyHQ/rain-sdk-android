@@ -3,6 +3,7 @@ package com.rain.sdk.sample
 import com.rain.sdk.portal.PortalSessionState
 import com.rain.sdk.privy.PrivySessionState
 import com.rain.sdk.turnkey.TurnkeySessionState
+import com.rain.sdk.wallet.RainWalletSessionState
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -20,7 +21,23 @@ data class WalletSessionStatus(
     val detail: String? = null,
 )
 
-/** Turnkey: JWT-backed, so `Active` carries an expiry. */
+/** Rain wallet: session-backed, so `Active` carries an expiry. */
+fun RainWalletSessionState.toStatus(): WalletSessionStatus = when (this) {
+    is RainWalletSessionState.Loading ->
+        WalletSessionStatus("Restoring session", SessionHealth.Transitional)
+    is RainWalletSessionState.Active ->
+        WalletSessionStatus(
+            label = "Session healthy",
+            health = SessionHealth.Healthy,
+            detail = "Expires at ${formatClock(expiresAtEpochSeconds)}, refreshed by the SDK"
+        )
+    is RainWalletSessionState.Expired ->
+        WalletSessionStatus("Session expired", SessionHealth.Dead, "Log in again")
+    is RainWalletSessionState.Unauthenticated ->
+        WalletSessionStatus("Not signed in", SessionHealth.Dead, "Log in again")
+}
+
+/** Turnkey, bring-your-own: JWT-backed, so `Active` carries an expiry. */
 fun TurnkeySessionState.toStatus(): WalletSessionStatus = when (this) {
     is TurnkeySessionState.Loading ->
         WalletSessionStatus("Restoring session", SessionHealth.Transitional)

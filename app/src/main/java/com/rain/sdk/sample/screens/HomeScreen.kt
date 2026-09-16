@@ -79,18 +79,21 @@ private const val INLINE_DETAIL_MAX_CHARS = 24
 internal val WalletMode.displayName: String
     get() = when (this) {
         WalletMode.Portal -> "Portal MPC"
+        WalletMode.RainWallet -> "Rain Wallet"
         WalletMode.Turnkey -> "Turnkey"
         WalletMode.Privy -> "Privy"
     }
 
-/** "Turnkey · dev@rain.xyz" once connected; the bare provider name where there is no account. */
+/** "Rain Wallet · dev@rain.xyz" once connected; the bare provider name where there is no account. */
 private fun HomeUiState.connectedSubtitle(): String {
     val account = when (mode) {
-        WalletMode.Turnkey -> when (turnkeyChannel) {
-            TurnkeyContactChannel.Email -> turnkeyEmail
+        WalletMode.RainWallet -> when (rainWalletChannel) {
+            RainWalletContactChannel.Email -> rainWalletEmail
             // The header shows up in screenshots, so a phone number is masked.
-            TurnkeyContactChannel.Phone -> if (turnkeyPhone.isBlank()) "" else SampleLog.maskPhone(turnkeyPhone)
+            RainWalletContactChannel.Phone ->
+                if (rainWalletPhone.isBlank()) "" else SampleLog.maskPhone(rainWalletPhone)
         }
+        WalletMode.Turnkey -> turnkeyEmail
         WalletMode.Privy -> privyEmail
         WalletMode.Portal -> ""
     }.trim()
@@ -126,35 +129,14 @@ fun HomeScreen(
             onClearSession = viewModel::clearSession,
         )
     }
-    val providerActions = remember(viewModel, application) {
-        ProviderCardActions(
-            onSessionTokenChanged = viewModel::onSessionTokenChanged,
-            onInitializeSdk = viewModel::initializeSdk,
-            onTurnkeyOrgIdChanged = viewModel::onTurnkeyOrgIdChanged,
-            onTurnkeyAuthProxyConfigIdChanged = viewModel::onTurnkeyAuthProxyConfigIdChanged,
-            onTurnkeyChannelChanged = viewModel::onTurnkeyChannelChanged,
-            onTurnkeyEmailChanged = viewModel::onTurnkeyEmailChanged,
-            onTurnkeyPhoneChanged = viewModel::onTurnkeyPhoneChanged,
-            onTurnkeyOtpCodeChanged = viewModel::onTurnkeyOtpCodeChanged,
-            onSendTurnkeyCode = { viewModel.sendTurnkeyOtp(application) },
-            onVerifyTurnkeyOtp = viewModel::verifyTurnkeyOtp,
-            onInitializeRainWithTurnkey = viewModel::initializeRainWithTurnkey,
-            onPrivyAppIdChanged = viewModel::onPrivyAppIdChanged,
-            onPrivyAppClientIdChanged = viewModel::onPrivyAppClientIdChanged,
-            onPrivyEmailChanged = viewModel::onPrivyEmailChanged,
-            onPrivyOtpCodeChanged = viewModel::onPrivyOtpCodeChanged,
-            onSendPrivyCode = { viewModel.sendPrivyOtp(application) },
-            onVerifyPrivyOtp = viewModel::verifyPrivyOtp,
-            onInitializeRainWithPrivy = viewModel::initializeRainWithPrivy,
-        )
-    }
+    val providerActions = remember(viewModel, application) { ProviderCardActions.bound(viewModel, application) }
 
     val exportActions = remember(viewModel, application) {
         ExportKeysActions(
-            onReveal = viewModel::revealTurnkeySecret,
-            onCopy = { viewModel.copyTurnkeySecret(application) },
-            onHide = { viewModel.hideTurnkeySecret(clearClipboard = true) },
-            onLeave = { viewModel.hideTurnkeySecret() },
+            onReveal = viewModel::revealRainWalletSecret,
+            onCopy = { viewModel.copyRainWalletSecret(application) },
+            onHide = { viewModel.hideRainWalletSecret(clearClipboard = true) },
+            onLeave = { viewModel.hideRainWalletSecret() },
         )
     }
 
@@ -239,7 +221,7 @@ private fun HomeContent(
             RainApiCard(state, actions)
             ProviderCard(state = state, actions = providerActions)
             // Available as soon as the login step is done, before "Initialize Rain".
-            if (state.mode == WalletMode.Turnkey && state.turnkeySessionActive) {
+            if (state.mode == WalletMode.RainWallet && state.rainWalletSessionActive) {
                 ExportKeysCard(state = state, actions = exportActions)
             }
         }
@@ -250,7 +232,7 @@ private fun HomeContent(
         }
 
         if (connected && sessionUsable) {
-            // Turnkey and Privy hold a Solana account; Portal is EVM-only. Force the selection
+            // Rain Wallet, Turnkey and Privy hold a Solana account; Portal is EVM-only. Force the selection
             // back to an EVM chain so Portal never reads/signs on Solana.
             LaunchedEffect(state.mode, selectedChain) {
                 if (state.mode == WalletMode.Portal && selectedChain.isSolana) {
@@ -273,7 +255,7 @@ private fun HomeContent(
             RainLabel("Connection")
             RainApiCard(state, actions)
             ProviderCard(state = state, actions = providerActions)
-            if (state.mode == WalletMode.Turnkey && state.turnkeySessionActive) {
+            if (state.mode == WalletMode.RainWallet && state.rainWalletSessionActive) {
                 ExportKeysCard(state = state, actions = exportActions)
             }
             RainButton(
@@ -374,7 +356,7 @@ private fun ChainSection(
     onChainSelected: (WalletChain) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    // Solana for Turnkey and Privy; Portal is EVM-only.
+    // Solana for Rain Wallet, Turnkey and Privy; Portal is EVM-only.
     val chains = WalletChain.selectable.filter { mode != WalletMode.Portal || !it.isSolana }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         RainLabel("Active wallet")
@@ -444,22 +426,20 @@ private const val PREVIEW_HOME_API_KEY = "rain_sk_live_9f2c4b7a1d8e35604c2fa9b7"
 private const val PREVIEW_HOME_USER_ID = "usr_7HqL2mNp9RtVx4Kd"
 private const val PREVIEW_HOME_PORTAL_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.portal.session.token"
 
-/** A connected Turnkey session: the state Home is in once a provider has logged in. */
-private fun connectedTurnkeyState(
+/** A connected Rain Wallet session: the state Home is in once a provider has logged in. */
+private fun connectedRainWalletState(
     status: WalletSessionStatus = WalletSessionStatus(
         label = "Session healthy",
         health = SessionHealth.Healthy,
         detail = "Expires at 18:42:07, refreshed by the SDK",
     ),
 ) = HomeUiState(
-    mode = WalletMode.Turnkey,
+    mode = WalletMode.RainWallet,
     rainApiKey = PREVIEW_HOME_API_KEY,
     userId = PREVIEW_HOME_USER_ID,
-    turnkeyOrgId = PREVIEW_HOME_TURNKEY_ORG,
-    turnkeyAuthProxyConfigId = PREVIEW_HOME_TURNKEY_PROXY,
-    turnkeyEmail = PREVIEW_HOME_EMAIL,
-    turnkeyOtpSent = true,
-    turnkeySessionActive = true,
+    rainWalletEmail = PREVIEW_HOME_EMAIL,
+    rainWalletOtpSent = true,
+    rainWalletSessionActive = true,
     isInitialized = true,
     isRecovered = true,
     statusText = "Session resumed",
@@ -482,7 +462,31 @@ private fun HomePreview(state: HomeUiState, selectedChain: WalletChain = WalletC
     }
 }
 
-@Preview(name = "Connect · Turnkey", showBackground = true, heightDp = 1250)
+@Preview(name = "Connect · Rain Wallet", showBackground = true, heightDp = 1250)
+@Composable
+private fun HomeConnectRainWalletPreview() {
+    HomePreview(
+        HomeUiState(
+            mode = WalletMode.RainWallet,
+            rainWalletEmail = PREVIEW_HOME_EMAIL,
+        ),
+    )
+}
+
+@Preview(name = "Connect · Rain Wallet by SMS", showBackground = true, heightDp = 1250)
+@Composable
+private fun HomeConnectRainWalletSmsPreview() {
+    HomePreview(
+        HomeUiState(
+            mode = WalletMode.RainWallet,
+            rainWalletChannel = RainWalletContactChannel.Phone,
+            rainWalletPhone = PREVIEW_HOME_PHONE,
+            rainWalletOtpSent = true,
+        ),
+    )
+}
+
+@Preview(name = "Connect · Turnkey, bring your own", showBackground = true, heightDp = 1250)
 @Composable
 private fun HomeConnectTurnkeyPreview() {
     HomePreview(
@@ -491,21 +495,6 @@ private fun HomeConnectTurnkeyPreview() {
             turnkeyOrgId = PREVIEW_HOME_TURNKEY_ORG,
             turnkeyAuthProxyConfigId = PREVIEW_HOME_TURNKEY_PROXY,
             turnkeyEmail = PREVIEW_HOME_EMAIL,
-        ),
-    )
-}
-
-@Preview(name = "Connect · Turnkey by SMS", showBackground = true, heightDp = 1250)
-@Composable
-private fun HomeConnectTurnkeySmsPreview() {
-    HomePreview(
-        HomeUiState(
-            mode = WalletMode.Turnkey,
-            turnkeyOrgId = PREVIEW_HOME_TURNKEY_ORG,
-            turnkeyAuthProxyConfigId = PREVIEW_HOME_TURNKEY_PROXY,
-            turnkeyChannel = TurnkeyContactChannel.Phone,
-            turnkeyPhone = PREVIEW_HOME_PHONE,
-            turnkeyOtpSent = true,
         ),
     )
 }
@@ -534,10 +523,8 @@ private fun HomeConnectPrivyPreview() {
 private fun HomeConnectLoadingPreview() {
     HomePreview(
         HomeUiState(
-            mode = WalletMode.Turnkey,
-            turnkeyOrgId = PREVIEW_HOME_TURNKEY_ORG,
-            turnkeyAuthProxyConfigId = PREVIEW_HOME_TURNKEY_PROXY,
-            turnkeyEmail = PREVIEW_HOME_EMAIL,
+            mode = WalletMode.RainWallet,
+            rainWalletEmail = PREVIEW_HOME_EMAIL,
             isLoading = true,
             statusText = "Sending a one-time code...",
         ),
@@ -547,7 +534,7 @@ private fun HomeConnectLoadingPreview() {
 @Preview(name = "Connected · healthy", showBackground = true, heightDp = 1700)
 @Composable
 private fun HomeConnectedPreview() {
-    HomePreview(connectedTurnkeyState())
+    HomePreview(connectedRainWalletState())
 }
 
 @Preview(name = "Connected · session expired", showBackground = true, heightDp = 1400)
@@ -555,7 +542,7 @@ private fun HomeConnectedPreview() {
 private fun HomeConnectedDeadSessionPreview() {
     // Health Dead hides the chain picker and the feature grid, leaving the session card to explain why.
     HomePreview(
-        connectedTurnkeyState(
+        connectedRainWalletState(
             status = WalletSessionStatus("Session expired", SessionHealth.Dead, "Log in again"),
         ),
     )
@@ -565,7 +552,7 @@ private fun HomeConnectedDeadSessionPreview() {
 @Composable
 private fun HomeConnectedRestoringPreview() {
     HomePreview(
-        connectedTurnkeyState(
+        connectedRainWalletState(
             status = WalletSessionStatus("Restoring session", SessionHealth.Transitional),
         ),
     )
@@ -638,14 +625,14 @@ private fun HomeConnectedPortalUnknownPreview() {
     )
 }
 
-@Preview(name = "Connected · Turnkey by SMS, masked number", showBackground = true, heightDp = 1700)
+@Preview(name = "Connected · Rain Wallet by SMS, masked number", showBackground = true, heightDp = 1700)
 @Composable
-private fun HomeConnectedTurnkeyPhonePreview() {
+private fun HomeConnectedRainWalletPhonePreview() {
     // The subtitle masks the number, because this header shows up in screenshots.
     HomePreview(
-        connectedTurnkeyState().copy(
-            turnkeyChannel = TurnkeyContactChannel.Phone,
-            turnkeyPhone = PREVIEW_HOME_PHONE,
+        connectedRainWalletState().copy(
+            rainWalletChannel = RainWalletContactChannel.Phone,
+            rainWalletPhone = PREVIEW_HOME_PHONE,
         ),
     )
 }

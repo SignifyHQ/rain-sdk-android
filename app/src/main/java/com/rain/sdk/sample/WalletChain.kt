@@ -10,7 +10,7 @@ import com.rain.sdk.models.TokenInfo
  * ID, RPC URL, native symbol, address validation, and block-explorer links.
  *
  * The SDK is initialized with every entry's RPC endpoint at once (see [rpcEndpoints]); the
- * dropdown just switches which chain the screens read/send on. EVM chains share one Turnkey
+ * dropdown just switches which chain the screens read/send on. EVM chains share one Rain Wallet
  * (secp256k1) account; Solana uses the ed25519 account.
  */
 enum class WalletChain(
