@@ -22,7 +22,7 @@ things locally before pushing:
 ```bash
 ./gradlew detektMain detektTest                       # what the CI detekt leg runs
 ./gradlew detektMain detektTest -PdetektAutoCorrect   # auto-fixes formatting findings in place — commit the result
-./gradlew lint dokkaHtml :app:assembleRelease         # the other CI legs
+./gradlew lint dokkaGenerate :app:assembleRelease     # the other CI legs
 ```
 
 The code style is pinned in `.editorconfig`: `android_studio` style, 4-space indent,

@@ -1,5 +1,4 @@
 import java.util.Properties
-import com.vanniktech.maven.publish.SonatypeHost
 
 plugins {
     alias(libs.plugins.android.library)
@@ -162,7 +161,7 @@ mavenPublishing {
     }
 
     // Configure publishing to Sonatype Central Portal (Standard for new accounts 2024+)
-    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+    publishToMavenCentral()
 
     // Enable signing (will use memory keys from local.properties or env vars)
     signAllPublications()

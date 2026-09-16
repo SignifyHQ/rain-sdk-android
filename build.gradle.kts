@@ -73,11 +73,13 @@ subprojects {
         "detektPlugins"(detektKtlintWrapper)
     }
 
-    // Dokka is a CI check (dokkaHtml leg): with the 1.9.20 defaults it can only fail on a
-    // total generation error, never on a broken KDoc link — failOnWarning gives it teeth.
+    // Dokka is a CI check (dokkaGenerate leg): by default it can only fail on a total generation
+    // error, never on a broken KDoc link — failOnWarning gives it teeth.
     plugins.withId("org.jetbrains.dokka") {
-        tasks.withType<org.jetbrains.dokka.gradle.AbstractDokkaTask>().configureEach {
-            failOnWarning.set(true)
+        extensions.configure<org.jetbrains.dokka.gradle.DokkaExtension> {
+            dokkaPublications.named("html") {
+                failOnWarning.set(true)
+            }
         }
     }
 }

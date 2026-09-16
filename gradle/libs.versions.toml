@@ -15,8 +15,8 @@ android-gradle-plugin = "8.13.2"
 # Consumers need Kotlin 2.1 or newer to read our metadata (one language release back), the same floor
 # Turnkey already sets. 2.3 would move partners to 2.2 and 2.4 to 2.3; revisit after launch.
 kotlin = "2.2.21"
-dokka = "1.9.20"
-maven-publish = "0.30.0"
+dokka = "2.2.0"
+maven-publish = "0.37.0"
 # The 2.0 line (group dev.detekt) is the first detekt that understands AGP's built-in Kotlin. Pre-release,
 # so pinned exactly.
 detekt = "2.0.0-alpha.6"

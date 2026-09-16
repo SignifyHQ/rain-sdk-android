@@ -92,7 +92,7 @@ internal class PrivyManager(
 
     /**
      * Broadcasts a transaction via `eth_sendTransaction`, returning the tx hash. Points Privy at
-     * Rain's configured RPC for [chainId] via [EthereumChain.Custom] first; the wallet fills any
+     * Rain's configured RPC, [rpcUrl], via [EthereumChain.Custom] first; the wallet fills any
      * omitted gas/nonce. [transactionJson] carries from/to/data/value/chainId.
      */
     suspend fun sendTransaction(
