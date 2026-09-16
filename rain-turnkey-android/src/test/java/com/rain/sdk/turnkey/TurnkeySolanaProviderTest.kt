@@ -1460,11 +1460,6 @@ class TurnkeySolanaProviderTest {
             )
         )
 
-    /**
-     * Pulls `(programId, data)` out of each instruction in a serialized unsigned transaction, so
-     * tests can assert what was actually submitted without re-implementing the whole parser.
-     */
-
     /** The static account keys of a serialized unsigned transaction, in table order. */
     private fun decodeAccountKeys(unsignedTransactionHex: String): List<String> {
         val bytes = unsignedTransactionHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
@@ -1477,6 +1472,10 @@ class TurnkeySolanaProviderTest {
         }
     }
 
+    /**
+     * Pulls `(programId, data)` out of each instruction in a serialized unsigned transaction, so
+     * tests can assert what was actually submitted without re-implementing the whole parser.
+     */
     private fun decodeInstructions(unsignedTransactionHex: String): List<Pair<String, ByteArray>> {
         val bytes = unsignedTransactionHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
         var i = 0

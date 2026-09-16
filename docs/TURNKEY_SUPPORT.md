@@ -6,7 +6,7 @@ Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provide
 
 - `minSdk = 28` (matches Turnkey's requirement).
 - Managed mode: nothing to initialize — the SDK configures Turnkey itself. Bring-your-own mode: the Turnkey Kotlin SDK initialized in your `Application.onCreate()`, with the passkey/auth-proxy/OAuth/OTP flow completed by the host app.
-- **JDK 24+** to run unit tests that touch Turnkey types (the Turnkey 2.0.0 AAR ships class-file major version 68 / Java 24). Production Android builds are unaffected — R8/D8 dexes Turnkey's bytecode regardless of host JVM version. The `TurnkeyWalletProviderTest` suite skips itself automatically on JDKs older than 24 via `Assume.assumeTrue`.
+- **JDK 24+** to run unit tests that touch Turnkey types (`com.turnkey:encoding:1.0.0`, pulled in by the Turnkey SDK, ships class-file major version 68 / Java 24). Production Android builds are unaffected — R8/D8 dexes Turnkey's bytecode regardless of host JVM version. The `TurnkeyWalletProviderTest` suite skips itself automatically on JDKs older than 24 via `Assume.assumeTrue`.
 
 ## Adding the dependency
 
@@ -428,11 +428,11 @@ Turnkey (via `com.turnkey:crypto` and `com.turnkey:encoding`) depends on **`org.
 
 ```
 Duplicate class org.bouncycastle.asn1.pkcs.EncryptionScheme found in modules
-  bcprov-jdk15to18-1.82.jar -> jetified-bcprov-jdk15to18-1.82 (org.bouncycastle:bcprov-jdk15to18:1.82)
-  bcprov-jdk18on-1.73.jar  -> jetified-bcprov-jdk18on-1.73  (org.bouncycastle:bcprov-jdk18on:1.73)
+  bcprov-jdk15to18-1.82.jar -> bcprov-jdk15to18-1.82 (org.bouncycastle:bcprov-jdk15to18:1.82)
+  bcprov-jdk18on-1.73.jar  -> bcprov-jdk18on-1.73  (org.bouncycastle:bcprov-jdk18on:1.73)
 ```
 
-The two artifacts are parallel builds of the same library for different JDK targets — their class APIs are interchangeable. Rain SDK standardizes on `bcprov-jdk15to18`, floored at 1.84 by a published constraint, and publishes the `bcprov-jdk18on` exclusion on every dependency edge that would otherwise pull it: web3j in core, Portal and Privy, and `privy-core` in the Privy module. The Turnkey adapter declares `bcprov-jdk15to18` itself as well, for the ed25519 derivation behind the exported Solana keypair. It is the same artifact at the same floor, so nothing new reaches a consumer's classpath, and the `bcprov-jdk18on` exclusion is unchanged.
+The two artifacts are parallel builds of the same library for different JDK targets — their class APIs are interchangeable. Rain SDK standardizes on `bcprov-jdk15to18`, floored at the catalog's `bouncycastle` version (1.86 today) by a published constraint, and publishes the `bcprov-jdk18on` exclusion on every dependency edge that would otherwise pull it: web3j in core, Portal and Privy, and `privy-core` in the Privy module. The Turnkey adapter declares `bcprov-jdk15to18` itself as well, for the ed25519 derivation behind the exported Solana keypair. It is the same artifact at the same floor, so nothing new reaches a consumer's classpath, and the `bcprov-jdk18on` exclusion is unchanged.
 
 **Gradle consumers** (resolve via Module Metadata): no action required as long as you reach the vendor SDKs only through Rain's modules. The exclusions above are part of the published metadata, and Gradle inherits them along each edge that declares them.
 
@@ -467,7 +467,7 @@ Maven POM equivalent (for non-Gradle consumers):
 <dependency>
     <groupId>org.web3j</groupId>
     <artifactId>core</artifactId>
-    <version>4.10.0</version>
+    <version>4.10.3</version>
     <exclusions>
         <exclusion>
             <groupId>org.bouncycastle</groupId>

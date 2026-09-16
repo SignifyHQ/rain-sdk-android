@@ -38,9 +38,11 @@ privy = "0.15.0"
 # project-wide); floor it explicitly rather than relying on bitcoinj to drag it past 1.82.
 # < 1.84 = GHSA-574f-3g2m-x479 (GOST 28147 CTR keystream reuse, critical).
 bitcoinj = "0.17.1"
+# Floor only: bitcoinj 0.17.1 already resolves protobuf-javalite to 4.33.4; this documents the GHSA minimum.
 protobuf-javalite = "3.25.9"
 bouncycastle = "1.86"
-# Ceiling. 4.14 and later ship Java 21 class files and Jackson 3; stay on the line that is exercised on devices.
+# Ceiling. 4.10.x is the line exercised on devices; later lines change the class-file level and the Jackson
+# major, so verify on a device before moving.
 web3j = "4.10.3"
 timber = "5.0.1"
 # Ceiling. 5.5.0's Android artifact declares minCompileSdk 37, which every partner app would inherit.

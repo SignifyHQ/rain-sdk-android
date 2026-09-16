@@ -305,14 +305,13 @@ class SolanaRpcClient(
     }
 }
 
-/** The fields of a `getAccountInfo` result the SDK reads. */
-
 /** Raw account bytes plus the program that owns the account. */
 internal data class SolanaRawAccount(
     val ownerProgram: String,
     val data: ByteArray
 )
 
+/** The fields of a `getAccountInfo` result the SDK reads. */
 internal data class SolanaAccountInfo(
     /** Program that owns the account — the System Program for a plain wallet. */
     val ownerProgram: String,
