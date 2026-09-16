@@ -580,8 +580,8 @@ internal class TurnkeyManager(
 
     /** `EXECUTION_REVERTED` becomes `executionReverted`, matching the Privy rows' vocabulary. */
     private fun indexerStatus(status: String): String? {
-        val parts = status?.lowercase(Locale.ROOT)?.split('_')?.filter { it.isNotEmpty() }
-        if (parts.isNullOrEmpty()) return null
+        val parts = status.lowercase(Locale.ROOT).split('_').filter { it.isNotEmpty() }
+        if (parts.isEmpty()) return null
         return parts.first() + parts.drop(1).joinToString("") { part ->
             part.replaceFirstChar { it.uppercase(Locale.ROOT) }
         }

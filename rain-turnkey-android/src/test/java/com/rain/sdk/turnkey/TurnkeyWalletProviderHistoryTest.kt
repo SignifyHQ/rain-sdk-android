@@ -84,6 +84,7 @@ class TurnkeyWalletProviderHistoryTest {
         turnkey = sponsored?.let { V1TransactionHistoryTurnkey(sponsored = it) }
     )
 
+    @Suppress("LongParameterList") // fixture builder: one knob per field of the vendor row, all but two defaulted
     private fun solTransaction(
         signature: String,
         timestamp: String,
