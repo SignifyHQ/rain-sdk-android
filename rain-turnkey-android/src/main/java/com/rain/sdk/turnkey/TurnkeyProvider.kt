@@ -15,6 +15,10 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
+
+/** The message every call on a closed provider carries; one literal so the two guards cannot drift. */
+internal const val TURNKEY_PROVIDER_CLOSED_MESSAGE = "This Turnkey provider was closed; build a new one"
 
 /**
  * Configuration for the Turnkey provider.
@@ -31,7 +35,10 @@ import kotlinx.coroutines.withContext
  *                the host in bring-your-own mode, configured and authenticated by the SDK in
  *                managed mode.
  * @param walletAddress Optional explicit EVM address override; when null Rain uses the first
- *                      available Ethereum account from the context.
+ *                      available Ethereum account from the context. It also anchors key export:
+ *                      the recovery phrase and the Ethereum key come from the account at this
+ *                      address, and a value that names no Ethereum account of the organization
+ *                      fails every export before any export call.
  * @param sessionPolicy Expiry/refresh/retry behavior for the session guarding every wallet call.
  * @param onSessionExpired Re-auth hook: invoked once per session death when the Turnkey session
  *                         dies and cannot be refreshed — whether that is discovered during a
@@ -132,7 +139,8 @@ class TurnkeyConfig internal constructor(
  *
  * In managed mode the provider is also the authentication surface: construct it, run
  * [sendLoginCode] / [confirmLoginCode] on it, then build the SDK and resolve. Resolving before a
- * session is live fails with `RainError.TokenExpired`.
+ * session is live fails with `RainError.TokenExpired`. In both modes it also exports the wallet's
+ * recovery phrase and private keys, see [exportRecoveryPhrase] and [exportPrivateKey].
  */
 @Suppress("TooManyFunctions") // the descriptor is also the managed authentication surface, by design
 class TurnkeyProvider internal constructor(
@@ -145,10 +153,11 @@ class TurnkeyProvider internal constructor(
     override val id: ProviderId get() = ProviderId.TURNKEY
 
     /**
-     * Turnkey holds EVM + Solana accounts and gates signing behind passkeys/biometrics; with
-     * [TurnkeyConfig.sponsorGas] on it also advertises [Capability.GAS_SPONSORSHIP]. `RainSdk`
-     * copies this set onto the resolved client, so it comes from the same function as the wallet
-     * provider's own set and the two cannot drift.
+     * Turnkey holds EVM + Solana accounts, gates signing behind passkeys/biometrics, and exports
+     * its keys through [exportRecoveryPhrase] and [exportPrivateKey], so [Capability.EXPORT] is
+     * always advertised. With [TurnkeyConfig.sponsorGas] on it also advertises
+     * [Capability.GAS_SPONSORSHIP]. `RainSdk` copies this set onto the resolved client, so it comes
+     * from the same function as the wallet provider's own set and the two cannot drift.
      */
     override val capabilities: Set<Capability> =
         TurnkeyWalletProvider.capabilitiesFor(config.sponsorGas)
@@ -178,6 +187,20 @@ class TurnkeyProvider internal constructor(
         }
     }
 
+    /** Both modes, from construction: the sample exports right after login, before resolution. */
+    private val keyExporter: TurnkeyKeyExporter by lazy {
+        TurnkeyKeyExporter(
+            turnkey = turnkeyContext,
+            sessions = coordinator,
+            walletAddressOverride = config.walletAddress,
+            // Managed mode configures the vendor and waits for its restore first; a no-op otherwise.
+            ensureConfigured = { managedAuth?.ensureConfigured() },
+        )
+    }
+
+    // The coordinator's stop() gates nothing, so the export path keeps its own closed flag.
+    private val closed = AtomicBoolean(false)
+
     // Lives for the provider's lifetime; the Turnkey singleton it watches is process-wide anyway.
     private val monitorScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -203,9 +226,12 @@ class TurnkeyProvider internal constructor(
      * the SDK for a new login) so a stale provider stops observing the process-wide Turnkey
      * singleton and can never fire its expiry hook again. In managed mode the provider is inert
      * afterwards: every auth call throws `RainError.InvalidConfig`, [currentAuthState] reads
-     * `Unauthenticated` and [hasActiveSession] is false.
+     * `Unauthenticated` and [hasActiveSession] is false. In both modes [exportRecoveryPhrase] and
+     * [exportPrivateKey] refuse afterwards with the same error; the check runs on entry, so an
+     * export already in flight completes, and cancelling its coroutine is how to abort it.
      */
     override fun close() {
+        closed.set(true)
         coordinator.stop()
         monitorScope.cancel()
         managedAuth?.close()
@@ -245,6 +271,64 @@ class TurnkeyProvider internal constructor(
         }
 
         return provider
+    }
+
+    // ---------- Key export (both modes) ----------
+
+    /**
+     * The wallet's BIP-39 recovery phrase, as the wallet was created. Managed wallets have 12
+     * words. A bring-your-own wallet has the length it was created with. The phrase is decrypted
+     * on this device by the vendor and returned once. The SDK never logs, caches or persists it.
+     * Requires a live session and works in bring-your-own and managed mode alike.
+     *
+     * The phrase restores every account derived from that wallet's seed and nothing else. Managed
+     * wallets keep their Ethereum and Solana accounts on one seed, so one phrase covers both. A
+     * bring-your-own organization with several wallets gets the phrase of the wallet holding the
+     * Ethereum account the SDK signs with, or of the first wallet when there is none, so the phrase
+     * and [exportPrivateKey] for [TurnkeyKeyFamily.ETHEREUM] always derive the same address.
+     *
+     * Everything after the return is the host's duty; *Host duties* under *Key export* in
+     * `docs/TURNKEY_SUPPORT.md` lists them. Fails with `RainError.InvalidConfig`,
+     * `RainError.TokenExpired`, `RainError.WalletUnavailable`, `RainError.Unauthorized` or
+     * `RainError.ProviderError`; the *Key export errors* table there says which condition maps to
+     * which. A transient failure is retried with a new request.
+     *
+     * @see exportPrivateKey
+     */
+    suspend fun exportRecoveryPhrase(): String {
+        requireOpen()
+        return keyExporter.exportRecoveryPhrase()
+    }
+
+    /**
+     * The private key of the account the SDK signs with for [family]. For
+     * [TurnkeyKeyFamily.ETHEREUM] it is the 32-byte secp256k1 key as `0x` plus 64 lowercase hex
+     * characters. For [TurnkeyKeyFamily.SOLANA] it is the 64-byte keypair, the seed followed by the
+     * public key, in plain Base58, the string Solana wallets import. The key is decrypted on this
+     * device and returned once. The SDK never logs, caches or persists it, and before returning
+     * anything it checks that the key is 32 bytes and that the address it derives, on either
+     * curve, is the account's. Requires a live session and works in bring-your-own and managed
+     * mode alike.
+     *
+     * On a managed wallet both keys derive from the seed behind [exportRecoveryPhrase]. On a
+     * bring-your-own organization with several wallets, each key comes from the account the SDK
+     * signs with for that family, which may sit on another wallet than the phrase.
+     *
+     * Everything after the return is the host's duty; *Host duties* under *Key export* in
+     * `docs/TURNKEY_SUPPORT.md` lists them. Fails with `RainError.InvalidConfig`,
+     * `RainError.TokenExpired`, `RainError.WalletUnavailable`, `RainError.Unauthorized`,
+     * `RainError.ProviderError` or `RainError.InternalError`; the *Key export errors* table there
+     * says which condition maps to which. A transient failure is retried with a new request.
+     *
+     * @see exportRecoveryPhrase
+     */
+    suspend fun exportPrivateKey(family: TurnkeyKeyFamily): String {
+        requireOpen()
+        return keyExporter.exportPrivateKey(family)
+    }
+
+    private fun requireOpen() {
+        if (closed.get()) throw RainError.InvalidConfig(TURNKEY_PROVIDER_CLOSED_MESSAGE)
     }
 
     // ---------- Managed authentication (email or SMS one-time code) — internal API, see InternalRainTurnkeyApi ----------

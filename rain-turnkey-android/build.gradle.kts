@@ -81,6 +81,14 @@ dependencies {
     api(libs.turnkey.sdk.kotlin)
     implementation(libs.turnkey.http)
     implementation(libs.turnkey.types)
+    // `crypto` reaches the compile classpath through sdk-kotlin as well. The adapter's key export
+    // imports it directly, so it is named here for the same bookkeeping reason.
+    implementation(libs.turnkey.crypto)
+
+    // ed25519 public-key derivation for the exported Solana keypair, the vendor's own method. The
+    // same bcprov-jdk15to18 build and 1.84 floor are already on every consumer's runtime classpath
+    // through core and the vendor; the bcprov-jdk18on exclusion above is unchanged.
+    implementation(libs.bouncycastle.bcprov)
 
     // The indexed-history client parses Turnkey's JSON responses.
     implementation(libs.kotlinx.serialization.json)

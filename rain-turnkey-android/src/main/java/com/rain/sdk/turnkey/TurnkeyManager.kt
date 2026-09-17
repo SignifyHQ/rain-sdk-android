@@ -24,7 +24,6 @@ import com.turnkey.types.TGetSendTransactionStatusResponse
 import com.turnkey.types.TGetWalletAddressBalancesBody
 import com.turnkey.types.TSolSendTransactionBody
 import com.turnkey.types.V1ActivityType
-import com.turnkey.types.V1AddressFormat
 import com.turnkey.types.V1AssetBalance
 import com.turnkey.types.V1HashFunction
 import com.turnkey.types.V1Pagination
@@ -190,19 +189,11 @@ internal class TurnkeyManager(
         }
     }
 
-    private fun resolveEthereumWalletAddress(wallets: List<com.turnkey.core.models.Wallet>): String? {
-        return wallets
-            .flatMap { it.accounts }
-            .firstOrNull { it.addressFormat == V1AddressFormat.ADDRESS_FORMAT_ETHEREUM }
-            ?.address
-    }
+    private fun resolveEthereumWalletAddress(wallets: List<com.turnkey.core.models.Wallet>): String? =
+        TurnkeyAccounts.ethereumAccount(wallets)?.address
 
-    private fun resolveSolanaWalletAddress(wallets: List<com.turnkey.core.models.Wallet>): String? {
-        return wallets
-            .flatMap { it.accounts }
-            .firstOrNull { it.addressFormat == V1AddressFormat.ADDRESS_FORMAT_SOLANA }
-            ?.address
-    }
+    private fun resolveSolanaWalletAddress(wallets: List<com.turnkey.core.models.Wallet>): String? =
+        TurnkeyAccounts.solanaAccount(wallets)?.address
 
     // ---------- high-level send ----------
 

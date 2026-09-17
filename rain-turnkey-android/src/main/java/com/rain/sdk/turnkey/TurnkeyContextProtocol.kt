@@ -8,10 +8,14 @@ import com.turnkey.core.models.OtpType
 import com.turnkey.core.models.Session
 import com.turnkey.core.models.Wallet
 import com.turnkey.core.models.errors.TurnkeyKotlinError
+import com.turnkey.crypto.decryptExportBundle
+import com.turnkey.crypto.generateP256KeyPair
+import com.turnkey.crypto.models.KeyFormat
 import com.turnkey.http.TurnkeyClient
 import com.turnkey.types.TCreateWalletAccountsBody
 import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TEthSendTransactionResponse
+import com.turnkey.types.TExportWalletAccountBody
 import com.turnkey.types.TGetActivitiesBody
 import com.turnkey.types.TGetActivitiesResponse
 import com.turnkey.types.TGetNoncesBody
@@ -29,13 +33,16 @@ import com.turnkey.types.V1PathFormat
 import com.turnkey.types.V1PayloadEncoding
 import com.turnkey.types.V1SignRawPayloadResult
 import com.turnkey.types.V1WalletAccountParams
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Narrow internal abstractions over the Turnkey Kotlin SDK so the wallet provider can be
  * unit-tested without standing up a real `TurnkeyContext` singleton. The split is
  * deliberately small: only the methods the provider actually invokes are exposed here, so
- * tests can mock them without re-stating Turnkey's full surface area.
+ * tests can mock them without re-stating Turnkey's full surface area. The key-export members
+ * return raw material, a mnemonic or a hex key, so every check and encoding runs in the exporter,
+ * where the unit tests reach.
  */
 internal interface TurnkeyClientProtocol {
     suspend fun getWalletAddressBalances(
@@ -147,6 +154,20 @@ internal interface TurnkeyContextProtocol {
 
     /** Adds [accounts] to the existing wallet [walletId] — no new wallet, no new mnemonic. */
     suspend fun createWalletAccounts(walletId: String, accounts: List<TurnkeyAccountSpec>)
+
+    // ---- Key export ----
+
+    /**
+     * The wallet's mnemonic, decrypted on the device by the vendor. Distinct name so it cannot
+     * collide with the vendor's `exportWallet`.
+     */
+    suspend fun exportWalletMnemonic(walletId: String): String
+
+    /**
+     * One account's raw 32-byte private key, decrypted on the device, as the vendor's lowercase
+     * hex without `0x`. The caller checks the length and encodes.
+     */
+    suspend fun exportAccountPrivateKeyHex(address: String): String
 }
 
 /** The one place the module's channel meets the vendor's enum. */
@@ -283,6 +304,53 @@ internal class TurnkeyContextAdapter(
                 accounts = accounts.toVendorParams()
             )
         )
+    }
+
+    override suspend fun exportWalletMnemonic(walletId: String): String = exporting {
+        context.exportWallet(walletId).mnemonicPhrase
+    }
+
+    override suspend fun exportAccountPrivateKeyHex(address: String): String = exporting {
+        // The high-level context exports whole wallets only, so the per-account activity is
+        // composed the way createWalletAccounts reaches the typed client. Both vendor calls use
+        // named arguments, because each takes several Strings and a swapped pair would compile and
+        // fail only against the enclave. The ephemeral pair is destructured and never held as an
+        // instance, because its toString prints the private scalar.
+        val organizationId = context.session.value?.organizationId ?: throw TurnkeyKotlinError.InvalidSession()
+        val (targetPublicKey, _, embeddedPrivateKey) = generateP256KeyPair()
+        val response = context.client.exportWalletAccount(
+            TExportWalletAccountBody(
+                organizationId = organizationId,
+                address = address,
+                targetPublicKey = targetPublicKey
+            )
+        )
+        // The enclave names the account the bundle is for. A bundle for another account is refused
+        // before anything is decrypted, with a fixed message that names no address.
+        if (!TurnkeyAccounts.sameAddress(response.result.address, address)) {
+            throw TurnkeyKotlinError.FailedToExportWallet(IllegalStateException("export bundle is for another account"))
+        }
+        decryptExportBundle(
+            exportBundle = response.result.exportBundle,
+            organizationId = organizationId,
+            embeddedPrivateKey = embeddedPrivateKey,
+            keyFormat = KeyFormat.other,
+            returnMnemonic = false
+        )
+    }
+
+    /**
+     * Every export failure leaves as the vendor's `FailedToExportWallet`, so both paths share one
+     * type and one mapping, and a cancellation leaves bare even when the vendor wrapped it. The
+     * translation lives in [TurnkeyExportFailures], where unit tests reach it.
+     */
+    @Suppress("TooGenericExceptionCaught") // the vendor's own export wrapper catches Throwable; this one translates
+    private inline fun <T> exporting(block: () -> T): T = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        throw TurnkeyExportFailures.rethrowable(e)
     }
 
     private fun List<TurnkeyAccountSpec>.toVendorParams(): List<V1WalletAccountParams> = map {

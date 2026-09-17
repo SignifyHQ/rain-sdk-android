@@ -173,7 +173,7 @@ Each adapter is a `RainProvider` descriptor that owns its vendor SDK as a privat
 | Adapter | Module | Config | Notes |
 |---------|--------|--------|-------|
 | `PortalProvider(PortalConfig(sessionToken, chainId?, sessionPolicy?, onSessionTokenNeeded?, onSessionExpired?, autoApprove?))` | `rain-portal-android` | `sessionToken: String`, `chainId: Int?`, `sessionPolicy: PortalSessionPolicy`, `onSessionTokenNeeded: (suspend () -> String?)?`, `onSessionExpired: (() -> Unit)?`, `autoApprove: Boolean = true` | Portal MPC signer (EVM). Advertises `EXPORT`, `RECOVERY`.|
-| `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?))` (bring-your-own) or `TurnkeyProvider(TurnkeyConfig(application, organizationId, authProxyConfigId, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?))` (managed — internal API, `@InternalRainTurnkeyApi`) | `rain-turnkey-android` | BYO: `turnkey: TurnkeyContext`. Managed: `application: Application`, `organizationId: String`, `authProxyConfigId: String`. Shared: `walletAddress: String?`, `sessionPolicy: TurnkeySessionPolicy`, `onSessionExpired: (() -> Unit)?`, `sponsorGas: Boolean = true` | Turnkey P256 signer (EVM + Solana). Advertises `MULTI_CHAIN`, `BIOMETRIC_GATE`, and `GAS_SPONSORSHIP` while `sponsorGas` is on. Sends work only on Turnkey's managed-broadcast chains (others throw `RAIN_105`; reads unaffected). Sponsorship is on by default (`sponsorGas = true`): every send goes through Turnkey sponsored, all EVM sends (transfers, withdrawals, approvals, raw sends) via Gas Station and Solana network fees too (EVM fee estimates return 0; rent for a new recipient token account is a separate Turnkey toggle and stays with the sender). Requires sponsorship enabled on the Turnkey organization; pass `sponsorGas = false` on an organization without it, or to have users pay their own gas. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
+| `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?))` (bring-your-own) or `TurnkeyProvider(TurnkeyConfig(application, organizationId, authProxyConfigId, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?))` (managed — internal API, `@InternalRainTurnkeyApi`) | `rain-turnkey-android` | BYO: `turnkey: TurnkeyContext`. Managed: `application: Application`, `organizationId: String`, `authProxyConfigId: String`. Shared: `walletAddress: String?`, `sessionPolicy: TurnkeySessionPolicy`, `onSessionExpired: (() -> Unit)?`, `sponsorGas: Boolean = true` | Turnkey P256 signer (EVM + Solana). Advertises `EXPORT` (the recovery phrase and private keys through `exportRecoveryPhrase` / `exportPrivateKey`, see [Turnkey key export](#turnkey-key-export)), `MULTI_CHAIN`, `BIOMETRIC_GATE`, and `GAS_SPONSORSHIP` while `sponsorGas` is on. Sends work only on Turnkey's managed-broadcast chains (others throw `RAIN_105`; reads unaffected). Sponsorship is on by default (`sponsorGas = true`): every send goes through Turnkey sponsored, all EVM sends (transfers, withdrawals, approvals, raw sends) via Gas Station and Solana network fees too (EVM fee estimates return 0; rent for a new recipient token account is a separate Turnkey toggle and stays with the sender). Requires sponsorship enabled on the Turnkey organization; pass `sponsorGas = false` on an organization without it, or to have users pay their own gas. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
 | `PrivyProvider(PrivyConfig(privy, walletAddress?, sessionPolicy?, onSessionExpired?))` | `rain-privy-android` | `privy: Privy`, `walletAddress: String?`, `sessionPolicy: PrivySessionPolicy`, `onSessionExpired: (() -> Unit)?` | Privy embedded-wallet signer (EVM + Solana). Advertises `EXPORT`, `RECOVERY`, `MULTI_CHAIN`.|
 
 #### Portal construction
@@ -213,6 +213,18 @@ generic error with no re-authentication hook. Core needs no change: the transact
 utilities are available regardless of which provider you register.
 
 ---
+
+#### Turnkey key export
+
+Public API, on `TurnkeyProvider` in bring-your-own and managed mode alike. It lives on the descriptor because the descriptor exists before resolution, so a host can offer a backup right after login. `rain.first { Capability.EXPORT in it.capabilities }` yields a `RainClient`, which has no export method, so a host that resolves by capability keeps the `TurnkeyProvider` it registered and calls these on it. Every value is decrypted on the device and returned once. The SDK never logs, caches or persists it. Both methods need a live session. In managed mode they also run the one-shot Turnkey configuration when they are the first call of a launch. Which wallet and account each value comes from, timing and retries, the host's duties after the return and the error contract are stated once, under [Key export](TURNKEY_SUPPORT.md#key-export) and [Key export errors](TURNKEY_SUPPORT.md#key-export-errors) in TURNKEY_SUPPORT.md.
+
+| Member | Signature | Notes |
+|--------|-----------|-------|
+| `exportRecoveryPhrase` | `suspend fun exportRecoveryPhrase(): String` | The wallet's BIP-39 phrase as the wallet was created, space-separated words: 12 for a managed wallet, the creation length for a bring-your-own wallet. Errors: [Key export errors](TURNKEY_SUPPORT.md#key-export-errors). |
+| `exportPrivateKey` | `suspend fun exportPrivateKey(family: TurnkeyKeyFamily): String` | `ETHEREUM`: the 32-byte secp256k1 key as `0x` plus 64 lowercase hex characters. `SOLANA`: the 64-byte keypair, the seed followed by the public key, in plain Base58, the string Solana wallets import. Checked against the account's address before it is returned. Errors: [Key export errors](TURNKEY_SUPPORT.md#key-export-errors). |
+| `TurnkeyKeyFamily` | `enum class TurnkeyKeyFamily { ETHEREUM, SOLANA }` | Which of the wallet's keys to export. The SDK uses one account per family: the first the organization lists, or for Ethereum the account at `walletAddress`. Families may be added; prefer an `else` branch over an exhaustive `when`. |
+
+The formats are a cross-platform contract shared by Rain's SDKs.
 
 #### Turnkey managed authentication
 
@@ -761,7 +773,10 @@ old shape. Slated for removal in the next major version.
 
 A provider advertises optional behaviours via `Capability`, so hosts can resolve by feature
 (`rain.first { Capability.EXPORT in it.capabilities }`) and degrade gracefully instead of assuming
-a capability every provider has.
+a capability every provider has. `first` returns the earliest registered provider that matches, so
+registration order decides between two providers that both advertise a capability. `EXPORT` says
+the wallet can be backed up somewhere; the SDK-driven export methods exist on `TurnkeyProvider`
+only, see [Turnkey key export](#turnkey-key-export).
 
 | Capability | Meaning |
 |------------|---------|
@@ -771,8 +786,8 @@ a capability every provider has.
 | `BIOMETRIC_GATE` | Signing is gated behind a device biometric / passkey prompt. |
 | `GAS_SPONSORSHIP` | The provider's sends are fee-sponsored (a third party pays the network fee), so core skips self-paid preflights such as the Solana withdrawal dry run and the signing step of a withdrawal fee estimate. Core's operative, per-chain check is `WalletProvider.sponsorsFees(chainId)`, which defaults to this capability. |
 
-Bundled providers: **Portal** → `EXPORT`, `RECOVERY`. **Turnkey** → `MULTI_CHAIN`, `BIOMETRIC_GATE`,
-plus `GAS_SPONSORSHIP` while `sponsorGas` is on (the default).
+Bundled providers: **Portal** → `EXPORT`, `RECOVERY`. **Turnkey** → `EXPORT`, `MULTI_CHAIN`,
+`BIOMETRIC_GATE`, plus `GAS_SPONSORSHIP` while `sponsorGas` is on (the default).
 **Privy** → `EXPORT`, `RECOVERY`, `MULTI_CHAIN`.
 
 ---
@@ -877,6 +892,7 @@ pre-set to `"0x0"`. Hosts can hand the result to any provider for signing / broa
 |------|-------------|
 | **`ProviderId`** | Value class wrapping a provider id string. Well-known constants: `PORTAL`, `TURNKEY`, `PRIVY`. Host apps can ship a custom id. |
 | **`Capability`** | Enum: `EXPORT`, `RECOVERY`, `MULTI_CHAIN`, `BIOMETRIC_GATE`, `GAS_SPONSORSHIP`. |
+| **`TurnkeyKeyFamily`** | Enum: `ETHEREUM`, `SOLANA`, and possibly more as Turnkey adds curves. Which of a Turnkey wallet's keys `TurnkeyProvider.exportPrivateKey` returns; see [Turnkey key export](#turnkey-key-export). |
 | **`RainEIP712Message`** | `message`, `salt`, `saltHex`. Returned by `buildEIP712Message`. |
 | **`RainProvider`** | Registrable provider descriptor: `id`, `capabilities`, and a suspend `create(context)` that materializes the `WalletProvider`. Implemented by `PortalProvider`, `TurnkeyProvider`, `PrivyProvider`, and host-supplied providers. |
 | **`WalletProvider`** | The port each adapter implements. Public so hosts can ship their own wallet stack. |
@@ -906,7 +922,7 @@ Format: `"RainSDK Error [CODE]: message"`
 | Code | Class | Meaning |
 |------|-------|---------|
 | `RAIN_101` | `RainError.SdkNotInitialized` | Operation called before the SDK's chain configuration was set up (i.e. before `build()`). |
-| `RAIN_102` | `RainError.InvalidConfig` / `RainError.ProviderNotRegistered` | Invalid RPC URL, chain ID, or address format; a blank email or a phone number outside E.164 handed to `sendLoginCode`; no provider registered for the requested id; or no provider matched a capability. |
+| `RAIN_102` | `RainError.InvalidConfig` / `RainError.ProviderNotRegistered` | Invalid RPC URL, chain ID, or address format; a blank email or a phone number outside E.164 handed to `sendLoginCode`; for a Turnkey key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors); no provider registered for the requested id; or no provider matched a capability. |
 | `RAIN_103` | `RainError.InvalidRpcUrl` | RPC URL could not be parsed as a valid URL. |
 | `RAIN_104` | `RainError.ApiNotConfigured` | A Rain API call was made before `configureRainApi(apiKey, userId)`. |
 | `RAIN_105` | `RainError.ChainNotSupported` | The active wallet provider cannot broadcast transactions on this chain (e.g. Turnkey-managed sends do not cover Avalanche); carries `chainId`. Thrown before any network or wallet work on every send, withdrawals and approvals included (core asks the provider first, and the provider's broadcast funnel checks again). Reads — balances, history, estimates — are never gated. |
@@ -920,12 +936,12 @@ Format: `"RainSDK Error [CODE]: message"`
 | `RAIN_401` | `RainError.UserRejected` | User cancelled the signing request in the wallet. |
 | `RAIN_402` | `RainError.InsufficientFunds` | Balance too low for the requested amount or gas. |
 | `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight `eth_call` simulation failed (e.g. contract revert, insufficient funds), or the provider reported that the broadcast transaction reverted (Turnkey's decoded failure status). |
-| `RAIN_404` | `RainError.WalletUnavailable` | The backing provider returned no usable wallet address (e.g. Turnkey context has no Ethereum account). |
+| `RAIN_404` | `RainError.WalletUnavailable` | The backing provider returned no usable wallet address (e.g. Turnkey context has no Ethereum account), or, for a Turnkey key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors). |
 | `RAIN_405` | `RainError.WithdrawalRevertedByNetwork` | Withdrawal reverted on-chain (e.g. duplicate withdrawal, already-used signature). A fee-sponsored withdrawal skips the dry run; a revert the provider reports after broadcast maps here too. |
 | `RAIN_406` | `RainError.InvalidAmount` | The amount is invalid for the token — negative, more decimal places than the token supports, or past `uint256` max. |
 | `RAIN_407` | `RainError.WalletNotAuthorized` | The wallet is not an admin of the collateral contract; checked before a withdrawal is signed. |
-| `RAIN_501` | `RainError.ProviderError` | Portal, Turnkey, or other provider error. |
-| `RAIN_502` | `RainError.InternalError` | EIP-712 encoding, ABI encoding, or internal processing error. |
+| `RAIN_501` | `RainError.ProviderError` | Portal, Turnkey, or other provider error; for a Turnkey key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors). |
+| `RAIN_502` | `RainError.InternalError` | EIP-712 encoding, ABI encoding, or internal processing error; for a Turnkey key export, the case under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors). |
 
 ### Error handling example
 

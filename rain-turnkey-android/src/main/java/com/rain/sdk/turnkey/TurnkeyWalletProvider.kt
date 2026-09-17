@@ -73,9 +73,11 @@ internal class TurnkeyWalletProvider(
          * source for both the [TurnkeyProvider] descriptor (what hosts see through
          * `client.capabilities` and `rain.first { }`) and the wallet provider it creates (what core
          * reads when composing transactions), so a host and core can never disagree about
-         * whether this provider's sends are sponsored.
+         * whether this provider's sends are sponsored. [Capability.EXPORT] is always on, because
+         * the descriptor exports the recovery phrase and private keys in both modes.
          */
         fun capabilitiesFor(sponsorGas: Boolean): Set<Capability> = buildSet {
+            add(Capability.EXPORT)
             add(Capability.MULTI_CHAIN)
             add(Capability.BIOMETRIC_GATE)
             if (sponsorGas) add(Capability.GAS_SPONSORSHIP)
