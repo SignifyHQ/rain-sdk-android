@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- JDK 17+ on `PATH` (AGP 8.11). Unit tests fork a JDK 24 launcher; Gradle auto-provisions
+- JDK 17+ on `PATH` (AGP 9.4). Unit tests fork a JDK 24 launcher; Gradle auto-provisions
   it through the foojay resolver, so there is nothing extra to install.
 - Android SDK — point `sdk.dir` at it in `local.properties`, or set `ANDROID_HOME`.
 
@@ -22,11 +22,12 @@ things locally before pushing:
 ```bash
 ./gradlew detektMain detektTest                       # what the CI detekt leg runs
 ./gradlew detektMain detektTest -PdetektAutoCorrect   # auto-fixes formatting findings in place — commit the result
-./gradlew lint dokkaHtml :app:assembleRelease         # the other CI legs
+./gradlew lint dokkaGenerate :app:assembleRelease checkVendorFreeClasspaths   # the other CI legs
 ```
 
-The code style is pinned in `.editorconfig`: `android_studio` style, 4-space indent,
-150-column lines — Android Studio's *Reformat Code* produces compliant output.
+The code style is `intellij_idea` (ktlint's default), set as `ktlint.code_style` in
+`config/detekt/detekt.yml` and mirrored in `.editorconfig`, with a 4-space indent and 150-column
+lines — Android Studio's *Reformat Code* produces compliant output.
 
 Non-formatting findings (null-safety, swallowed exceptions, complexity, magic numbers)
 cannot be auto-fixed: fix the code, or `@Suppress("RuleName")` at the smallest possible

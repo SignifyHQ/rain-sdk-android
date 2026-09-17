@@ -5,6 +5,7 @@ import com.rain.sdk.internal.error.RainError
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -118,6 +119,34 @@ class PrivyRpcClientTest {
         server.enqueue(MockResponse().setBody("not json at all"))
         val error = runCatching {
             client.callForHexResult(url(), "eth_getBalance", emptyList())
+        }.exceptionOrNull()
+        assertThat(error).isInstanceOf(RainError.NetworkError::class.java)
+    }
+
+    @Test
+    fun `maps an empty 200 body to NetworkError`() = runBlocking {
+        server.enqueue(MockResponse())
+        val error = runCatching {
+            client.callForHexResult(url(), "eth_getBalance", emptyList())
+        }.exceptionOrNull()
+        assertThat(error).isInstanceOf(RainError.NetworkError::class.java)
+    }
+
+    @Test
+    fun `maps an empty 502 body to NetworkError`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(502))
+        val error = runCatching {
+            client.callForHexResult(url(), "eth_getBalance", emptyList())
+        }.exceptionOrNull()
+        assertThat(error).isInstanceOf(RainError.NetworkError::class.java)
+    }
+
+    @Test
+    fun `a server that never answers times out into NetworkError`() = runBlocking {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        val impatient = PrivyRpcClient(timeoutSeconds = 1)
+        val error = runCatching {
+            impatient.callForHexResult(url(), "eth_getBalance", emptyList())
         }.exceptionOrNull()
         assertThat(error).isInstanceOf(RainError.NetworkError::class.java)
     }

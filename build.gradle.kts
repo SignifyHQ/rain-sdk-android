@@ -2,6 +2,9 @@
 plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.android.library) apply false
+    // Applied nowhere: AGP's built-in Kotlin compiles every module. Kept so the Kotlin Gradle plugin at
+    // the catalog's version sits on the build classpath and pins the compiler AGP uses (its own
+    // default is older).
     alias(libs.plugins.kotlin.android) apply false
     alias(libs.plugins.kotlin.serialization) apply false
     alias(libs.plugins.compose.compiler) apply false
@@ -53,11 +56,11 @@ val sdkTestModules =
 // not one occurrence — a new identical catch in a baselined class would pass silently.
 // Captured at root scope: the type-safe `libs` accessor does not resolve inside
 // a `subprojects {}` block (it evaluates against the subproject, which has no catalog).
-val detektFormatting = libs.detekt.formatting
+val detektKtlintWrapper = libs.detekt.ktlint.wrapper
 
 subprojects {
-    apply(plugin = "io.gitlab.arturbosch.detekt")
-    extensions.configure<io.gitlab.arturbosch.detekt.extensions.DetektExtension> {
+    apply(plugin = "dev.detekt")
+    extensions.configure<dev.detekt.gradle.extensions.DetektExtension> {
         buildUponDefaultConfig = true
         config.setFrom(rootProject.files("config/detekt/detekt.yml"))
         baseline = file("detekt-baseline.xml")
@@ -69,15 +72,17 @@ subprojects {
         autoCorrect = providers.gradleProperty("detektAutoCorrect").isPresent
     }
     dependencies {
-        // ktlint rules (android_studio code style, see .editorconfig) inside detekt.
-        "detektPlugins"(detektFormatting)
+        // ktlint rules inside detekt; the code style is set in config/detekt/detekt.yml (.editorconfig mirrors it).
+        "detektPlugins"(detektKtlintWrapper)
     }
 
-    // Dokka is a CI check (dokkaHtml leg): with the 1.9.20 defaults it can only fail on a
-    // total generation error, never on a broken KDoc link — failOnWarning gives it teeth.
+    // Dokka is a CI check (dokkaGenerate leg): by default it can only fail on a total generation
+    // error, never on a broken KDoc link — failOnWarning gives it teeth.
     plugins.withId("org.jetbrains.dokka") {
-        tasks.withType<org.jetbrains.dokka.gradle.AbstractDokkaTask>().configureEach {
-            failOnWarning.set(true)
+        extensions.configure<org.jetbrains.dokka.gradle.DokkaExtension> {
+            dokkaPublications.named("html") {
+                failOnWarning.set(true)
+            }
         }
     }
 }

@@ -74,7 +74,7 @@ class JsonRpcClient(
             // okhttp's execute() is blocking — must run off the main thread to avoid
             // NetworkOnMainThreadException when called from a UI-dispatched coroutine.
             withContext(Dispatchers.IO) {
-                client.newCall(request).execute().use { it.body?.string() ?: "{}" }
+                client.newCall(request).execute().use { it.body.string() }
             }
         } catch (e: IOException) {
             Timber.e(e, "Rain SDK: JSON-RPC transport failure for $method")

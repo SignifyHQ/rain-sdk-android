@@ -92,7 +92,7 @@ internal class PrivyManager(
 
     /**
      * Broadcasts a transaction via `eth_sendTransaction`, returning the tx hash. Points Privy at
-     * Rain's configured RPC for [chainId] via [EthereumChain.Custom] first; the wallet fills any
+     * Rain's configured RPC, [rpcUrl], via [EthereumChain.Custom] first; the wallet fills any
      * omitted gas/nonce. [transactionJson] carries from/to/data/value/chainId.
      */
     suspend fun sendTransaction(
@@ -102,7 +102,7 @@ internal class PrivyManager(
     ): String = sessions.executeWrite {
         val wallet = resolveWallet(walletAddress)
         sendMutex.withLock {
-            // Privy's EthereumChain.Custom (privy-core 0.13.0) only carries an RPC URL; no chain
+            // Privy's EthereumChain.Custom (privy-core 0.15.0) only carries an RPC URL; no chain
             // variant accepts both a custom RPC URL and a chain id. The chain id still reaches the
             // node because [transactionJson] embeds it, and the named SupportedEthereumChain values
             // are not used since they would route RPC through Privy's endpoints instead of Rain's.

@@ -1,8 +1,5 @@
-import com.vanniktech.maven.publish.SonatypeHost
-
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.dokka)
     alias(libs.plugins.vanniktech.maven.publish)
 }
@@ -11,11 +8,15 @@ version = libs.versions.rain.sdk.get()
 
 android {
     namespace = "com.rain.sdk.wallet"
-    compileSdk = 36
+    compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
-        minSdk = 28
-        targetSdk = 36
+        minSdk = libs.versions.minSdk.get().toInt()
+        // Partner apps on compileSdk 36, all Play asks for today, can still consume this AAR. Without
+        // this, AGP 9 stamps the module's own compileSdk as the consumer floor.
+        aarMetadata {
+            minCompileSdk = libs.versions.minCompileSdk.get().toInt()
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
@@ -28,12 +29,19 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
-    kotlinOptions {
-        jvmTarget = "1.8"
-        freeCompilerArgs += listOf(
+    lint {
+        // Libraries carry no targetSdk of their own; lint still checks behaviour changes up to this level.
+        targetSdk = libs.versions.targetSdk.get().toInt()
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+        freeCompilerArgs.addAll(
             // The wallet backend's managed authentication surface is marked @InternalRainTurnkeyApi
             // (a @RequiresOptIn marker at error level). This module is its intended consumer and opts
             // in as a whole; the flag, rather than @OptIn annotations, also keeps the marker's name
@@ -98,7 +106,7 @@ mavenPublishing {
         }
     }
 
-    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+    publishToMavenCentral()
     signAllPublications()
 }
 

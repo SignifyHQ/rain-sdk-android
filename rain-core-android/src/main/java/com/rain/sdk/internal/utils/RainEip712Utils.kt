@@ -1,6 +1,7 @@
 package com.rain.sdk.internal.utils
 
 import java.math.BigInteger
+import java.util.Locale
 
 internal object RainEip712Utils {
 
@@ -9,7 +10,7 @@ internal object RainEip712Utils {
         for (c in s) when {
             c == '"' -> append("\\\"")
             c == '\\' -> append("\\\\")
-            c < ' ' -> append("\\u%04x".format(c.code))
+            c < ' ' -> append("\\u%04x".format(Locale.ROOT, c.code))
             else -> append(c)
         }
     }

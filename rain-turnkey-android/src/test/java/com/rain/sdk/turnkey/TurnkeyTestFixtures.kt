@@ -65,7 +65,6 @@ internal fun turnkeyWalletProvider(
     chainReader: ChainReader? = null,
     solanaChainReader: ChainReader? = null,
     tokenStore: TokenMetadataStore? = null,
-    history: TurnkeyHistoryProtocol? = null,
     sessionCoordinator: TurnkeySessionCoordinator? = null,
     sponsorGas: Boolean = false
 ): TurnkeyWalletProvider {
@@ -81,7 +80,6 @@ internal fun turnkeyWalletProvider(
         httpClient = httpClient,
         pollingIntervalMs = pollingIntervalMs,
         jsonRpcClient = jsonRpcClient,
-        history = history,
         sessionCoordinator = sessionCoordinator ?: TurnkeySessionCoordinator(turnkey),
     )
     return TurnkeyWalletProvider(
