@@ -53,6 +53,14 @@ class SessionStore(context: Context) {
     var turnkeyOrgId: String by string("turnkeyOrgId")
     var turnkeyAuthProxyConfigId: String by string("turnkeyAuthProxyConfigId")
     var turnkeyEmail: String by string("turnkeyEmail")
+
+    /**
+     * The bring-your-own Turnkey tab's phone contact and the channel of its last login; a blank
+     * channel reads as email. Values a pre-version-2 record held under these names belonged to the
+     * managed flow and are dropped by the migration above.
+     */
+    var turnkeyPhone: String by string("turnkeyPhone")
+    var turnkeyChannel: String by string("turnkeyChannel")
     var rainWalletEmail: String by string("rainWalletEmail")
     var rainWalletPhone: String by string("rainWalletPhone")
 

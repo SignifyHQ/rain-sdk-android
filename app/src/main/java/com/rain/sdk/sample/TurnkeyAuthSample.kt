@@ -8,13 +8,14 @@ import com.turnkey.core.models.TurnkeyConfig
 import com.turnkey.types.V1AddressFormat
 import com.turnkey.types.V1Curve
 import com.turnkey.types.V1PathFormat
+import com.turnkey.types.V1User
 import com.turnkey.types.V1WalletAccountParams
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Sample-app glue that drives Turnkey's Kotlin SDK end-to-end (init, email one-time code, wallet
- * provisioning) so the host app can hand a ready `TurnkeyContext` to the SDK's bring-your-own
+ * Sample-app glue that drives Turnkey's Kotlin SDK end-to-end (init, one-time code by email or SMS,
+ * wallet provisioning) so the host app can hand a ready `TurnkeyContext` to the SDK's bring-your-own
  * `TurnkeyConfig(turnkey = …)`.
  *
  * This file is NOT part of the Rain SDK. It is reference code a host app writes itself when it
@@ -60,19 +61,25 @@ object TurnkeyAuthSample {
     }
 
     /**
-     * Email address of the user the restored session belongs to, or null if it cannot be
-     * determined. Callers deciding whether to reuse a restored session MUST compare this against
-     * the email being logged in: a valid session for a different email must not be reused.
+     * The contact of the user the restored session belongs to, on [channel]: the email address or
+     * the phone number, or null if it cannot be determined. Callers deciding whether to reuse a
+     * restored session MUST compare this against the contact being logged in: a valid session for
+     * another contact must not be reused.
      */
-    suspend fun activeSessionEmail(): String? {
+    suspend fun activeSessionContact(channel: ContactChannel): String? {
         if (!hasActiveSession()) return null
-        return TurnkeyContext.user.value?.userEmail ?: refreshedUserEmail()
+        return TurnkeyContext.user.value?.contactOn(channel) ?: refreshedUser()?.contactOn(channel)
+    }
+
+    private fun V1User.contactOn(channel: ContactChannel): String? = when (channel) {
+        ContactChannel.Email -> userEmail
+        ContactChannel.Phone -> userPhoneNumber
     }
 
     @Suppress("TooGenericExceptionCaught") // the vendor's refresh throws untyped; a failure only means "owner unknown"
-    private suspend fun refreshedUserEmail(): String? = try {
+    private suspend fun refreshedUser(): V1User? = try {
         TurnkeyContext.refreshUser()
-        TurnkeyContext.user.value?.userEmail
+        TurnkeyContext.user.value
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -158,24 +165,38 @@ object TurnkeyAuthSample {
     }
 
     /**
-     * Starts the email one-time-code flow. Returns the [InitOtpResult], whose `otpId` and
-     * `otpEncryptionTargetBundle` [verifyEmailOtp] both needs.
+     * Starts the one-time-code flow on [channel]. Returns the [InitOtpResult], whose `otpId` and
+     * `otpEncryptionTargetBundle` [verifyOtp] both needs. SMS needs SMS one-time codes enabled on
+     * the auth proxy configuration.
      */
-    suspend fun sendEmailOtp(email: String): InitOtpResult {
-        SampleLog.d("TurnkeyAuth", "sendEmailOtp to=${SampleLog.maskEmail(email)}")
-        val result = TurnkeyContext.initOtp(otpType = OtpType.OTP_TYPE_EMAIL, contact = email)
+    suspend fun sendOtp(contact: String, channel: ContactChannel): InitOtpResult {
+        SampleLog.d("TurnkeyAuth", "sendOtp ${channel.name} to=${channel.mask(contact)}")
+        val result = TurnkeyContext.initOtp(otpType = channel.otpType, contact = contact)
         SampleLog.d("TurnkeyAuth", "OTP sent otpId=${SampleLog.maskToken(result.otpId)}")
         return result
     }
 
+    /** The vendor's name for each channel's code. */
+    private val ContactChannel.otpType: OtpType
+        get() = when (this) {
+            ContactChannel.Email -> OtpType.OTP_TYPE_EMAIL
+            ContactChannel.Phone -> OtpType.OTP_TYPE_SMS
+        }
+
     /**
      * Verifies the code and creates a Turnkey session. `loginOrSignUpWithOtp` handles first-time
      * sign-up and returning login transparently; [otpEncryptionTargetBundle] comes from the
-     * [sendEmailOtp] result.
+     * [sendOtp] result, and [contact] and [channel] are the ones the code went to.
      */
     @Suppress("TooGenericExceptionCaught") // the vendor's clear throws untyped; a failed clear is reported by the login
-    suspend fun verifyEmailOtp(otpId: String, otpCode: String, otpEncryptionTargetBundle: String, email: String) {
-        SampleLog.d("TurnkeyAuth", "verifyEmailOtp otpId=${SampleLog.maskToken(otpId)}")
+    suspend fun verifyOtp(
+        otpId: String,
+        otpCode: String,
+        otpEncryptionTargetBundle: String,
+        contact: String,
+        channel: ContactChannel,
+    ) {
+        SampleLog.d("TurnkeyAuth", "verifyOtp ${channel.name} otpId=${SampleLog.maskToken(otpId)}")
         // A prior login leaves a persisted session under Turnkey's default key, and createSession
         // throws KeyAlreadyExists rather than overwriting it; clear stored sessions first.
         try {
@@ -189,8 +210,8 @@ object TurnkeyAuthSample {
             otpId = otpId,
             otpCode = otpCode,
             otpEncryptionTargetBundle = otpEncryptionTargetBundle,
-            contact = email,
-            otpType = OtpType.OTP_TYPE_EMAIL,
+            contact = contact,
+            otpType = channel.otpType,
         )
         SampleLog.d("TurnkeyAuth", "session active subOrgId=${SampleLog.maskToken(subOrganizationId)}")
     }

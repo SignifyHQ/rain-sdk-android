@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
+import com.rain.sdk.sample.ContactChannel
 import com.rain.sdk.sample.SessionStore
 import com.rain.sdk.sample.ui.RainButton
 import com.rain.sdk.sample.ui.RainCard
@@ -44,7 +45,7 @@ internal fun ProviderCard(state: HomeUiState, actions: ProviderCardActions) {
 internal class ProviderCardActions(
     val onSessionTokenChanged: (String) -> Unit,
     val onInitializeSdk: () -> Unit,
-    val onRainWalletChannelChanged: (RainWalletContactChannel) -> Unit,
+    val onRainWalletChannelChanged: (ContactChannel) -> Unit,
     val onRainWalletEmailChanged: (String) -> Unit,
     val onRainWalletPhoneChanged: (String) -> Unit,
     val onRainWalletOtpCodeChanged: (String) -> Unit,
@@ -53,7 +54,9 @@ internal class ProviderCardActions(
     val onInitializeRainWithRainWallet: () -> Unit,
     val onTurnkeyOrgIdChanged: (String) -> Unit,
     val onTurnkeyAuthProxyConfigIdChanged: (String) -> Unit,
+    val onTurnkeyChannelChanged: (ContactChannel) -> Unit,
     val onTurnkeyEmailChanged: (String) -> Unit,
+    val onTurnkeyPhoneChanged: (String) -> Unit,
     val onTurnkeyOtpCodeChanged: (String) -> Unit,
     val onSendTurnkeyCode: () -> Unit,
     val onVerifyTurnkeyOtp: () -> Unit,
@@ -66,6 +69,14 @@ internal class ProviderCardActions(
     val onVerifyPrivyOtp: () -> Unit,
     val onInitializeRainWithPrivy: () -> Unit,
 ) {
+    /** The Rain Wallet card's contact callbacks, as one value for the shared fields. */
+    val rainWalletContactActions: ContactActions
+        get() = ContactActions(onRainWalletChannelChanged, onRainWalletEmailChanged, onRainWalletPhoneChanged)
+
+    /** The Turnkey card's contact callbacks. */
+    val turnkeyContactActions: ContactActions
+        get() = ContactActions(onTurnkeyChannelChanged, onTurnkeyEmailChanged, onTurnkeyPhoneChanged)
+
     companion object {
         /** Every callback bound to the view model once; [HomeScreen] remembers the result per view model. */
         fun bound(viewModel: HomeViewModel, application: Application): ProviderCardActions = ProviderCardActions(
@@ -80,7 +91,9 @@ internal class ProviderCardActions(
             onInitializeRainWithRainWallet = viewModel::initializeRainWithRainWallet,
             onTurnkeyOrgIdChanged = viewModel::onTurnkeyOrgIdChanged,
             onTurnkeyAuthProxyConfigIdChanged = viewModel::onTurnkeyAuthProxyConfigIdChanged,
+            onTurnkeyChannelChanged = viewModel::onTurnkeyChannelChanged,
             onTurnkeyEmailChanged = viewModel::onTurnkeyEmailChanged,
+            onTurnkeyPhoneChanged = viewModel::onTurnkeyPhoneChanged,
             onTurnkeyOtpCodeChanged = viewModel::onTurnkeyOtpCodeChanged,
             onSendTurnkeyCode = { viewModel.sendTurnkeyOtp(application) },
             onVerifyTurnkeyOtp = viewModel::verifyTurnkeyOtp,
@@ -107,7 +120,9 @@ internal class ProviderCardActions(
             onInitializeRainWithRainWallet = {},
             onTurnkeyOrgIdChanged = {},
             onTurnkeyAuthProxyConfigIdChanged = {},
+            onTurnkeyChannelChanged = {},
             onTurnkeyEmailChanged = {},
+            onTurnkeyPhoneChanged = {},
             onTurnkeyOtpCodeChanged = {},
             onSendTurnkeyCode = {},
             onVerifyTurnkeyOtp = {},
@@ -122,6 +137,13 @@ internal class ProviderCardActions(
         )
     }
 }
+
+/** The callbacks behind one tab's [ContactInput]. */
+internal class ContactActions(
+    val onChannelChanged: (ContactChannel) -> Unit,
+    val onEmailChanged: (String) -> Unit,
+    val onPhoneChanged: (String) -> Unit,
+)
 
 @Composable
 private fun PortalCard(state: HomeUiState, actions: ProviderCardActions) {
@@ -156,9 +178,9 @@ private fun RainWalletCard(state: HomeUiState, actions: ProviderCardActions) {
         CardTitle("Rain Wallet", "One-time code by email or SMS")
         // The Turnkey tab configured the shared backend this launch: a login here fails until a relaunch.
         state.sharedBackendNotice?.let { RainMuted(it) }
-        RainWalletContactFields(
-            state,
-            actions,
+        ContactFields(
+            state.rainWalletContactInput,
+            actions.rainWalletContactActions,
             switchEnabled = !codeSent && !state.isLoading && !state.rainWalletSessionActive,
             fieldEnabled = !codeSent,
         )
@@ -191,38 +213,33 @@ private fun RainWalletCard(state: HomeUiState, actions: ProviderCardActions) {
     }
 }
 
-/** The "Send code by" switch and the selected channel's contact field. */
+/** The "Send code by" switch and the selected channel's contact field, shared by the two one-time-code tabs. */
 @Composable
-private fun RainWalletContactFields(
-    state: HomeUiState,
-    actions: ProviderCardActions,
-    switchEnabled: Boolean,
-    fieldEnabled: Boolean,
-) {
+private fun ContactFields(input: ContactInput, actions: ContactActions, switchEnabled: Boolean, fieldEnabled: Boolean) {
     Column {
         RainLabel("Send code by")
         RainSegmentedControl(
-            options = RainWalletContactChannel.entries.map { it.label },
-            selectedIndex = state.rainWalletChannel.ordinal,
-            onSelected = { actions.onRainWalletChannelChanged(RainWalletContactChannel.entries[it]) },
+            options = ContactChannel.entries.map { it.label },
+            selectedIndex = input.channel.ordinal,
+            onSelected = { actions.onChannelChanged(ContactChannel.entries[it]) },
             enabled = switchEnabled,
         )
     }
-    when (state.rainWalletChannel) {
-        RainWalletContactChannel.Email -> RainField(
-            label = RainWalletContactChannel.Email.fieldLabel,
-            value = state.rainWalletEmail,
-            onValueChange = actions.onRainWalletEmailChanged,
+    when (input.channel) {
+        ContactChannel.Email -> RainField(
+            label = ContactChannel.Email.fieldLabel,
+            value = input.email,
+            onValueChange = actions.onEmailChanged,
             placeholder = "you@example.com",
             enabled = fieldEnabled,
             keyboardType = KeyboardType.Email,
         )
-        // A number typed without a country code is converted with the device's region before it
-        // reaches the SDK, which requires E.164 and removes spaces, dots, hyphens and parentheses.
-        RainWalletContactChannel.Phone -> RainField(
-            label = RainWalletContactChannel.Phone.fieldLabel,
-            value = state.rainWalletPhone,
-            onValueChange = actions.onRainWalletPhoneChanged,
+        // A number typed without a country code is converted with the device's region before it is
+        // sent: both backends require E.164, without spaces, dots, hyphens or parentheses.
+        ContactChannel.Phone -> RainField(
+            label = ContactChannel.Phone.fieldLabel,
+            value = input.phone,
+            onValueChange = actions.onPhoneChanged,
             placeholder = "+15551234567",
             enabled = fieldEnabled,
             helper = "With the country code, for example +15551234567",
@@ -234,11 +251,11 @@ private fun RainWalletContactFields(
 @Composable
 private fun TurnkeyCard(state: HomeUiState, actions: ProviderCardActions) {
     // Bring-your-own: the sample drives the Turnkey SDK itself (TurnkeyAuthSample) and hands the
-    // authenticated context to Rain. The ids and the email lock once a code is out; a relaunch is
+    // authenticated context to Rain. The ids and the contact lock once a code is out; a relaunch is
     // the only way to change the ids, because the Turnkey singleton is configured once per process.
     val locked = state.turnkeyOtpSent || state.turnkeySessionActive
     RainCard {
-        CardTitle("Turnkey", "Bring your own: email one-time code")
+        CardTitle("Turnkey", "Bring your own: one-time code by email or SMS")
         state.sharedBackendNotice?.let { RainMuted(it) }
         RainField(
             label = "Parent organization ID",
@@ -254,13 +271,11 @@ private fun TurnkeyCard(state: HomeUiState, actions: ProviderCardActions) {
             placeholder = "Config ID",
             enabled = !locked,
         )
-        RainField(
-            label = "Email",
-            value = state.turnkeyEmail,
-            onValueChange = actions.onTurnkeyEmailChanged,
-            placeholder = "you@example.com",
-            enabled = !locked,
-            keyboardType = KeyboardType.Email,
+        ContactFields(
+            state.turnkeyContactInput,
+            actions.turnkeyContactActions,
+            switchEnabled = !locked && !state.isLoading,
+            fieldEnabled = !locked,
         )
         RainButton(
             text = if (state.turnkeyOtpSent) "Resend code" else "Send code",
@@ -268,7 +283,7 @@ private fun TurnkeyCard(state: HomeUiState, actions: ProviderCardActions) {
             modifier = Modifier.fillMaxWidth(),
             enabled = state.turnkeyOrgId.isNotBlank() &&
                 state.turnkeyAuthProxyConfigId.isNotBlank() &&
-                state.turnkeyEmail.isNotBlank() &&
+                state.turnkeyContact.isNotBlank() &&
                 !state.isLoading &&
                 !state.turnkeySessionActive,
             loading = state.isLoading && !state.turnkeyOtpSent && !state.turnkeySessionActive,
@@ -280,6 +295,7 @@ private fun TurnkeyCard(state: HomeUiState, actions: ProviderCardActions) {
                 sessionActive = state.turnkeySessionActive,
                 isLoading = state.isLoading,
                 onVerify = actions.onVerifyTurnkeyOtp,
+                placeholder = state.turnkeyChannel.codePlaceholder,
             )
         }
         if (state.turnkeySessionActive) {
@@ -358,7 +374,7 @@ internal fun CardTitle(title: String, subtitle: String) {
 }
 
 /** Code entry plus "Verify and log in"; both lock once the provider session is active. */
-@Suppress("LongParameterList") // slot-style step shared by two providers: the placeholder is its only per-channel knob
+@Suppress("LongParameterList") // slot-style step shared by three providers: the placeholder is its only per-channel knob
 @Composable
 private fun OneTimeCodeStep(
     code: String,
@@ -422,6 +438,7 @@ private val previewTurnkeyState = HomeUiState(
     turnkeyOrgId = PREVIEW_TURNKEY_ORG_ID,
     turnkeyAuthProxyConfigId = PREVIEW_TURNKEY_PROXY_ID,
     turnkeyEmail = PREVIEW_EMAIL,
+    turnkeyPhone = PREVIEW_PHONE,
 )
 
 /** Privy with its ids and email filled in; each preview copies the flags it needs. */
@@ -468,7 +485,7 @@ private fun RainWalletCardEmailPreview() {
 @Preview(name = "Rain Wallet · phone, ready to send", showBackground = true)
 @Composable
 private fun RainWalletCardPhonePreview() {
-    ProviderCardPreview(previewRainWalletState.copy(rainWalletChannel = RainWalletContactChannel.Phone))
+    ProviderCardPreview(previewRainWalletState.copy(rainWalletChannel = ContactChannel.Phone))
 }
 
 @Preview(name = "Rain Wallet · sending", showBackground = true)
@@ -493,7 +510,7 @@ private fun RainWalletCardEmailCodeSentPreview() {
 @Composable
 private fun RainWalletCardSmsCodeSentPreview() {
     ProviderCardPreview(
-        previewRainWalletState.copy(rainWalletChannel = RainWalletContactChannel.Phone, rainWalletOtpSent = true),
+        previewRainWalletState.copy(rainWalletChannel = ContactChannel.Phone, rainWalletOtpSent = true),
     )
 }
 
@@ -522,10 +539,16 @@ private fun RainWalletCardInitializedPreview() {
     )
 }
 
-@Preview(name = "Turnkey · ready to send", showBackground = true)
+@Preview(name = "Turnkey · ready to send", showBackground = true, heightDp = 720)
 @Composable
 private fun TurnkeyCardReadyPreview() {
     ProviderCardPreview(previewTurnkeyState)
+}
+
+@Preview(name = "Turnkey · phone, ready to send", showBackground = true, heightDp = 760)
+@Composable
+private fun TurnkeyCardPhonePreview() {
+    ProviderCardPreview(previewTurnkeyState.copy(turnkeyChannel = ContactChannel.Phone))
 }
 
 @Preview(name = "Turnkey · code sent", showBackground = true, heightDp = 700)

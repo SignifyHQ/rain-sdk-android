@@ -54,7 +54,6 @@ authenticated provider handle, and the Turnkey and Privy drivers are reference c
 yourself. The Rain wallet owns its authentication, so the sample calls the provider's own auth
 methods:
 
-- **Portal MPC** — paste a Portal session token on Home and tap *Initialize SDK*.
 - **Rain Wallet** (`RainSession.prepareRainWallet`) — a contact: an email address, or a phone number
   when the *Send code by* switch is on Phone. The wallet backend's identity is embedded in the SDK,
   so there is nothing else to enter. A phone number needs its country code (`+15551234567`); a number typed without one is
@@ -70,18 +69,9 @@ methods:
   login by the same person are two different accounts. SMS needs SMS one-time codes enabled on the
   backend configuration; in the sandbox the test number `+1 999-999-9999` with the code `000000`
   works once the code format is numeric and 6 characters.
-- **Turnkey** (bring-your-own, `TurnkeyAuthSample` + `RainSession.initializeTurnkey`) — parent
-  organization ID + auth proxy config ID + email. The sample initializes the Turnkey Kotlin SDK
-  itself, sends and verifies the email one-time code through it, provisions one wallet holding an
-  Ethereum and a Solana account on first sign-in, and hands the authenticated `TurnkeyContext` to
-  the public `TurnkeyConfig(turnkey = …)`. The Rain wallet and this tab share one process-wide
-  Turnkey singleton, so after one of them has configured it in a launch the other refuses to start
-  until the app is relaunched: the Rain wallet with `RainError.InvalidConfig`, this tab with an
-  error from `TurnkeyAuthSample.init`, which probes the singleton before configuring it. Both tabs
-  stay selectable; the one that did not configure the backend shows a notice saying so.
 - **Export keys** — once the Rain Wallet session is active, an *Export keys* card under the Rain Wallet card reveals the recovery phrase,
   the Ethereum private key or the Solana private key, one at a time, through `exportRecoveryPhrase`
-  and `exportPrivateKey`, before *Initialize Rain* as well as after. While a value shows, the window
+  and `exportPrivateKey`, on a restored or reused session before *Initialize Rain*, and after it. While a value shows, the window
   carries `FLAG_SECURE`, so screenshots, screen recordings and the recents thumbnail are blank,
   though `FLAG_SECURE` does not hide the text from accessibility services. *Copy* puts the value on
   the clipboard flagged
@@ -94,6 +84,18 @@ methods:
   passwords in the accessibility settings. To check an export, restore
   the phrase in MetaMask and in Phantom and compare the addresses with the Wallet screen, then import
   the Ethereum key in MetaMask and the Solana key in Phantom and compare again.
+- **Turnkey** (bring-your-own, `TurnkeyAuthSample` + `RainSession.initializeTurnkey`) — parent
+  organization ID + auth proxy config ID + a contact: an email address, or a phone number when the
+  *Send code by* switch is on Phone, converted to E.164 the same way as on the Rain Wallet card (SMS
+  needs SMS one-time codes enabled on the auth proxy configuration). The sample initializes the
+  Turnkey Kotlin SDK itself, sends and verifies the one-time code through it, provisions one wallet holding an
+  Ethereum and a Solana account on first sign-in, and hands the authenticated `TurnkeyContext` to
+  the public `TurnkeyConfig(turnkey = …)`. The Rain wallet and this tab share one process-wide
+  Turnkey singleton, so after one of them has configured it in a launch the other refuses to start
+  until the app is relaunched: the Rain wallet with `RainError.InvalidConfig`, this tab with an
+  error from `TurnkeyAuthSample.init`, which probes the singleton before configuring it. Both tabs
+  stay selectable; the one that did not configure the backend shows a notice saying so.
+- **Portal MPC** — paste a Portal session token on Home and tap *Initialize SDK*.
 - **Privy** (`PrivyAuthSample`) — app ID + app client ID + email OTP; embedded Ethereum and Solana
   wallets are created on first sign-in.
 
@@ -137,7 +139,7 @@ app/src/main/java/com/rain/sdk/sample/
 └── screens/                 # One Screen + ViewModel pair per feature, plus shared helpers
     ├── Common.kt            # Address/hash/money formatting, TransactionResultCard
     ├── SecretHandling.kt    # Sensitive clipboard copy with a timed clear, FLAG_SECURE while a secret shows
-    ├── HomeProviderCards.kt # Portal / Rain Wallet / Turnkey / Privy connection cards
+    ├── HomeProviderCards.kt # Rain Wallet / Turnkey / Portal / Privy connection cards
     ├── HomeExportKeysCard.kt # Export keys card for a signed-in Rain Wallet session
     ├── HomeScreen / HomeViewModel
     ├── WalletInfoScreen / WalletInfoViewModel
