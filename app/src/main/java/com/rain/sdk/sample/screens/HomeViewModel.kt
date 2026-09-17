@@ -381,12 +381,10 @@ class HomeViewModel(
         val uiState = _state
         viewModelScope.launch {
             try {
-                // Initialize with every EVM chain's RPC (Fuji + Base Sepolia) so the chain
-                // dropdown and Rain collateral (which lives on Base Sepolia) both work; the
-                // screens pick the active chain via `selectedChain`.
-                val rpcConfig = WalletChain.selectable
-                    .filter { !it.isSolana }
-                    .associate { it.chainId to it.rpcUrl }
+                // Initialize with every EVM chain's RPC, the collateral-only chains included, so
+                // the chain dropdown and the Rain collateral screens both work; the screens pick
+                // the active chain via `selectedChain`.
+                val rpcConfig = WalletChain.evmRpcEndpoints
 
                 session.initializePortal(
                     sessionToken = _state.value.sessionToken,

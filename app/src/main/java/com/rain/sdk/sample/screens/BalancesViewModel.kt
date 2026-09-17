@@ -98,10 +98,9 @@ class BalancesViewModel(
 
         viewModelScope.launch {
             try {
-                // Rain provisions one collateral contract per chain family — pick the one
-                // matching the active chain (Solana cluster exact, any EVM otherwise).
-                val contract = rainSdk.fetchCollateralContracts()
-                    .firstOrNull { chain.ownsCollateralContract(it.chainId) }
+                // The contract on the active chain when Rain provisioned one there, else the
+                // first of the chain's family (see WalletChain.collateralContract).
+                val contract = chain.collateralContract(rainSdk.fetchCollateralContracts())
                 if (contract == null) {
                     SampleLog.w("Balances.collateral", "no collateral contract for ${chain.displayName}")
                     _state.update {

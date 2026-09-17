@@ -2,6 +2,7 @@ package com.rain.sdk.sample
 
 import com.rain.sdk.RainAuthPullChains
 import com.rain.sdk.RainChain
+import com.rain.sdk.models.RainCollateralContract
 import com.rain.sdk.models.TokenInfo
 
 /**
@@ -155,12 +156,22 @@ enum class WalletChain(
         )
 
     /**
-     * True when a Rain collateral contract on [contractChainId] belongs to this wallet. Solana
-     * matches its exact cluster; EVM accepts any EVM contract because Rain deploys the user's
-     * collateral on one EVM chain (Base Sepolia) regardless of which EVM chain is selected.
+     * True when a Rain collateral contract on [contractChainId] belongs to this wallet's chain
+     * family: Solana matches its exact cluster; an EVM chain accepts any EVM contract, because
+     * Rain may host the user's collateral on an EVM chain this picker does not offer.
      */
     fun ownsCollateralContract(contractChainId: Int): Boolean =
         if (isSolana) contractChainId == chainId else contractChainId !in SOLANA_CHAIN_IDS
+
+    /**
+     * The collateral contract the screens show for this chain: the one on this exact chain when
+     * Rain provisioned one there, otherwise the first of this chain's family. Rain can hold a
+     * user's collateral on several EVM chains and lists the contracts in no fixed order, so the
+     * family match alone could show a different contract from one launch to the next.
+     */
+    fun collateralContract(contracts: List<RainCollateralContract>): RainCollateralContract? =
+        contracts.firstOrNull { it.chainId == chainId }
+            ?: contracts.firstOrNull { ownsCollateralContract(it.chainId) }
 
     /** Light client-side address sanity check (the SDK validates authoritatively). */
     fun isValidAddress(address: String): Boolean {
@@ -209,8 +220,52 @@ enum class WalletChain(
         val firstAuthPullChain: WalletChain?
             get() = selectable.firstOrNull { it.supportsAuthPull }
 
-        /** Every selectable chain's RPC endpoint, for initializing the SDK with all at once. */
+        private const val ETHEREUM_SEPOLIA = 11155111
+
+        /**
+         * Chains this build does not offer in the picker but Rain may host a user's collateral on.
+         * The SDK reads collateral token names, symbols and decimals from the token contracts, so
+         * it needs an RPC endpoint there; without one the withdraw screen calls every token
+         * "Token". The picker stays as it is: nothing is sent on these chains.
+         */
+        private val COLLATERAL_ONLY_CHAINS = mapOf(
+            ETHEREUM_SEPOLIA to CollateralOnlyChain(
+                name = "Ethereum Sepolia",
+                rpcUrl = "https://ethereum-sepolia-rpc.publicnode.com",
+                explorerName = "Etherscan",
+                explorerTxPrefix = "https://sepolia.etherscan.io/tx/",
+            ),
+        )
+
+        /**
+         * Every selectable chain's RPC endpoint plus the collateral-only chains', for initializing
+         * the SDK with all at once. The SDK reads balances on every chain it is given, so the
+         * balances screen makes one extra read per collateral-only chain.
+         */
         val rpcEndpoints: Map<Int, String>
-            get() = selectable.associate { it.chainId to it.rpcUrl }
+            get() = COLLATERAL_ONLY_CHAINS.mapValues { it.value.rpcUrl } + selectable.associate { it.chainId to it.rpcUrl }
+
+        /** [rpcEndpoints] without the Solana clusters, for a provider that holds no Solana account. */
+        val evmRpcEndpoints: Map<Int, String>
+            get() = rpcEndpoints.filterKeys { it !in SOLANA_CHAIN_IDS }
+
+        /** A chain's name for labels: a picker entry's display name, a collateral-only chain's, else its id. */
+        fun chainLabel(chainId: Int): String =
+            entries.firstOrNull { it.chainId == chainId }?.displayName
+                ?: COLLATERAL_ONLY_CHAINS[chainId]?.let { "EVM · ${it.name}" }
+                ?: "chain $chainId"
+
+        /** Explorer name and transaction URL for [hash] on [chainId], null for a chain without a known explorer. */
+        fun explorerTxLink(chainId: Int, hash: String): Pair<String, String>? =
+            entries.firstOrNull { it.chainId == chainId }?.let { it.explorerName to it.explorerTxUrl(hash) }
+                ?: COLLATERAL_ONLY_CHAINS[chainId]?.let { it.explorerName to "${it.explorerTxPrefix}$hash" }
     }
 }
+
+/** A chain the SDK reads on but the picker does not offer. */
+private data class CollateralOnlyChain(
+    val name: String,
+    val rpcUrl: String,
+    val explorerName: String,
+    val explorerTxPrefix: String,
+)

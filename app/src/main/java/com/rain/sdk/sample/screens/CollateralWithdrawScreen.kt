@@ -108,16 +108,15 @@ private fun CollateralWithdrawContent(
     onBack: () -> Unit,
     actions: CollateralWithdrawActions,
 ) {
-    // The contract lives on its own chain (Base Sepolia for EVM), which may differ from the
-    // selected one; explorer links and the descriptor follow the contract.
-    val contractChain = WalletChain.entries.firstOrNull { it.chainId == state.chainId }
+    // The contract lives on its own chain, which may differ from the selected one and may be
+    // one the picker does not offer; the descriptor and the explorer link follow the contract.
     val token = state.selectedToken
 
     RainScreen(innerPadding) {
         RainBackHeader(onBack = onBack)
         RainTitleBlock(
             title = "Withdraw collateral",
-            subtitle = contractChain?.let { "Contract on ${it.displayName}" } ?: selectedChain.displayName,
+            subtitle = if (state.chainId != 0) "Contract on ${WalletChain.chainLabel(state.chainId)}" else selectedChain.displayName,
         )
 
         if (state.isLoadingContract) {
@@ -131,12 +130,11 @@ private fun CollateralWithdrawContent(
                 RainLabel("Token")
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     state.availableTokens.forEachIndexed { index, option ->
-                        // Symbol leads; the token's name stays in the descriptor when it adds
-                        // information ("USD Coin"), as the previous layout showed both.
-                        val name = option.name.takeIf { it.isNotBlank() && it != option.symbol && option.symbol.isNotBlank() }
+                        // Name and symbol together, "USDC (USDC)" included, so a token whose
+                        // metadata the SDK could not resolve reads as "Token" and nothing else.
                         RainOptionRow(
-                            title = option.symbol.ifBlank { option.name },
-                            subtitle = listOfNotNull(name, "Balance ${option.balanceDisplay}").joinToString(" · "),
+                            title = option.displayName,
+                            subtitle = "Balance ${option.balanceDisplay}",
                             selected = index == state.selectedTokenIndex,
                             onClick = { actions.onTokenSelected(index) },
                             enabled = !state.isWithdrawing,
@@ -248,18 +246,18 @@ private fun CollateralWithdrawContent(
             }
 
             state.withdrawResult?.let { txHash ->
-                val chain = contractChain ?: WalletChain.BASE_SEPOLIA
+                val explorer = WalletChain.explorerTxLink(state.chainId, txHash)
                 TransactionResultCard(
                     title = "Withdrawal sent",
                     hash = txHash,
-                    explorerUrl = chain.explorerTxUrl(txHash),
-                    explorerName = chain.explorerName,
+                    explorerUrl = explorer?.second,
+                    explorerName = explorer?.first ?: "explorer",
                 )
             }
         } else if (!state.isLoadingContract && state.errorText == null && state.proxyAddress.isNotEmpty()) {
             RainNote(
                 title = "No collateral tokens",
-                body = "The collateral contract on ${contractChain?.displayName ?: selectedChain.displayName} " +
+                body = "The collateral contract on ${WalletChain.chainLabel(state.chainId)} " +
                     "holds no tokens to withdraw.",
             )
         }

@@ -49,10 +49,9 @@ class WalletInfoViewModel(
                     )
                 }
 
-                // Rain provisions one collateral contract per chain family (e.g. Base Sepolia
-                // for EVM, chainId 901 for Solana devnet) — pick the one for the active chain.
-                val contract = rainSdk.fetchCollateralContracts()
-                    .firstOrNull { chain.ownsCollateralContract(it.chainId) }
+                // The contract on the active chain when Rain provisioned one there, else the
+                // first of the chain's family (see WalletChain.collateralContract).
+                val contract = chain.collateralContract(rainSdk.fetchCollateralContracts())
                 if (contract == null) {
                     SampleLog.w("WalletInfo", "no collateral contract for ${chain.displayName}")
                     _state.update {
