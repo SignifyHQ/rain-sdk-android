@@ -72,7 +72,7 @@ subprojects {
         autoCorrect = providers.gradleProperty("detektAutoCorrect").isPresent
     }
     dependencies {
-        // ktlint rules (android_studio code style, see .editorconfig) inside detekt.
+        // ktlint rules inside detekt; the code style is set in config/detekt/detekt.yml (.editorconfig mirrors it).
         "detektPlugins"(detektKtlintWrapper)
     }
 

@@ -2,7 +2,6 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
-    <ID>AbstractClassCanBeInterface:PortalSessionPolicy.kt:PortalSessionState$PortalSessionState</ID>
     <ID>CyclomaticComplexMethod:PortalSessionCoordinator.kt:PortalSessionCoordinator$private suspend fun &lt;T> execute: T</ID>
     <ID>Filename:PortalTestFixtures.kt:com.rain.sdk.portal.PortalTestFixtures.kt</ID>
     <ID>InstanceOfCheckForException:PortalManager.kt:PortalManager$e is RainError</ID>
@@ -32,7 +31,6 @@
     <ID>ThrowsCount:PortalManager.kt:PortalManager$suspend fun getTransactions: List&lt;RainTransaction></ID>
     <ID>ThrowsCount:PortalManager.kt:PortalManager$suspend fun sendTransaction: String</ID>
     <ID>ThrowsCount:PortalManager.kt:PortalManager$suspend fun signTypedData: String</ID>
-    <ID>ThrowsCount:PortalProvider.kt:PortalProvider$override suspend fun create: WalletProvider</ID>
     <ID>TooGenericExceptionCaught:PortalManager.kt:PortalManager$e: Exception</ID>
     <ID>TooGenericExceptionCaught:PortalProvider.kt:PortalProvider$e: Exception</ID>
     <ID>TooGenericExceptionCaught:PortalSessionCoordinator.kt:PortalSessionCoordinator$e: Exception</ID>

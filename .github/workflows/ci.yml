@@ -141,19 +141,39 @@ jobs:
 
       # detekt baseline signatures are positionless (a baselined rule+class+expression
       # triple also waives FUTURE identical findings in that class), so growth must be
-      # caught in review: baselines may only shrink. Missing on main = newly adopted, allowed.
+      # caught in review: baselines may only shrink. Entries are compared, not counted, so a
+      # new entry cannot hide behind entries that went away. Missing on main = newly adopted,
+      # allowed. While main still carries the detekt 1.x id format (`Rule:File.kt$Class$...`),
+      # entries are compared by rule, file and class.
       - name: Baselines may only shrink
         if: matrix.name == 'detekt'
         run: |
           git fetch --quiet --depth=1 origin main
+          ids() { grep -o '<ID>[^<]*</ID>' | sed -E 's#</?ID>##g; s/&lt;/</g; s/&gt;/>/g'; }
+          # rule|file|class|signature. A function's signature is reduced to its name, so annotating a
+          # baselined function or changing its parameters does not read as a new entry, while a finding
+          # on another function of the same class does; other entries keep their expression text.
+          key() {
+            sed -E -e 's/^([^:]+):([^$:]+\.kt)[$:]([^$]*)\$?(.*)$/\1|\2|\3|\4/' \
+                   -e 's/^([^|]*\|[^|]*\|)[^|]*(fun [A-Za-z0-9_]+)[^|]*\|/\1\2|/' \
+                   -e 's/\|[^|]*(fun [A-Za-z0-9_]+)[^|]*$/|\1/'
+          }
+          # While main still carries the detekt 1.x id format (`Rule:File.kt$Class$...`), whose function
+          # signatures are spelled differently, entries are compared by rule, file and class only; an
+          # entry on a top-level function (its own signature stands in for the class) by rule and file.
+          coarse() { key | sed -E 's/\|[^|]*$//; s/\|(\(|([^|]* )?fun ).*$/|<top-level>/'; }
           fail=0
           for f in $(git ls-files '*detekt-baseline.xml'); do
             # Baseline absent on main = newly adopted module; allowed.
             git cat-file -e "FETCH_HEAD:$f" 2>/dev/null || continue
-            new=$(grep -c '<ID>' "$f" || true)
-            old=$(git show "FETCH_HEAD:$f" | grep -c '<ID>' || true)
-            if [ "${new:-0}" -gt "${old:-0}" ]; then
-              echo "::error file=$f::detekt baseline grew from $old to $new entries — fix the finding or @Suppress at the smallest scope instead"
+            if git show "FETCH_HEAD:$f" | grep -q '<ID>[^<]*\.kt\$'; then
+              added=$(comm -13 <(git show "FETCH_HEAD:$f" | ids | coarse | sort -u) <(ids < "$f" | coarse | sort -u))
+            else
+              added=$(comm -13 <(git show "FETCH_HEAD:$f" | ids | key | sort -u) <(ids < "$f" | key | sort -u))
+            fi
+            if [ -n "$added" ]; then
+              echo "::error file=$f::detekt baseline gained entries — fix the finding or @Suppress at the smallest scope instead"
+              echo "$added"
               fail=1
             fi
           done

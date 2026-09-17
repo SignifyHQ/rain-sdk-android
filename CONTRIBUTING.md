@@ -25,8 +25,9 @@ things locally before pushing:
 ./gradlew lint dokkaGenerate :app:assembleRelease checkVendorFreeClasspaths   # the other CI legs
 ```
 
-The code style is pinned in `.editorconfig`: `android_studio` style, 4-space indent,
-150-column lines — Android Studio's *Reformat Code* produces compliant output.
+The code style is `intellij_idea` (ktlint's default), set as `ktlint.code_style` in
+`config/detekt/detekt.yml` and mirrored in `.editorconfig`, with a 4-space indent and 150-column
+lines — Android Studio's *Reformat Code* produces compliant output.
 
 Non-formatting findings (null-safety, swallowed exceptions, complexity, magic numbers)
 cannot be auto-fixed: fix the code, or `@Suppress("RuleName")` at the smallest possible

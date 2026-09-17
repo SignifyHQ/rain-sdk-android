@@ -2,16 +2,10 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
-    <ID>AbstractClassCanBeInterface:TransactionModels.kt:TransactionResult$TransactionResult</ID>
     <ID>CyclomaticComplexMethod:RainSdk.kt:RainSdk.Builder$private fun validateAuthPullConfig</ID>
-    <ID>CyclomaticComplexMethod:RainSdkManager.kt:RainSdkManager$override suspend fun confirmTokenAllowance: RainTokenAllowance</ID>
+    <ID>CyclomaticComplexMethod:RainSdkManager.kt:RainSdkManager$@Suppress("ThrowsCount") // one throw per way a confirmation can end: refused, reverted, pending, unreadable override suspend fun confirmTokenAllowance: RainTokenAllowance</ID>
     <ID>CyclomaticComplexMethod:SolanaTransactionDecoder.kt:SolanaTransactionDecoder$private fun decodeInstruction: Transfer?</ID>
     <ID>Filename:RainSdkManagerTest.kt:com.rain.sdk.internal.core.RainSdkManagerTest.kt</ID>
-    <ID>ImplicitDefaultLocale:Multicall3.kt:Multicall3$String.format("%02x", bytes[idx].toInt() and 0xFF)</ID>
-    <ID>ImplicitDefaultLocale:RainEIP712Message.kt:RainEIP712Message$"%02x".format(it)</ID>
-    <ID>ImplicitDefaultLocale:RainEip712Utils.kt:RainEip712Utils$"\\u%04x".format(c.code)</ID>
-    <ID>ImplicitDefaultLocale:SolanaTransactionBuilderTest.kt:SolanaTransactionBuilderTest$"%02x".format(it)</ID>
-    <ID>ImplicitDefaultLocale:TransactionBuildingTest.kt:TransactionBuildingTest$"%02x".format(it)</ID>
     <ID>InjectDispatcher:JsonRpcClient.kt:JsonRpcClient$IO</ID>
     <ID>InjectDispatcher:RainApiClient.kt:RainApiClient$IO</ID>
     <ID>InjectDispatcher:RainSdkManager.kt:RainSdkManager$Default</ID>
@@ -22,9 +16,8 @@
     <ID>InstanceOfCheckForException:RainTransactionBuilderImpl.kt:RainTransactionBuilderImpl$e is RainError</ID>
     <ID>InstanceOfCheckForException:TransactionExecutor.kt:TransactionExecutor$e is RainError</ID>
     <ID>InstanceOfCheckForException:TransactionSigner.kt:TransactionSigner$e is RainError</ID>
-    <ID>LargeClass:RainSdkManager.kt:RainSdkManager : RainClient</ID>
     <ID>LargeClass:RainSdkManagerApprovalTest.kt:RainSdkManagerApprovalTest</ID>
-    <ID>LongMethod:RainSdkManager.kt:RainSdkManager$override suspend fun confirmTokenAllowance: RainTokenAllowance</ID>
+    <ID>LongMethod:RainSdkManager.kt:RainSdkManager$@Suppress("ThrowsCount") // one throw per way a confirmation can end: refused, reverted, pending, unreadable override suspend fun confirmTokenAllowance: RainTokenAllowance</ID>
     <ID>LongMethod:SolanaCollateralWithdraw.kt:SolanaCollateralWithdrawComposer$suspend fun composeWithdraw: UnsignedSolanaTransfer</ID>
     <ID>LongMethod:SolanaTransferComposer.kt:SolanaTransferComposer$@Suppress("LongParameterList") suspend fun composeSplToken: UnsignedSolanaTransfer</ID>
     <ID>LongParameterList:MockChainReader.kt:MockChainReader</ID>
@@ -142,27 +135,14 @@
     <ID>SwallowedException:SolanaTransferComposer.kt:SolanaTransferComposer$e: ArithmeticException</ID>
     <ID>SwallowedException:Web3jProvider.kt:Web3jProvider$e: Exception</ID>
     <ID>ThrowsCount:ConfigManager.kt:ConfigManager$fun validateRpcEndpoints</ID>
-    <ID>ThrowsCount:EvmChainReader.kt:EvmChainReader$override suspend fun getTransactionReceipt: MinedReceipt?</ID>
     <ID>ThrowsCount:JsonRpcClient.kt:JsonRpcClient$suspend fun call: JSONObject</ID>
     <ID>ThrowsCount:Multicall3.kt:Multicall3$fun decodeAggregate3Result: List&lt;Result></ID>
     <ID>ThrowsCount:RainAmountUtils.kt:RainAmountUtils$fun toBaseUnits: BigInteger</ID>
     <ID>ThrowsCount:RainApiClient.kt:RainApiClient$private suspend fun executeChecked: String</ID>
     <ID>ThrowsCount:RainHexUtils.kt:RainHexUtils$fun hexToBytes: ByteArray</ID>
     <ID>ThrowsCount:RainSdk.kt:RainSdk.Builder$private fun validateAuthPullConfig</ID>
-    <ID>ThrowsCount:RainSdkManager.kt:RainSdkManager$override suspend fun approveTokenAllowance: RainTokenApprovalResult</ID>
-    <ID>ThrowsCount:RainSdkManager.kt:RainSdkManager$override suspend fun confirmTokenAllowance: RainTokenAllowance</ID>
-    <ID>ThrowsCount:RainSdkManager.kt:RainSdkManager$override suspend fun estimateApprovalFee: BigDecimal</ID>
-    <ID>ThrowsCount:RainSdkManager.kt:RainSdkManager$override suspend fun getBalance: Balance</ID>
-    <ID>ThrowsCount:RainSdkManager.kt:RainSdkManager$override suspend fun getTokenAllowance: RainTokenAllowance</ID>
-    <ID>ThrowsCount:RainSdkManager.kt:RainSdkManager$override suspend fun getTokenBalances: List&lt;Balance></ID>
-    <ID>ThrowsCount:RainSdkManager.kt:RainSdkManager$override suspend fun getTransactions: List&lt;RainTransaction></ID>
-    <ID>ThrowsCount:RainSdkManager.kt:RainSdkManager$override suspend fun getWalletAddress: String</ID>
-    <ID>ThrowsCount:RainSdkManager.kt:RainSdkManager$override suspend fun sendNative: RainTokenTransferResult</ID>
-    <ID>ThrowsCount:RainSdkManager.kt:RainSdkManager$override suspend fun sendToken: RainTokenTransferResult</ID>
     <ID>ThrowsCount:RainSdkManager.kt:RainSdkManager$private fun validateApprovalRequest</ID>
     <ID>ThrowsCount:RainSdkManager.kt:RainSdkManager$private fun verifyConfirmedAllowance</ID>
-    <ID>ThrowsCount:RainTransactionBuilderImpl.kt:RainTransactionBuilderImpl$override fun buildWithdrawTransactionData: String</ID>
-    <ID>ThrowsCount:RainTransactionBuilderImpl.kt:RainTransactionBuilderImpl$override suspend fun getLatestNonce: BigInteger</ID>
     <ID>ThrowsCount:SolanaCollateralWithdraw.kt:SolanaCollateralWithdrawComposer$suspend fun composeWithdraw: UnsignedSolanaTransfer</ID>
     <ID>ThrowsCount:SolanaTransferComposer.kt:SolanaTransferComposer$@Suppress("LongParameterList") suspend fun composeSplToken: UnsignedSolanaTransfer</ID>
     <ID>ThrowsCount:TransactionExecutor.kt:TransactionExecutor$suspend fun sendTransaction: String</ID>

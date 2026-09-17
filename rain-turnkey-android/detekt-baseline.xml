@@ -2,15 +2,11 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
-    <ID>AbstractClassCanBeInterface:TurnkeySessionPolicy.kt:TurnkeyAuthState$TurnkeyAuthState</ID>
-    <ID>AbstractClassCanBeInterface:TurnkeySessionPolicy.kt:TurnkeySessionState$TurnkeySessionState</ID>
     <ID>CyclomaticComplexMethod:TurnkeyManager.kt:TurnkeyManager$internal suspend fun getEvmTransactionsFromActivities: List&lt;RainTransaction></ID>
     <ID>CyclomaticComplexMethod:TurnkeyManager.kt:TurnkeyManager$internal suspend fun solanaBalancesOrNull: List&lt;Balance>?</ID>
     <ID>CyclomaticComplexMethod:TurnkeyManager.kt:TurnkeyManager$private fun indexedTransaction: RainTransaction</ID>
     <ID>CyclomaticComplexMethod:TurnkeySessionCoordinator.kt:TurnkeySessionCoordinator$private suspend fun &lt;T> execute: T</ID>
     <ID>DoubleMutabilityForCollection:MockTurnkey.kt:MockTurnkeyClient$/** * Optional queue of status responses returned sequentially by `getSendTransactionStatus`. * When non-empty, each call consumes the next entry; the final entry is reused for * subsequent calls. When empty (default), a single BROADCASTED status containing * [mockTransactionHash] is returned. */ var sendTransactionStatusQueue: MutableList&lt;StatusFixture> = mutableListOf()</ID>
-    <ID>ImplicitDefaultLocale:EthereumKeyEncoder.kt:EthereumKeyEncoder$"%02x".format(it)</ID>
-    <ID>ImplicitDefaultLocale:SolanaKeyEncoderTest.kt:SolanaKeyEncoderTest$"%02x".format(it)</ID>
     <ID>InjectDispatcher:TurnkeyProvider.kt:TurnkeyProvider$Default</ID>
     <ID>InjectDispatcher:TurnkeyProvider.kt:TurnkeyProvider$IO</ID>
     <ID>LargeClass:TurnkeyManager.kt:TurnkeyManager</ID>

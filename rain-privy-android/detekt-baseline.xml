@@ -2,7 +2,6 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
-    <ID>AbstractClassCanBeInterface:PrivySessionPolicy.kt:PrivySessionState$PrivySessionState</ID>
     <ID>InjectDispatcher:PrivyProvider.kt:PrivyProvider$Default</ID>
     <ID>InjectDispatcher:PrivyProvider.kt:PrivyProvider$IO</ID>
     <ID>InjectDispatcher:PrivyRpcClient.kt:PrivyRpcClient$IO</ID>
@@ -28,7 +27,6 @@
     <ID>ThrowsCount:PrivyManager.kt:PrivyManager$private suspend fun request: String</ID>
     <ID>ThrowsCount:PrivyManager.kt:PrivyManager$suspend fun resolveWallet: EmbeddedEthereumWallet</ID>
     <ID>ThrowsCount:PrivyRpcClient.kt:PrivyRpcClient$suspend fun callForHexResult: String</ID>
-    <ID>ThrowsCount:PrivyWalletProvider.kt:PrivyWalletProvider$override suspend fun sendTransaction: String</ID>
     <ID>TooGenericExceptionCaught:PrivyManager.kt:PrivyManager$e: Exception</ID>
     <ID>TooGenericExceptionCaught:PrivySessionCoordinator.kt:PrivySessionCoordinator$e: Exception</ID>
     <ID>TooGenericExceptionCaught:PrivyWalletProvider.kt:PrivyWalletProvider$e: Exception</ID>
