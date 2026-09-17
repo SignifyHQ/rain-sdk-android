@@ -13,7 +13,6 @@ import java.math.BigInteger
  * prefix byte, as `0x` plus 40 lowercase hex characters.
  */
 internal object EthereumKeyEncoder {
-    const val KEY_LENGTH = 32
     private const val ADDRESS_BYTES = 20
     private const val KECCAK_BITS = 256
     private val curve = CustomNamedCurves.getByName("secp256k1")

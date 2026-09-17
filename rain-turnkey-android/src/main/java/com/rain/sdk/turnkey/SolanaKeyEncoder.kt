@@ -14,7 +14,6 @@ import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
  * Solana export.
  */
 internal object SolanaKeyEncoder {
-    const val KEY_LENGTH = 32
 
     /** The ed25519 public key for a 32-byte [seed]. Any other length is rejected without echoing the input. */
     fun publicKey(seed: ByteArray): ByteArray {

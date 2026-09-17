@@ -13,6 +13,9 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
+/** Every exported key is 32 bytes: a secp256k1 private key and an ed25519 seed alike. */
+internal const val KEY_LENGTH = 32
+
 /** The vendor address format an account of this family is stored under. */
 internal val TurnkeyKeyFamily.addressFormat: V1AddressFormat
     get() = when (this) {
@@ -157,7 +160,6 @@ internal class TurnkeyKeyExporter(
     }
 
     private companion object {
-        const val KEY_LENGTH = 32
         const val HEX_RADIX = 16
 
         // Fixed messages: none may echo an address, a key or a phrase.
