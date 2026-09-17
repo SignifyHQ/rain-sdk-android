@@ -38,7 +38,11 @@ import com.turnkey.types.V1PayloadEncoding
 import com.turnkey.types.V1SignRawPayloadResult
 import com.turnkey.types.V1WalletAccountParams
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
+import timber.log.Timber
 
 /**
  * Narrow internal abstractions over the Turnkey Kotlin SDK so the wallet provider can be
@@ -199,7 +203,8 @@ internal fun OtpChannel.toVendorOtpType(): OtpType = when (this) {
  */
 @Suppress("TooManyFunctions") // vendor seam: one member per Turnkey call the SDK makes
 internal class TurnkeyContextAdapter(
-    private val context: TurnkeyContext = TurnkeyContext
+    private val context: TurnkeyContext = TurnkeyContext,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : TurnkeyContextProtocol {
 
     override val wallets: List<Wallet>
@@ -222,17 +227,25 @@ internal class TurnkeyContextAdapter(
     }
 
     override suspend fun refreshSession(expirationSeconds: String?) {
-        if (expirationSeconds == null) {
-            context.refreshSession()
-        } else {
-            context.refreshSession(expirationSeconds = expirationSeconds)
+        // The vendor generates the new P-256 key pair, reads and rewrites its JWT store and builds
+        // the stamper on the calling thread, and the reload below reads the store again; hosts call
+        // from the main thread.
+        withContext(ioDispatcher) {
+            if (expirationSeconds == null) {
+                context.refreshSession()
+            } else {
+                context.refreshSession(expirationSeconds = expirationSeconds)
+            }
+            // Turnkey 2.0.1's refreshSession rotates the session key pair, deletes the old one and
+            // rebuilds its client, but never rewrites its public `session` flow: the flow keeps the
+            // pre-refresh session, whose public key no longer has a key pair and whose expiry is the
+            // old one. Re-selecting the session is the one public call that reloads the stored
+            // session into the flow. It is more than a local swap: with the vendor's default
+            // `autoRefreshManagedStates` it also reloads the user and the wallets over the network,
+            // and it fires the host's `onSessionSelected` hook, so its failure is handled apart from
+            // the refresh itself.
+            reloadSelectedSession(context.selectedSessionKey.value) { context.setSelectedSession(it) }
         }
-        // Turnkey 2.0.1's refreshSession rotates the session key pair, deletes the old one and
-        // rebuilds its client, but never rewrites its public `session` flow: the flow keeps the
-        // pre-refresh session, whose public key no longer has a key pair and whose expiry is the
-        // old one. Re-selecting the session is the one public call that reloads the stored session
-        // into the flow. It saves the selection, swaps the client and flows, and makes no request.
-        context.selectedSessionKey.value?.let { context.setSelectedSession(it) }
     }
 
     override suspend fun signRawPayload(
@@ -386,6 +399,27 @@ internal class TurnkeyContextAdapter(
 
     private companion object {
         const val MANAGED_WALLET_MNEMONIC_LENGTH = 12L
+    }
+}
+
+/**
+ * Reloads the stored session under [selectedKey] into the vendor's flows once a refresh has
+ * succeeded. The refresh has already rotated the key, server-side and on disk, so a failure of the
+ * reload (a user or wallet read that failed, a hook that threw) must not reach the session
+ * coordinator, which would treat it as a session death: expiry hook, evicted caches and a
+ * `TokenExpired` over a session that is valid. The failure is logged and the flows keep the
+ * pre-refresh view until the next reload. A cancellation leaves as itself, bare or wrapped by the
+ * vendor. No-op when nothing is selected.
+ */
+@Suppress("TooGenericExceptionCaught") // the vendor wraps every failure of the reload in one type
+internal suspend fun reloadSelectedSession(selectedKey: String?, reload: suspend (String) -> Unit) {
+    val key = selectedKey ?: return
+    try {
+        reload(key)
+    } catch (e: Exception) {
+        // A cancellation leaves as itself, bare or wrapped in the vendor's failure type.
+        e.cancellationInChain()?.let { throw it }
+        Timber.w(e, "Rain SDK: wallet session refreshed, but reloading the selected session failed")
     }
 }
 

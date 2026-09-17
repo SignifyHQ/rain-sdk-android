@@ -4,6 +4,7 @@ import org.bouncycastle.crypto.digests.KeccakDigest
 import org.bouncycastle.crypto.ec.CustomNamedCurves
 import org.bouncycastle.math.ec.FixedPointCombMultiplier
 import java.math.BigInteger
+import java.util.Locale
 
 /**
  * Derives the Ethereum address an exported secp256k1 private key controls, so the exporter can
@@ -28,6 +29,6 @@ internal object EthereumKeyEncoder {
         digest.update(encoded, 1, encoded.size - 1)
         val hash = ByteArray(digest.digestSize)
         digest.doFinal(hash, 0)
-        return "0x" + hash.copyOfRange(hash.size - ADDRESS_BYTES, hash.size).joinToString("") { "%02x".format(it) }
+        return "0x" + hash.copyOfRange(hash.size - ADDRESS_BYTES, hash.size).joinToString("") { "%02x".format(Locale.ROOT, it) }
     }
 }

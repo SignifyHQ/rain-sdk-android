@@ -3,6 +3,7 @@ package com.rain.sdk.turnkey
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.RainChain
 import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.internal.utils.validateAndChecksumAddress
 import com.rain.sdk.models.RainTransactionCategory
 import com.rain.sdk.models.RainTransactionOrder
 import com.turnkey.types.TListEthTransactionHistoryResponse
@@ -16,10 +17,13 @@ import com.turnkey.types.V1TransactionHistoryFee
 import com.turnkey.types.V1TransactionHistoryTransfer
 import com.turnkey.types.V1TransactionHistoryTurnkey
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.SerializationException
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
+import timber.log.Timber
+import java.io.IOException
 import java.math.BigDecimal
 
 /**
@@ -33,6 +37,15 @@ class TurnkeyWalletProviderHistoryTest {
 
     private val caip2Devnet = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
 
+    // Indexer-supplied EVM addresses in the fixtures: all-digit hex, so the EIP-55 form is the string itself.
+    private val sender = "0x1111111111111111111111111111111111111111"
+    private val recipient = "0x2222222222222222222222222222222222222222"
+    private val payer = "0x3333333333333333333333333333333333333333"
+    private val minter = "0x4444444444444444444444444444444444444444"
+    private val pool = "0x5555555555555555555555555555555555555555"
+    private val wethContract = "0x6666666666666666666666666666666666666666"
+    private val nftContract = "0x7777777777777777777777777777777777777777"
+
     private fun makeProvider(
         turnkey: MockTurnkey = MockTurnkey(),
         rpcEndpoints: Map<Int, String> = mapOf(1 to "https://eth.example/rpc")
@@ -40,7 +53,9 @@ class TurnkeyWalletProviderHistoryTest {
         turnkey = turnkey,
         rpcEndpoints = rpcEndpoints,
         httpClient = OkHttpClient(),
-        chainReader = MockChainReader()
+        chainReader = MockChainReader(),
+        // No real sleeping: the transient-retry path is exercised below.
+        sessionCoordinator = TurnkeySessionCoordinator(turnkey = turnkey, retryDelay = { }),
     )
 
     private fun clientOf(turnkey: MockTurnkey) = turnkey.turnkeyClient as MockTurnkeyClient
@@ -68,8 +83,8 @@ class TurnkeyWalletProviderHistoryTest {
         timestamp: String = "2026-08-12T10:00:00Z",
         blockNumber: String = "123",
         status: String = "CONFIRMED",
-        from: String = "0xsender",
-        to: String? = "0xrecipient",
+        from: String = sender,
+        to: String? = recipient,
         transfers: List<V1TransactionHistoryTransfer> = emptyList(),
         sponsored: Boolean? = false
     ) = V1EthTransactionHistoryItem(
@@ -124,7 +139,7 @@ class TurnkeyWalletProviderHistoryTest {
 
     private fun nativeOut(
         amount: String = "1500000000000000000",
-        counterparty: String = "0xrecipient"
+        counterparty: String = recipient
     ) = transfer(
         direction = "OUT",
         asset = asset("eip155:1/slip44:60", "ETH", 18, name = "Ether"),
@@ -147,7 +162,7 @@ class TurnkeyWalletProviderHistoryTest {
         assertThat(tx.timestamp).isEqualTo("2026-08-12T10:00:00Z")
         // OUT is relative to the queried wallet, so the wallet is the sender.
         assertThat(tx.from).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
-        assertThat(tx.to).isEqualTo("0xrecipient")
+        assertThat(tx.to).isEqualTo(recipient)
         assertThat(tx.value).isEqualTo(BigDecimal("1.5"))
         assertThat(tx.rawValue).isEqualTo("1500000000000000000")
         assertThat(tx.decimals).isEqualTo(18)
@@ -168,13 +183,13 @@ class TurnkeyWalletProviderHistoryTest {
             direction = "IN",
             asset = asset("eip155:1/slip44:60", "ETH", 18),
             amount = "1000000000000000000",
-            counterparty = "0xpayer"
+            counterparty = payer
         )
-        val (provider, _) = evmProvider(ethTransaction(from = "0xpayer", to = null, transfers = listOf(incoming)))
+        val (provider, _) = evmProvider(ethTransaction(from = payer, to = null, transfers = listOf(incoming)))
 
         val tx = provider.getTransactions(1, null, null, null).single()
 
-        assertThat(tx.from).isEqualTo("0xpayer")
+        assertThat(tx.from).isEqualTo(payer)
         assertThat(tx.to).isEqualTo(MockTurnkey.DEFAULT_WALLET_ADDRESS)
         assertThat(tx.metadata?.type).isEqualTo("transferReceived")
     }
@@ -185,7 +200,7 @@ class TurnkeyWalletProviderHistoryTest {
             direction = "OUT",
             asset = asset("eip155:1/erc20:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "USDC", 6),
             amount = "2500000",
-            counterparty = "0xrecipient"
+            counterparty = recipient
         )
         val (provider, _) = evmProvider(ethTransaction(transfers = listOf(tokenOut)))
 
@@ -203,8 +218,8 @@ class TurnkeyWalletProviderHistoryTest {
 
         val tx = provider.getTransactions(1, null, null, null).single()
 
-        assertThat(tx.from).isEqualTo("0xsender")
-        assertThat(tx.to).isEqualTo("0xrecipient")
+        assertThat(tx.from).isEqualTo(sender)
+        assertThat(tx.to).isEqualTo(recipient)
         assertThat(tx.value).isNull()
         assertThat(tx.rawValue).isNull()
         assertThat(tx.category).isEqualTo(RainTransactionCategory.External)
@@ -373,21 +388,21 @@ class TurnkeyWalletProviderHistoryTest {
     fun `erc721 transfer maps the collection address and erc721 category`() = runBlocking<Unit> {
         val nftIn = transfer(
             direction = "IN",
-            asset = asset("eip155:1/erc721:0xNftContract/1234", "COOL", 0),
+            asset = asset("eip155:1/erc721:$nftContract/1234", "COOL", 0),
             amount = "1",
-            counterparty = "0xminter"
+            counterparty = minter
         )
         val (provider, _) = evmProvider(ethTransaction(transfers = listOf(nftIn)))
 
         val tx = provider.getTransactions(1, null, null, null).single()
 
-        assertThat(tx.tokenAddress).isEqualTo("0xNftContract")
+        assertThat(tx.tokenAddress).isEqualTo(nftContract)
         assertThat(tx.category).isEqualTo(RainTransactionCategory.Erc721)
     }
 
     @Test
     fun `transfer without an asset keeps value null and rawValue set`() = runBlocking<Unit> {
-        val unknownAsset = transfer(direction = "OUT", asset = null, amount = "12345", counterparty = "0xrecipient")
+        val unknownAsset = transfer(direction = "OUT", asset = null, amount = "12345", counterparty = recipient)
         val (provider, _) = evmProvider(ethTransaction(transfers = listOf(unknownAsset)))
 
         val tx = provider.getTransactions(1, null, null, null).single()
@@ -406,9 +421,9 @@ class TurnkeyWalletProviderHistoryTest {
                 nativeOut(amount = "1000000000000000000"),
                 transfer(
                     direction = "IN",
-                    asset = asset("eip155:1/erc20:0xweth", "WETH", 18),
+                    asset = asset("eip155:1/erc20:$wethContract", "WETH", 18),
                     amount = "300000000000000000",
-                    counterparty = "0xpool"
+                    counterparty = pool
                 )
             )
         )
@@ -472,7 +487,7 @@ class TurnkeyWalletProviderHistoryTest {
             // Malformed CAIP-19: empty reference before a trailing slash; decimals beyond any token.
             asset = asset("eip155:1/erc20:/", "EVIL", 999_999_999),
             amount = "12345",
-            counterparty = "0xrecipient"
+            counterparty = recipient
         )
         val (provider, _) = evmProvider(ethTransaction(transfers = listOf(hostile)))
 
@@ -483,6 +498,43 @@ class TurnkeyWalletProviderHistoryTest {
         assertThat(tx.value).isNull()
         assertThat(tx.decimals).isNull()
         assertThat(tx.rawValue).isEqualTo("12345")
+    }
+
+    @Test
+    fun `evm addresses that are not addresses are dropped, valid ones surface in EIP-55 form`() = runBlocking<Unit> {
+        val lowercase = "0xfedcbafedcbafedcbafedcbafedcbafedcbafedc"
+        // One letter of a checksummed address lowercased: 40 hex characters whose checksum no longer matches.
+        val wrongChecksum = "0xa0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+        val (provider, _) = evmProvider(
+            ethTransaction(
+                hash = "0xtoken",
+                timestamp = "2026-08-12T12:00:00Z",
+                transfers = listOf(
+                    transfer(
+                        direction = "OUT",
+                        asset = asset("eip155:1/erc20:$wrongChecksum", "USDC", 6),
+                        amount = "1",
+                        counterparty = "0xnot-an-address"
+                    )
+                )
+            ),
+            ethTransaction(hash = "0xplain", timestamp = "2026-08-12T11:00:00Z", from = "not-an-address", to = lowercase),
+            ethTransaction(hash = "0xnoaddresses", timestamp = "2026-08-12T10:00:00Z", from = "not-an-address", to = "0xnot-an-address")
+        )
+
+        val txs = provider.getTransactions(1, null, null, null)
+
+        val tokenRow = txs.first { it.hash == "0xtoken" }
+        assertThat(tokenRow.tokenAddress).isNull()
+        // The dropped counterparty falls back to the transaction-level recipient.
+        assertThat(tokenRow.to).isEqualTo(recipient)
+        assertThat(tokenRow.rawValue).isEqualTo("1")
+        assertThat(txs.first { it.hash == "0xnoaddresses" }.to).isNull()
+        val plainRow = txs.first { it.hash == "0xplain" }
+        // The sender is not optional on a row, so a value that is not an address stays as sent.
+        assertThat(plainRow.from).isEqualTo("not-an-address")
+        assertThat(plainRow.to).isEqualTo(validateAndChecksumAddress(lowercase, "to"))
+        assertThat(plainRow.to).isNotEqualTo(lowercase)
     }
 
     @Test
@@ -520,7 +572,7 @@ class TurnkeyWalletProviderHistoryTest {
                 MockTurnkey.makeActivity(
                     id = "activity-1",
                     from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
-                    to = "0xrecipient",
+                    to = recipient,
                     caip2 = "eip155:1",
                     value = "1000000000000000000",
                     data = "0x",
@@ -537,6 +589,86 @@ class TurnkeyWalletProviderHistoryTest {
         assertThat(client.getActivitiesCalls).hasSize(1)
         assertThat(txs.single().uniqueId).isEqualTo("activity-1")
         assertThat(txs.single().value).isEqualTo(BigDecimal("1"))
+    }
+
+    @Test
+    fun `a 5xx on the indexed query is retried and then falls back to the activity log`() = runBlocking {
+        val client = MockTurnkeyClient(
+            mockActivities = listOf(
+                MockTurnkey.makeActivity(
+                    id = "activity-1",
+                    from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
+                    to = recipient,
+                    caip2 = "eip155:1",
+                    value = "1000000000000000000",
+                    data = "0x",
+                    sendTransactionStatusId = "status-1"
+                )
+            )
+        )
+        client.listEthHistoryError = MockTurnkey.historyHttpError(MockTurnkey.ETH_HISTORY_PATH, 503)
+        val provider = makeProvider(MockTurnkey(turnkeyClient = client))
+
+        val txs = provider.getTransactions(1, null, null, null)
+
+        // The default policy retries a transient status twice before the coordinator gives up.
+        assertThat(client.listEthHistoryCalls).hasSize(3)
+        assertThat(client.getActivitiesCalls).hasSize(1)
+        assertThat(txs.single().uniqueId).isEqualTo("activity-1")
+    }
+
+    @Test
+    fun `a transport failure on the indexed query surfaces without consulting the activity log`() {
+        val client = MockTurnkeyClient()
+        client.listEthHistoryError = IOException("connection reset")
+        val provider = makeProvider(MockTurnkey(turnkeyClient = client))
+
+        val error = assertThrows(RainError.ProviderError::class.java) {
+            runBlocking { provider.getTransactions(1, null, null, null) }
+        }
+
+        assertThat(error.cause).isInstanceOf(IOException::class.java)
+        // Retried by the coordinator, then surfaced: the activity path would fail the same way.
+        assertThat(client.listEthHistoryCalls).hasSize(3)
+        assertThat(client.getActivitiesCalls).isEmpty()
+    }
+
+    @Test
+    fun `a page the client cannot decode surfaces as a provider failure, not as a shorter history`() {
+        val client = MockTurnkeyClient()
+        client.listEthHistoryError = SerializationException("Field 'block' is required for type 'V1EthTransactionHistoryItem'")
+        val provider = makeProvider(MockTurnkey(turnkeyClient = client))
+
+        assertThrows(RainError.ProviderError::class.java) {
+            runBlocking { provider.getTransactions(1, null, null, null) }
+        }
+
+        assertThat(client.listEthHistoryCalls).hasSize(1)
+        assertThat(client.getActivitiesCalls).isEmpty()
+    }
+
+    @Test
+    fun `the history feature gate is logged once at info level, not once per page`() = runBlocking {
+        // The default mock client answers the way an organization without the feature does: HTTP 403.
+        val provider = makeProvider(MockTurnkey())
+        val entries = mutableListOf<Pair<Int, String>>()
+        val tree = object : Timber.Tree() {
+            override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+                entries += priority to message
+            }
+        }
+        Timber.plant(tree)
+        try {
+            provider.getTransactions(1, null, null, null)
+            provider.getTransactions(1, null, null, null)
+        } finally {
+            Timber.uproot(tree)
+        }
+
+        val gate = entries.filter { it.second.contains("indexed transaction history is not enabled") }
+        assertThat(gate).hasSize(1)
+        assertThat(gate.single().first).isEqualTo(android.util.Log.INFO)
+        assertThat(entries.none { it.second.contains("falling back") }).isTrue()
     }
 
     @Test

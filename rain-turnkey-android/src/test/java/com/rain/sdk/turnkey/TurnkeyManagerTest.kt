@@ -7,6 +7,7 @@ import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.chainreader.JsonRpcClient
 import com.rain.sdk.internal.solana.SolanaRpcClient
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
+import com.rain.sdk.internal.utils.validateAndChecksumAddress
 import com.rain.sdk.models.Token
 import com.turnkey.types.TListEthTransactionHistoryResponse
 import com.turnkey.types.V1AssetBalance
@@ -290,7 +291,7 @@ class TurnkeyManagerTest {
 
         assertThat(transactions.map { it.hash }).containsExactly("0xnew", "0xold").inOrder()
         assertThat(transactions.first().from).isEqualTo(from)
-        assertThat(transactions.first().to).isEqualTo(to)
+        assertThat(transactions.first().to).isEqualTo(validateAndChecksumAddress(to, "to"))
         val request = client.listEthHistoryCalls.single()
         assertThat(request.organizationId).isEqualTo(MockTurnkey.DEFAULT_ORG_ID)
         assertThat(request.address).isEqualTo(from)

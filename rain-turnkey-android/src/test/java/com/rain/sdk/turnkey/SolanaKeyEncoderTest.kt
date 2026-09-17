@@ -4,6 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.solana.Base58
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import java.util.Locale
 
 /**
  * Pins [SolanaKeyEncoder] to published vectors: RFC 8032 section 7.1 for the ed25519 derivation,
@@ -97,7 +98,7 @@ class SolanaKeyEncoderTest {
 
     private fun String.hexBytes(): ByteArray = chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 
-    private fun ByteArray.hex(): String = joinToString("") { "%02x".format(it) }
+    private fun ByteArray.hex(): String = joinToString("") { "%02x".format(Locale.ROOT, it) }
 
     private companion object {
         const val VECTOR_SEED = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"

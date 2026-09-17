@@ -4,7 +4,6 @@ import com.rain.sdk.internal.error.RainError
 import com.turnkey.core.models.AuthState
 import com.turnkey.core.models.Session
 import com.turnkey.core.models.errors.TurnkeyKotlinError
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -185,9 +184,10 @@ internal class TurnkeySessionCoordinator(
             val client = turnkey.turnkeyClient ?: expireAndThrow()
             try {
                 return block(session, client)
-            } catch (e: CancellationException) {
-                throw e
             } catch (e: Exception) {
+                // A cancellation leaves as itself, bare or wrapped in the vendor's failure type (its
+                // own calls catch Throwable): the caller going away is not a failure to classify.
+                e.cancellationInChain()?.let { throw it }
                 when {
                     isAuthFailure(e) -> {
                         // A 401 means Turnkey rejected the request before executing it, so a
@@ -283,9 +283,10 @@ internal class TurnkeySessionCoordinator(
         return try {
             turnkey.refreshSession(policy.refreshExpirationSeconds)
             turnkey.session?.let { RefreshOutcome.Fresh(it) } ?: RefreshOutcome.Dead(null)
-        } catch (e: CancellationException) {
-            throw e
         } catch (e: Exception) {
+            // A cancellation leaves as itself, bare or wrapped: FailedToRefreshSession wraps whatever
+            // ended the refresh, and a screen closed mid-refresh is not a session death.
+            e.cancellationInChain()?.let { throw it }
             Timber.w(e, "Rain SDK: wallet session refresh failed")
             RefreshOutcome.Dead(e)
         }
