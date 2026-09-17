@@ -168,12 +168,7 @@ internal object TurnkeyErrorMapping {
      * the code was accepted, so a failure there has already spent it.
      */
     fun isLoginCodeVerifyFailure(e: Throwable): Boolean =
-        generateSequence(e) { current -> current.cause?.takeIf { it !== current } }
-            .take(MAX_CAUSE_DEPTH)
-            .any { it is TurnkeyKotlinError.FailedToVerifyOtp }
-
-    /** Bounds the cause walk so a cyclic cause chain cannot spin it. */
-    private const val MAX_CAUSE_DEPTH = 8
+        e.causeChain().any { it is TurnkeyKotlinError.FailedToVerifyOtp }
 
     /** Trailing ": <code>" or "Code: <code>" — the two shapes the Turnkey SDK generates. */
     val TURNKEY_HTTP_STATUS_REGEX = Regex("""(?:Code:\s*|:\s*)(\d{3})\s*$""")

@@ -69,9 +69,6 @@ internal class TurnkeyWalletProvider(
         if (SolanaChains.isSolanaChain(chainId)) solanaChainReader else chainReader
 
     internal companion object {
-        /** Bounds the cause walk in [isIndexedHistoryRefusal] so a cyclic cause chain cannot spin it. */
-        private const val CAUSE_CHAIN_LIMIT = 8
-
         /**
          * The capabilities a Turnkey provider advertises for a given [sponsorGas] setting. The one
          * source for both the [TurnkeyProvider] descriptor (what hosts see through
@@ -361,9 +358,8 @@ internal class TurnkeyWalletProvider(
      */
     private fun isIndexedHistoryRefusal(e: Exception): Boolean = when (e) {
         is RainError.Unauthorized -> true
-        is RainError.ProviderError -> generateSequence(e.cause) { current -> current.cause?.takeIf { it !== current } }
-            .take(CAUSE_CHAIN_LIMIT)
-            .any { TurnkeyErrorMapping.turnkeyHttpStatus(it) != null }
+        is RainError.ProviderError ->
+            e.cause?.causeChain()?.any { TurnkeyErrorMapping.turnkeyHttpStatus(it) != null } == true
         else -> false
     }
 

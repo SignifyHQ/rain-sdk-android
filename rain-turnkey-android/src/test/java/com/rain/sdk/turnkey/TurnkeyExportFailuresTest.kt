@@ -98,7 +98,7 @@ class TurnkeyExportFailuresTest {
 
     /** No link of the chain, and no toString of it, carries the marker; the vendor's data classes print fields. */
     private fun assertNoMaterial(root: Throwable) {
-        val chain = generateSequence(root) { it.cause?.takeIf { c -> c !== it } }.take(8).toList()
+        val chain = root.causeChain().toList()
         chain.forEach { link ->
             assertThat(link.message.orEmpty()).doesNotContain(MARKER)
             assertThat(link.toString()).doesNotContain(MARKER)
