@@ -70,6 +70,7 @@ import java.math.BigInteger
  * @param capabilities Capabilities the descriptor advertises, for the same reason as [providerId].
  * @param transactionBuilder Withdrawal-building primitives bound to the same chain configuration.
  */
+@Suppress("LargeClass") // one delegating method per RainClient member; a split would only move the delegation
 internal class RainSdkManager(
     private val walletProvider: WalletProvider,
     rpcEndpoints: Map<Int, String>,
@@ -280,25 +281,29 @@ internal class RainSdkManager(
         )
     }
 
+    /**
+     * Runs one wallet operation and keeps its failures on the Rain error contract: a cancellation
+     * and a [RainError] pass through, anything else is logged under [failureLog] and mapped.
+     */
+    @Suppress("ThrowsCount") // the one place the pass-through-or-map catch lives
+    private inline fun <T> mapped(failureLog: String, block: () -> T): T = try {
+        block()
+    } catch (e: Exception) {
+        if (e is CancellationException) throw e
+        if (e is RainError) throw e
+        Timber.e(e, failureLog)
+        throw errorMapper.mapTransactionError(e)
+    }
+
     override suspend fun getWalletAddress(): String {
-        return try {
+        return mapped("Rain SDK: Failed to get wallet address") {
             walletProvider.getWalletAddress()
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            if (e is RainError) throw e
-            Timber.e(e, "Rain SDK: Failed to get wallet address")
-            throw errorMapper.mapTransactionError(e)
         }
     }
 
     override suspend fun getWalletAddress(chainId: Int): String {
-        return try {
+        return mapped("Rain SDK: Failed to get wallet address for chainId=$chainId") {
             walletProvider.getWalletAddress(chainId)
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            if (e is RainError) throw e
-            Timber.e(e, "Rain SDK: Failed to get wallet address for chainId=$chainId")
-            throw errorMapper.mapTransactionError(e)
         }
     }
 
@@ -307,18 +312,13 @@ internal class RainSdkManager(
         to: String,
         amount: BigDecimal
     ): RainTokenTransferResult {
-        return try {
+        return mapped("Rain SDK: Failed to send native token") {
             // A typo'd recipient would otherwise broadcast as-is and the funds are gone; validate and
             // checksum up front, as the withdrawal path does. Solana recipients are validated by the
             // transfer composer.
             val recipient = if (SolanaChains.isSolanaChain(chainId)) to else checksummedRecipient(to)
             val txHash = walletProvider.sendNativeToken(chainId, recipient, amount)
             RainTokenTransferResult(transactionHash = txHash)
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            if (e is RainError) throw e
-            Timber.e(e, "Rain SDK: Failed to send native token")
-            throw errorMapper.mapTransactionError(e)
         }
     }
 
@@ -329,7 +329,7 @@ internal class RainSdkManager(
         amount: BigDecimal,
         decimals: Int?
     ): RainTokenTransferResult {
-        return try {
+        return mapped("Rain SDK: Failed to send ERC-20 token") {
             // Decimals the caller omitted come from the registry or a strict on-chain read; a failed
             // read throws rather than scaling a real transfer by a guessed 18.
             //
@@ -341,11 +341,6 @@ internal class RainSdkManager(
                 ?: if (SolanaChains.isSolanaChain(chainId)) 0 else requireDecimals(chainId, contractAddress)
             val txHash = walletProvider.sendToken(chainId, contractAddress, recipient, amount, resolvedDecimals)
             RainTokenTransferResult(transactionHash = txHash)
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            if (e is RainError) throw e
-            Timber.e(e, "Rain SDK: Failed to send ERC-20 token")
-            throw errorMapper.mapTransactionError(e)
         }
     }
 
@@ -375,24 +370,14 @@ internal class RainSdkManager(
     }
 
     override suspend fun getBalance(chainId: Int, token: Token): Balance {
-        return try {
+        return mapped("Rain SDK: Failed to get balance") {
             walletProvider.getBalance(chainId, token)
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            if (e is RainError) throw e
-            Timber.e(e, "Rain SDK: Failed to get balance")
-            throw errorMapper.mapTransactionError(e)
         }
     }
 
     override suspend fun getTokenBalances(chainId: Int): List<Balance> {
-        return try {
+        return mapped("Rain SDK: Failed to get balances") {
             walletProvider.getBalances(chainId)
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            if (e is RainError) throw e
-            Timber.e(e, "Rain SDK: Failed to get balances")
-            throw errorMapper.mapTransactionError(e)
         }
     }
 
@@ -437,7 +422,7 @@ internal class RainSdkManager(
         spender: String,
         amount: BigDecimal?
     ): RainTokenApprovalResult {
-        return try {
+        return mapped("Rain SDK: Failed to approve token allowance") {
             // Configuration errors first (the documented contract), then the provider's chain gate,
             // both before the wallet is touched.
             validateApprovalRequest(chainId, contractAddress, spender)
@@ -452,11 +437,6 @@ internal class RainSdkManager(
             )
             Timber.i("Rain SDK: Approval transaction submitted. Hash: %s", txHash)
             RainTokenApprovalResult(transactionHash = txHash)
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            if (e is RainError) throw e
-            Timber.e(e, "Rain SDK: Failed to approve token allowance")
-            throw errorMapper.mapTransactionError(e)
         }
     }
 
@@ -466,7 +446,7 @@ internal class RainSdkManager(
         spender: String,
         owner: String?
     ): RainTokenAllowance {
-        return try {
+        return mapped("Rain SDK: Failed to read token allowance") {
             validateApprovalRequest(chainId, contractAddress, spender)
 
             val resolvedOwner = owner ?: walletProvider.getWalletAddress()
@@ -492,11 +472,6 @@ internal class RainSdkManager(
                 rawAmount = rawAmount,
                 decimals = resolvedDecimals
             )
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            if (e is RainError) throw e
-            Timber.e(e, "Rain SDK: Failed to read token allowance")
-            throw errorMapper.mapTransactionError(e)
         }
     }
 
@@ -506,7 +481,7 @@ internal class RainSdkManager(
         spender: String,
         amount: BigDecimal?
     ): BigDecimal {
-        return try {
+        return mapped("Rain SDK: Failed to estimate approval fee") {
             val (from, data) = buildApproval(chainId, contractAddress, spender, amount)
             walletProvider.estimateTransactionFee(
                 chainId = chainId,
@@ -515,14 +490,10 @@ internal class RainSdkManager(
                 data = data,
                 value = "0x0"
             )
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            if (e is RainError) throw e
-            Timber.e(e, "Rain SDK: Failed to estimate approval fee")
-            throw errorMapper.mapTransactionError(e)
         }
     }
 
+    @Suppress("ThrowsCount") // one throw per way a confirmation can end: refused, reverted, pending, unreadable
     override suspend fun confirmTokenAllowance(
         transactionHash: String,
         chainId: Int,
@@ -817,13 +788,8 @@ internal class RainSdkManager(
         offset: Int?,
         order: RainTransactionOrder?
     ): List<RainTransaction> {
-        return try {
+        return mapped("Rain SDK: Failed to get transactions") {
             walletProvider.getTransactions(chainId, limit, offset, order)
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            if (e is RainError) throw e
-            Timber.e(e, "Rain SDK: Failed to get transactions")
-            throw errorMapper.mapTransactionError(e)
         }
     }
 }

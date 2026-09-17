@@ -187,6 +187,7 @@ internal class PrivyWalletProvider(
         rpcUrlFor(chainId)
     )
 
+    @Suppress("ThrowsCount") // the pass-through-or-map catch around the simulation
     override suspend fun sendTransaction(
         chainId: Int,
         from: String,

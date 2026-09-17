@@ -181,6 +181,7 @@ class EvmChainReader(
         return EthereumConverter.parseHexToBigIntegerStrict(hex)
     }
 
+    @Suppress("ThrowsCount") // one throw per malformed receipt field, each naming the field
     override suspend fun getTransactionReceipt(
         chainId: Int,
         transactionHash: String

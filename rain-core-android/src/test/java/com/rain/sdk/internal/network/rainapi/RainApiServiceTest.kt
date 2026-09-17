@@ -82,6 +82,21 @@ class RainApiServiceTest {
     }
 
     @Test
+    fun `replaced credentials are used by the next call`() = runBlocking {
+        stub("/contracts", contracts())
+        val service = service()
+
+        service.fetchCollateralContracts()
+        configStore.setCredentials("key2", "user2")
+        service.fetchCollateralContracts()
+
+        assertThat(recordedApiKeys).containsExactly("key", "key2").inOrder()
+        assertThat(recordedPaths)
+            .containsExactly("/v1/issuing/users/user/contracts", "/v1/issuing/users/user2/contracts")
+            .inOrder()
+    }
+
+    @Test
     fun `401 surfaces Unauthorized without a retry`() {
         // Client session tokens are not issued for Rain's tenants, so there is nothing to re-mint:
         // a rejected key is terminal and a second attempt would only repeat the rejection.
@@ -91,6 +106,25 @@ class RainApiServiceTest {
             runBlocking { service().fetchCollateralContracts() }
         }
         assertThat(recordedPaths.count { it.endsWith("/contracts") }).isEqualTo(1)
+    }
+
+    @Test
+    fun `fetchAdminSignature surfaces Unauthorized on 401 without a retry`() {
+        stub("/signatures/withdrawals", MockResponse().setResponseCode(401).setBody("nope"))
+
+        assertThrows(RainError.Unauthorized::class.java) {
+            runBlocking {
+                service().fetchAdminSignature(
+                    chainId = 999_888,
+                    tokenAddress = "0xtoken",
+                    amountBaseUnits = BigInteger.TEN,
+                    adminAddress = "0xadmin",
+                    recipientAddress = "0xrecipient",
+                    isAmountNative = true,
+                )
+            }
+        }
+        assertThat(recordedPaths.count { it.endsWith("/signatures/withdrawals") }).isEqualTo(1)
     }
 
     // ---------- Enrichment ----------

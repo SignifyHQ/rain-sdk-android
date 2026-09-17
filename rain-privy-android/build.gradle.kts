@@ -58,6 +58,15 @@ dependencies {
     api(libs.privy.core) {
         exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
     }
+    constraints {
+        // Privy's datastore dependency declares kotlin-parcelize-runtime 1.9.22, and through it the
+        // deprecated kotlin-android-extensions-runtime, on the runtime classpath, three Kotlin releases
+        // behind the stdlib. The 2.x artifact drops that dependency. Declared on the api scope so the
+        // constraint publishes with the module and consumers resolve the same version.
+        api("org.jetbrains.kotlin:kotlin-parcelize-runtime") {
+            version { require(libs.versions.kotlin.get()) }
+        }
+    }
 
     // Web3j for ERC-20 ABI encoding in sendToken calldata. Shares core's Bouncy Castle note.
     implementation(libs.web3j.core) {

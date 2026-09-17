@@ -21,10 +21,9 @@ import java.util.concurrent.TimeUnit
 /**
  * HTTP client for the Rain issuing REST API.
  *
- * Auth model: every endpoint authenticates directly with the program key in the `Api-Key`
- * header. The earlier exchange of that key for a short-lived client session token was removed
- * on 2026-09-16: client session tokens are not enabled for Rain's tenants, so the exchange
- * failed with 403 before any data call could run.
+ * Auth model: every endpoint authenticates directly with the Api-Key header. There is no
+ * exchange of the key for a short-lived client session token: client session tokens are not
+ * enabled for Rain's tenants, so such an exchange fails with 403 before any data call can run.
  *
  * Stateless: base URL and credentials are passed per call; orchestration lives in
  * [RainApiService]. Follows the [com.rain.sdk.internal.network.chainreader.JsonRpcClient]

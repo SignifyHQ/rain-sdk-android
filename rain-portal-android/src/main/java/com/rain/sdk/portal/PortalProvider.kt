@@ -117,6 +117,7 @@ class PortalProvider internal constructor(
         portalManager = null
     }
 
+    @Suppress("ThrowsCount") // the empty-token guard plus the pass-through-or-map catch
     override suspend fun create(context: ProviderContext): WalletProvider {
         // Portal treats the session token as its API key; an empty one would fail every call
         // downstream with an opaque vendor error. Fail fast instead.

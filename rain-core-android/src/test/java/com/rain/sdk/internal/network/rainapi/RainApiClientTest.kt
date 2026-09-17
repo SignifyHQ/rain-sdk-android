@@ -153,6 +153,7 @@ class RainApiClientTest {
 
         val recorded = server.takeRequest()
         assertThat(recorded.getHeader("Api-Key")).isEqualTo("key-123")
+        assertThat(recorded.getHeader("Authorization")).isNull()
         val url = recorded.requestUrl!!
         assertThat(url.encodedPath).isEqualTo("/v1/issuing/users/user-abc/signatures/withdrawals")
         assertThat(url.queryParameter("chainId")).isEqualTo("43114")
@@ -260,6 +261,44 @@ class RainApiClientTest {
 
         assertThrows(RainError.NetworkError::class.java) {
             runBlocking { client.getContracts(baseUrl, credentials) }
+        }
+    }
+
+    @Test
+    fun `empty 200 body on contracts maps to NetworkError`() {
+        server.enqueue(json(""))
+
+        assertThrows(RainError.NetworkError::class.java) {
+            runBlocking { client.getContracts(baseUrl, credentials) }
+        }
+    }
+
+    @Test
+    fun `empty 200 body on the signature call maps to NetworkError`() {
+        server.enqueue(json(""))
+
+        assertThrows(RainError.NetworkError::class.java) {
+            runBlocking { fetchSignature() }
+        }
+    }
+
+    @Test
+    fun `empty 502 body maps to ApiError carrying the status`() {
+        server.enqueue(MockResponse().setResponseCode(502))
+
+        val error = assertThrows(RainError.ApiError::class.java) {
+            runBlocking { fetchSignature() }
+        }
+        assertThat(error.statusCode).isEqualTo(502)
+    }
+
+    @Test
+    fun `a server that never answers times out into NetworkError`() {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        val impatient = RainApiClient(timeoutSeconds = 1)
+
+        assertThrows(RainError.NetworkError::class.java) {
+            runBlocking { impatient.getContracts(baseUrl, credentials) }
         }
     }
 

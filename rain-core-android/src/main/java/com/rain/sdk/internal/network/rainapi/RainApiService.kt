@@ -18,10 +18,10 @@ import java.math.BigInteger
  * Orchestrates the Rain issuing API: composes credentials ([RainApiConfigStore]) with the HTTP
  * client ([RainApiClient]) and enriches contract tokens through the SDK token store.
  *
- * Every call authenticates directly with the program key (`Api-Key` header); the client session
- * token layer was removed on 2026-09-16 because client session tokens are not enabled for Rain's
- * tenants. A [RainError.Unauthorized] is therefore terminal: retrying with the same key cannot
- * succeed, so nothing here retries.
+ * Every call authenticates directly with the Api-Key header; there is no client session token
+ * layer, because client session tokens are not enabled for Rain's tenants. A
+ * [RainError.Unauthorized] is therefore terminal: retrying with the same key cannot succeed, so
+ * nothing here retries.
  */
 internal class RainApiService(
     private val configStore: RainApiConfigStore,
