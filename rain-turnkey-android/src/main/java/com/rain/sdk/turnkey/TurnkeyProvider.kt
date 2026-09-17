@@ -3,10 +3,11 @@ package com.rain.sdk.turnkey
 import android.app.Application
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
+import com.rain.sdk.internal.utils.validateAndChecksumAddress
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
+import com.rain.sdk.provider.ProviderDescriptor
 import com.rain.sdk.provider.ProviderId
-import com.rain.sdk.provider.RainProvider
 import com.turnkey.core.TurnkeyContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,7 +19,7 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** The message every call on a closed provider carries; one literal so the two guards cannot drift. */
-internal const val TURNKEY_PROVIDER_CLOSED_MESSAGE = "This Turnkey provider was closed; build a new one"
+internal const val TURNKEY_PROVIDER_CLOSED_MESSAGE = "This provider was closed; build a new one"
 
 /**
  * Configuration for the Turnkey provider.
@@ -29,7 +30,7 @@ internal const val TURNKEY_PROVIDER_CLOSED_MESSAGE = "This Turnkey provider was 
  * - **Managed** — `TurnkeyConfig(application, organizationId, authProxyConfigId)`: the SDK owns
  *   Turnkey authentication (one-time code by email or SMS through Turnkey's auth proxy, Ethereum
  *   and Solana accounts provisioned on first login). Internal API, marked
- *   [InternalRainTurnkeyApi]: the building block of the RainWallet provider, not a host-facing mode.
+ *   [InternalRainTurnkeyApi]: the building block of the Rain wallet provider (`RainProvider` in `rain-wallet-android`), not a host-facing mode.
  *
  * @param turnkey The `TurnkeyContext` singleton every wallet call goes through — authenticated by
  *                the host in bring-your-own mode, configured and authenticated by the SDK in
@@ -78,10 +79,22 @@ class TurnkeyConfig internal constructor(
         val authProxyConfigId: String,
     )
 
+    /** Managed mode's organization id; null in bring-your-own mode. Read by the Rain wallet's tests. */
+    @InternalRainTurnkeyApi
+    val managedOrganizationId: String? get() = managed?.organizationId
+
+    /** Managed mode's auth-proxy configuration id; null in bring-your-own mode. */
+    @InternalRainTurnkeyApi
+    val managedAuthProxyConfigId: String? get() = managed?.authProxyConfigId
+
     /**
      * Bring-your-own mode — the public Turnkey integration.
      *
      * @param turnkey The authenticated `TurnkeyContext` singleton.
+     * @param walletAddress Optional EVM address override, validated and stored in EIP-55 checksum
+     *   form; it becomes the account the SDK signs with and reads for. Null or blank means no override.
+     * @throws RainError.InvalidConfig (`RAIN_102`) when [walletAddress] is malformed or carries a
+     *   wrong mixed-case checksum.
      */
     constructor(
         turnkey: TurnkeyContext,
@@ -89,10 +102,10 @@ class TurnkeyConfig internal constructor(
         sessionPolicy: TurnkeySessionPolicy = TurnkeySessionPolicy(),
         onSessionExpired: (() -> Unit)? = null,
         sponsorGas: Boolean = true,
-    ) : this(turnkey, walletAddress, sessionPolicy, onSessionExpired, sponsorGas, managed = null)
+    ) : this(turnkey, walletAddress.checksummedOrNull(), sessionPolicy, onSessionExpired, sponsorGas, managed = null)
 
     /**
-     * Managed mode — internal API reserved for the RainWallet provider, see [InternalRainTurnkeyApi].
+     * Managed mode — internal API reserved for the Rain wallet provider (`RainProvider` in `rain-wallet-android`), see [InternalRainTurnkeyApi].
      *
      * The Turnkey configuration is one-shot per app launch: the SDK applies it on the first
      * authentication call (or at provider resolution). Blank ids, a second managed provider with
@@ -107,6 +120,9 @@ class TurnkeyConfig internal constructor(
      * @param application The host application; Turnkey's Kotlin SDK needs it for secure storage.
      * @param organizationId Your Turnkey parent organization id.
      * @param authProxyConfigId The auth-proxy configuration id from the Turnkey dashboard.
+     * @param walletAddress Optional EVM address override, validated and stored in EIP-55 checksum form; null or blank means no override.
+     * @throws RainError.InvalidConfig (`RAIN_102`) when [walletAddress] is malformed or carries a
+     *   wrong mixed-case checksum.
      */
     @InternalRainTurnkeyApi
     @Suppress("LongParameterList") // the BYO constructor's parameters plus the two managed ids; four have defaults
@@ -122,16 +138,23 @@ class TurnkeyConfig internal constructor(
         // The vendor context is a process-wide object; managed mode configures it lazily, on the
         // first authentication call, through the provider's controller.
         TurnkeyContext,
-        walletAddress,
+        walletAddress.checksummedOrNull(),
         sessionPolicy,
         onSessionExpired,
         sponsorGas,
         managed = ManagedIds(application, organizationId, authProxyConfigId),
     )
+
+    private companion object {
+        /** The override is validated at construction, so a typo fails here and not as a foreign address on every read. */
+        /** Null or blank means no override; anything else must be a valid EVM address. */
+        fun String?.checksummedOrNull(): String? =
+            this?.takeIf { it.isNotBlank() }?.let { validateAndChecksumAddress(it, "walletAddress") }
+    }
 }
 
 /**
- * Turnkey adapter — the registrable [RainProvider] for Turnkey's P256-stamper signer.
+ * Turnkey adapter — the registrable [ProviderDescriptor] for Turnkey's P256-stamper signer.
  *
  * Ships as `rain-turnkey-android` and owns the Turnkey SDK as its own dependency, so an app that
  * registers another provider never links Turnkey. It implements the port and owns all
@@ -146,14 +169,14 @@ class TurnkeyConfig internal constructor(
 class TurnkeyProvider internal constructor(
     private val config: TurnkeyConfig,
     private val contextOverride: TurnkeyContextProtocol?,
-) : RainProvider {
+) : ProviderDescriptor {
 
     constructor(config: TurnkeyConfig) : this(config, contextOverride = null)
 
     override val id: ProviderId get() = ProviderId.TURNKEY
 
     /**
-     * Turnkey holds EVM + Solana accounts, gates signing behind passkeys/biometrics, and exports
+     * Turnkey holds EVM + Solana accounts, signs with a device key (no biometric prompt gates signing), and exports
      * its keys through [exportRecoveryPhrase] and [exportPrivateKey], so [Capability.EXPORT] is
      * always advertised. With [TurnkeyConfig.sponsorGas] on it also advertises
      * [Capability.GAS_SPONSORSHIP]. `RainSdk` copies this set onto the resolved client, so it comes
@@ -219,7 +242,10 @@ class TurnkeyProvider internal constructor(
      * lifetime. Throws `RainError.TokenExpired` when the session cannot be refreshed — the
      * host must re-authenticate.
      */
-    suspend fun refreshSession() = coordinator.refreshNow()
+    suspend fun refreshSession() {
+        requireOpen()
+        coordinator.refreshNow()
+    }
 
     /**
      * Stops the passive session watcher. Call when discarding this provider (e.g. rebuilding

@@ -1,6 +1,6 @@
 # Turnkey Support
 
-Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provider, alongside the Portal MPC and Privy adapters. Turnkey ships as the `TurnkeyProvider` adapter in its own `rain-turnkey-android` module (package `com.rain.sdk.turnkey`). Authentication has two modes. **Bring-your-own** (public): the host app uses the official [Turnkey Kotlin SDK](https://docs.turnkey.com/sdks/kotlin/getting-started) to authenticate (passkeys, OAuth, OTP, auth proxy) and hands the live `TurnkeyContext` to Rain via `TurnkeyConfig(turnkey)`. **Managed** (internal API, `@InternalRainTurnkeyApi`): construct `TurnkeyConfig(application, organizationId, authProxyConfigId)` and the SDK owns the one-time-code flow, email or SMS, through Turnkey's auth proxy, with `sendLoginCode` / `confirmLoginCode` / `logout` / `authState` on `TurnkeyProvider` and Ethereum + Solana account provisioning on first login. It compiles only with the opt-in and exists for the upcoming RainWallet provider; see [Managed mode](#managed-mode-internal-api). In both modes the provider also exports the wallet's recovery phrase and private keys, decrypted on the device. See [Key export](#key-export).
+Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provider, alongside the Portal MPC and Privy adapters. Turnkey ships as the `TurnkeyProvider` adapter in its own `rain-turnkey-android` module (package `com.rain.sdk.turnkey`). Authentication has two modes. **Bring-your-own** (public): the host app uses the official [Turnkey Kotlin SDK](https://docs.turnkey.com/sdks/kotlin/getting-started) to authenticate (passkeys, OAuth, OTP, auth proxy) and hands the live `TurnkeyContext` to Rain via `TurnkeyConfig(turnkey)`. **Managed** (internal API, `@InternalRainTurnkeyApi`): construct `TurnkeyConfig(application, organizationId, authProxyConfigId)` and the SDK owns the one-time-code flow, email or SMS, through Turnkey's auth proxy, with `sendLoginCode` / `confirmLoginCode` / `logout` / `authState` on `TurnkeyProvider` and Ethereum + Solana account provisioning on first login. It compiles only with the opt-in and ships to hosts as the Rain wallet provider, `RainProvider` in `rain-wallet-android`, which exposes the same flow under Rain's names; see [Managed mode](#managed-mode-internal-api) and [rain-wallet-android/README.md](../rain-wallet-android/README.md). In both modes the provider also exports the wallet's recovery phrase and private keys, decrypted on the device. See [Key export](#key-export).
 
 ## Requirements
 
@@ -119,7 +119,7 @@ independently; providers no longer replace one another.
 
 ## Managed mode (internal API)
 
-Managed mode is not a host-facing mode. Every member of it — the `TurnkeyConfig(application, organizationId, authProxyConfigId)` constructor, `sendLoginCode` / `confirmLoginCode` / `logout` / `awaitSessionRestore` / `hasActiveSession` / `authState` / `currentAuthState`, `LoginContact` and `TurnkeyAuthState` — is marked `@InternalRainTurnkeyApi`, a `@RequiresOptIn` annotation at error level: a host app that calls any of them gets a compile error naming the reason. It exists as the building block of the upcoming RainWallet provider, which will expose the same flow in Rain's own terms with no Turnkey types; Rain's modules and the sample app opt in module-wide with `-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi`. The rest of this section documents the flow for those callers.
+Managed mode is not a host-facing mode. Every member of it — the `TurnkeyConfig(application, organizationId, authProxyConfigId)` constructor, `sendLoginCode` / `confirmLoginCode` / `logout` / `awaitSessionRestore` / `hasActiveSession` / `authState` / `currentAuthState`, `LoginContact` and `TurnkeyAuthState` — is marked `@InternalRainTurnkeyApi`, a `@RequiresOptIn` annotation at error level: a host app that calls any of them gets a compile error naming the reason. It is the building block of the Rain wallet provider (`RainProvider` in `rain-wallet-android`), which exposes the same flow in Rain's own terms with no Turnkey types; that module opts in module-wide with `-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi`. The rest of this section documents the flow for that caller.
 
 Before the first run, in the Turnkey dashboard: enable the **Auth Proxy** for your parent organization with **Email OTP** turned on, and **SMS OTP** as well when phone numbers are used (each auth method has its own toggle), copy its auth-proxy config id (it identifies the configuration and is safe to ship in the app; the Turnkey SDK sends it as the `X-Auth-Proxy-Config-ID` header on every proxy call), and set the code format (6–9 characters, numeric or alphanumeric; one setting shared by email and SMS) and the session lifetime (900 seconds by default) there. The SDK reads none of these settings; it obeys them. SMS authentication is a Turnkey Enterprise feature that Turnkey enables on request, off by default on top-level organizations. Leave the dashboard captcha off while this SDK pins Turnkey's Kotlin SDK 2.0.0: that SDK sends no captcha token, so an enabled captcha refuses every code request on both channels.
 
@@ -169,7 +169,7 @@ val client = rain.provider(ProviderId.TURNKEY)
 - Resolving the provider before a session is live throws `RainError.TokenExpired`. Resolution also re-checks the account set, so a login whose provisioning failed heals itself without a new code.
 - Managed mode needs an `android.app.Application` because Turnkey's Kotlin SDK stores sessions and device keys through it.
 
-The sample app's `RainSession.prepareTurnkey` / `initializeTurnkey` and `HomeViewModel` drive exactly this flow.
+The Rain wallet module is this flow's caller; the sample app drives it through `RainSession.prepareRainWallet` / `initializeRainWallet` and `HomeViewModel`. The sample's Turnkey tab is bring-your-own (`TurnkeyAuthSample` plus `RainSession.initializeTurnkey`) and touches none of these members.
 
 ## What Rain uses Turnkey for
 
@@ -400,6 +400,11 @@ Reference: the sample app's `RainSession.kt`, `WalletSessionStatus.kt` and the H
 session card (`HomeScreen.kt`, `SessionCard`).
 
 ## Registering alongside Portal
+
+The one pair that cannot share a builder is `TurnkeyProvider` and the Rain wallet's `RainProvider`
+(`rain-wallet-android`): both drive the same process-wide `TurnkeyContext`, so `build()` throws
+`RainError.InvalidConfig` when both are registered, and an app that configured one of them in a
+launch cannot switch to the other without a relaunch.
 
 Turnkey and Portal are no longer mutually exclusive. Register both adapters on the same builder and
 resolve each to its own `RainClient` — one SDK instance, two independent provider-bound clients:

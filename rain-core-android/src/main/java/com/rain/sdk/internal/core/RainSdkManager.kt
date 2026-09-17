@@ -55,8 +55,8 @@ import java.math.BigInteger
  * Vendor-free implementation of [RainClient], bound to a single, already-resolved
  * [WalletProvider].
  *
- * Construction now happens through [com.rain.sdk.RainSdk] / a [com.rain.sdk.provider.RainProvider]
- * adapter, which materializes the provider (Portal, Turnkey, or a host-supplied one) and hands the
+ * Construction now happens through [com.rain.sdk.RainSdk] / a [com.rain.sdk.provider.ProviderDescriptor],
+ * which materializes the provider (Portal, Turnkey, or a host-supplied one) and hands the
  * built `WalletProvider` here. The manager itself imports no provider SDK — it only orchestrates
  * Rain domain logic (CST auth, collateral flows, balances, tx) against the port.
  *
@@ -64,9 +64,9 @@ import java.math.BigInteger
  * @param rpcEndpoints The chains the SDK was configured with; used by [getAllBalances] to fan out.
  * @param tokenStore Shared metadata store used to resolve ERC-20 decimals when callers omit them.
  *                   May be null for providers that do their own metadata resolution.
- * @param providerId Identity the registered [com.rain.sdk.provider.RainProvider] descriptor
- *                   advertises. Sourced from the descriptor so `RainSdk.providers` and a resolved
- *                   client can never disagree; defaults to the wallet provider's own value.
+ * @param providerId Identity the registered [com.rain.sdk.provider.ProviderDescriptor] advertises.
+ *                   Sourced from the descriptor so `RainSdk.descriptors` and a resolved client can
+ *                   never disagree; defaults to the wallet provider's own value.
  * @param capabilities Capabilities the descriptor advertises, for the same reason as [providerId].
  * @param transactionBuilder Withdrawal-building primitives bound to the same chain configuration.
  */

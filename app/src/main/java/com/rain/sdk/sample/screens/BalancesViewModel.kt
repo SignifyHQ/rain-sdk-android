@@ -41,7 +41,7 @@ class BalancesViewModel(
                 SampleLog.d("Balances.fetch", "native=${native.formatted} ${native.symbol}")
 
                 // Discover every non-zero token the wallet holds — ERC-20s on EVM, SPL tokens
-                // on Solana (sourced from Turnkey's balance API). Each Balance already carries
+                // on Solana (sourced from the wallet backend's balance API). Each Balance already carries
                 // the resolved symbol / name / decimals, so the user picks a token instead of
                 // typing a contract or mint address plus decimals.
                 val discoveredTokenBalances = rainClient.getTokenBalances(chain.chainId)

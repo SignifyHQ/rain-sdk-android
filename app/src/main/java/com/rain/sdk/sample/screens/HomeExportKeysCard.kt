@@ -25,7 +25,7 @@ import com.rain.sdk.sample.ui.theme.RainTheme
 import com.rain.sdk.sample.ui.theme.RainType
 
 /*
- * Home's "Export keys" card, shown for a signed-in Turnkey session: reveal the recovery phrase or
+ * Home's "Export keys" card, shown for a signed-in Rain Wallet session: reveal the recovery phrase or
  * one private key at a time, copy it with the sensitive clipboard flag, hide it. While a value is
  * revealed the window carries FLAG_SECURE, and the value is hidden again when the card leaves
  * composition or the activity stops.
@@ -40,7 +40,7 @@ private val REVEALED_GAP = 8.dp
  * pasted into another wallet app.
  */
 internal class ExportKeysActions(
-    val onReveal: (TurnkeyExportKind) -> Unit,
+    val onReveal: (RainWalletExportKind) -> Unit,
     val onCopy: () -> Unit,
     val onHide: () -> Unit,
     val onLeave: () -> Unit,
@@ -53,8 +53,8 @@ internal class ExportKeysActions(
 
 @Composable
 internal fun ExportKeysCard(state: HomeUiState, actions: ExportKeysActions) {
-    val revealed = state.turnkeyRevealedSecret
-    val inFlight = state.turnkeyExportInFlight
+    val revealed = state.rainWalletRevealedSecret
+    val inFlight = state.rainWalletExportInFlight
 
     SecureWindowWhile(active = revealed != null)
     HideOnLeave(actions.onLeave)
@@ -62,7 +62,7 @@ internal fun ExportKeysCard(state: HomeUiState, actions: ExportKeysActions) {
     RainCard {
         CardTitle("Export keys", "Decrypted on this device")
         RainNote(title = "Handle with care", body = "Anyone holding these controls the wallet.")
-        TurnkeyExportKind.entries.forEach { kind ->
+        RainWalletExportKind.entries.forEach { kind ->
             RainRow {
                 RainStrong(kind.label, Modifier.weight(1f))
                 RainButton(
@@ -115,7 +115,7 @@ private fun HideOnLeave(onHide: () -> Unit) {
 
 // ---------- previews ----------
 
-private val previewExportState = HomeUiState(mode = WalletMode.Turnkey, turnkeySessionActive = true)
+private val previewExportState = HomeUiState(mode = WalletMode.RainWallet, rainWalletSessionActive = true)
 
 @Composable
 private fun ExportKeysCardPreview(state: HomeUiState) {
@@ -124,26 +124,26 @@ private fun ExportKeysCardPreview(state: HomeUiState) {
     }
 }
 
-@Preview(name = "Turnkey · export, idle", showBackground = true)
+@Preview(name = "Rain Wallet · export, idle", showBackground = true)
 @Composable
 private fun ExportKeysIdlePreview() {
     ExportKeysCardPreview(previewExportState)
 }
 
-@Preview(name = "Turnkey · export, revealing", showBackground = true)
+@Preview(name = "Rain Wallet · export, revealing", showBackground = true)
 @Composable
 private fun ExportKeysRevealingPreview() {
-    ExportKeysCardPreview(previewExportState.copy(turnkeyExportInFlight = TurnkeyExportKind.SolanaKey))
+    ExportKeysCardPreview(previewExportState.copy(rainWalletExportInFlight = RainWalletExportKind.SolanaKey))
 }
 
-@Preview(name = "Turnkey · export, revealed", showBackground = true)
+@Preview(name = "Rain Wallet · export, revealed", showBackground = true)
 @Composable
 private fun ExportKeysRevealedPreview() {
     // Placeholder tokens, never BIP-39 words, so a capture of this preview cannot read as a real phrase.
     ExportKeysCardPreview(
         previewExportState.copy(
-            turnkeyRevealedSecret = RevealedSecret(
-                TurnkeyExportKind.RecoveryPhrase,
+            rainWalletRevealedSecret = RevealedSecret(
+                RainWalletExportKind.RecoveryPhrase,
                 "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12",
             ),
         ),

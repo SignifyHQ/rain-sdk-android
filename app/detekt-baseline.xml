@@ -12,9 +12,9 @@
     <ID>LongMethod:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel$fun loadContractInfo(chain: WalletChain = WalletChain.EVM)</ID>
     <ID>LongMethod:CollateralWithdrawViewModel.kt$CollateralWithdrawViewModel$private fun runWithdrawFlow( amountOverride: BigDecimal?, tag: String, action: suspend ( addresses: RainWithdrawAddresses, amountBd: BigDecimal, token: WithdrawTokenOption, adminSig: RainAdminSignature ) -&gt; Unit )</ID>
     <ID>LongMethod:HomeViewModel.kt$HomeViewModel$fun initializeRainWithPrivy()</ID>
-    <ID>LongMethod:HomeViewModel.kt$HomeViewModel$fun initializeRainWithTurnkey()</ID>
+    <ID>LongMethod:HomeViewModel.kt$HomeViewModel$fun initializeRainWithRainWallet()</ID>
     <ID>LongMethod:HomeViewModel.kt$HomeViewModel$fun initializeSdk()</ID>
-    <ID>LongMethod:HomeViewModel.kt$HomeViewModel$fun sendTurnkeyOtp(app: Application)</ID>
+    <ID>LongMethod:HomeViewModel.kt$HomeViewModel$fun sendRainWalletOtp(app: Application)</ID>
     <ID>LongMethod:MainActivity.kt$@Composable fun SampleApp()</ID>
     <ID>LongMethod:SendTokensScreen.kt$@Composable private fun SendTokensContent( innerPadding: PaddingValues, state: SendTokensUiState, selectedChain: WalletChain, onBack: () -&gt; Unit, actions: SendTokensActions, )</ID>
     <ID>LongMethod:SendTokensViewModel.kt$SendTokensViewModel$fun sendTokenTransfer(chain: WalletChain = WalletChain.BASE_SEPOLIA)</ID>

@@ -97,7 +97,7 @@ private fun WalletInfoContent(
             )
         }
 
-        // User wallet address (provider-agnostic: Portal, Turnkey or Privy).
+        // User wallet address (provider-agnostic: Portal, Rain Wallet or Privy).
         if (state.portalAddress.isNotEmpty()) {
             AddressCard(
                 title = "Wallet address",

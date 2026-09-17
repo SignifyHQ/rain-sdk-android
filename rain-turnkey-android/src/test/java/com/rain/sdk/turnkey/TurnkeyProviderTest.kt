@@ -10,8 +10,8 @@ import com.rain.sdk.internal.solana.SolanaSupport
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
+import com.rain.sdk.provider.ProviderDescriptor
 import com.rain.sdk.provider.ProviderId
-import com.rain.sdk.provider.RainProvider
 import com.turnkey.core.TurnkeyContext
 import io.mockk.every
 import io.mockk.mockkStatic
@@ -63,9 +63,25 @@ class TurnkeyProviderTest {
         assertThat(descriptor.capabilities).containsExactly(
             Capability.EXPORT,
             Capability.MULTI_CHAIN,
-            Capability.BIOMETRIC_GATE,
             Capability.GAS_SPONSORSHIP
         )
+    }
+
+    @Test
+    fun `a walletAddress override is checksummed at construction and a malformed one is refused`() {
+        val vector = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
+
+        assertThat(TurnkeyConfig(turnkey = TurnkeyContext, walletAddress = vector.lowercase()).walletAddress)
+            .isEqualTo(vector)
+        // Blank means no override, as the manager and the exporter already read it.
+        assertThat(TurnkeyConfig(turnkey = TurnkeyContext, walletAddress = "").walletAddress).isNull()
+        assertThat(TurnkeyConfig(turnkey = TurnkeyContext, walletAddress = "  ").walletAddress).isNull()
+        assertThrows(RainError.InvalidConfig::class.java) {
+            TurnkeyConfig(turnkey = TurnkeyContext, walletAddress = "0x1234")
+        }
+        assertThrows(RainError.InvalidConfig::class.java) {
+            TurnkeyConfig(turnkey = TurnkeyContext, walletAddress = "0x5AAeb6053F3E94C9b9A09f33669435E7Ef1BeAed")
+        }
     }
 
     @Test
@@ -74,8 +90,7 @@ class TurnkeyProviderTest {
 
         assertThat(descriptor.capabilities).containsExactly(
             Capability.EXPORT,
-            Capability.MULTI_CHAIN,
-            Capability.BIOMETRIC_GATE
+            Capability.MULTI_CHAIN
         )
     }
 
@@ -83,7 +98,7 @@ class TurnkeyProviderTest {
     fun `resolving by EXPORT follows registration order now that Turnkey advertises it`(): Unit = runBlocking {
         mockkStatic(URLUtil::class)
         every { URLUtil.isValidUrl(any()) } returns true
-        val exportStub = object : RainProvider {
+        val exportStub = object : ProviderDescriptor {
             override val id = ProviderId("stub-export")
             override val capabilities = setOf(Capability.EXPORT)
             override suspend fun create(context: ProviderContext): WalletProvider = error("stub-export resolved")
@@ -205,6 +220,18 @@ class TurnkeyProviderTest {
         } finally {
             descriptor.close()
         }
+    }
+
+    @Test
+    fun `refreshSession on a closed descriptor throws InvalidConfig without reaching the vendor`(): Unit = runBlocking {
+        val turnkey = MockTurnkey()
+        val descriptor = TurnkeyProvider(config(sponsorGas = false), contextOverride = turnkey)
+        descriptor.close()
+
+        val thrown = runCatching { descriptor.refreshSession() }.exceptionOrNull()
+
+        assertThat(thrown).isInstanceOf(RainError.InvalidConfig::class.java)
+        assertThat(turnkey.refreshSessionCallCount).isEqualTo(0)
     }
 
     @Test

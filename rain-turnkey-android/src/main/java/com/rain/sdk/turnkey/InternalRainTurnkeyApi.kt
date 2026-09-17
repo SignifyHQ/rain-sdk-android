@@ -2,15 +2,15 @@ package com.rain.sdk.turnkey
 
 /**
  * Marks the managed-authentication surface of the Turnkey adapter: public in the binary because a
- * sibling Rain module (the RainWallet provider) has to call it, but not part of the SDK's contract
+ * sibling Rain module (the Rain wallet provider, `RainProvider` in `rain-wallet-android`) has to call it, but not part of the SDK's contract
  * with host apps. A host that uses a marked declaration gets a compile error; the Rain modules that
  * are allowed through — and the sample app — opt in module-wide with
  * `-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi`. No compatibility guarantees: it changes
- * whenever the RainWallet provider needs it to.
+ * whenever the Rain wallet provider needs it to.
  */
 @RequiresOptIn(
     level = RequiresOptIn.Level.ERROR,
-    message = "Internal Rain SDK API reserved for the RainWallet provider. Host apps use the RainWallet " +
+    message = "Internal Rain SDK API reserved for the Rain wallet provider (RainProvider in rain-wallet-android). Host apps use the Rain wallet " +
         "provider or bring-your-own TurnkeyConfig(turnkey). No compatibility guarantees.",
 )
 @Retention(AnnotationRetention.BINARY)

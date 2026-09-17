@@ -11,7 +11,7 @@ import kotlin.reflect.KProperty
 @Suppress("DEPRECATION")
 class SessionStore(context: Context) {
 
-    enum class Provider { Portal, Turnkey, Privy }
+    enum class Provider { Portal, RainWallet, Turnkey, Privy }
 
     // Unavailable store (broken keystore) behaves like a first run instead of crashing.
     private val prefs: SharedPreferences? = runCatching {
@@ -24,6 +24,25 @@ class SessionStore(context: Context) {
         )
     }.onFailure { SampleLog.w("SessionStore", "unavailable: ${it.message}") }.getOrNull()
 
+    init {
+        // One-time migration, marked by storeVersion. An earlier sample ran the managed one-time-code
+        // flow under the Turnkey name; that record now belongs to the Rain Wallet card, and the
+        // Turnkey name means bring-your-own, so the owner moves over and the managed ids go.
+        prefs?.let { p ->
+            if (!p.contains("storeVersion")) {
+                val edit = p.edit()
+                if (p.getString("provider", null) == "Turnkey") {
+                    edit.putString("provider", Provider.RainWallet.name)
+                    p.getString("turnkeyEmail", null)?.let { edit.putString("rainWalletEmail", it) }
+                    p.getString("turnkeyPhone", null)?.let { edit.putString("rainWalletPhone", it) }
+                    p.getString("turnkeyChannel", null)?.let { edit.putString("rainWalletChannel", it) }
+                    edit.remove("turnkeyEmail").remove("turnkeyOrgId").remove("turnkeyAuthProxyConfigId")
+                }
+                edit.remove("turnkeyPhone").remove("turnkeyChannel").putInt("storeVersion", STORE_VERSION).apply()
+            }
+        }
+    }
+
     var provider: Provider?
         get() = prefs?.getString("provider", null)?.let { name -> Provider.entries.firstOrNull { it.name == name } }
         set(value) { prefs?.edit()?.putString("provider", value?.name)?.apply() }
@@ -34,13 +53,19 @@ class SessionStore(context: Context) {
     var turnkeyOrgId: String by string("turnkeyOrgId")
     var turnkeyAuthProxyConfigId: String by string("turnkeyAuthProxyConfigId")
     var turnkeyEmail: String by string("turnkeyEmail")
-    var turnkeyPhone: String by string("turnkeyPhone")
+    var rainWalletEmail: String by string("rainWalletEmail")
+    var rainWalletPhone: String by string("rainWalletPhone")
 
-    /** Name of the channel the recorded Turnkey session owner logged in on; blank means none recorded. */
-    var turnkeyChannel: String by string("turnkeyChannel")
+    /** Name of the channel the recorded Rain Wallet session owner logged in on; blank means none recorded. */
+    var rainWalletChannel: String by string("rainWalletChannel")
     var privyAppId: String by string("privyAppId")
     var privyAppClientId: String by string("privyAppClientId")
     var privyEmail: String by string("privyEmail")
+
+    private companion object {
+        /** Bumped when a key changes meaning; the init block migrates once per bump. */
+        const val STORE_VERSION = 2
+    }
 
     fun clear() {
         prefs?.edit()?.clear()?.apply()

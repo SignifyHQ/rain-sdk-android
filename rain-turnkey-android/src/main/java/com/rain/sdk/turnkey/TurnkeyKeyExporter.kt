@@ -163,19 +163,19 @@ internal class TurnkeyKeyExporter(
         const val HEX_RADIX = 16
 
         // Fixed messages: none may echo an address, a key or a phrase.
-        const val NO_WALLET = "The Turnkey organization has no wallet to export a recovery phrase from"
+        const val NO_WALLET = "This organization has no wallet to export a recovery phrase from"
         const val CURVE_MISMATCH =
-            "The Turnkey account for this key family is on an unexpected curve, so nothing was exported"
+            "The account for this key family is on an unexpected curve, so nothing was exported"
         const val BAD_KEY_MATERIAL = "The exported key was not a valid 32-byte key, so nothing was returned"
         const val ADDRESS_MISMATCH = "The exported key does not derive the account's address, so nothing was returned"
-        const val OVERRIDE_NOT_ETHEREUM = "walletAddress is not an Ethereum account of this Turnkey organization"
+        const val OVERRIDE_NOT_ETHEREUM = "walletAddress is not an Ethereum account of this organization"
 
         fun noAccount(family: TurnkeyKeyFamily): String {
             val name = when (family) {
                 TurnkeyKeyFamily.ETHEREUM -> "Ethereum"
                 TurnkeyKeyFamily.SOLANA -> "Solana"
             }
-            return "No $name account on the Turnkey wallet. In managed mode, log in again to provision it"
+            return "No $name account on the wallet. In managed mode, log in again to provision it"
         }
 
         /** Strict hex: even length, hex digits only, no prefix. Null for anything else. */
