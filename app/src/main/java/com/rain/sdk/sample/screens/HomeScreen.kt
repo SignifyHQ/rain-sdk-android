@@ -215,7 +215,8 @@ private fun HomeContent(
             // for every provider.
             RainApiCard(state, actions)
             ProviderCard(state = state, actions = providerActions)
-            // Available as soon as the login step is done, before "Initialize Rain".
+            // Available as soon as a session is live: a fresh login initializes Rain on its own; a
+            // restored or reused session shows it before "Initialize Rain" as well as after.
             if (state.mode == WalletMode.RainWallet && state.rainWalletSessionActive) {
                 ExportKeysCard(state = state, actions = exportActions)
             }
