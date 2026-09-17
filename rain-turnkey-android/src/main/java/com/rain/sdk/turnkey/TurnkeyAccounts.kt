@@ -22,23 +22,24 @@ internal object TurnkeyAccounts {
         firstOfFormat(wallets, V1AddressFormat.ADDRESS_FORMAT_SOLANA)
 
     /**
-     * The account of [format] at [address], or null. An Ethereum address is hex, so a checksummed
-     * and a lowercase spelling name the same account and the comparison ignores case. Every other
-     * format compares exactly, because Base58 is case-sensitive. An account at that address in
-     * another format does not match.
+     * The account of [format] at [address], or null. The comparison is [sameAddress], so a
+     * checksummed and a lowercase spelling of an Ethereum address name the same account while a
+     * Base58 address has to match exactly. An account at that address in another format does not
+     * match.
      */
     fun accountAt(wallets: List<Wallet>, address: String, format: V1AddressFormat): V1WalletAccount? =
         wallets.flatMap { it.accounts }.firstOrNull { account ->
-            account.addressFormat == format && sameAddress(account.address, address, format)
+            account.addressFormat == format && sameAddress(account.address, address)
         }
 
-    /** True when [a] and [b] name the same account: hex addresses compare ignoring case, every other form exactly. */
+    /**
+     * True when [a] and [b] name the same account: a hex address compares ignoring case, every other
+     * form exactly. The module's one address rule: [accountAt] and the export adapter's check that
+     * the enclave's bundle is for the requested account both use it.
+     */
     fun sameAddress(a: String, b: String): Boolean =
         a == b || (a.startsWith("0x", ignoreCase = true) && a.equals(b, ignoreCase = true))
 
     private fun firstOfFormat(wallets: List<Wallet>, format: V1AddressFormat): V1WalletAccount? =
         wallets.flatMap { it.accounts }.firstOrNull { it.addressFormat == format }
-
-    private fun sameAddress(a: String, b: String, format: V1AddressFormat): Boolean =
-        a.equals(b, ignoreCase = format == V1AddressFormat.ADDRESS_FORMAT_ETHEREUM)
 }
