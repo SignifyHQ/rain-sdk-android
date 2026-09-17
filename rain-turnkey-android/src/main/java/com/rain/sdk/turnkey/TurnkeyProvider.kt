@@ -212,9 +212,9 @@ class TurnkeyProvider internal constructor(
     }
 
     override suspend fun create(context: ProviderContext): WalletProvider {
-        // Always watch: beyond the optional host hook, the watcher drives cached-account
-        // eviction on session death so a re-login can never sign with the previous user's
-        // cached address.
+        // Always watch: beyond the optional host hook, the watcher advances the coordinator's
+        // death count on session death, which stales the manager's cached accounts, so a re-login
+        // can never sign with the previous user's cached address.
         coordinator.startMonitoring(monitorScope)
 
         // Managed mode: a session whose provisioning failed after login heals here, before the
@@ -328,7 +328,7 @@ class TurnkeyProvider internal constructor(
 
     /**
      * Clears the selected session (full logout) — after waiting for a restore in flight to
-     * settle — without firing [TurnkeyConfig.onSessionExpired]; cached accounts are still evicted
+     * settle — without firing [TurnkeyConfig.onSessionExpired]; cached accounts still go stale
      * and a pending login code is dropped. [hasActiveSession] and [currentAuthState] read
      * unauthenticated as soon as it returns. A no-op when no session is selected. Managed mode only —
      * throws `RainError.InvalidConfig` in bring-your-own mode, where the host owns the session.

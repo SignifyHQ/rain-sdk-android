@@ -82,7 +82,7 @@ internal fun turnkeyWalletProvider(
         pollingIntervalMs = pollingIntervalMs,
         jsonRpcClient = jsonRpcClient,
         history = history,
-        sessionCoordinator = sessionCoordinator,
+        sessionCoordinator = sessionCoordinator ?: TurnkeySessionCoordinator(turnkey),
     )
     return TurnkeyWalletProvider(
         manager = manager,

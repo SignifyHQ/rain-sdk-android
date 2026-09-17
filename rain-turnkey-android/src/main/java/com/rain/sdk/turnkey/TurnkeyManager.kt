@@ -63,19 +63,20 @@ internal class TurnkeyManager(
     private val rpcEndpoints: Map<Int, String>,
     private val solanaRpcClient: SolanaRpcClient,
     internal val sponsorGas: Boolean,
+    sessionCoordinator: TurnkeySessionCoordinator,
     private val walletAddressOverride: String? = null,
     httpClient: OkHttpClient = OkHttpClient(),
     private val pollingIntervalMs: Long = POLLING_INTERVAL_MS,
     private val jsonRpcClient: JsonRpcClient = JsonRpcClient(httpClient),
     history: TurnkeyHistoryProtocol? = null,
-    sessionCoordinator: TurnkeySessionCoordinator? = null,
 ) {
 
     private val history: TurnkeyHistoryProtocol = history ?: TurnkeyHistoryClient(httpClient)
 
-    // Guards every Turnkey call: expiry check, proactive refresh, refresh-on-401, backoff.
-    private val sessions: TurnkeySessionCoordinator =
-        sessionCoordinator ?: TurnkeySessionCoordinator(turnkey)
+    // Guards every Turnkey call: expiry check, proactive refresh, refresh-on-401, backoff. Always the
+    // descriptor's coordinator, never a private one: a death or a managed re-login seen there is what
+    // stales the address caches below, and the host hook fires from there.
+    private val sessions: TurnkeySessionCoordinator = sessionCoordinator
 
     // A cached account is only as good as the session that resolved it. Each cache carries the
     // coordinator's death count it was filled under: a later count means the previous user's
