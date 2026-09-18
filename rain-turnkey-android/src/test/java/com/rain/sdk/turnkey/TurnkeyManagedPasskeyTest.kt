@@ -277,6 +277,114 @@ class TurnkeyManagedPasskeyTest {
         assertThat(controller.currentAuthState()).isEqualTo(TurnkeyAuthState.Unauthenticated)
     }
 
+    // ---------- add-passkey ----------
+
+    @Test
+    fun `addPasskey without a session is TokenExpired and runs no ceremony`() = runTest {
+        val turnkey = MockTurnkey(session = null)
+        val controller = controller(turnkey)
+
+        expectThrows<RainError.TokenExpired> { controller.addPasskey(activity) }
+
+        assertThat(turnkey.createPasskeyCalls).isEmpty()
+        assertThat(turnkey.registerAuthenticatorCalls).isEmpty()
+        assertThat(hookCalls).isEqualTo(0)
+    }
+
+    @Test
+    fun `addPasskey runs the ceremony then registers it with the session's ids, the name and the registration`() = runTest {
+        val turnkey = MockTurnkey()
+        val controller = controller(turnkey, nowEpochSeconds = { 1_700_000_000.2 })
+
+        controller.addPasskey(activity)
+
+        assertThat(turnkey.createPasskeyCalls).containsExactly(MockTurnkey.CreatePasskeyCall(domain, "passkey-1700000000"))
+        val registered = turnkey.registerAuthenticatorCalls.single()
+        assertThat(registered.organizationId).isEqualTo(MockTurnkey.DEFAULT_ORG_ID)
+        assertThat(registered.userId).isEqualTo("user-id")
+        assertThat(registered.name).isEqualTo("passkey-1700000000")
+        assertThat(registered.registration).isEqualTo(turnkey.stubbedPasskeyRegistration)
+        // No session change: the same key stays selected and nothing was cleared.
+        assertThat(turnkey.selectedSessionKey).isEqualTo(MockTurnkey.DEFAULT_SESSION_KEY)
+        assertThat(turnkey.selectSessionCalls).isEmpty()
+        assertThat(turnkey.clearSessionCalls).isEmpty()
+    }
+
+    @Test
+    fun `a 401 on the registration refreshes the session once and registers again without a second sheet`() = runTest {
+        val turnkey = MockTurnkey()
+        turnkey.registerAuthenticatorError =
+            RuntimeException("HTTP error calling ACTIVITY_TYPE_CREATE_AUTHENTICATORS_V2 request\nError: {}\nCode: 401")
+        turnkey.onRefreshSession = { turnkey.registerAuthenticatorError = null }
+        val controller = controller(turnkey)
+
+        controller.addPasskey(activity)
+
+        assertThat(turnkey.createPasskeyCalls).hasSize(1)
+        assertThat(turnkey.refreshSessionCallCount).isEqualTo(1)
+        assertThat(turnkey.registerAuthenticatorCalls).hasSize(2)
+        assertThat(hookCalls).isEqualTo(0)
+    }
+
+    @Test
+    fun `a cancelled add-passkey ceremony propagates the cancellation and registers nothing`() = runTest {
+        val turnkey = MockTurnkey()
+        turnkey.createPasskeyError = CancellationException("cancelled")
+        val controller = controller(turnkey)
+
+        expectThrows<CancellationException> { controller.addPasskey(activity) }
+
+        assertThat(turnkey.registerAuthenticatorCalls).isEmpty()
+        assertThat(turnkey.selectedSessionKey).isEqualTo(MockTurnkey.DEFAULT_SESSION_KEY)
+    }
+
+    @Test
+    fun `a refused add-passkey ceremony maps to UserRejected and registers nothing`() = runTest {
+        val turnkey = MockTurnkey()
+        turnkey.createPasskeyError = com.turnkey.passkey.utils.TurnkeyPasskeyError.RegistrationFailed(
+            androidx.credentials.exceptions.CreateCredentialCancellationException("dismissed")
+        )
+        val controller = controller(turnkey)
+
+        expectThrows<RainError.UserRejected> { controller.addPasskey(activity) }
+
+        assertThat(turnkey.registerAuthenticatorCalls).isEmpty()
+        assertThat(controller.currentAuthState()).isEqualTo(TurnkeyAuthState.Authenticated)
+    }
+
+    @Test
+    fun `a failed registration activity is ProviderError and a 403 is Unauthorized`() = runTest {
+        val failed = MockTurnkey()
+        failed.registerAuthenticatorError = RuntimeException("No result found from /public/v1/submit/create_authenticators")
+        expectThrows<RainError.ProviderError> { controller(failed).addPasskey(activity) }
+        assertThat(failed.createPasskeyCalls).hasSize(1)
+        assertThat(failed.refreshSessionCallCount).isEqualTo(0)
+
+        val refused = MockTurnkey()
+        refused.registerAuthenticatorError =
+            RuntimeException("HTTP error calling ACTIVITY_TYPE_CREATE_AUTHENTICATORS_V2 request\nError: {}\nCode: 403")
+        expectThrows<RainError.Unauthorized> { controller(refused).addPasskey(activity) }
+        assertThat(refused.registerAuthenticatorCalls).hasSize(1)
+        // Neither leaves the session behind: the passkey exists on the device, not on the account.
+        assertThat(refused.selectedSessionKey).isEqualTo(MockTurnkey.DEFAULT_SESSION_KEY)
+        assertThat(hookCalls).isEqualTo(0)
+    }
+
+    @Test
+    fun `addPasskey with no domain or on a closed controller refuses before the ceremony`() = runTest {
+        val noDomain = MockTurnkey()
+        val refused = expectThrows<RainError.InvalidConfig> { controller(noDomain, passkeyDomain = null).addPasskey(activity) }
+        assertThat(refused).hasMessageThat().contains("passkeyDomain")
+        assertThat(noDomain.createPasskeyCalls).isEmpty()
+        assertThat(noDomain.awaitReadyCallCount).isEqualTo(0)
+
+        val closed = MockTurnkey()
+        val controller = controller(closed)
+        controller.close()
+        expectThrows<RainError.InvalidConfig> { controller.addPasskey(activity) }
+        assertThat(closed.createPasskeyCalls).isEmpty()
+    }
+
     // ---------- guards shared by both flows ----------
 
     @Test

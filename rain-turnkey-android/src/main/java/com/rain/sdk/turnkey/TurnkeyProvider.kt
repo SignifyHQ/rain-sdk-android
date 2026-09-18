@@ -503,6 +503,23 @@ class TurnkeyProvider internal constructor(
     suspend fun signUpWithPasskey(activity: Activity) = requireManagedAuth().signUpWithPasskey(activity)
 
     /**
+     * Registers a passkey bound to [TurnkeyConfig]'s `passkeyDomain` on the signed-in account, so
+     * the next sign-in can use it. Requires a live session, checked before the sheet:
+     * `RainError.TokenExpired` fires before any biometric prompt. No new account and no session
+     * change; other authentication calls wait while the sheet is open. One passkey per device is
+     * enough, and each call registers another with the credential provider. Throws
+     * `RainError.InvalidConfig` when no `passkeyDomain` is configured or the association file does
+     * not vouch for this build, `RainError.UserRejected` when the sheet was dismissed,
+     * `RainError.Unauthorized` when the backend refuses the registration, and `RainError.ProviderError`
+     * for a ceremony the device refused or a registration the backend failed, its per-user limit
+     * included. Managed mode only.
+     *
+     * @param activity As for [loginWithPasskey].
+     */
+    @InternalRainTurnkeyApi
+    suspend fun addPasskey(activity: Activity) = requireManagedAuth().addPasskey(activity)
+
+    /**
      * Clears the selected session (full logout) — after waiting for a restore in flight to
      * settle — without firing [TurnkeyConfig.onSessionExpired]; cached accounts still go stale
      * and a pending login code is dropped. [hasActiveSession] and [currentAuthState] read

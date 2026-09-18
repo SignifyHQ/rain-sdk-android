@@ -345,6 +345,32 @@ internal class MockTurnkey(
      */
     var passkeyStoresBeforeThrowing = false
 
+    data class CreatePasskeyCall(val rpId: String, val name: String)
+
+    data class RegisterAuthenticatorCall(
+        val organizationId: String,
+        val userId: String,
+        val name: String,
+        val registration: PasskeyRegistration,
+    )
+
+    val createPasskeyCalls = mutableListOf<CreatePasskeyCall>()
+    var createPasskeyError: Exception? = null
+
+    /** What the ceremony hands back: synthetic strings that decode to nothing. */
+    var stubbedPasskeyRegistration = PasskeyRegistration(
+        challenge = "stub-challenge",
+        attestation = com.turnkey.types.V1Attestation(
+            attestationObject = "stub-attestation",
+            clientDataJson = "stub-client-data",
+            credentialId = "stub-credential",
+            transports = listOf(com.turnkey.types.V1AuthenticatorTransport.AUTHENTICATOR_TRANSPORT_INTERNAL),
+        ),
+    )
+
+    val registerAuthenticatorCalls = mutableListOf<RegisterAuthenticatorCall>()
+    var registerAuthenticatorError: Exception? = null
+
     val createWalletCalls = mutableListOf<CreateWalletCall>()
     var createWalletError: Exception? = null
 
@@ -427,6 +453,22 @@ internal class MockTurnkey(
     ) {
         passkeySignUpCalls += PasskeySignUpCall(rpId, sessionKey, passkeyName, signupWallet)
         storePasskeySession(sessionKey, passkeySignUpError, onPasskeySignUp)
+    }
+
+    override suspend fun createPasskeyCredential(activity: android.app.Activity, rpId: String, name: String): PasskeyRegistration {
+        createPasskeyCalls += CreatePasskeyCall(rpId, name)
+        createPasskeyError?.let { throw it }
+        return stubbedPasskeyRegistration
+    }
+
+    override suspend fun registerAuthenticator(
+        organizationId: String,
+        userId: String,
+        name: String,
+        registration: PasskeyRegistration,
+    ) {
+        registerAuthenticatorCalls += RegisterAuthenticatorCall(organizationId, userId, name, registration)
+        registerAuthenticatorError?.let { throw it }
     }
 
     /** Like the vendor's createSession: a first login auto-selects; over a live session it only stores. */

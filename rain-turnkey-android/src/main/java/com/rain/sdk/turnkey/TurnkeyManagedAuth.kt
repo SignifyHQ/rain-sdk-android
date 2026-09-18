@@ -341,6 +341,43 @@ internal class TurnkeyManagedAuthController(
         }
     }
 
+    /**
+     * Registers a passkey bound to the configured domain on the signed-in account, through the
+     * system sheet presented from [activity], so the next sign-in can use it. No new account and no
+     * session change. The session is checked before the sheet through the coordinator, which waits
+     * out a restore in flight and refreshes a session near its expiry, so the user is never asked
+     * for a biometric the backend cannot use; without a session this throws
+     * [RainError.TokenExpired]. The ceremony runs outside the coordinator, because a retry there
+     * would re-prompt the user; the registration runs inside it, retried once after a 401 refresh
+     * (the backend answered before executing anything, so no duplicate). A dismissed sheet leaves
+     * the account untouched; a registration the backend refused leaves a passkey on the device
+     * that signs into nothing. Under [flowMutex], so a logout or login cannot swap the session
+     * between the check and the registration; other auth calls wait while the sheet is open.
+     */
+    suspend fun addPasskey(activity: Activity) {
+        flowMutex.withLock {
+            val rpId = requirePasskeysConfigured()
+            prepare()
+            requireLiveSession()
+            val name = TurnkeyPasskeys.authenticatorName(nowEpochSeconds())
+            val registration = guarded { context.createPasskeyCredential(activity, rpId, name) }
+            guarded {
+                coordinator.executeWrite { session, _ ->
+                    context.registerAuthenticator(session.organizationId, session.userId, name, registration)
+                }
+            }
+        }
+    }
+
+    /**
+     * A live or refreshable session, or [RainError.TokenExpired]: the coordinator's own check, run
+     * as an empty read. It waits out a restore in flight and refreshes inside the expiry buffer;
+     * [hasActiveSession] alone reads false while the vendor's asynchronous restore is still loading.
+     */
+    private suspend fun requireLiveSession() {
+        guarded { coordinator.executeRead { _, _ -> Unit } }
+    }
+
     /** The relying-party domain, or [RainError.InvalidConfig] before the vendor is touched. */
     private fun requirePasskeysConfigured(): String =
         passkeyDomain ?: throw RainError.InvalidConfig(TurnkeyPasskeys.NOT_CONFIGURED_MESSAGE)

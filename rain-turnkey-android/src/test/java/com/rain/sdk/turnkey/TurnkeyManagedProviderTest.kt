@@ -344,6 +344,27 @@ class TurnkeyManagedProviderTest {
     }
 
     @Test
+    fun `managed mode forwards addPasskey and a BYO or closed provider refuses it`() = runTest {
+        val turnkey = MockTurnkey()
+        val provider = TurnkeyProvider(managedConfig(passkeyDomain = "passkeys.example.com"), contextOverride = turnkey)
+
+        provider.addPasskey(activity)
+
+        assertThat(turnkey.createPasskeyCalls.single().rpId).isEqualTo("passkeys.example.com")
+        assertThat(turnkey.registerAuthenticatorCalls.single().organizationId).isEqualTo(MockTurnkey.DEFAULT_ORG_ID)
+
+        val byoContext = MockTurnkey()
+        val byo = TurnkeyProvider(TurnkeyConfig(turnkey = TurnkeyContext), contextOverride = byoContext)
+        val refused = expectThrows<RainError.InvalidConfig> { byo.addPasskey(activity) }
+        assertThat(refused).hasMessageThat().contains("managed mode")
+        assertThat(byoContext.createPasskeyCalls).isEmpty()
+
+        provider.close()
+        expectThrows<RainError.InvalidConfig> { provider.addPasskey(activity) }
+        assertThat(turnkey.createPasskeyCalls).hasSize(1)
+    }
+
+    @Test
     fun `a closed managed provider refuses both passkey flows with no vendor call`() = runTest {
         val turnkey = MockTurnkey()
         val provider = TurnkeyProvider(managedConfig(passkeyDomain = "passkeys.example.com"), contextOverride = turnkey)

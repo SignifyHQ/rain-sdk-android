@@ -13,6 +13,9 @@ import com.turnkey.crypto.decryptExportBundle
 import com.turnkey.crypto.generateP256KeyPair
 import com.turnkey.crypto.models.KeyFormat
 import com.turnkey.http.TurnkeyClient
+import com.turnkey.passkey.PasskeyUser
+import com.turnkey.passkey.createPasskey
+import com.turnkey.types.TCreateAuthenticatorsBody
 import com.turnkey.types.TCreateWalletAccountsBody
 import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TEthSendTransactionResponse
@@ -32,6 +35,8 @@ import com.turnkey.types.TListSolTransactionHistoryResponse
 import com.turnkey.types.TSolSendTransactionBody
 import com.turnkey.types.TSolSendTransactionResponse
 import com.turnkey.types.V1AddressFormat
+import com.turnkey.types.V1Attestation
+import com.turnkey.types.V1AuthenticatorParamsV2
 import com.turnkey.types.V1Curve
 import com.turnkey.types.V1HashFunction
 import com.turnkey.types.V1PathFormat
@@ -44,6 +49,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import java.util.UUID
 
 /**
  * Narrow internal abstractions over the Turnkey Kotlin SDK so the wallet provider can be
@@ -103,6 +109,13 @@ internal enum class OtpChannel { EMAIL, SMS }
  * up by it. Module-owned so test doubles never construct the vendor's result type.
  */
 internal data class OtpChallenge(val otpId: String, val encryptionTargetBundle: String, val channel: OtpChannel)
+
+/**
+ * A passkey the device just created: the challenge echoed in its client data and the attestation,
+ * in the shape the backend's authenticator activity takes them. Module-owned so test doubles never
+ * construct the vendor's registration result.
+ */
+internal data class PasskeyRegistration(val challenge: String, val attestation: V1Attestation)
 
 /** One account to create on a wallet — the module-owned shape of `V1WalletAccountParams`. */
 internal data class TurnkeyAccountSpec(
@@ -202,6 +215,20 @@ internal interface TurnkeyContextProtocol {
         passkeyName: String,
         signupWallet: TurnkeyWalletSpec,
     )
+
+    /**
+     * Runs the passkey creation ceremony for [rpId] on [activity], naming the passkey [name] in the
+     * credential provider. Touches no session and no backend: the result is registered on the
+     * account through [registerAuthenticator], so a retry of the registration never re-runs the sheet.
+     */
+    suspend fun createPasskeyCredential(activity: Activity, rpId: String, name: String): PasskeyRegistration
+
+    /**
+     * Registers [registration] as the authenticator [name] on user [userId] of [organizationId],
+     * stamped by the selected session. The ids are the caller's (the session it just validated), not
+     * a second read of the vendor's state.
+     */
+    suspend fun registerAuthenticator(organizationId: String, userId: String, name: String, registration: PasskeyRegistration)
 
     // ---- Key export ----
 
@@ -404,6 +431,41 @@ internal class TurnkeyContextAdapter(
             ),
             invalidateExisting = true,
             rpId = rpId,
+        )
+    }
+
+    override suspend fun createPasskeyCredential(activity: Activity, rpId: String, name: String): PasskeyRegistration {
+        val result = createPasskey(
+            activity = activity,
+            // A fresh user id per registration, the vendor's own sign-up shape and Turnkey's guidance;
+            // the credential provider shows the name, and the vendor sends it as the display name too.
+            user = PasskeyUser(id = UUID.randomUUID().toString(), name = name, displayName = name),
+            rpId = rpId,
+            excludeCredentials = emptyList(),
+        )
+        return PasskeyRegistration(challenge = result.challenge, attestation = result.attestation)
+    }
+
+    override suspend fun registerAuthenticator(
+        organizationId: String,
+        userId: String,
+        name: String,
+        registration: PasskeyRegistration,
+    ) {
+        // The high-level context has no wrapper for this activity; the typed client submits it and
+        // polls it to completion like every other activity.
+        context.client.createAuthenticators(
+            TCreateAuthenticatorsBody(
+                organizationId = organizationId,
+                authenticators = listOf(
+                    V1AuthenticatorParamsV2(
+                        attestation = registration.attestation,
+                        authenticatorName = name,
+                        challenge = registration.challenge,
+                    )
+                ),
+                userId = userId,
+            )
         )
     }
 
