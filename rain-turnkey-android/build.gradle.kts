@@ -97,6 +97,11 @@ dependencies {
     // through core and the vendor; the bcprov-jdk18on exclusion above is unchanged.
     implementation(libs.bouncycastle.bcprov)
 
+    // Referenced only by the error mapping, for typed checks on the Credential Manager exceptions a
+    // failed passkey ceremony carries. The vendor's passkey package already puts this same version on
+    // every consumer's runtime classpath; declaring it here only brings the types to compile time.
+    implementation(libs.androidx.credentials)
+
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.timber)
