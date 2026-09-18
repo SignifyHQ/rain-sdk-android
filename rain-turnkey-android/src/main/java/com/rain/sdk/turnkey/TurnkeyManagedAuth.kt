@@ -1,5 +1,6 @@
 package com.rain.sdk.turnkey
 
+import android.app.Activity
 import android.app.Application
 import com.rain.sdk.internal.error.RainError
 import com.turnkey.core.TurnkeyContext
@@ -150,8 +151,8 @@ internal object TurnkeyManagedConfigurator {
 /**
  * Owns the one-time-code flow, email or SMS, for a managed-mode [TurnkeyProvider]: send code,
  * confirm code (sign-up or login — the vendor decides), account provisioning, session restore,
- * logout. Every vendor failure is mapped to a [RainError] before it surfaces; cancellation is
- * never mapped.
+ * logout; and the passkey flows, sign-in and sign-up, when a relying-party domain is configured.
+ * Every vendor failure is mapped to a [RainError] before it surfaces; cancellation is never mapped.
  *
  * Sessions: each login stores its session under a fresh key and then selects it. The vendor's
  * `createSession` rejects only a duplicate *key*, so no stored session has to be cleared before a
@@ -166,6 +167,8 @@ internal class TurnkeyManagedAuthController(
     private val context: TurnkeyContextProtocol,
     private val coordinator: TurnkeySessionCoordinator,
     private val configure: suspend () -> RainError?,
+    /** The passkey relying-party domain, already normalized; null means passkeys are off. */
+    private val passkeyDomain: String? = null,
     private val nowEpochSeconds: () -> Double = { System.currentTimeMillis() / MILLIS_PER_SECOND },
 ) {
     private data class PendingOtp(val challenge: OtpChallenge, val contact: String)
@@ -278,6 +281,87 @@ internal class TurnkeyManagedAuthController(
             clearPendingOtp()
             switchToSession(sessionKey, previousKey)
             ensureAccountsLocked()
+        }
+    }
+
+    // ---------- passkeys ----------
+
+    /**
+     * Signs an existing user in with a passkey bound to the configured domain, through the system
+     * passkey sheet presented from [activity]. The account is the one the passkey was created for.
+     * A successful login stores the session under a fresh key, selects it, clears the previous
+     * session, revokes the user's other sessions on every device and backfills a missing account,
+     * the same steps as [confirmLoginCode]. A dismissed sheet, a refused passkey or a failed
+     * ceremony leaves the current session untouched; a session the vendor stored under the fresh
+     * key without selecting it is cleared. A pending login code survives, because it binds no
+     * device key; a pending contact verification does not, because the account it named changed.
+     * Throws [RainError.InvalidConfig] before touching the vendor when no domain is configured.
+     */
+    suspend fun loginWithPasskey(activity: Activity) {
+        flowMutex.withLock {
+            val rpId = requirePasskeysConfigured()
+            prepare()
+            val previousKey = context.selectedSessionKey
+            val sessionKey = SESSION_KEY_PREFIX + UUID.randomUUID()
+            ceremony(sessionKey) { context.completePasskeyLogin(activity, rpId, sessionKey) }
+            switchToSession(sessionKey, previousKey)
+            ensureAccountsLocked()
+        }
+    }
+
+    /**
+     * Creates a new account whose only login method is a passkey bound to the configured domain,
+     * with [MANAGED_WALLET] created inside the same request, then signs it in as [loginWithPasskey]
+     * does. Every call mints a fresh account; returning users sign in or add a passkey instead.
+     *
+     * Refused with [RainError.InvalidConfig] while any session is selected on this device: the
+     * vendor swaps its process-wide client for a temporary-key client for the whole ceremony and
+     * restores it only by selecting the new session, which it does only when none is selected, so
+     * a wallet call made while the sheet is open would stamp with a key registered on nobody's
+     * organization and read the live session as dead. Waiting out a restore in flight first keeps
+     * a session that is still loading from being read as "nothing selected". A failure after the
+     * account exists (the login or the session store) leaves an account the passkey can still sign
+     * into.
+     */
+    suspend fun signUpWithPasskey(activity: Activity) {
+        flowMutex.withLock {
+            val rpId = requirePasskeysConfigured()
+            prepare()
+            awaitRestoreSettled(TurnkeySessionCoordinator.AUTH_RESTORE_TIMEOUT_MS)
+            if (context.selectedSessionKey != null) {
+                throw RainError.InvalidConfig(TurnkeyPasskeys.ALREADY_SIGNED_IN_MESSAGE)
+            }
+            val sessionKey = SESSION_KEY_PREFIX + UUID.randomUUID()
+            val passkeyName = TurnkeyPasskeys.authenticatorName(nowEpochSeconds())
+            ceremony(sessionKey) {
+                context.completePasskeySignUp(activity, rpId, sessionKey, passkeyName, MANAGED_WALLET)
+            }
+            switchToSession(sessionKey, previousKey = null)
+            ensureAccountsLocked()
+        }
+    }
+
+    /** The relying-party domain, or [RainError.InvalidConfig] before the vendor is touched. */
+    private fun requirePasskeysConfigured(): String =
+        passkeyDomain ?: throw RainError.InvalidConfig(TurnkeyPasskeys.NOT_CONFIGURED_MESSAGE)
+
+    /**
+     * Runs a passkey ceremony that stores its session under [sessionKey] on success. On a mapped
+     * failure or the caller's cancellation, the fresh key is cleared unless the vendor already
+     * selected it: the vendor's key cleanup can throw after its session store, and a cancellation
+     * can land after it, and either would otherwise leave a never-selected session in the registry
+     * for good. A session the vendor selected before the failure is left signed in, as the code
+     * login leaves it.
+     */
+    private suspend fun ceremony(sessionKey: String, block: suspend () -> Unit) {
+        try {
+            guarded(block = block)
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) { clearUnselected(sessionKey) }
+            throw e
+        } catch (e: RainError) {
+            clearUnselected(sessionKey)
+            throw e
         }
     }
 

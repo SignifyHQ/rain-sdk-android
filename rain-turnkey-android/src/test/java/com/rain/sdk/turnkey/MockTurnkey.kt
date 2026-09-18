@@ -312,6 +312,39 @@ internal class MockTurnkey(
 
     val clearSessionCalls = mutableListOf<String>()
 
+    /** When set, [clearSession] throws this after recording the call — a stale key that will not clear. */
+    var clearSessionError: Exception? = null
+
+    // ---- passkey seams ----
+
+    data class PasskeyLoginCall(val rpId: String, val sessionKey: String)
+
+    data class PasskeySignUpCall(
+        val rpId: String,
+        val sessionKey: String,
+        val passkeyName: String,
+        val signupWallet: TurnkeyWalletSpec,
+    )
+
+    val passkeyLoginCalls = mutableListOf<PasskeyLoginCall>()
+    var passkeyLoginError: Exception? = null
+
+    /** Runs after a recorded [completePasskeyLogin] with the new session key — install the session here. */
+    var onPasskeyLogin: (suspend (sessionKey: String) -> Unit)? = null
+
+    val passkeySignUpCalls = mutableListOf<PasskeySignUpCall>()
+    var passkeySignUpError: Exception? = null
+
+    /** Runs after a recorded [completePasskeySignUp] with the new session key — install the session here. */
+    var onPasskeySignUp: (suspend (sessionKey: String) -> Unit)? = null
+
+    /**
+     * When true, a failing passkey ceremony stores (and, with nothing selected, selects) its session
+     * *before* throwing — the vendor's shape when its key cleanup fails after `createSession`, or when
+     * the caller's cancellation lands after the store.
+     */
+    var passkeyStoresBeforeThrowing = false
+
     val createWalletCalls = mutableListOf<CreateWalletCall>()
     var createWalletError: Exception? = null
 
@@ -376,7 +409,36 @@ internal class MockTurnkey(
 
     override suspend fun clearSession(sessionKey: String) {
         clearSessionCalls += sessionKey
+        clearSessionError?.let { throw it }
         if (sessionKey == selectedSessionKey) resetToUnauthenticated()
+    }
+
+    override suspend fun completePasskeyLogin(activity: android.app.Activity, rpId: String, sessionKey: String) {
+        passkeyLoginCalls += PasskeyLoginCall(rpId, sessionKey)
+        storePasskeySession(sessionKey, passkeyLoginError, onPasskeyLogin)
+    }
+
+    override suspend fun completePasskeySignUp(
+        activity: android.app.Activity,
+        rpId: String,
+        sessionKey: String,
+        passkeyName: String,
+        signupWallet: TurnkeyWalletSpec,
+    ) {
+        passkeySignUpCalls += PasskeySignUpCall(rpId, sessionKey, passkeyName, signupWallet)
+        storePasskeySession(sessionKey, passkeySignUpError, onPasskeySignUp)
+    }
+
+    /** Like the vendor's createSession: a first login auto-selects; over a live session it only stores. */
+    private suspend fun storePasskeySession(
+        sessionKey: String,
+        error: Exception?,
+        onStored: (suspend (sessionKey: String) -> Unit)?,
+    ) {
+        if (error != null && !passkeyStoresBeforeThrowing) throw error
+        if (selectedSessionKey == null) selectedSessionKey = sessionKey
+        onStored?.invoke(sessionKey)
+        error?.let { throw it }
     }
 
     override suspend fun createWallet(walletName: String, accounts: List<TurnkeyAccountSpec>) {

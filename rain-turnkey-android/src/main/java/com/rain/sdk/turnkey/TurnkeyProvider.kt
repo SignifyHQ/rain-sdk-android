@@ -1,5 +1,6 @@
 package com.rain.sdk.turnkey
 
+import android.app.Activity
 import android.app.Application
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
@@ -77,6 +78,8 @@ class TurnkeyConfig internal constructor(
         val application: Application,
         val organizationId: String,
         val authProxyConfigId: String,
+        /** The passkey relying-party domain, normalized; null when passkeys are off. */
+        val passkeyDomain: String?,
     )
 
     /** Managed mode's organization id; null in bring-your-own mode. Read by the Rain wallet's tests. */
@@ -86,6 +89,13 @@ class TurnkeyConfig internal constructor(
     /** Managed mode's auth-proxy configuration id; null in bring-your-own mode. */
     @InternalRainTurnkeyApi
     val managedAuthProxyConfigId: String? get() = managed?.authProxyConfigId
+
+    /**
+     * Managed mode's passkey relying-party domain as normalized at construction; null in
+     * bring-your-own mode and when passkeys are off. Read by the Rain wallet's tests.
+     */
+    @InternalRainTurnkeyApi
+    val managedPasskeyDomain: String? get() = managed?.passkeyDomain
 
     /**
      * Bring-your-own mode — the public Turnkey integration.
@@ -121,11 +131,17 @@ class TurnkeyConfig internal constructor(
      * @param organizationId Your Turnkey parent organization id.
      * @param authProxyConfigId The auth-proxy configuration id from the Turnkey dashboard.
      * @param walletAddress Optional EVM address override, validated and stored in EIP-55 checksum form; null or blank means no override.
+     * @param passkeyDomain The passkey relying-party domain: a bare host name the host controls, such as
+     *   `passkeys.example.com`, whose `/.well-known/assetlinks.json` lists the app's package name and
+     *   signing-certificate fingerprints. Null or blank turns the passkey methods off; they then throw
+     *   `RainError.InvalidConfig`. The domain is permanent: every passkey created against it stops
+     *   working when it changes.
      * @throws RainError.InvalidConfig (`RAIN_102`) when [walletAddress] is malformed or carries a
-     *   wrong mixed-case checksum.
+     *   wrong mixed-case checksum, or when [passkeyDomain] carries a scheme, port, path or any
+     *   character a host name cannot hold.
      */
     @InternalRainTurnkeyApi
-    @Suppress("LongParameterList") // the BYO constructor's parameters plus the two managed ids; four have defaults
+    @Suppress("LongParameterList") // the BYO constructor's parameters plus the managed ids and the passkey domain; five have defaults
     constructor(
         application: Application,
         organizationId: String,
@@ -134,6 +150,7 @@ class TurnkeyConfig internal constructor(
         sessionPolicy: TurnkeySessionPolicy = TurnkeySessionPolicy(),
         onSessionExpired: (() -> Unit)? = null,
         sponsorGas: Boolean = true,
+        passkeyDomain: String? = null,
     ) : this(
         // The vendor context is a process-wide object; managed mode configures it lazily, on the
         // first authentication call, through the provider's controller.
@@ -142,7 +159,12 @@ class TurnkeyConfig internal constructor(
         sessionPolicy,
         onSessionExpired,
         sponsorGas,
-        managed = ManagedIds(application, organizationId, authProxyConfigId),
+        managed = ManagedIds(
+            application,
+            organizationId,
+            authProxyConfigId,
+            TurnkeyPasskeys.normalizedDomainOrNull(passkeyDomain),
+        ),
     )
 
     private companion object {
@@ -206,6 +228,7 @@ class TurnkeyProvider internal constructor(
                 configure = {
                     TurnkeyManagedConfigurator.configure(ids.application, ids.organizationId, ids.authProxyConfigId)
                 },
+                passkeyDomain = ids.passkeyDomain,
             )
         }
     }
@@ -357,7 +380,7 @@ class TurnkeyProvider internal constructor(
         if (closed.get()) throw RainError.InvalidConfig(TURNKEY_PROVIDER_CLOSED_MESSAGE)
     }
 
-    // ---------- Managed authentication (email or SMS one-time code) — internal API, see InternalRainTurnkeyApi ----------
+    // ---------- Managed authentication (one-time code or passkey) — internal API, see InternalRainTurnkeyApi ----------
 
     /**
      * Where managed authentication stands, over time: [TurnkeyAuthState.Loading] until the first
@@ -435,6 +458,49 @@ class TurnkeyProvider internal constructor(
      */
     @InternalRainTurnkeyApi
     suspend fun confirmLoginCode(code: String) = requireManagedAuth().confirmLoginCode(code)
+
+    /**
+     * Signs an existing user in with a passkey bound to [TurnkeyConfig]'s `passkeyDomain`, through
+     * the system passkey sheet. The account is the one the passkey was created for; a first-time
+     * user has none and uses [signUpWithPasskey] or a login code. A successful login stores the
+     * session under a fresh key, selects it, clears the previous session, revokes the user's other
+     * Turnkey sessions on every device (`invalidateExisting`) and backfills a missing Ethereum or
+     * Solana account onto the existing wallet. A dismissed sheet, a refused passkey or a failed
+     * ceremony leaves the current session untouched. Throws `RainError.InvalidConfig` before any
+     * vendor call when no `passkeyDomain` is configured, `RainError.UserRejected` when the sheet
+     * was dismissed or the device holds no passkey for the domain, and `RainError.ProviderError`
+     * for a ceremony the device or the backend refused for another reason. Managed mode only.
+     *
+     * @param activity The foreground Activity the system passkey sheet is presented from; the
+     *   vendor requires an Activity so the sheet lands in the app's task. The call suspends until
+     *   the sheet closes, which can take as long as the user takes. Cancelling the calling
+     *   coroutine dismisses the sheet on Android 14 and later and, on earlier versions, abandons
+     *   its result when it arrives; either way the call ends with the cancellation, never with a
+     *   mapped error. Run it in a scope that survives configuration changes, such as a ViewModel
+     *   scope, and pass the Activity at the call: the SDK uses it only to launch the sheet and
+     *   retains it no longer than the call.
+     */
+    @InternalRainTurnkeyApi
+    suspend fun loginWithPasskey(activity: Activity) = requireManagedAuth().loginWithPasskey(activity)
+
+    /**
+     * Creates a new account with a passkey as its only login method and one wallet holding an
+     * Ethereum and a Solana account inside the same request, then signs it in as
+     * [loginWithPasskey] does. Every call mints a fresh account, so a returning user signs in with
+     * [loginWithPasskey] or a login code, or ends up with a second, empty wallet; accounts are
+     * never merged. Refused with `RainError.InvalidConfig` while any session is selected on this
+     * device, so log out first: the vendor swaps its process-wide client for the whole ceremony and
+     * a wallet call made meanwhile would read the live session as dead. If the passkey was created
+     * but the login that followed failed, the account exists and [loginWithPasskey] reaches it.
+     * Throws `RainError.InvalidConfig` when no `passkeyDomain` is configured or the association
+     * file does not vouch for this build, `RainError.UserRejected` when the sheet was dismissed,
+     * and `RainError.ProviderError` for a ceremony or sign-up the device or the backend refused
+     * for another reason. Managed mode only.
+     *
+     * @param activity As for [loginWithPasskey].
+     */
+    @InternalRainTurnkeyApi
+    suspend fun signUpWithPasskey(activity: Activity) = requireManagedAuth().signUpWithPasskey(activity)
 
     /**
      * Clears the selected session (full logout) — after waiting for a restore in flight to

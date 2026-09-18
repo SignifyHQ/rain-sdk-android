@@ -1,5 +1,6 @@
 package com.rain.sdk.turnkey
 
+import android.app.Activity
 import com.turnkey.core.TurnkeyContext
 import com.turnkey.core.models.AuthState
 import com.turnkey.core.models.CreateSubOrgParams
@@ -175,6 +176,33 @@ internal interface TurnkeyContextProtocol {
     /** Adds [accounts] to the existing wallet [walletId] — no new wallet, no new mnemonic. */
     suspend fun createWalletAccounts(walletId: String, accounts: List<TurnkeyAccountSpec>)
 
+    // ---- Passkeys (managed mode) ----
+
+    /**
+     * Signs an existing user in with a passkey bound to [rpId], through the system passkey sheet
+     * presented from [activity], and stores the session under [sessionKey]. Revokes the user's
+     * other sessions server-side. The vendor selects the new session itself only when none is
+     * selected; over a live session the caller switches. On return, success or failure, the vendor
+     * deletes every stored device key no session references. Suspends for the whole ceremony.
+     */
+    suspend fun completePasskeyLogin(activity: Activity, rpId: String, sessionKey: String)
+
+    /**
+     * Creates a new organization whose root user holds a passkey bound to [rpId], named
+     * [passkeyName], with [signupWallet] created inside the same request, then logs in and stores
+     * the session under [sessionKey]. The vendor swaps its process-wide client for a temporary-key
+     * client for the whole call and restores it only by selecting the new session, which it does
+     * only when none is selected: never run this while a session is selected. Same key cleanup as
+     * [completePasskeyLogin].
+     */
+    suspend fun completePasskeySignUp(
+        activity: Activity,
+        rpId: String,
+        sessionKey: String,
+        passkeyName: String,
+        signupWallet: TurnkeyWalletSpec,
+    )
+
     // ---- Key export ----
 
     /**
@@ -199,7 +227,8 @@ internal fun OtpChannel.toVendorOtpType(): OtpType = when (this) {
 /**
  * Default adapter that bridges the real Turnkey singleton to the test-only interfaces.
  * Production code holds the singleton via this wrapper so the wallet provider doesn't
- * depend on `TurnkeyContext` statics directly.
+ * depend on `TurnkeyContext` statics directly. The passkey members hand the caller's `Activity`
+ * straight to the vendor, which needs it as the anchor for the system sheet.
  */
 @Suppress("TooManyFunctions") // vendor seam: one member per Turnkey call the SDK makes
 internal class TurnkeyContextAdapter(
@@ -338,6 +367,43 @@ internal class TurnkeyContextAdapter(
                 walletId = walletId,
                 accounts = accounts.toVendorParams()
             )
+        )
+    }
+
+    override suspend fun completePasskeyLogin(activity: Activity, rpId: String, sessionKey: String) {
+        context.loginWithPasskey(
+            activity = activity,
+            sessionKey = sessionKey,
+            // Revokes this user's other Turnkey sessions server-side on a successful login, the
+            // same rule as the code login; a refused passkey never reaches this point.
+            invalidateExisting = true,
+            rpId = rpId,
+        )
+    }
+
+    override suspend fun completePasskeySignUp(
+        activity: Activity,
+        rpId: String,
+        sessionKey: String,
+        passkeyName: String,
+        signupWallet: TurnkeyWalletSpec,
+    ) {
+        context.signUpWithPasskey(
+            activity = activity,
+            sessionKey = sessionKey,
+            passkeyDisplayName = passkeyName,
+            // The wallet is created inside the signup request; the vendor replaces the
+            // authenticators and API keys of these params with the passkey and its temporary key
+            // and keeps the wallet. `CustomWallet` carries no mnemonic length, so the seed gets
+            // Turnkey's default of 12 words, the length the createWallet fallback pins.
+            createSubOrgParams = CreateSubOrgParams(
+                customWallet = CustomWallet(
+                    walletName = signupWallet.name,
+                    walletAccounts = signupWallet.accounts.toVendorParams(),
+                )
+            ),
+            invalidateExisting = true,
+            rpId = rpId,
         )
     }
 
