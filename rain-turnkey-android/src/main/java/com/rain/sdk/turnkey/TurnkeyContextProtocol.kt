@@ -34,6 +34,8 @@ import com.turnkey.types.TListSolTransactionHistoryBody
 import com.turnkey.types.TListSolTransactionHistoryResponse
 import com.turnkey.types.TSolSendTransactionBody
 import com.turnkey.types.TSolSendTransactionResponse
+import com.turnkey.types.TUpdateUserEmailBody
+import com.turnkey.types.TUpdateUserPhoneNumberBody
 import com.turnkey.types.V1AddressFormat
 import com.turnkey.types.V1Attestation
 import com.turnkey.types.V1AuthenticatorParamsV2
@@ -229,6 +231,21 @@ internal interface TurnkeyContextProtocol {
      * a second read of the vendor's state.
      */
     suspend fun registerAuthenticator(organizationId: String, userId: String, name: String, registration: PasskeyRegistration)
+
+    // ---- Contact attach (verify a code without logging in, then set the user's contact) ----
+
+    /**
+     * Verifies [otpCode] against [challenge] and returns the verification token, without logging
+     * in. Never binds the token to the live session's key: the vendor deletes the bound key on any
+     * failure. The throwaway key it binds instead is deleted before this returns.
+     */
+    suspend fun verifyOtpToken(challenge: OtpChallenge, otpCode: String): String
+
+    /** Sets the email of user [userId] on [organizationId]; [verificationToken] marks it verified. */
+    suspend fun setUserEmail(organizationId: String, userId: String, email: String, verificationToken: String)
+
+    /** Sets the phone number, E.164, of user [userId] on [organizationId]; [verificationToken] marks it verified. */
+    suspend fun setUserPhoneNumber(organizationId: String, userId: String, phoneNumber: String, verificationToken: String)
 
     // ---- Key export ----
 
@@ -465,6 +482,55 @@ internal class TurnkeyContextAdapter(
                     )
                 ),
                 userId = userId,
+            )
+        )
+    }
+
+    @Suppress("TooGenericExceptionCaught") // best-effort cleanup: a key that will not delete is logged, the token is already in hand
+    override suspend fun verifyOtpToken(challenge: OtpChallenge, otpCode: String): String {
+        val result = context.verifyOtp(
+            otpId = challenge.otpId,
+            otpCode = otpCode,
+            otpEncryptionTargetBundle = challenge.encryptionTargetBundle,
+            // Never the live session's key: the vendor deletes the bound key on any failure, so a
+            // wrong code would destroy the session. The vendor creates a throwaway key instead.
+            publicKey = null,
+        )
+        // Nothing else removes the throwaway key for a user who never runs a passkey ceremony.
+        try {
+            context.deleteKeyPair(publicKey = result.publicKey)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w("Rain SDK: could not delete the verification key pair (%s)", e.javaClass.simpleName)
+        }
+        return result.verificationToken
+    }
+
+    override suspend fun setUserEmail(organizationId: String, userId: String, email: String, verificationToken: String) {
+        // No wrapper on the high-level context; the typed client submits and polls the activity.
+        context.client.updateUserEmail(
+            TUpdateUserEmailBody(
+                organizationId = organizationId,
+                userId = userId,
+                userEmail = email,
+                verificationToken = verificationToken,
+            )
+        )
+    }
+
+    override suspend fun setUserPhoneNumber(
+        organizationId: String,
+        userId: String,
+        phoneNumber: String,
+        verificationToken: String,
+    ) {
+        context.client.updateUserPhoneNumber(
+            TUpdateUserPhoneNumberBody(
+                organizationId = organizationId,
+                userId = userId,
+                userPhoneNumber = phoneNumber,
+                verificationToken = verificationToken,
             )
         )
     }

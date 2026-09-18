@@ -365,6 +365,41 @@ class TurnkeyManagedProviderTest {
     }
 
     @Test
+    fun `managed mode forwards the contact-attach calls with the canonical contact`() = runTest {
+        val turnkey = MockTurnkey()
+        val provider = TurnkeyProvider(managedConfig(), contextOverride = turnkey)
+
+        provider.sendContactVerificationCode(LoginContact.Sms("+1 999-999-9999"))
+        provider.confirmContactVerification("000000")
+
+        assertThat(turnkey.sendOtpCalls.single().contact).isEqualTo("+19999999999")
+        assertThat(turnkey.sendOtpCalls.single().channel).isEqualTo(OtpChannel.SMS)
+        assertThat(turnkey.verifyOtpTokenCalls.single().otpCode).isEqualTo("000000")
+        assertThat(turnkey.setUserPhoneNumberCalls.single().contact).isEqualTo("+19999999999")
+        assertThat(turnkey.setUserEmailCalls).isEmpty()
+    }
+
+    @Test
+    fun `a BYO or closed provider refuses the contact-attach calls with no vendor call`() = runTest {
+        val byoContext = MockTurnkey()
+        val byo = TurnkeyProvider(TurnkeyConfig(turnkey = TurnkeyContext), contextOverride = byoContext)
+        val refused = expectThrows<RainError.InvalidConfig> {
+            byo.sendContactVerificationCode(LoginContact.Email("user@example.com"))
+        }
+        assertThat(refused).hasMessageThat().contains("managed mode")
+        expectThrows<RainError.InvalidConfig> { byo.confirmContactVerification("123456") }
+        assertThat(byoContext.sendOtpCalls).isEmpty()
+
+        val turnkey = MockTurnkey()
+        val provider = TurnkeyProvider(managedConfig(), contextOverride = turnkey)
+        provider.close()
+        expectThrows<RainError.InvalidConfig> { provider.sendContactVerificationCode(LoginContact.Email("user@example.com")) }
+        expectThrows<RainError.InvalidConfig> { provider.confirmContactVerification("123456") }
+        assertThat(turnkey.sendOtpCalls).isEmpty()
+        assertThat(turnkey.verifyOtpTokenCalls).isEmpty()
+    }
+
+    @Test
     fun `a closed managed provider refuses both passkey flows with no vendor call`() = runTest {
         val turnkey = MockTurnkey()
         val provider = TurnkeyProvider(managedConfig(passkeyDomain = "passkeys.example.com"), contextOverride = turnkey)

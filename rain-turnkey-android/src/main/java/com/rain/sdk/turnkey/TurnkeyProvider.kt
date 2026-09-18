@@ -520,6 +520,35 @@ class TurnkeyProvider internal constructor(
     suspend fun addPasskey(activity: Activity) = requireManagedAuth().addPasskey(activity)
 
     /**
+     * Sends a verification code to a contact the signed-in user wants to attach to this account,
+     * so that contact becomes a login method for it; distinct from [sendLoginCode], which starts a
+     * login. Requires a live session: `RainError.TokenExpired` before anything is sent. The contact
+     * is canonicalized like a login contact (see [LoginContact]) and that string is what the account
+     * stores; a second call replaces the pending code, and a login or a [logout] drops it. Accounts
+     * are never merged: a contact another account already owns does not move wallets, and the
+     * backend's answer surfaces on confirm. Throws `RainError.InvalidConfig` for a blank or
+     * malformed contact, and `RainError.ProviderError` when the code request is refused. Managed
+     * mode only.
+     */
+    @InternalRainTurnkeyApi
+    suspend fun sendContactVerificationCode(contact: LoginContact) =
+        requireManagedAuth().sendContactVerificationCode(contact)
+
+    /**
+     * Confirms the code from [sendContactVerificationCode] and attaches the verified contact. The
+     * session is checked before the code is spent (`RainError.TokenExpired` otherwise). A rejected
+     * code throws `RainError.InvalidLoginCode` and keeps the challenge, so the user can retype it;
+     * a rejection the backend wraps in an HTTP 500 arrives as `RainError.ProviderError` with the
+     * challenge kept too. A failure after the code was accepted drops the challenge: the session
+     * died meanwhile (`RainError.TokenExpired`), the backend refused the update
+     * (`RainError.Unauthorized`), or the update failed (`RainError.ProviderError`); request a new
+     * code. Throws `RainError.InvalidConfig` when no code was requested or the code is blank.
+     * Managed mode only.
+     */
+    @InternalRainTurnkeyApi
+    suspend fun confirmContactVerification(code: String) = requireManagedAuth().confirmContactVerification(code)
+
+    /**
      * Clears the selected session (full logout) — after waiting for a restore in flight to
      * settle — without firing [TurnkeyConfig.onSessionExpired]; cached accounts still go stale
      * and a pending login code is dropped. [hasActiveSession] and [currentAuthState] read

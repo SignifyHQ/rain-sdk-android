@@ -1,0 +1,278 @@
+package com.rain.sdk.turnkey
+
+import android.app.Activity
+import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.internal.error.RainError
+import io.mockk.mockk
+import kotlinx.coroutines.test.runTest
+import org.junit.Before
+import org.junit.Test
+
+/**
+ * Contact attach on [TurnkeyManagedAuthController]: a code verified without logging in, then the
+ * signed-in user's email or phone set with the verification token, under a pending slot the login
+ * code cannot consume and that a login or a logout drops. Vendor types stay inside method bodies
+ * (see [TurnkeyErrorMappingTest] for why).
+ */
+class TurnkeyManagedContactAttachTest {
+
+    private var hookCalls = 0
+    private val activity: Activity = mockk(relaxed = true)
+
+    @Before
+    fun setUp() = assumeJdk24()
+
+    private fun coordinator(turnkey: MockTurnkey) = TurnkeySessionCoordinator(
+        turnkey = turnkey,
+        onSessionExpired = { hookCalls++ },
+        retryDelay = { },
+    )
+
+    private fun controller(
+        turnkey: MockTurnkey,
+        passkeyDomain: String? = "passkeys.example.com",
+    ) = TurnkeyManagedAuthController(
+        context = turnkey,
+        coordinator = coordinator(turnkey),
+        configure = { null },
+        passkeyDomain = passkeyDomain,
+    )
+
+    private fun rejectedCode(): Exception = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToVerifyOtp(
+        RuntimeException("HTTP error from /v1/otp_verify_v2: 401")
+    )
+
+    @Test
+    fun `sending a verification code without a session is TokenExpired and sends nothing`() = runTest {
+        val turnkey = MockTurnkey(session = null)
+        val controller = controller(turnkey)
+
+        expectThrows<RainError.TokenExpired> { controller.sendContactVerificationCode(LoginContact.Email("user@example.com")) }
+
+        assertThat(turnkey.sendOtpCalls).isEmpty()
+        assertThat(hookCalls).isEqualTo(0)
+    }
+
+    @Test
+    fun `the contact is canonicalised the way a login contact is, and malformed shapes are refused`() = runTest {
+        val turnkey = MockTurnkey()
+        val controller = controller(turnkey)
+
+        controller.sendContactVerificationCode(LoginContact.Email("  User@Example.com "))
+        controller.sendContactVerificationCode(LoginContact.Sms("+1 (321) 456-7890"))
+
+        assertThat(turnkey.sendOtpCalls.map { it.contact }).containsExactly("User@Example.com", "+13214567890").inOrder()
+        assertThat(turnkey.sendOtpCalls.map { it.channel }).containsExactly(OtpChannel.EMAIL, OtpChannel.SMS).inOrder()
+
+        expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Email("   ")) }
+        expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Sms("+44 (0) 20 1234 5678")) }
+        expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Sms("1234")) }
+        assertThat(turnkey.sendOtpCalls).hasSize(2)
+    }
+
+    @Test
+    fun `a verification code and a login code coexist and neither confirm consumes the other's`() = runTest {
+        val turnkey = MockTurnkey()
+        val controller = controller(turnkey)
+        turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-login", encryptionTargetBundle = "b1", channel = OtpChannel.EMAIL)
+        controller.sendLoginCode("login@example.com")
+        turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-attach", encryptionTargetBundle = "b2", channel = OtpChannel.EMAIL)
+        controller.sendContactVerificationCode(LoginContact.Email("attach@example.com"))
+
+        controller.confirmContactVerification("111111")
+
+        assertThat(turnkey.verifyOtpTokenCalls.single().otpId).isEqualTo("otp-attach")
+        assertThat(turnkey.completeOtpCalls).isEmpty()
+
+        controller.confirmLoginCode("222222")
+
+        assertThat(turnkey.completeOtpCalls.single().otpId).isEqualTo("otp-login")
+        assertThat(turnkey.verifyOtpTokenCalls).hasSize(1)
+    }
+
+    @Test
+    fun `confirming without a requested verification code is InvalidConfig`() = runTest {
+        val turnkey = MockTurnkey()
+        val controller = controller(turnkey)
+
+        val refused = expectThrows<RainError.InvalidConfig> { controller.confirmContactVerification("123456") }
+
+        assertThat(refused).hasMessageThat().contains("sendContactVerificationCode")
+        assertThat(turnkey.verifyOtpTokenCalls).isEmpty()
+    }
+
+    @Test
+    fun `confirming an email verifies the code then sets the email with the session's ids, the canonical contact and the token`() = runTest {
+        val turnkey = MockTurnkey()
+        turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-1", encryptionTargetBundle = "bundle-1", channel = OtpChannel.EMAIL)
+        val controller = controller(turnkey)
+        controller.sendContactVerificationCode(LoginContact.Email(" user@example.com "))
+
+        controller.confirmContactVerification(" 123456 ")
+
+        val verify = turnkey.verifyOtpTokenCalls.single()
+        assertThat(verify.otpId).isEqualTo("otp-1")
+        assertThat(verify.otpCode).isEqualTo("123456")
+        assertThat(verify.encryptionTargetBundle).isEqualTo("bundle-1")
+        val set = turnkey.setUserEmailCalls.single()
+        assertThat(set.organizationId).isEqualTo(MockTurnkey.DEFAULT_ORG_ID)
+        assertThat(set.userId).isEqualTo("user-id")
+        assertThat(set.contact).isEqualTo("user@example.com")
+        assertThat(set.verificationToken).isEqualTo(turnkey.stubbedVerificationToken)
+        assertThat(turnkey.setUserPhoneNumberCalls).isEmpty()
+        // The session is untouched and the slot is spent.
+        assertThat(turnkey.selectedSessionKey).isEqualTo(MockTurnkey.DEFAULT_SESSION_KEY)
+        expectThrows<RainError.InvalidConfig> { controller.confirmContactVerification("123456") }
+    }
+
+    @Test
+    fun `confirming a phone number sets the phone number`() = runTest {
+        val turnkey = MockTurnkey()
+        val controller = controller(turnkey)
+        controller.sendContactVerificationCode(LoginContact.Sms("+1 999 999 9999"))
+
+        controller.confirmContactVerification("000000")
+
+        val set = turnkey.setUserPhoneNumberCalls.single()
+        assertThat(set.contact).isEqualTo("+19999999999")
+        assertThat(set.userId).isEqualTo("user-id")
+        assertThat(turnkey.setUserEmailCalls).isEmpty()
+    }
+
+    @Test
+    fun `a wrong code is InvalidLoginCode, keeps the challenge, and the right code then succeeds with no new send`() = runTest {
+        val turnkey = MockTurnkey()
+        val controller = controller(turnkey)
+        controller.sendContactVerificationCode(LoginContact.Email("user@example.com"))
+        turnkey.verifyOtpTokenError = rejectedCode()
+
+        expectThrows<RainError.InvalidLoginCode> { controller.confirmContactVerification("000000") }
+
+        assertThat(turnkey.setUserEmailCalls).isEmpty()
+        turnkey.verifyOtpTokenError = null
+
+        controller.confirmContactVerification("123456")
+
+        assertThat(turnkey.sendOtpCalls).hasSize(1)
+        assertThat(turnkey.verifyOtpTokenCalls).hasSize(2)
+        assertThat(turnkey.setUserEmailCalls).hasSize(1)
+    }
+
+    @Test
+    fun `an unclassifiable verify failure keeps the challenge`() = runTest {
+        val turnkey = MockTurnkey()
+        val controller = controller(turnkey)
+        controller.sendContactVerificationCode(LoginContact.Email("user@example.com"))
+        turnkey.verifyOtpTokenError = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToVerifyOtp(
+            RuntimeException("HTTP error from /v1/otp_verify_v2: 500")
+        )
+
+        expectThrows<RainError.ProviderError> { controller.confirmContactVerification("123456") }
+
+        turnkey.verifyOtpTokenError = null
+        controller.confirmContactVerification("123456")
+        assertThat(turnkey.setUserEmailCalls).hasSize(1)
+    }
+
+    @Test
+    fun `a failure setting the contact after the code was accepted drops the challenge and maps`() = runTest {
+        // 401: the coordinator refreshes once, the refresh is down, so the session is dead.
+        val expired = MockTurnkey()
+        expired.setUserContactError =
+            RuntimeException("HTTP error calling ACTIVITY_TYPE_UPDATE_USER_EMAIL request\nError: {}\nCode: 401")
+        expired.refreshSessionError = RuntimeException("refresh is down")
+        val controller = controller(expired)
+        controller.sendContactVerificationCode(LoginContact.Email("user@example.com"))
+
+        expectThrows<RainError.TokenExpired> { controller.confirmContactVerification("123456") }
+
+        assertThat(expired.verifyOtpTokenCalls).hasSize(1)
+        assertThat(expired.refreshSessionCallCount).isEqualTo(1)
+        // The code is spent by the verify, so the slot is gone: the next confirm needs a new code.
+        val refused = expectThrows<RainError.InvalidConfig> { controller.confirmContactVerification("123456") }
+        assertThat(refused).hasMessageThat().contains("sendContactVerificationCode")
+
+        // 403 and a failed activity map without a refresh.
+        val forbidden = MockTurnkey()
+        forbidden.setUserContactError =
+            RuntimeException("HTTP error calling ACTIVITY_TYPE_UPDATE_USER_EMAIL request\nError: {}\nCode: 403")
+        val forbiddenController = controller(forbidden)
+        forbiddenController.sendContactVerificationCode(LoginContact.Email("user@example.com"))
+        expectThrows<RainError.Unauthorized> { forbiddenController.confirmContactVerification("123456") }
+
+        val failed = MockTurnkey()
+        failed.setUserContactError = RuntimeException("No result found from /public/v1/submit/update_user_email")
+        val failedController = controller(failed)
+        failedController.sendContactVerificationCode(LoginContact.Email("user@example.com"))
+        expectThrows<RainError.ProviderError> { failedController.confirmContactVerification("123456") }
+        assertThat(failed.refreshSessionCallCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `logout drops a pending verification`() = runTest {
+        val turnkey = MockTurnkey()
+        val controller = controller(turnkey)
+        controller.sendContactVerificationCode(LoginContact.Email("user@example.com"))
+
+        controller.logout()
+        turnkey.authenticate()
+        turnkey.selectedSessionKey = MockTurnkey.DEFAULT_SESSION_KEY
+
+        expectThrows<RainError.InvalidConfig> { controller.confirmContactVerification("123456") }
+        assertThat(turnkey.verifyOtpTokenCalls).isEmpty()
+    }
+
+    @Test
+    fun `a passkey login and a confirmed login code drop a pending verification`() = runTest {
+        val passkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()))
+        val passkeyController = controller(passkey)
+        passkeyController.sendContactVerificationCode(LoginContact.Email("user@example.com"))
+
+        passkeyController.loginWithPasskey(activity)
+
+        expectThrows<RainError.InvalidConfig> { passkeyController.confirmContactVerification("123456") }
+        assertThat(passkey.verifyOtpTokenCalls).isEmpty()
+
+        val code = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()))
+        val codeController = controller(code)
+        codeController.sendContactVerificationCode(LoginContact.Email("user@example.com"))
+        codeController.sendLoginCode("other@example.com")
+
+        codeController.confirmLoginCode("123456")
+
+        expectThrows<RainError.InvalidConfig> { codeController.confirmContactVerification("123456") }
+        assertThat(code.verifyOtpTokenCalls).isEmpty()
+    }
+
+    @Test
+    fun `a blank code is InvalidConfig and keeps the challenge, and a closed controller refuses both calls`() = runTest {
+        val turnkey = MockTurnkey()
+        val controller = controller(turnkey)
+        controller.sendContactVerificationCode(LoginContact.Email("user@example.com"))
+
+        expectThrows<RainError.InvalidConfig> { controller.confirmContactVerification("   ") }
+        assertThat(turnkey.verifyOtpTokenCalls).isEmpty()
+        controller.confirmContactVerification("123456")
+        assertThat(turnkey.setUserEmailCalls).hasSize(1)
+
+        val closed = controller(MockTurnkey())
+        closed.close()
+        expectThrows<RainError.InvalidConfig> { closed.sendContactVerificationCode(LoginContact.Email("user@example.com")) }
+        expectThrows<RainError.InvalidConfig> { closed.confirmContactVerification("123456") }
+    }
+
+    @Test
+    fun `confirming without a live session is TokenExpired and spends no code`() = runTest {
+        val turnkey = MockTurnkey()
+        val controller = controller(turnkey)
+        controller.sendContactVerificationCode(LoginContact.Email("user@example.com"))
+        // The session died between the send and the confirm.
+        turnkey.session = null
+        turnkey.selectedSessionKey = null
+
+        expectThrows<RainError.TokenExpired> { controller.confirmContactVerification("123456") }
+
+        assertThat(turnkey.verifyOtpTokenCalls).isEmpty()
+        assertThat(turnkey.setUserEmailCalls).isEmpty()
+    }
+}

@@ -151,8 +151,10 @@ internal object TurnkeyManagedConfigurator {
 /**
  * Owns the one-time-code flow, email or SMS, for a managed-mode [TurnkeyProvider]: send code,
  * confirm code (sign-up or login — the vendor decides), account provisioning, session restore,
- * logout; and the passkey flows, sign-in and sign-up, when a relying-party domain is configured.
- * Every vendor failure is mapped to a [RainError] before it surfaces; cancellation is never mapped.
+ * logout; the passkey flows, sign-in, sign-up and add-passkey, when a relying-party domain is
+ * configured; and contact attach, a verified email or phone added to the signed-in account as a
+ * login method. Every vendor failure is mapped to a [RainError] before it surfaces; cancellation
+ * is never mapped.
  *
  * Sessions: each login stores its session under a fresh key and then selects it. The vendor's
  * `createSession` rejects only a duplicate *key*, so no stored session has to be cleared before a
@@ -162,7 +164,7 @@ internal object TurnkeyManagedConfigurator {
  * One auth operation runs at a time: send, confirm, logout and provisioning all read-then-write
  * the same process-wide vendor state.
  */
-@Suppress("TooManyFunctions") // the whole auth flow lives here so one mutex can serialize every step
+@Suppress("TooManyFunctions", "LargeClass") // the whole auth flow lives here so one mutex can serialize every step
 internal class TurnkeyManagedAuthController(
     private val context: TurnkeyContextProtocol,
     private val coordinator: TurnkeySessionCoordinator,
@@ -176,6 +178,12 @@ internal class TurnkeyManagedAuthController(
     private val flowMutex = Mutex()
     private val pendingLock = ReentrantLock()
     private var pendingOtp: PendingOtp? = null
+
+    /**
+     * The verification code for a contact being attached, kept apart from [pendingOtp] so a login
+     * cannot consume a verification code and a verification cannot consume a login code.
+     */
+    private var pendingContactOtp: PendingOtp? = null
     private val closed = AtomicBoolean(false)
     private val closedFlow = MutableStateFlow(false)
 
@@ -369,6 +377,70 @@ internal class TurnkeyManagedAuthController(
         }
     }
 
+    // ---------- contact attach ----------
+
+    /**
+     * Sends a verification code to [contact], a contact the signed-in user wants to attach to this
+     * account as a login method, distinct from [sendLoginCode], which starts a login. Requires a
+     * live session, checked before anything is sent. The contact is canonicalized like a login
+     * contact and that string is what the account stores; a second call replaces the pending code.
+     * Accounts are never merged: a contact another account already owns goes to the backend, and
+     * its answer surfaces on confirm.
+     */
+    suspend fun sendContactVerificationCode(contact: LoginContact) {
+        flowMutex.withLock {
+            prepare()
+            requireLiveSession()
+            val (canonical, channel) = canonicalize(contact)
+            val challenge = guarded { context.sendOtp(canonical, channel) }
+            pendingLock.withJavaLock {
+                pendingContactOtp = PendingOtp(challenge, canonical)
+            }
+        }
+    }
+
+    /**
+     * Confirms the code from [sendContactVerificationCode] and attaches the contact, verified. The
+     * session is checked before the code is spent, so a dead session costs no code. A rejected code
+     * throws [RainError.InvalidLoginCode] and keeps the challenge, as [confirmLoginCode] does, and so
+     * does any other failure inside the verify step. Once the verify returned a token the code is
+     * spent, so the challenge is dropped whether or not the update that follows succeeds; a failed
+     * update surfaces as its own error and the user requests a new code.
+     */
+    suspend fun confirmContactVerification(code: String) {
+        flowMutex.withLock {
+            prepare()
+            requireLiveSession()
+            val pending = requirePendingContactOtp()
+            val trimmed = requireCode(code)
+            val token = guarded(onVendorFailure = ::dropContactOtpUnlessVerifyFailed) {
+                context.verifyOtpToken(pending.challenge, trimmed)
+            }
+            clearPendingContactOtp()
+            guarded {
+                coordinator.executeWrite { session, _ ->
+                    when (pending.challenge.channel) {
+                        OtpChannel.EMAIL -> context.setUserEmail(session.organizationId, session.userId, pending.contact, token)
+                        OtpChannel.SMS -> context.setUserPhoneNumber(session.organizationId, session.userId, pending.contact, token)
+                    }
+                }
+            }
+        }
+    }
+
+    /** Mirrors [dropChallengeUnlessVerifyFailed] for the verification slot. */
+    private fun dropContactOtpUnlessVerifyFailed(e: Exception) {
+        if (!TurnkeyErrorMapping.isLoginCodeVerifyFailure(e)) clearPendingContactOtp()
+    }
+
+    private fun requirePendingContactOtp(): PendingOtp =
+        pendingLock.withJavaLock { pendingContactOtp }
+            ?: throw RainError.InvalidConfig("No verification code was requested; call sendContactVerificationCode first")
+
+    private fun clearPendingContactOtp() {
+        pendingLock.withJavaLock { pendingContactOtp = null }
+    }
+
     /**
      * A live or refreshable session, or [RainError.TokenExpired]: the coordinator's own check, run
      * as an empty read. It waits out a restore in flight and refreshes inside the expiry buffer;
@@ -472,8 +544,9 @@ internal class TurnkeyManagedAuthController(
 
     /**
      * Clears the selected session. Deliberate, so the host's `onSessionExpired` re-auth hook stays
-     * silent for the death this causes; cached accounts still go stale. A pending code is
-     * dropped once the clear was attempted, whether or not it succeeded. Reads made right after
+     * silent for the death this causes; cached accounts still go stale. A pending login code and a
+     * pending contact verification are dropped once the clear was attempted, whether or not it
+     * succeeded. Reads made right after
      * this returns already see no session: the vendor flips its auth state, selected key and
      * session inline inside `clearSession`, and [hasActiveSession] and [currentAuthState] derive
      * from those values on demand, so no wait for the flip is needed here.
@@ -489,6 +562,7 @@ internal class TurnkeyManagedAuthController(
                 // Nothing to clear, so nothing to suppress — an armed suppression with no death to
                 // consume it would silence the next genuine one.
                 clearPendingOtp()
+                clearPendingContactOtp()
                 return
             }
             coordinator.suppressNextHostHook()
@@ -501,6 +575,7 @@ internal class TurnkeyManagedAuthController(
                 // about a later one.
                 if (!cleared) coordinator.releaseHostHookSuppression()
                 clearPendingOtp()
+                clearPendingContactOtp()
             }
         }
     }
@@ -548,6 +623,8 @@ internal class TurnkeyManagedAuthController(
      * fails is abandoned the same way on both exits: see [abandonSwitch].
      */
     private suspend fun switchToSession(sessionKey: String, previousKey: String?) {
+        // The account is about to change, and the verification slot names the one being left.
+        clearPendingContactOtp()
         if (context.selectedSessionKey != sessionKey) {
             try {
                 guarded { context.selectSession(sessionKey) }

@@ -371,6 +371,22 @@ internal class MockTurnkey(
     val registerAuthenticatorCalls = mutableListOf<RegisterAuthenticatorCall>()
     var registerAuthenticatorError: Exception? = null
 
+    // ---- contact attach seams ----
+
+    data class VerifyOtpTokenCall(val otpId: String, val otpCode: String, val encryptionTargetBundle: String)
+
+    data class SetContactCall(val organizationId: String, val userId: String, val contact: String, val verificationToken: String)
+
+    val verifyOtpTokenCalls = mutableListOf<VerifyOtpTokenCall>()
+    var verifyOtpTokenError: Exception? = null
+    var stubbedVerificationToken = "stub-verification-token"
+
+    val setUserEmailCalls = mutableListOf<SetContactCall>()
+    val setUserPhoneNumberCalls = mutableListOf<SetContactCall>()
+
+    /** When set, both contact setters throw this after recording the call. */
+    var setUserContactError: Exception? = null
+
     val createWalletCalls = mutableListOf<CreateWalletCall>()
     var createWalletError: Exception? = null
 
@@ -469,6 +485,27 @@ internal class MockTurnkey(
     ) {
         registerAuthenticatorCalls += RegisterAuthenticatorCall(organizationId, userId, name, registration)
         registerAuthenticatorError?.let { throw it }
+    }
+
+    override suspend fun verifyOtpToken(challenge: OtpChallenge, otpCode: String): String {
+        verifyOtpTokenCalls += VerifyOtpTokenCall(challenge.otpId, otpCode, challenge.encryptionTargetBundle)
+        verifyOtpTokenError?.let { throw it }
+        return stubbedVerificationToken
+    }
+
+    override suspend fun setUserEmail(organizationId: String, userId: String, email: String, verificationToken: String) {
+        setUserEmailCalls += SetContactCall(organizationId, userId, email, verificationToken)
+        setUserContactError?.let { throw it }
+    }
+
+    override suspend fun setUserPhoneNumber(
+        organizationId: String,
+        userId: String,
+        phoneNumber: String,
+        verificationToken: String,
+    ) {
+        setUserPhoneNumberCalls += SetContactCall(organizationId, userId, phoneNumber, verificationToken)
+        setUserContactError?.let { throw it }
     }
 
     /** Like the vendor's createSession: a first login auto-selects; over a live session it only stores. */
