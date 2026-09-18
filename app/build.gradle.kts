@@ -20,7 +20,22 @@ android {
         }
     }
 
+    signingConfigs {
+        // Committed on purpose. The demo's passkeys are bound to this certificate's fingerprint through
+        // passkeys.uptop.xyz/.well-known/assetlinks.json, so every developer's build must carry it. Standard
+        // debug alias and passwords; no other key may live here.
+        getByName("debug") {
+            storeFile = file("demo-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             // Minified on purpose: the sample doubles as the SDK's build-time R8 consumer
             // check. CI builds :app:assembleRelease, which proves R8 completes against the
@@ -29,6 +44,9 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Signed with the demo keystore too, so the minified build runs the passkey ceremony under
+            // the same fingerprint; the sample is never published.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {

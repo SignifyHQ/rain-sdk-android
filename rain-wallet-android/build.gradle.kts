@@ -77,6 +77,8 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.truth)
     testImplementation(libs.kotlinx.coroutines.test)
+    // The neutrality test walks the public signatures.
+    testImplementation(libs.kotlin.reflect)
 }
 
 mavenPublishing {

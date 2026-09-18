@@ -1,5 +1,6 @@
 package com.rain.sdk.turnkey
 
+import android.app.Activity
 import android.app.Application
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
@@ -51,10 +52,12 @@ class TurnkeyManagedAuthTest {
         turnkey: MockTurnkey,
         configurationError: RainError? = null,
         coordinator: TurnkeySessionCoordinator = coordinator(turnkey),
+        passkeyDomain: String? = null,
     ) = TurnkeyManagedAuthController(
         context = turnkey,
         coordinator = coordinator,
         configure = { configurationError },
+        passkeyDomain = passkeyDomain,
     )
 
     private fun rejectedCode(): Exception = TurnkeyKotlinError.FailedToLoginOrSignUpWithOtp(
@@ -488,16 +491,28 @@ class TurnkeyManagedAuthTest {
     @Test
     fun `a configuration error makes every auth call throw InvalidConfig before touching the vendor`() = runTest {
         val turnkey = MockTurnkey(session = null)
-        val controller = controller(turnkey, configurationError = RainError.InvalidConfig("mismatch"))
+        val controller = controller(
+            turnkey,
+            configurationError = RainError.InvalidConfig("mismatch"),
+            passkeyDomain = "passkeys.example.com",
+        )
+        val activity = mockk<Activity>(relaxed = true)
 
         expectThrows<RainError.InvalidConfig> { controller.sendLoginCode("user@example.com") }
         expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(smsContact) }
         expectThrows<RainError.InvalidConfig> { controller.confirmLoginCode("123456") }
+        expectThrows<RainError.InvalidConfig> { controller.loginWithPasskey(activity) }
+        expectThrows<RainError.InvalidConfig> { controller.signUpWithPasskey(activity) }
+        expectThrows<RainError.InvalidConfig> { controller.addPasskey(activity) }
+        expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Email("user@example.com")) }
+        expectThrows<RainError.InvalidConfig> { controller.confirmContactVerification("123456") }
         expectThrows<RainError.InvalidConfig> { controller.awaitSessionRestore(timeoutMs = 100) }
         expectThrows<RainError.InvalidConfig> { controller.logout() }
 
         assertThat(turnkey.awaitReadyCallCount).isEqualTo(0)
         assertThat(turnkey.sendOtpCalls).isEmpty()
+        assertThat(turnkey.createPasskeyCalls).isEmpty()
+        assertThat(turnkey.verifyOtpTokenCalls).isEmpty()
         assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
     }
 
@@ -743,13 +758,16 @@ class TurnkeyManagedAuthTest {
     @Test
     fun `every auth method on a closed controller throws InvalidConfig and its state reads inert`() = runTest {
         val turnkey = MockTurnkey()
-        val controller = controller(turnkey)
+        val controller = controller(turnkey, passkeyDomain = "passkeys.example.com")
+        val activity = mockk<Activity>(relaxed = true)
 
         controller.close()
 
         expectThrows<RainError.InvalidConfig> { controller.sendLoginCode("user@example.com") }
         expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(smsContact) }
         expectThrows<RainError.InvalidConfig> { controller.confirmLoginCode("123456") }
+        expectThrows<RainError.InvalidConfig> { controller.loginWithPasskey(activity) }
+        expectThrows<RainError.InvalidConfig> { controller.signUpWithPasskey(activity) }
         expectThrows<RainError.InvalidConfig> { controller.logout() }
         expectThrows<RainError.InvalidConfig> { controller.awaitSessionRestore(timeoutMs = 100) }
         assertThat(controller.hasActiveSession()).isFalse()

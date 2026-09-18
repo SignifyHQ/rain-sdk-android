@@ -66,6 +66,13 @@ class SessionStore(context: Context) {
 
     /** Name of the channel the recorded Rain Wallet session owner logged in on; blank means none recorded. */
     var rainWalletChannel: String by string("rainWalletChannel")
+
+    /**
+     * True when the recorded Rain Wallet session owner signed in or up with a passkey and so has no
+     * login contact of its own; the contact slots then hold what was attached since. Additive to
+     * the record, so a store from before this key reads false.
+     */
+    var rainWalletPasskeyOwner: Boolean by boolean("rainWalletPasskeyOwner")
     var privyAppId: String by string("privyAppId")
     var privyAppClientId: String by string("privyAppClientId")
     var privyEmail: String by string("privyEmail")
@@ -85,6 +92,15 @@ class SessionStore(context: Context) {
 
         override fun setValue(thisRef: Any?, property: KProperty<*>, value: String) {
             prefs?.edit()?.putString(key, value)?.apply()
+        }
+    }
+
+    private fun boolean(key: String) = object : ReadWriteProperty<Any?, Boolean> {
+        override fun getValue(thisRef: Any?, property: KProperty<*>): Boolean =
+            prefs?.getBoolean(key, false) == true
+
+        override fun setValue(thisRef: Any?, property: KProperty<*>, value: Boolean) {
+            prefs?.edit()?.putBoolean(key, value)?.apply()
         }
     }
 }

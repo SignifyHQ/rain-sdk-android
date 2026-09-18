@@ -1,5 +1,18 @@
 package com.rain.sdk.turnkey
 
+import androidx.credentials.exceptions.CreateCredentialCancellationException
+import androidx.credentials.exceptions.CreateCredentialInterruptedException
+import androidx.credentials.exceptions.CreateCredentialNoCreateOptionException
+import androidx.credentials.exceptions.CreateCredentialProviderConfigurationException
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialInterruptedException
+import androidx.credentials.exceptions.GetCredentialUnsupportedException
+import androidx.credentials.exceptions.NoCredentialException
+import androidx.credentials.exceptions.domerrors.NotAllowedError
+import androidx.credentials.exceptions.domerrors.SecurityError
+import androidx.credentials.exceptions.domerrors.TimeoutError
+import androidx.credentials.exceptions.publickeycredential.CreatePublicKeyCredentialDomException
+import androidx.credentials.exceptions.publickeycredential.GetPublicKeyCredentialDomException
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.error.RainErrorCode
@@ -10,8 +23,9 @@ import org.junit.Test
  * Turnkey-error classification tests for [TurnkeyErrorMapping] — covers each `TurnkeyKotlinError`
  * variant it routes (InvalidSession, InvalidParameter, ClientNotInitialized,
  * FailedToSignRawPayload, FailedToCreateWallet, FailedToVerifyOtp, FailedToInitOtp,
- * FailedToExportWallet), the wrapper-recurse paths, and the HTTP statuses the vendor reports as
- * plain exceptions.
+ * FailedToExportWallet, FailedToLoginWithPasskey, FailedToSignUpWithPasskey), the passkey and
+ * stamper packages' own errors, the wrapper-recurse paths, and the HTTP statuses the vendor reports
+ * as plain exceptions.
  *
  * These assert the mapping itself. That the session coordinator applies [TurnkeyErrorMapping.map]
  * to every failure leaving the adapter is covered by [TurnkeySessionCoordinatorTest]; that core
@@ -378,6 +392,30 @@ class TurnkeyErrorMappingTest {
     }
 
     @Test
+    fun `a vendor HTTP failure that floors at ProviderError keeps its status and target and drops the body`() {
+        val update = RuntimeException(
+            "HTTP error calling ACTIVITY_TYPE_UPDATE_USER_EMAIL request\nError: {\"email\":\"user@example.com\"}\nCode: 500"
+        )
+        val mapped = mapping.map(update)
+        assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(mapped).hasMessageThat().contains("500")
+        assertThat(mapped).hasMessageThat().contains("ACTIVITY_TYPE_UPDATE_USER_EMAIL")
+        assertThat(mapped).hasMessageThat().doesNotContain("example.com")
+        assertThat(mapped.cause).isInstanceOf(TurnkeyHttpFailure::class.java)
+
+        val path = RuntimeException("HTTP error from /v1/otp_init_v2 for someone@example.com: 429")
+        val init = mapping.map(com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToInitOtp(path))
+        assertThat(init).hasMessageThat().contains("429")
+        assertThat(init).hasMessageThat().contains("/v1/otp_init_v2")
+        assertThat(init).hasMessageThat().doesNotContain("example.com")
+
+        // Not an HTTP failure: the throwable is kept as the cause, message and all.
+        val plain = RuntimeException("something else entirely")
+        assertThat(mapping.map(plain).cause).isSameInstanceAs(plain)
+        assertThat(plain.sanitizedForHost()).isSameInstanceAs(plain)
+    }
+
+    @Test
     fun `other HTTP statuses stay ProviderError`() {
         val e = RuntimeException("HTTP error from /public/v1/query/get_activity: 500")
         assertThat(mapping.classify(e)).isNull()
@@ -428,5 +466,267 @@ class TurnkeyErrorMappingTest {
             IllegalStateException("export bundle rejected: OrgIdMismatch")
         )
         assertThat(mapping.mapTurnkeyError(error)).isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    // ---------- passkey ceremonies (WALL-28) ----------
+    //
+    // The vendor wraps a login in FailedToLoginWithPasskey over the stamper's and the passkey
+    // package's assertion failures, and a sign-up in FailedToSignUpWithPasskey over the package's
+    // registration failure; the Credential Manager exception or the HTTP failure sits below those.
+    // The chains are built with the real types: they construct on the JVM test launcher, and the
+    // mapping reads the innermost cause, not the wrapper's prose.
+
+    /** The login chain the vendor produces around [leaf]. */
+    private fun passkeyLoginFailure(leaf: Throwable): Throwable =
+        com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToLoginWithPasskey(
+            com.turnkey.stamper.utils.TurnkeyStamperError.AssertionFailed(
+                com.turnkey.passkey.utils.TurnkeyPasskeyError.AssertionFailed(leaf)
+            )
+        )
+
+    /** The sign-up chain the vendor produces around [leaf]. */
+    private fun passkeySignUpFailure(leaf: Throwable): Throwable =
+        com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToSignUpWithPasskey(
+            com.turnkey.passkey.utils.TurnkeyPasskeyError.RegistrationFailed(leaf)
+        )
+
+    @Test
+    fun `a passkey login the user dismissed maps to UserRejected`() {
+        val mapped = mapping.map(passkeyLoginFailure(GetCredentialCancellationException("cancelled")))
+        assertThat(mapped).isInstanceOf(RainError.UserRejected::class.java)
+        assertThat(mapped.errorCode).isEqualTo(RainErrorCode.USER_REJECTED)
+    }
+
+    @Test
+    fun `a passkey sign-up the user dismissed maps to UserRejected`() {
+        val mapped = mapping.map(passkeySignUpFailure(CreateCredentialCancellationException("cancelled")))
+        assertThat(mapped).isInstanceOf(RainError.UserRejected::class.java)
+    }
+
+    @Test
+    fun `a NotAllowedError DOM error that says the user cancelled maps to UserRejected`() {
+        val leaf = GetPublicKeyCredentialDomException(NotAllowedError(), "The operation was cancelled by the user.")
+        assertThat(mapping.map(passkeyLoginFailure(leaf))).isInstanceOf(RainError.UserRejected::class.java)
+    }
+
+    @Test
+    fun `a NotAllowedError DOM error without a cancel message stays ProviderError`() {
+        // WebAuthn's NotAllowedError also covers a time-out, so only the message tells a dismissal apart.
+        val leaf = GetPublicKeyCredentialDomException(NotAllowedError(), "The operation either timed out or was not allowed.")
+        assertThat(mapping.map(passkeyLoginFailure(leaf))).isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    @Test
+    fun `a login with no passkey for the domain maps to UserRejected`() {
+        val mapped = mapping.map(passkeyLoginFailure(NoCredentialException("No credentials available")))
+        assertThat(mapped).isInstanceOf(RainError.UserRejected::class.java)
+    }
+
+    @Test
+    fun `a SecurityError DOM error on sign-up maps to InvalidConfig naming the association file`() {
+        val leaf = CreatePublicKeyCredentialDomException(SecurityError(), "The incoming request cannot be validated")
+        val mapped = mapping.map(passkeySignUpFailure(leaf))
+        assertThat(mapped).isInstanceOf(RainError.InvalidConfig::class.java)
+        assertThat(mapped.errorCode).isEqualTo(RainErrorCode.INVALID_CONFIG)
+        assertThat(mapped.message).contains("assetlinks.json")
+        assertThat(mapped.message).contains("passkeyDomain")
+    }
+
+    @Test
+    fun `a SecurityError DOM error on login maps to InvalidConfig`() {
+        val leaf = GetPublicKeyCredentialDomException(SecurityError(), "The incoming request cannot be validated")
+        assertThat(mapping.map(passkeyLoginFailure(leaf))).isInstanceOf(RainError.InvalidConfig::class.java)
+    }
+
+    @Test
+    fun `an interrupted ceremony maps to ProviderError on both flows`() {
+        assertThat(mapping.map(passkeyLoginFailure(GetCredentialInterruptedException("interrupted"))))
+            .isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(mapping.map(passkeySignUpFailure(CreateCredentialInterruptedException("interrupted"))))
+            .isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    @Test
+    fun `a missing passkey provider maps to ProviderError and the log names the dependency`() {
+        val seen = StringBuilder()
+        val throwables = mutableListOf<Throwable>()
+        val tree = object : timber.log.Timber.Tree() {
+            override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+                seen.append(message).append('\n')
+                if (t != null) throwables += t
+            }
+        }
+        timber.log.Timber.plant(tree)
+        val mapped = try {
+            mapping.map(passkeySignUpFailure(CreateCredentialProviderConfigurationException("no provider")))
+        } finally {
+            timber.log.Timber.uproot(tree)
+        }
+        assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(seen.toString()).contains("credentials-play-services-auth")
+        assertThat(seen.toString()).contains("CreateCredentialProviderConfigurationException")
+        assertThat(throwables).isEmpty()
+    }
+
+    @Test
+    fun `an unsupported device or a provider with no create option maps to ProviderError`() {
+        assertThat(mapping.map(passkeyLoginFailure(GetCredentialUnsupportedException("unsupported"))))
+            .isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(mapping.map(passkeySignUpFailure(CreateCredentialNoCreateOptionException("no option"))))
+            .isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    @Test
+    fun `a TimeoutError DOM error maps to ProviderError`() {
+        val leaf = CreatePublicKeyCredentialDomException(TimeoutError(), "The operation timed out.")
+        assertThat(mapping.map(passkeySignUpFailure(leaf))).isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    @Test
+    fun `a sign-up refused by the auth proxy with 401 is ProviderError not TokenExpired`() {
+        // No session exists during a passkey sign-up, so a 401 from /v1/signup_v2 cannot mean an
+        // expired session; the proxy's body is discarded by the vendor, so only the status is left.
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToSignUpWithPasskey(
+            RuntimeException("HTTP error from /v1/signup_v2: 401")
+        )
+        val mapped = mapping.map(error)
+        assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(mapped.errorCode).isEqualTo(RainErrorCode.PROVIDER_ERROR)
+    }
+
+    @Test
+    fun `every auth-proxy status on a passkey sign-up is ProviderError`() {
+        listOf(400, 403, 429, 500).forEach { status ->
+            val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToSignUpWithPasskey(
+                RuntimeException("HTTP error from /v1/signup_v2: $status")
+            )
+            assertThat(mapping.map(error)).isInstanceOf(RainError.ProviderError::class.java)
+        }
+    }
+
+    @Test
+    fun `a passkey stamp login the backend refuses is ProviderError not TokenExpired or Unauthorized`() {
+        listOf(401, 403).forEach { status ->
+            val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToLoginWithPasskey(
+                RuntimeException("HTTP error calling ACTIVITY_TYPE_STAMP_LOGIN request\nError: {}\nCode: $status")
+            )
+            assertThat(mapping.map(error)).isInstanceOf(RainError.ProviderError::class.java)
+        }
+    }
+
+    @Test
+    fun `a passkey login that hit an occupied session key maps to InternalError`() {
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToLoginWithPasskey(
+            com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToCreateSession(
+                com.turnkey.core.models.errors.TurnkeyKotlinError.KeyAlreadyExists("rain-turnkey-x")
+            )
+        )
+        assertThat(mapping.map(error)).isInstanceOf(RainError.InternalError::class.java)
+    }
+
+    @Test
+    fun `a passkey sign-up whose stamp login returned no session maps to InternalError`() {
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToSignUpWithPasskey(
+            com.turnkey.core.models.errors.TurnkeyKotlinError.InvalidResponse("No session token returned from stampLogin")
+        )
+        assertThat(mapping.map(error)).isInstanceOf(RainError.InternalError::class.java)
+    }
+
+    @Test
+    fun `a passkey sign-up the proxy answered without an organization id maps to ProviderError`() {
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToSignUpWithPasskey(
+            com.turnkey.core.models.errors.TurnkeyKotlinError.SignUpFailed("No organizationId returned")
+        )
+        assertThat(mapping.map(error)).isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    @Test
+    fun `a bare MissingRpId stays InternalError`() {
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.MissingRpId()
+        assertThat(mapping.map(error)).isInstanceOf(RainError.InternalError::class.java)
+    }
+
+    @Test
+    fun `a passkey login whose stamper found no domain maps to ProviderError`() {
+        // The vendor resolves the rpId inside its try on login, so a missing one arrives wrapped as
+        // an IllegalArgumentException, not as MissingRpId. Unreachable through the controller, which
+        // passes the domain per call; pinned so the fall-through stays a provider error.
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToLoginWithPasskey(
+            IllegalArgumentException("rpId is required. Either pass it explicitly or set a default with Stamper.configure(context, rpId)")
+        )
+        assertThat(mapping.map(error)).isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    @Test
+    fun `a bare registration failure the user dismissed maps to UserRejected`() {
+        // The add-passkey ceremony runs createPasskey without the vendor's sign-up wrapper.
+        val error = com.turnkey.passkey.utils.TurnkeyPasskeyError.RegistrationFailed(
+            CreateCredentialCancellationException("cancelled")
+        )
+        assertThat(mapping.map(error)).isInstanceOf(RainError.UserRejected::class.java)
+        assertThat(mapping.classify(error)).isInstanceOf(RainError.UserRejected::class.java)
+    }
+
+    @Test
+    fun `a bare registration failure over a SecurityError maps to InvalidConfig`() {
+        val error = com.turnkey.passkey.utils.TurnkeyPasskeyError.RegistrationFailed(
+            CreatePublicKeyCredentialDomException(SecurityError(), "The incoming request cannot be validated")
+        )
+        assertThat(mapping.map(error)).isInstanceOf(RainError.InvalidConfig::class.java)
+    }
+
+    @Test
+    fun `a bare stamper failure is classified by its cause like a wrapped login failure`() {
+        // The stamper's own wrapper without the vendor's login wrapper around it.
+        val cancelled = com.turnkey.stamper.utils.TurnkeyStamperError.AssertionFailed(
+            com.turnkey.passkey.utils.TurnkeyPasskeyError.AssertionFailed(
+                androidx.credentials.exceptions.GetCredentialCancellationException("cancelled")
+            )
+        )
+        assertThat(mapping.classify(cancelled)).isInstanceOf(RainError.UserRejected::class.java)
+
+        val broken = com.turnkey.stamper.utils.TurnkeyStamperError.AssertionFailed(RuntimeException("boom"))
+        assertThat(mapping.classify(broken)).isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    @Test
+    fun `a passkey failure whose only signal is the prose maps to UserRejected`() {
+        // No typed leaf in the chain: the shared prose rules read the wrapper's message, which the
+        // vendor builds by concatenating every cause's message.
+        val mapped = mapping.map(passkeyLoginFailure(RuntimeException("Passkey retrieval was cancelled by the user.")))
+        assertThat(mapped).isInstanceOf(RainError.UserRejected::class.java)
+    }
+
+    @Test
+    fun `a cyclic cause chain under a passkey failure terminates in ProviderError`() {
+        val a = RuntimeException("a")
+        val b = RuntimeException("b", a)
+        a.initCause(b)
+        val error = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToLoginWithPasskey(a)
+        assertThat(mapping.map(error)).isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    @Test
+    fun `mapAuthError logs a passkey failure's code and class and never its message`() {
+        val seen = StringBuilder()
+        val throwables = mutableListOf<Throwable>()
+        val tree = object : timber.log.Timber.Tree() {
+            override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+                seen.append(message).append('\n')
+                if (t != null) throwables += t
+            }
+        }
+        timber.log.Timber.plant(tree)
+        try {
+            val leaf = GetPublicKeyCredentialDomException(SecurityError(), "request for someone@example.com refused")
+            mapping.mapAuthError(passkeyLoginFailure(leaf))
+        } finally {
+            timber.log.Timber.uproot(tree)
+        }
+        assertThat(seen.toString()).contains("Authentication error")
+        assertThat(seen.toString()).contains(RainErrorCode.INVALID_CONFIG.code)
+        assertThat(seen.toString()).contains("FailedToLoginWithPasskey")
+        assertThat(seen.toString()).doesNotContain("example.com")
+        assertThat(throwables).isEmpty()
     }
 }

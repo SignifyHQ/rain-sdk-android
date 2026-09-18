@@ -20,8 +20,8 @@ import com.rain.sdk.turnkey.TurnkeyConfig
  *                         thread or a watcher thread; hop to the main thread before touching UI,
  *                         and never call back into the SDK synchronously from it. Restart
  *                         authentication from here ([RainProvider.sendLoginCode] then
- *                         [RainProvider.confirmLoginCode]). A deliberate [RainProvider.logout]
- *                         does not fire it. The provider holds the hook for its whole life, so
+ *                         [RainProvider.confirmLoginCode], or [RainProvider.loginWithPasskey]). A
+ *                         deliberate [RainProvider.logout] does not fire it. The provider holds the hook for its whole life, so
  *                         capture no Activity or ViewModel in it.
  * @param sponsorGas When true, every send on a supported chain is fee-sponsored: the wallet
  *                   backend builds and pays the network fee, fee estimates return zero, and the
@@ -31,16 +31,32 @@ import com.rain.sdk.turnkey.TurnkeyConfig
  *                   sponsored send runs no client-side revert preflight, so a failure surfaces as
  *                   the backend's failed status after broadcast. Defaults to true, which is the
  *                   product; pass false to have users pay their own fees.
+ * @param passkeyDomain A web domain the partner controls, at least two labels of letters, digits
+ *                      and hyphens such as `passkeys.example.com`, that the app's passkeys bind to.
+ *                      Null or blank turns
+ *                      [RainProvider.loginWithPasskey], [RainProvider.signUpWithPasskey] and
+ *                      [RainProvider.addPasskey] off; they then throw `RainError.InvalidConfig`
+ *                      (`RAIN_102`). A scheme, port, path or a single label such as `localhost`
+ *                      throws `RAIN_102` from the [RainProvider] constructor. The domain must serve
+ *                      `https://<domain>/.well-known/assetlinks.json` listing the app's package name
+ *                      and every signing-certificate fingerprint (debug, upload and Play App
+ *                      Signing), or the device refuses every passkey request. The domain is
+ *                      permanent, because every passkey created against it stops working when it
+ *                      changes, and a passkey made for one domain does not work in an app on
+ *                      another.
+ *                      Partners host their own file; Rain runs no shared domain. Defaults to null.
  */
 class RainWalletConfig(
     val sessionPolicy: RainWalletSessionPolicy = RainWalletSessionPolicy(),
     val onSessionExpired: (() -> Unit)? = null,
     val sponsorGas: Boolean = true,
+    val passkeyDomain: String? = null,
 ) {
     /** Every field, for logs and crash reports; the hook reads as set or null. Nothing here is secret. */
     override fun toString(): String =
         "RainWalletConfig(sessionPolicy=$sessionPolicy, " +
-            "onSessionExpired=${if (onSessionExpired != null) "set" else "null"}, sponsorGas=$sponsorGas)"
+            "onSessionExpired=${if (onSessionExpired != null) "set" else "null"}, sponsorGas=$sponsorGas, " +
+            "passkeyDomain=$passkeyDomain)"
 }
 
 /**
@@ -55,4 +71,5 @@ internal fun RainWalletConfig.toBacking(application: Application): TurnkeyConfig
     sessionPolicy = sessionPolicy.toBacking(),
     onSessionExpired = onSessionExpired,
     sponsorGas = sponsorGas,
+    passkeyDomain = passkeyDomain,
 )

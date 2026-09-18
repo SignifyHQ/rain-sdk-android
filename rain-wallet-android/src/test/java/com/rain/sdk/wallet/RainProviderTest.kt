@@ -1,5 +1,6 @@
 package com.rain.sdk.wallet
 
+import android.app.Activity
 import android.app.Application
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
@@ -21,17 +22,11 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertThrows
-import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /**
@@ -39,18 +34,16 @@ import org.junit.Test
  * returns a one-to-one mapped result. The backing is a MockK stand-in, so each test asserts the
  * call the wrapper made, never the mock's own behaviour.
  */
-@OptIn(ExperimentalCoroutinesApi::class)
 class RainProviderTest {
 
     // Lazy, so the vendor type is not touched before a test's JDK guard runs.
     private val backing by lazy { mockk<TurnkeyProvider>() }
     private val provider by lazy { RainProvider(backing) }
-    private var mainSet = false
+    private val activity = mockk<Activity>()
+    private val realBacking = RealBackingGuard()
 
     @After
-    fun tearDown() {
-        if (mainSet) Dispatchers.resetMain()
-    }
+    fun tearDown() = realBacking.tearDown()
 
     @Test
     fun `the descriptor id is the Rain wallet id`() {
@@ -109,6 +102,7 @@ class RainProviderTest {
             sessionPolicy = policy,
             onSessionExpired = hook,
             sponsorGas = false,
+            passkeyDomain = "passkeys.example.com",
         ).toBacking(mockk<Application>())
 
         // No address override exists on the Rain wallet, so the backing always resolves the
@@ -118,6 +112,7 @@ class RainProviderTest {
         assertThat(mapped.managedAuthProxyConfigId).isEqualTo(RainWalletBackend.AUTH_CONFIG_ID)
         assertThat(mapped.onSessionExpired).isSameInstanceAs(hook)
         assertThat(mapped.sponsorGas).isFalse()
+        assertThat(mapped.managedPasskeyDomain).isEqualTo("passkeys.example.com")
         // The backing policy is a data class, so one assertion pins all six fields.
         assertThat(mapped.sessionPolicy).isEqualTo(
             TurnkeySessionPolicy(
@@ -233,6 +228,53 @@ class RainProviderTest {
     }
 
     @Test
+    fun `loginWithPasskey forwards the activity`() = runBlocking {
+        coEvery { backing.loginWithPasskey(activity) } just Runs
+
+        provider.loginWithPasskey(activity)
+
+        coVerify(exactly = 1) { backing.loginWithPasskey(activity) }
+    }
+
+    @Test
+    fun `signUpWithPasskey forwards the activity`() = runBlocking {
+        coEvery { backing.signUpWithPasskey(activity) } just Runs
+
+        provider.signUpWithPasskey(activity)
+
+        coVerify(exactly = 1) { backing.signUpWithPasskey(activity) }
+    }
+
+    @Test
+    fun `addPasskey forwards the activity`() = runBlocking {
+        coEvery { backing.addPasskey(activity) } just Runs
+
+        provider.addPasskey(activity)
+
+        coVerify(exactly = 1) { backing.addPasskey(activity) }
+    }
+
+    @Test
+    fun `sendContactVerificationCode forwards each channel as the matching backing contact`() = runBlocking {
+        coEvery { backing.sendContactVerificationCode(any<LoginContact>()) } just Runs
+
+        provider.sendContactVerificationCode(RainWalletContact.Email("user@example.com"))
+        provider.sendContactVerificationCode(RainWalletContact.Sms("+15551234567"))
+
+        coVerify(exactly = 1) { backing.sendContactVerificationCode(LoginContact.Email("user@example.com")) }
+        coVerify(exactly = 1) { backing.sendContactVerificationCode(LoginContact.Sms("+15551234567")) }
+    }
+
+    @Test
+    fun `confirmContactVerification forwards the code`() = runBlocking {
+        coEvery { backing.confirmContactVerification("481902") } just Runs
+
+        provider.confirmContactVerification("481902")
+
+        coVerify(exactly = 1) { backing.confirmContactVerification("481902") }
+    }
+
+    @Test
     fun `exportRecoveryPhrase forwards and returns the phrase`() = runBlocking {
         coEvery { backing.exportRecoveryPhrase() } returns "twelve words"
 
@@ -273,6 +315,24 @@ class RainProviderTest {
     }
 
     @Test
+    fun `a passkey call passes a RainError and a cancellation through unchanged`() {
+        val refused = RainError.UserRejected()
+        val cancellation = CancellationException("caller went away")
+        coEvery { backing.loginWithPasskey(activity) } throws refused
+        coEvery { backing.addPasskey(activity) } throws cancellation
+
+        val thrownError = assertThrows(RainError.UserRejected::class.java) {
+            runBlocking { provider.loginWithPasskey(activity) }
+        }
+        val thrownCancellation = assertThrows(CancellationException::class.java) {
+            runBlocking { provider.addPasskey(activity) }
+        }
+
+        assertThat(thrownError).isSameInstanceAs(refused)
+        assertThat(thrownCancellation).isSameInstanceAs(cancellation)
+    }
+
+    @Test
     fun `the public constructor yields the Rain id and the backing capabilities`() {
         useRealBacking()
 
@@ -296,20 +356,5 @@ class RainProviderTest {
         }
     }
 
-    /**
-     * For tests that build a real backing: constructing it references the wallet backend's
-     * process-wide singleton, whose class initializer needs JDK 24 class files and a main
-     * dispatcher. Same guards as the backend module's own tests; the skip is a CI failure unless
-     * the JDK 24 launcher runs.
-     */
-    private fun useRealBacking() {
-        val major = System.getProperty("java.version")?.substringBefore('.')?.toIntOrNull() ?: 0
-        assumeTrue("the wallet backend's class files need a JDK 24 test launcher", major >= JDK_24)
-        Dispatchers.setMain(StandardTestDispatcher())
-        mainSet = true
-    }
-
-    private companion object {
-        const val JDK_24 = 24
-    }
+    private fun useRealBacking() = realBacking.useRealBacking()
 }
