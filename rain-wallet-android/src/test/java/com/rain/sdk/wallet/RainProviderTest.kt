@@ -22,17 +22,11 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertThrows
-import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /**
@@ -40,19 +34,16 @@ import org.junit.Test
  * returns a one-to-one mapped result. The backing is a MockK stand-in, so each test asserts the
  * call the wrapper made, never the mock's own behaviour.
  */
-@OptIn(ExperimentalCoroutinesApi::class)
 class RainProviderTest {
 
     // Lazy, so the vendor type is not touched before a test's JDK guard runs.
     private val backing by lazy { mockk<TurnkeyProvider>() }
     private val provider by lazy { RainProvider(backing) }
     private val activity = mockk<Activity>()
-    private var mainSet = false
+    private val realBacking = RealBackingGuard()
 
     @After
-    fun tearDown() {
-        if (mainSet) Dispatchers.resetMain()
-    }
+    fun tearDown() = realBacking.tearDown()
 
     @Test
     fun `the descriptor id is the Rain wallet id`() {
@@ -365,20 +356,5 @@ class RainProviderTest {
         }
     }
 
-    /**
-     * For tests that build a real backing: constructing it references the wallet backend's
-     * process-wide singleton, whose class initializer needs JDK 24 class files and a main
-     * dispatcher. Same guards as the backend module's own tests; the skip is a CI failure unless
-     * the JDK 24 launcher runs.
-     */
-    private fun useRealBacking() {
-        val major = System.getProperty("java.version")?.substringBefore('.')?.toIntOrNull() ?: 0
-        assumeTrue("the wallet backend's class files need a JDK 24 test launcher", major >= JDK_24)
-        Dispatchers.setMain(StandardTestDispatcher())
-        mainSet = true
-    }
-
-    private companion object {
-        const val JDK_24 = 24
-    }
+    private fun useRealBacking() = realBacking.useRealBacking()
 }

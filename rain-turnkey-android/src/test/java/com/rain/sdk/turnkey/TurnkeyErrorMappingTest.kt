@@ -392,6 +392,30 @@ class TurnkeyErrorMappingTest {
     }
 
     @Test
+    fun `a vendor HTTP failure that floors at ProviderError keeps its status and target and drops the body`() {
+        val update = RuntimeException(
+            "HTTP error calling ACTIVITY_TYPE_UPDATE_USER_EMAIL request\nError: {\"email\":\"user@example.com\"}\nCode: 500"
+        )
+        val mapped = mapping.map(update)
+        assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(mapped).hasMessageThat().contains("500")
+        assertThat(mapped).hasMessageThat().contains("ACTIVITY_TYPE_UPDATE_USER_EMAIL")
+        assertThat(mapped).hasMessageThat().doesNotContain("example.com")
+        assertThat(mapped.cause).isInstanceOf(TurnkeyHttpFailure::class.java)
+
+        val path = RuntimeException("HTTP error from /v1/otp_init_v2 for someone@example.com: 429")
+        val init = mapping.map(com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToInitOtp(path))
+        assertThat(init).hasMessageThat().contains("429")
+        assertThat(init).hasMessageThat().contains("/v1/otp_init_v2")
+        assertThat(init).hasMessageThat().doesNotContain("example.com")
+
+        // Not an HTTP failure: the throwable is kept as the cause, message and all.
+        val plain = RuntimeException("something else entirely")
+        assertThat(mapping.map(plain).cause).isSameInstanceAs(plain)
+        assertThat(plain.sanitizedForHost()).isSameInstanceAs(plain)
+    }
+
+    @Test
     fun `other HTTP statuses stay ProviderError`() {
         val e = RuntimeException("HTTP error from /public/v1/query/get_activity: 500")
         assertThat(mapping.classify(e)).isNull()

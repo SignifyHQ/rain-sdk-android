@@ -363,16 +363,9 @@ internal class TurnkeyContextAdapter(
             // rejected code never reaches this point.
             invalidateExisting = true,
             sessionKey = sessionKey,
-            // Sign-up only (the vendor ignores it on login): the wallet is created inside the
-            // signup request; the vendor fills in the contact and verification token. `CustomWallet`
-            // carries no mnemonic length, so the seed gets Turnkey's default of 12 words — the
-            // length the createWallet fallback pins.
-            createSubOrgParams = CreateSubOrgParams(
-                customWallet = CustomWallet(
-                    walletName = signupWallet.name,
-                    walletAccounts = signupWallet.accounts.toVendorParams(),
-                )
-            ),
+            // Sign-up only (the vendor ignores it on login); the vendor fills in the contact and
+            // the verification token.
+            createSubOrgParams = signupWallet.toSignupParams(),
         )
     }
 
@@ -443,16 +436,9 @@ internal class TurnkeyContextAdapter(
                 activity = activity,
                 sessionKey = sessionKey,
                 passkeyDisplayName = passkeyName,
-                // The wallet is created inside the signup request; the vendor replaces the
-                // authenticators and API keys of these params with the passkey and its temporary key
-                // and keeps the wallet. `CustomWallet` carries no mnemonic length, so the seed gets
-                // Turnkey's default of 12 words, the length the createWallet fallback pins.
-                createSubOrgParams = CreateSubOrgParams(
-                    customWallet = CustomWallet(
-                        walletName = signupWallet.name,
-                        walletAccounts = signupWallet.accounts.toVendorParams(),
-                    )
-                ),
+                // The vendor replaces the authenticators and API keys of these params with the
+                // passkey and its temporary key and keeps the wallet.
+                createSubOrgParams = signupWallet.toSignupParams(),
                 invalidateExisting = true,
                 rpId = rpId,
             )
@@ -591,6 +577,15 @@ internal class TurnkeyContextAdapter(
     } catch (e: Exception) {
         throw TurnkeyExportFailures.rethrowable(e)
     }
+
+    /**
+     * The sign-up request's wallet, created inside the signup request itself so a new organization
+     * never exists without it. `CustomWallet` carries no mnemonic length, so the seed gets the
+     * vendor's default of 12 words, the length the createWallet fallback pins.
+     */
+    private fun TurnkeyWalletSpec.toSignupParams(): CreateSubOrgParams = CreateSubOrgParams(
+        customWallet = CustomWallet(walletName = name, walletAccounts = accounts.toVendorParams()),
+    )
 
     private fun List<TurnkeyAccountSpec>.toVendorParams(): List<V1WalletAccountParams> = map {
         V1WalletAccountParams(

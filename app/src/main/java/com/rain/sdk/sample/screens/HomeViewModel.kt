@@ -528,10 +528,7 @@ class HomeViewModel(
                 }
 
                 _state.update { it.copy(statusText = "Sending login code to ${channel.mask(contact)}...") }
-                when (channel) {
-                    ContactChannel.Email -> provider.sendLoginCode(contact)
-                    ContactChannel.Phone -> provider.sendLoginCode(RainWalletContact.Sms(contact))
-                }
+                provider.sendLoginCode(channel.toRainWalletContact(contact))
                 SampleLog.i("RainWallet.otpInit", if (resend) "new login code sent" else "login code sent")
                 _state.update {
                     // The code went to this contact on this channel: pin both (the field stays
@@ -888,7 +885,7 @@ class HomeViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: RainError) {
-                SampleLog.w(area, "failed ${e.errorCode.code} (${e.javaClass.simpleName})")
+                SampleLog.w(area, "failed ${e.describe()}")
                 onRainWalletPasskeyFailed(provider, label, previousOwner, hadSession, e)
             } finally {
                 _state.update { it.copy(rainWalletPasskeyInFlight = null) }
@@ -935,13 +932,16 @@ class HomeViewModel(
         }
     }
 
+    /** The prepared provider while a Rain Wallet session is active, or null with the status set. */
+    private fun signedInRainWalletProviderOrNull(): RainProvider? {
+        val provider = session.rainWalletProvider?.takeIf { _state.value.rainWalletSessionActive }
+        if (provider == null) _state.update { it.copy(statusText = "Sign in with the Rain wallet first") }
+        return provider
+    }
+
     /** Registers a passkey on the signed-in account, so the next sign-in can use it. */
     fun addRainWalletPasskey(activity: Activity) {
-        val provider = session.rainWalletProvider
-        if (provider == null || !_state.value.rainWalletSessionActive) {
-            _state.update { it.copy(statusText = "Sign in with the Rain wallet first") }
-            return
-        }
+        val provider = signedInRainWalletProviderOrNull() ?: return
         if (_state.value.rainWalletPasskeyInFlight != null) return
         SampleLog.i("RainWallet.addPasskey", "starting")
         _state.update {
@@ -961,7 +961,7 @@ class HomeViewModel(
                 SampleLog.w("RainWallet.addPasskey", "sheet closed ${e.errorCode.code}")
                 _state.update { it.copy(statusText = "Passkey sheet closed (${e.errorCode.code}), no passkey added") }
             } catch (e: RainError) {
-                SampleLog.w("RainWallet.addPasskey", "failed ${e.errorCode.code} (${e.javaClass.simpleName})")
+                SampleLog.w("RainWallet.addPasskey", "failed ${e.describe()}")
                 _state.update { it.copy(statusText = "Add passkey failed (${e.errorCode.code})") }
             } finally {
                 _state.update { it.copy(rainWalletPasskeyInFlight = null) }
@@ -991,9 +991,8 @@ class HomeViewModel(
      * yields null, silently.
      */
     private fun rainWalletAttachProviderOrNull(s: HomeUiState, confirming: Boolean): RainProvider? {
-        val provider = session.rainWalletProvider?.takeIf { s.rainWalletSessionActive }
+        val provider = signedInRainWalletProviderOrNull() ?: return null
         val refusal = when {
-            provider == null -> "Sign in with the Rain wallet first"
             confirming && !s.rainWalletAttachCodeSent -> "Send a verification code first"
             confirming && s.rainWalletAttachCode.isBlank() -> "Verification code required"
             !confirming && s.rainWalletAttachContact.isBlank() -> "${s.rainWalletAttachChannel.fieldLabel} is required"
@@ -1034,7 +1033,7 @@ class HomeViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: RainError) {
-                SampleLog.w("RainWallet.attach", "send failed ${e.errorCode.code} (${e.javaClass.simpleName})")
+                SampleLog.w("RainWallet.attach", "send failed ${e.describe()}")
                 _state.update { it.copy(statusText = "Verification code failed (${e.errorCode.code})") }
             } finally {
                 _state.update { it.copy(rainWalletAttachInFlight = false) }
@@ -1073,7 +1072,7 @@ class HomeViewModel(
                     it.copy(rainWalletAttachCode = "", statusText = "That code was not accepted; check it and try again")
                 }
             } catch (e: RainError) {
-                SampleLog.w("RainWallet.attach", "confirm failed ${e.errorCode.code} (${e.javaClass.simpleName})")
+                SampleLog.w("RainWallet.attach", "confirm failed ${e.describe()}")
                 _state.update {
                     it.copy(
                         rainWalletAttachCodeSent = false,
@@ -1499,11 +1498,7 @@ class HomeViewModel(
     private var clipboardLoadedAtMs: Long? = null
 
     fun revealRainWalletSecret(kind: RainWalletExportKind) {
-        val provider = session.rainWalletProvider
-        if (provider == null || !_state.value.rainWalletSessionActive) {
-            _state.update { it.copy(statusText = "Sign in with the Rain wallet first") }
-            return
-        }
+        val provider = signedInRainWalletProviderOrNull() ?: return
         if (_state.value.rainWalletExportInFlight != null) return
         _state.update { it.copy(rainWalletExportInFlight = kind) }
         viewModelScope.launch {

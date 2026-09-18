@@ -92,7 +92,7 @@ class TurnkeyManagedContactAttachTest {
     }
 
     @Test
-    fun `a second send replaces the pending verification code, and a failed second send keeps the first`() = runTest {
+    fun `a second send replaces the pending verification code, and a failed switch of contact leaves nothing confirmable`() = runTest {
         val turnkey = MockTurnkey()
         val controller = controller(turnkey)
         turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-1", encryptionTargetBundle = "b1", channel = OtpChannel.EMAIL)
@@ -105,17 +105,45 @@ class TurnkeyManagedContactAttachTest {
         assertThat(turnkey.verifyOtpTokenCalls.single().otpId).isEqualTo("otp-2")
         assertThat(turnkey.setUserEmailCalls.single().contact).isEqualTo("second@example.com")
 
-        // A replacement that fails leaves the earlier challenge in place.
+        // The login send's rule: a failed resend for the same contact keeps its code, a failed send for
+        // another contact has already retired the pending one, so nothing confirms the wrong contact.
         turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-3", encryptionTargetBundle = "b3", channel = OtpChannel.EMAIL)
         controller.sendContactVerificationCode(LoginContact.Email("third@example.com"))
         turnkey.sendOtpError = RainError.ProviderError(RuntimeException("refused"))
-        expectThrows<RainError.ProviderError> { controller.sendContactVerificationCode(LoginContact.Email("fourth@example.com")) }
+        expectThrows<RainError.ProviderError> { controller.sendContactVerificationCode(LoginContact.Email("third@example.com")) }
         turnkey.sendOtpError = null
-
         controller.confirmContactVerification("222222")
-
         assertThat(turnkey.verifyOtpTokenCalls.last().otpId).isEqualTo("otp-3")
         assertThat(turnkey.setUserEmailCalls.last().contact).isEqualTo("third@example.com")
+
+        turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-4", encryptionTargetBundle = "b4", channel = OtpChannel.EMAIL)
+        controller.sendContactVerificationCode(LoginContact.Email("fourth@example.com"))
+        turnkey.sendOtpError = RainError.ProviderError(RuntimeException("refused"))
+        expectThrows<RainError.ProviderError> { controller.sendContactVerificationCode(LoginContact.Email("fifth@example.com")) }
+        turnkey.sendOtpError = null
+
+        val nothing = expectThrows<RainError.InvalidConfig> { controller.confirmContactVerification("333333") }
+        assertThat(nothing).hasMessageThat().contains("sendContactVerificationCode")
+        assertThat(turnkey.verifyOtpTokenCalls).hasSize(2)
+    }
+
+    @Test
+    fun `a transient status on the update is not retried and its body never reaches the message`() = runTest {
+        val turnkey = MockTurnkey()
+        turnkey.setUserContactError = RuntimeException(
+            "HTTP error calling ACTIVITY_TYPE_UPDATE_USER_EMAIL request\nError: {\"email\":\"user@example.com\"}\nCode: 503"
+        )
+        val controller = controller(turnkey)
+        controller.sendContactVerificationCode(LoginContact.Email("user@example.com"))
+
+        val failed = expectThrows<RainError.ProviderError> { controller.confirmContactVerification("123456") }
+
+        // One update, no refresh: a retry would resubmit a single-use verification token.
+        assertThat(turnkey.setUserEmailCalls).hasSize(1)
+        assertThat(turnkey.refreshSessionCallCount).isEqualTo(0)
+        assertThat(failed).hasMessageThat().contains("503")
+        assertThat(failed).hasMessageThat().contains("ACTIVITY_TYPE_UPDATE_USER_EMAIL")
+        assertThat(failed).hasMessageThat().doesNotContain("example.com")
     }
 
     @Test

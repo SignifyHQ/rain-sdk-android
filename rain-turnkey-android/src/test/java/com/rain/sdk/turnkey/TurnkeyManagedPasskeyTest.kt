@@ -6,6 +6,10 @@ import com.rain.sdk.internal.error.RainError
 import com.turnkey.types.V1AddressFormat
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Test
@@ -171,6 +175,37 @@ class TurnkeyManagedPasskeyTest {
         // A best-effort clear of the fresh key only; the live key is never touched.
         assertThat(turnkey.clearSessionCalls).doesNotContain(MockTurnkey.DEFAULT_SESSION_KEY)
         assertThat(controller.currentAuthState()).isEqualTo(TurnkeyAuthState.Authenticated)
+    }
+
+    @Test
+    fun `a vendor failure after the session store keeps a session the vendor already selected`() = runTest {
+        // A fresh install: the vendor stored and selected the fresh session, then its key cleanup threw
+        // inside the login wrapper. The account exists and the device is signed in, so it stays so.
+        val login = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), session = null)
+        login.passkeyStoresBeforeThrowing = true
+        login.onPasskeyLogin = { login.authenticate() }
+        login.passkeyLoginError = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToLoginWithPasskey(
+            RuntimeException("key cleanup failed")
+        )
+
+        expectThrows<RainError.ProviderError> { controller(login).loginWithPasskey(activity) }
+
+        assertThat(login.selectedSessionKey).isEqualTo(login.passkeyLoginCalls.single().sessionKey)
+        assertThat(login.clearSessionCalls).isEmpty()
+        assertThat(login.clearSelectedSessionCallCount).isEqualTo(0)
+
+        val signUp = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), session = null)
+        signUp.passkeyStoresBeforeThrowing = true
+        signUp.onPasskeySignUp = { signUp.authenticate() }
+        signUp.passkeySignUpError = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToSignUpWithPasskey(
+            RuntimeException("key cleanup failed")
+        )
+
+        expectThrows<RainError.ProviderError> { controller(signUp).signUpWithPasskey(activity) }
+
+        assertThat(signUp.selectedSessionKey).isEqualTo(signUp.passkeySignUpCalls.single().sessionKey)
+        assertThat(signUp.clearSessionCalls).isEmpty()
+        assertThat(hookCalls).isEqualTo(0)
     }
 
     @Test
@@ -351,6 +386,50 @@ class TurnkeyManagedPasskeyTest {
         assertThat(turnkey.refreshSessionCallCount).isEqualTo(1)
         assertThat(turnkey.registerAuthenticatorCalls).hasSize(2)
         assertThat(hookCalls).isEqualTo(0)
+    }
+
+    @Test
+    fun `a transient status on the registration is not retried and its body never reaches the message`() = runTest {
+        val turnkey = MockTurnkey()
+        turnkey.registerAuthenticatorError = RuntimeException(
+            "HTTP error calling ACTIVITY_TYPE_CREATE_AUTHENTICATORS_V2 request\nError: {\"detail\":\"try later\"}\nCode: 503"
+        )
+        val controller = controller(turnkey)
+
+        val failed = expectThrows<RainError.ProviderError> { controller.addPasskey(activity) }
+
+        // One registration, no refresh: a retry would resubmit the same attestation.
+        assertThat(turnkey.registerAuthenticatorCalls).hasSize(1)
+        assertThat(turnkey.refreshSessionCallCount).isEqualTo(0)
+        assertThat(failed).hasMessageThat().contains("503")
+        assertThat(failed).hasMessageThat().doesNotContain("try later")
+    }
+
+    @Test
+    fun `other auth calls wait while the passkey sheet is open`() = runTest {
+        val turnkey = MockTurnkey()
+        val sheet = CompletableDeferred<Unit>()
+        turnkey.onCreatePasskey = { sheet.await() }
+        val controller = controller(turnkey)
+
+        val registration = launch { controller.addPasskey(activity) }
+        runCurrent()
+        val logout = launch { controller.logout() }
+        runCurrent()
+
+        // The sheet is open: the logout queued behind it, nothing cleared, nothing registered yet.
+        assertThat(turnkey.createPasskeyCalls).hasSize(1)
+        assertThat(turnkey.registerAuthenticatorCalls).isEmpty()
+        assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
+
+        sheet.complete(Unit)
+        advanceUntilIdle()
+        registration.join()
+        logout.join()
+
+        // The registration went to the session that was live when the sheet opened; the logout followed.
+        assertThat(turnkey.registerAuthenticatorCalls.single().organizationId).isEqualTo(MockTurnkey.DEFAULT_ORG_ID)
+        assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(1)
     }
 
     @Test

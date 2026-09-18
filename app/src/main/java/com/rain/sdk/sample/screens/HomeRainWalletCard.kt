@@ -83,42 +83,35 @@ internal fun RainWalletCard(state: HomeUiState, actions: ProviderCardActions) {
  */
 @Composable
 private fun RainWalletPasskeyButtons(state: HomeUiState, actions: ProviderCardActions) {
-    val inFlight = state.rainWalletPasskeyInFlight
-    val idle = !state.isLoading && inFlight == null && state.rainWalletActivityAvailable
     RainDivider()
-    RainButton(
-        text = "Sign in with passkey",
-        onClick = actions.onLoginWithRainWalletPasskey,
-        modifier = Modifier.fillMaxWidth(),
-        style = RainButtonStyle.Secondary,
-        enabled = idle,
-        loading = inFlight == RainWalletPasskeyAction.Login,
-    )
-    RainButton(
-        text = "Create wallet with passkey",
-        onClick = actions.onSignUpWithRainWalletPasskey,
-        modifier = Modifier.fillMaxWidth(),
-        style = RainButtonStyle.Secondary,
-        enabled = idle,
-        loading = inFlight == RainWalletPasskeyAction.SignUp,
-    )
+    PasskeyButton("Sign in with passkey", RainWalletPasskeyAction.Login, state, actions.onLoginWithRainWalletPasskey)
+    PasskeyButton("Create wallet with passkey", RainWalletPasskeyAction.SignUp, state, actions.onSignUpWithRainWalletPasskey)
     RainMuted("Creates a new account. Already have one? Sign in instead.")
 }
 
 /** Registers another passkey on the signed-in account; the next sign-in can use it. */
 @Composable
 private fun RainWalletAddPasskeyStep(state: HomeUiState, actions: ProviderCardActions) {
-    val inFlight = state.rainWalletPasskeyInFlight
     RainDivider()
+    PasskeyButton("Add a passkey to this account", RainWalletPasskeyAction.AddPasskey, state, actions.onAddRainWalletPasskey)
+    RainMuted("One passkey per device is enough; each tap registers another.")
+}
+
+/**
+ * One passkey entry: a secondary button that spins while its own [action] runs and disables while
+ * anything loads, while any passkey call runs, and where no Activity can present the sheet.
+ */
+@Composable
+private fun PasskeyButton(text: String, action: RainWalletPasskeyAction, state: HomeUiState, onClick: () -> Unit) {
+    val inFlight = state.rainWalletPasskeyInFlight
     RainButton(
-        text = "Add a passkey to this account",
-        onClick = actions.onAddRainWalletPasskey,
+        text = text,
+        onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         style = RainButtonStyle.Secondary,
         enabled = !state.isLoading && inFlight == null && state.rainWalletActivityAvailable,
-        loading = inFlight == RainWalletPasskeyAction.AddPasskey,
+        loading = inFlight == action,
     )
-    RainMuted("One passkey per device is enough; each tap registers another.")
 }
 
 /**

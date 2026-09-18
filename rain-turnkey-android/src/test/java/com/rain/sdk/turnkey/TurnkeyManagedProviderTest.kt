@@ -293,7 +293,7 @@ class TurnkeyManagedProviderTest {
         )
         malformed.forEach { bad ->
             val refused = expectThrows<RainError.InvalidConfig> { managedConfig(passkeyDomain = bad) }
-            assertThat(refused).hasMessageThat().contains("bare host name")
+            assertThat(refused).hasMessageThat().contains("two labels")
         }
     }
 

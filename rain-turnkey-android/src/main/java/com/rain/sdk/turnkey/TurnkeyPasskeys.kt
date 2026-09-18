@@ -38,7 +38,8 @@ internal object TurnkeyPasskeys {
     fun authenticatorName(epochSeconds: Double): String = "passkey-${epochSeconds.toLong()}"
 
     const val MALFORMED_DOMAIN_MESSAGE =
-        "passkeyDomain must be a bare host name such as passkeys.example.com, without scheme, port or path"
+        "passkeyDomain must be a registrable domain of at least two labels, letters, digits and hyphens only " +
+            "(punycode for an internationalized name), such as passkeys.example.com, without scheme, port or path"
 
     const val NOT_CONFIGURED_MESSAGE =
         "Passkeys are not configured for this app: set passkeyDomain to a web domain you control and serve " +

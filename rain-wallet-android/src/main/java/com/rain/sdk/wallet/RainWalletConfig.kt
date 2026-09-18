@@ -31,12 +31,13 @@ import com.rain.sdk.turnkey.TurnkeyConfig
  *                   sponsored send runs no client-side revert preflight, so a failure surfaces as
  *                   the backend's failed status after broadcast. Defaults to true, which is the
  *                   product; pass false to have users pay their own fees.
- * @param passkeyDomain A web domain the partner controls, as a bare host name such as
- *                      `passkeys.example.com`, that the app's passkeys bind to. Null or blank turns
+ * @param passkeyDomain A web domain the partner controls, at least two labels of letters, digits
+ *                      and hyphens such as `passkeys.example.com`, that the app's passkeys bind to.
+ *                      Null or blank turns
  *                      [RainProvider.loginWithPasskey], [RainProvider.signUpWithPasskey] and
  *                      [RainProvider.addPasskey] off; they then throw `RainError.InvalidConfig`
- *                      (`RAIN_102`). A scheme, port or path throws `RAIN_102` from the
- *                      [RainProvider] constructor. The domain must serve
+ *                      (`RAIN_102`). A scheme, port, path or a single label such as `localhost`
+ *                      throws `RAIN_102` from the [RainProvider] constructor. The domain must serve
  *                      `https://<domain>/.well-known/assetlinks.json` listing the app's package name
  *                      and every signing-certificate fingerprint (debug, upload and Play App
  *                      Signing), or the device refuses every passkey request. The domain is

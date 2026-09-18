@@ -54,7 +54,8 @@ host's duties after an export are in [docs/METHODS.md](../docs/METHODS.md#rain-w
 Passkeys. With `passkeyDomain` set, `signUpWithPasskey(activity)` creates a new account whose only
 login is a passkey, with the same wallet a code sign-up gets, `loginWithPasskey(activity)` signs an
 existing one in, and `addPasskey(activity)` registers a passkey on a code-created account. The
-domain is a bare host name you control, serving `https://<domain>/.well-known/assetlinks.json` with
+domain is one you control, at least two labels of letters, digits and hyphens, serving
+`https://<domain>/.well-known/assetlinks.json` with
 the app's package name and the SHA-256 fingerprint of every certificate that signs it (debug, upload
 and Play App Signing). It is permanent, because every passkey created against it stops working when
 it changes, and a passkey made for one domain does not work in an app on another. Partners host
@@ -86,7 +87,8 @@ Notes:
 - Attaching a contact adds a permanent login route with no user-presence check beyond a live session,
   which can be one restored at launch, so gate `sendContactVerificationCode` and
   `confirmContactVerification` as you gate export, and show the user which contacts sign in to the
-  account. `addPasskey` is covered by the credential provider's own user verification.
+  account. The passkey requests ask the credential provider for user verification as preferred, not
+  required, so gate `addPasskey` the same way.
 - Minified builds inherit one rule from the wallet backend's adapter: `-dontwarn
   org.bitcoinj.core.Base58`, for a class the backend references on its export path and never loads.
   It lands in your whole R8 configuration, so a reference of your own to that class stops warning.

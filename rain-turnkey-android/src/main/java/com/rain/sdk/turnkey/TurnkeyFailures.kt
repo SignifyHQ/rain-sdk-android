@@ -22,3 +22,28 @@ internal fun Throwable.cancellationInChain(): CancellationException? =
 
 /** Bounds the one cause walk so a cyclic cause chain cannot spin it. */
 private const val MAX_CAUSE_DEPTH = 8
+
+/**
+ * This throwable with the vendor's HTTP response body removed, or [fallback] when it is not a
+ * recognizable vendor HTTP failure. The typed client's message embeds the raw body, which for the
+ * user-update activities can echo the email or phone being attached, and `RainError.ProviderError`
+ * copies its cause's message into the message hosts log; the status and the request path or
+ * activity type are what a host can act on. Applied only where a failure floors at
+ * `ProviderError`, after the prose rules have read the body.
+ */
+internal fun Throwable.sanitizedForHost(fallback: Throwable = this): Throwable {
+    val status = TurnkeyErrorMapping.turnkeyHttpStatus(this) ?: return fallback
+    val target = TURNKEY_HTTP_TARGET_REGEX.find(message.orEmpty())?.groupValues?.getOrNull(1)?.trimEnd(':')
+        ?: "the wallet backend"
+    return TurnkeyHttpFailure(status, target)
+}
+
+/**
+ * A vendor HTTP failure with the response body removed; see [sanitizedForHost]. The message keeps
+ * the vendor's path shape, so [TurnkeyErrorMapping.turnkeyHttpStatus] still reads the status off a
+ * mapped error's cause, which the wallet provider's history fallback relies on.
+ */
+internal class TurnkeyHttpFailure(status: Int, target: String) : RuntimeException("HTTP error from $target: $status")
+
+/** The first token after "from" or "calling": the request path or the activity type, never the body. */
+private val TURNKEY_HTTP_TARGET_REGEX = Regex("""^HTTP error (?:from|calling) (\S+)""")

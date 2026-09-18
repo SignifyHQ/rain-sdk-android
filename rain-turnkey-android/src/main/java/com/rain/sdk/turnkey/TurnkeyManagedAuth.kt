@@ -164,7 +164,7 @@ internal object TurnkeyManagedConfigurator {
  * One auth operation runs at a time: send, confirm, logout and provisioning all read-then-write
  * the same process-wide vendor state.
  */
-@Suppress("TooManyFunctions", "LargeClass") // the whole auth flow lives here so one mutex can serialize every step
+@Suppress("TooManyFunctions") // the whole auth flow lives here so one mutex can serialize every step
 internal class TurnkeyManagedAuthController(
     private val context: TurnkeyContextProtocol,
     private val coordinator: TurnkeySessionCoordinator,
@@ -369,10 +369,8 @@ internal class TurnkeyManagedAuthController(
             requireLiveSession()
             val name = TurnkeyPasskeys.authenticatorName(nowEpochSeconds())
             val registration = guarded { context.createPasskeyCredential(activity, rpId, name) }
-            guarded {
-                coordinator.executeWrite { session, _ ->
-                    context.registerAuthenticator(session.organizationId, session.userId, name, registration)
-                }
+            coordinator.executeWrite { session, _ ->
+                context.registerAuthenticator(session.organizationId, session.userId, name, registration)
             }
         }
     }
@@ -383,15 +381,18 @@ internal class TurnkeyManagedAuthController(
      * Sends a verification code to [contact], a contact the signed-in user wants to attach to this
      * account as a login method, distinct from [sendLoginCode], which starts a login. Requires a
      * live session, checked before anything is sent. The contact is canonicalized like a login
-     * contact and that string is what the account stores; a second call replaces the pending code.
-     * Accounts are never merged: a contact another account already owns goes to the backend, and
-     * its answer surfaces on confirm.
+     * contact and that string is what the account stores. The pending code follows the login send's
+     * rule: a second call for the same contact replaces it on success and keeps it on failure, and
+     * a call for another contact or channel retires it before the vendor is asked, so a failed
+     * switch leaves nothing confirmable. Accounts are never merged: a contact another account
+     * already owns goes to the backend, and its answer surfaces on confirm.
      */
     suspend fun sendContactVerificationCode(contact: LoginContact) {
         flowMutex.withLock {
             prepare()
-            requireLiveSession()
             val (canonical, channel) = canonicalize(contact)
+            retirePendingContactOtpUnlessFor(canonical, channel)
+            requireLiveSession()
             val challenge = guarded { context.sendOtp(canonical, channel) }
             pendingLock.withJavaLock {
                 pendingContactOtp = PendingOtp(challenge, canonical)
@@ -410,19 +411,18 @@ internal class TurnkeyManagedAuthController(
     suspend fun confirmContactVerification(code: String) {
         flowMutex.withLock {
             prepare()
-            requireLiveSession()
             val pending = requirePendingContactOtp()
             val trimmed = requireCode(code)
+            requireLiveSession()
             val token = guarded(onVendorFailure = ::dropContactOtpUnlessVerifyFailed) {
                 context.verifyOtpToken(pending.challenge, trimmed)
             }
             clearPendingContactOtp()
-            guarded {
-                coordinator.executeWrite { session, _ ->
-                    when (pending.challenge.channel) {
-                        OtpChannel.EMAIL -> context.setUserEmail(session.organizationId, session.userId, pending.contact, token)
-                        OtpChannel.SMS -> context.setUserPhoneNumber(session.organizationId, session.userId, pending.contact, token)
-                    }
+            // The coordinator is its own mapping boundary: it rethrows cancellation and maps the rest.
+            coordinator.executeWrite { session, _ ->
+                when (pending.challenge.channel) {
+                    OtpChannel.EMAIL -> context.setUserEmail(session.organizationId, session.userId, pending.contact, token)
+                    OtpChannel.SMS -> context.setUserPhoneNumber(session.organizationId, session.userId, pending.contact, token)
                 }
             }
         }
@@ -431,6 +431,14 @@ internal class TurnkeyManagedAuthController(
     /** Mirrors [dropChallengeUnlessVerifyFailed] for the verification slot. */
     private fun dropContactOtpUnlessVerifyFailed(e: Exception) {
         if (!TurnkeyErrorMapping.isLoginCodeVerifyFailure(e)) clearPendingContactOtp()
+    }
+
+    /** Mirrors [retirePendingOtpUnlessFor] for the verification slot. */
+    private fun retirePendingContactOtpUnlessFor(contact: String, channel: OtpChannel) {
+        pendingLock.withJavaLock {
+            val pending = pendingContactOtp ?: return
+            if (pending.contact != contact || pending.challenge.channel != channel) pendingContactOtp = null
+        }
     }
 
     private fun requirePendingContactOtp(): PendingOtp =
@@ -447,7 +455,7 @@ internal class TurnkeyManagedAuthController(
      * [hasActiveSession] alone reads false while the vendor's asynchronous restore is still loading.
      */
     private suspend fun requireLiveSession() {
-        guarded { coordinator.executeRead { _, _ -> Unit } }
+        coordinator.executeRead { _, _ -> Unit }
     }
 
     /** The relying-party domain, or [RainError.InvalidConfig] before the vendor is touched. */
@@ -591,7 +599,7 @@ internal class TurnkeyManagedAuthController(
         // The same contract as every wallet read: waits out a restore in flight, throws
         // TokenExpired when no session can be produced (an unsettled restore never provisions
         // against a stale list), and retries transient failures.
-        guarded { coordinator.executeRead { _, _ -> context.refreshWallets() } }
+        coordinator.executeRead { _, _ -> context.refreshWallets() }
         val wallets = context.wallets
         val formats = wallets.flatMap { it.accounts }.map { it.addressFormat }.toSet()
         val missing = buildList {

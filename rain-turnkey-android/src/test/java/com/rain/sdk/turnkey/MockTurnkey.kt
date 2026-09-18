@@ -471,9 +471,13 @@ internal class MockTurnkey(
         storePasskeySession(sessionKey, passkeySignUpError, onPasskeySignUp)
     }
 
+    /** Runs inside the add-passkey ceremony, after the call is recorded; a gate here holds the sheet open. */
+    var onCreatePasskey: (suspend () -> Unit)? = null
+
     override suspend fun createPasskeyCredential(activity: android.app.Activity, rpId: String, name: String): PasskeyRegistration {
         createPasskeyCalls += CreatePasskeyCall(rpId, name)
         createPasskeyError?.let { throw it }
+        onCreatePasskey?.invoke()
         return stubbedPasskeyRegistration
     }
 

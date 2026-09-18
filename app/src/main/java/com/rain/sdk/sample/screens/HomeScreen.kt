@@ -264,11 +264,14 @@ private fun HomeContent(
             if (state.mode == WalletMode.RainWallet && state.rainWalletSessionActive) {
                 ExportKeysCard(state = state, actions = exportActions)
             }
+            // Disabled while a passkey sheet or an attach is in flight: the logout would queue behind
+            // the ceremony on the SDK's mutex and then sign out the account the sheet just signed in.
             RainButton(
                 text = "Clear session",
                 onClick = actions.onClearSession,
                 modifier = Modifier.fillMaxWidth(),
                 style = RainButtonStyle.Ghost,
+                enabled = state.rainWalletPasskeyInFlight == null && !state.rainWalletAttachInFlight,
             )
         }
 

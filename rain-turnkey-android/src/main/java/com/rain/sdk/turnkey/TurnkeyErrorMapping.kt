@@ -49,7 +49,7 @@ internal object TurnkeyErrorMapping {
         e as? RainError
             ?: classify(e)
             ?: VendorErrorClassifier.fromVendorError(e)
-            ?: RainError.ProviderError(e)
+            ?: RainError.ProviderError(e.sanitizedForHost())
 
     /**
      * A [RainError] for a Turnkey failure, null when the throwable is not one. The typed check
@@ -146,7 +146,7 @@ internal object TurnkeyErrorMapping {
             is TurnkeyKotlinError.FailedToInitOtp -> {
                 val wrapped = e.cause
                 if (wrapped is TurnkeyKotlinError) return mapTurnkeyError(wrapped)
-                return RainError.ProviderError(e)
+                return RainError.ProviderError(wrapped.sanitizedForHost(fallback = e))
             }
 
             else -> Unit // fall through to cause inspection
@@ -197,7 +197,7 @@ internal object TurnkeyErrorMapping {
             is CreateCredentialProviderConfigurationException -> noPasskeyProvider(leaf, e)
             is TurnkeyKotlinError -> mapTurnkeyError(leaf)
             null -> VendorErrorClassifier.fromVendorError(e) ?: RainError.ProviderError(e)
-            else -> RainError.ProviderError(e)
+            else -> RainError.ProviderError(leaf.sanitizedForHost(fallback = e))
         }
     }
 
@@ -225,7 +225,8 @@ internal object TurnkeyErrorMapping {
      */
     private fun noPasskeyProvider(leaf: Throwable, outer: Throwable): RainError {
         Timber.w(
-            "Rain SDK: no passkey provider is available (%s); the device needs Google Play services and " +
+            "Rain SDK: no passkey provider is available (%s); the device needs a credential provider " +
+                "(Google Play services on Android 9 to 13, any installed provider on Android 14 and later) and " +
                 "the app androidx.credentials:credentials-play-services-auth on its runtime classpath",
             leaf.javaClass.simpleName,
         )

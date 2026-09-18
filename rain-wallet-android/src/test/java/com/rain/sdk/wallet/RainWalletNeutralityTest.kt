@@ -1,6 +1,10 @@
 package com.rain.sdk.wallet
 
+import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
+import com.rain.sdk.turnkey.TurnkeyProvider
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import org.junit.Test
 import kotlin.reflect.KCallable
 import kotlin.reflect.KClass
@@ -36,9 +40,35 @@ class RainWalletNeutralityTest {
         ).forEach(::assertNeutral)
     }
 
+    @Test
+    fun `the walker names a vendor type in a parameter, a type argument and a supertype`() {
+        assertThat(offendersOf(Leaky::class)).containsExactly(
+            "com.rain.sdk.wallet.RainWalletNeutralityTest.Leaky.leak: com.rain.sdk.turnkey.TurnkeyProvider",
+            "com.rain.sdk.wallet.RainWalletNeutralityTest.Leaky.flow: com.rain.sdk.turnkey.TurnkeyProvider",
+            "com.rain.sdk.wallet.RainWalletNeutralityTest.Leaky.compareTo: com.rain.sdk.turnkey.TurnkeyKeyFamily",
+            "com.rain.sdk.wallet.RainWalletNeutralityTest.Leaky <: com.rain.sdk.turnkey.TurnkeyKeyFamily",
+        )
+    }
+
+    /** A deliberately leaky surface, so the walker is known to bite: one parameter, one type argument, one supertype. */
+    @Suppress("unused")
+    private class Leaky : Comparable<com.rain.sdk.turnkey.TurnkeyKeyFamily> {
+        fun leak(backing: TurnkeyProvider) = Unit
+        val flow: Flow<TurnkeyProvider> = emptyFlow()
+        override fun compareTo(other: com.rain.sdk.turnkey.TurnkeyKeyFamily): Int = 0
+    }
+
     private fun assertNeutral(root: KClass<*>) {
+        assertWithMessage("types outside the allowlist on the Rain wallet surface").that(offendersOf(root)).isEmpty()
+    }
+
+    /** Every type outside the allowlist named by a public constructor, member or supertype, as `owner.member: type`. */
+    private fun offendersOf(root: KClass<*>): List<String> {
         val offenders = mutableListOf<String>()
         for (owner in root.publicClosure()) {
+            owner.supertypes.flatMap { it.erasures() }
+                .filterNot { it.isAllowed() }
+                .forEach { offenders += "${owner.qualifiedName} <: $it" }
             val callables: List<KCallable<*>> = owner.constructors + owner.declaredMembers
             callables.filter { it.visibility == KVisibility.PUBLIC }.forEach { callable ->
                 val named = callable.parameters.map { it.type } + callable.returnType
@@ -47,7 +77,7 @@ class RainWalletNeutralityTest {
                     .forEach { offenders += "${owner.qualifiedName}.${callable.name}: $it" }
             }
         }
-        assertWithMessage("types outside the allowlist on the Rain wallet surface").that(offenders).isEmpty()
+        return offenders
     }
 
     /** The class and every public nested class, so a sealed hierarchy's cases are covered too. */

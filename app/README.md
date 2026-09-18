@@ -134,8 +134,11 @@ mainnet-only, so naming the testnet tokens keeps the balance screen readable.
   fingerprint through `https://passkeys.uptop.xyz/.well-known/assetlinks.json`, served from the
   `SignifyHQ/passkeys-demo` repository, so a build signed with any other key (Android Studio's own
   debug key included) gets `RAIN_102` at the passkey sheet. The alias and both passwords are the
-  standard debug ones, `androiddebugkey` and `android`; nothing else may live in this file. To print
-  the fingerprint:
+  standard debug ones, `androiddebugkey` and `android`; nothing else may live in this file. Because
+  the private key is public, an APK anyone signs with it installs over this sample as an update and
+  inherits its data, and the association file trusts it at the passkey sheet; the demo domain and
+  the sandbox organization hold nothing of value, and this fingerprint must never be listed on a
+  domain that does. To print the fingerprint:
 
   ```bash
   /usr/bin/keytool -list -v -keystore app/demo-debug.keystore -alias androiddebugkey -storepass android -keypass android | grep 'SHA256:'

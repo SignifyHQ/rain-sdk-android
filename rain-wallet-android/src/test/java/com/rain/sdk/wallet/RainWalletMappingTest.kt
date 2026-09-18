@@ -8,26 +8,17 @@ import com.rain.sdk.turnkey.TurnkeyAuthState
 import com.rain.sdk.turnkey.TurnkeySessionPolicy
 import com.rain.sdk.turnkey.TurnkeySessionState
 import io.mockk.mockk
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertThrows
-import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /** Every neutral type maps one-to-one onto its backing type, and value semantics hold. */
-@OptIn(ExperimentalCoroutinesApi::class)
 class RainWalletMappingTest {
 
-    private var mainSet = false
+    private val realBacking = RealBackingGuard()
 
     @After
-    fun tearDown() {
-        if (mainSet) Dispatchers.resetMain()
-    }
+    fun tearDown() = realBacking.tearDown()
 
     @Test
     fun `the default policy maps onto the backing defaults`() {
@@ -162,23 +153,9 @@ class RainWalletMappingTest {
             val thrown = assertThrows(RainError.InvalidConfig::class.java) {
                 RainProvider(application, RainWalletConfig(passkeyDomain = malformed))
             }
-            assertThat(thrown.message).contains("bare host name")
+            assertThat(thrown.message).contains("two labels")
         }
     }
 
-    /**
-     * Building the backing configuration references the wallet backend's process-wide singleton,
-     * whose class initializer needs JDK 24 class files and a main dispatcher; the same guards as
-     * `RainProviderTest.useRealBacking`.
-     */
-    private fun useRealBacking() {
-        val major = System.getProperty("java.version")?.substringBefore('.')?.toIntOrNull() ?: 0
-        assumeTrue("the wallet backend's class files need a JDK 24 test launcher", major >= JDK_24)
-        Dispatchers.setMain(StandardTestDispatcher())
-        mainSet = true
-    }
-
-    private companion object {
-        const val JDK_24 = 24
-    }
+    private fun useRealBacking() = realBacking.useRealBacking()
 }

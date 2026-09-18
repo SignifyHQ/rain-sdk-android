@@ -132,14 +132,15 @@ class TurnkeyConfig internal constructor(
      * @param organizationId Your Turnkey parent organization id.
      * @param authProxyConfigId The auth-proxy configuration id from the Turnkey dashboard.
      * @param walletAddress Optional EVM address override, validated and stored in EIP-55 checksum form; null or blank means no override.
-     * @param passkeyDomain The passkey relying-party domain: a bare host name the host controls, such as
-     *   `passkeys.example.com`, whose `/.well-known/assetlinks.json` lists the app's package name and
+     * @param passkeyDomain The passkey relying-party domain: a registrable domain of at least two labels
+     *   the host controls, such as `passkeys.example.com`, whose `/.well-known/assetlinks.json` lists the app's package name and
      *   signing-certificate fingerprints. Null or blank turns the passkey methods off; they then throw
      *   `RainError.InvalidConfig`. The domain is permanent: every passkey created against it stops
      *   working when it changes.
      * @throws RainError.InvalidConfig (`RAIN_102`) when [walletAddress] is malformed or carries a
-     *   wrong mixed-case checksum, or when [passkeyDomain] carries a scheme, port, path or any
-     *   character a host name cannot hold.
+     *   wrong mixed-case checksum, or when [passkeyDomain] is not a domain of at least two labels made
+     *   of letters, digits and hyphens (a scheme, port, path or a single label such as `localhost`
+     *   is refused).
      */
     @InternalRainTurnkeyApi
     @Suppress("LongParameterList") // the BYO constructor's parameters plus the managed ids and the passkey domain; five have defaults
@@ -184,7 +185,8 @@ class TurnkeyConfig internal constructor(
  * Turnkey-specific wiring.
  *
  * In managed mode the provider is also the authentication surface: construct it, run
- * [sendLoginCode] / [confirmLoginCode] on it, then build the SDK and resolve. Resolving before a
+ * [sendLoginCode] / [confirmLoginCode], [loginWithPasskey] or [signUpWithPasskey] on it, then build
+ * the SDK and resolve. Resolving before a
  * session is live fails with `RainError.TokenExpired`. In both modes it also exports the wallet's
  * recovery phrase and private keys, see [exportRecoveryPhrase] and [exportPrivateKey].
  */
@@ -220,7 +222,7 @@ class TurnkeyProvider internal constructor(
         )
     }
 
-    /** Present in managed mode only; owns the one-time-code flow. */
+    /** Present in managed mode only; owns the one-time-code, passkey and contact-attach flows. */
     private val managedAuth: TurnkeyManagedAuthController? by lazy {
         config.managed?.let { ids ->
             TurnkeyManagedAuthController(
@@ -455,7 +457,9 @@ class TurnkeyProvider internal constructor(
      * [TurnkeyConfig.onSessionExpired]; a provisioning failure keeps the new session, which heals
      * at resolution. A successful login revokes the user's other Turnkey sessions on every
      * device (`invalidateExisting`); the signed-out device's `onSessionExpired` fires at its next
-     * call. The channel the code went out on makes no difference here. Managed mode only.
+     * call. The session switch and the backfill run after the code was accepted, so a login that
+     * succeeded can still end in `RainError.TokenExpired` or `RainError.Unauthorized`. The channel
+     * the code went out on makes no difference here. Managed mode only.
      */
     @InternalRainTurnkeyApi
     suspend fun confirmLoginCode(code: String) = requireManagedAuth().confirmLoginCode(code)
@@ -470,8 +474,13 @@ class TurnkeyProvider internal constructor(
      * ceremony leaves the current session untouched. Throws `RainError.InvalidConfig` before any
      * vendor call when no `passkeyDomain` is configured, or when the association file does not vouch
      * for this build, `RainError.UserRejected` when the sheet
-     * was dismissed or the device holds no passkey for the domain, and `RainError.ProviderError`
-     * for a ceremony the device or the backend refused for another reason. Managed mode only.
+     * was dismissed or the device holds no passkey for the domain, `RainError.ProviderError`
+     * for a ceremony the device or the backend refused for another reason, and
+     * `RainError.InternalError` when the backend answered the ceremony with an unusable response
+     * (no session token, an occupied session key). The session switch and the account backfill run
+     * after the ceremony, so a login that succeeded can still end in `RainError.TokenExpired` or
+     * `RainError.Unauthorized`; a backfill failure keeps the session, which heals at resolution.
+     * Managed mode only.
      *
      * @param activity The foreground Activity the system passkey sheet is presented from; the
      *   vendor requires an Activity so the sheet lands in the app's task. The call suspends until
@@ -492,16 +501,21 @@ class TurnkeyProvider internal constructor(
      * Ethereum and a Solana account inside the same request, then signs it in as
      * [loginWithPasskey] does. Every call mints a fresh account, so a returning user signs in with
      * [loginWithPasskey] or a login code, or ends up with a second, empty wallet; accounts are
-     * never merged. Refused with `RainError.InvalidConfig` while any session is selected on this
-     * device, so log out first: the vendor swaps its process-wide client for the whole ceremony and
-     * a wallet call made meanwhile would read the live session as dead. If the sign-up request
+     * never merged. Refused with `RainError.InvalidConfig` while any session is stored as this
+     * device's current one, live or dead (an expired session the vendor has not cleared yet
+     * included), so call [logout] first even when [hasActiveSession] is false: the vendor swaps its
+     * process-wide client for the whole ceremony and a wallet call made meanwhile would read the
+     * live session as dead. If the sign-up request
      * succeeded but the login that followed failed, the account exists and [loginWithPasskey]
      * reaches it; if the sign-up request itself failed, no account exists and the passkey the sheet
      * created signs into nothing. Both arrive as `RainError.ProviderError`.
      * Throws `RainError.InvalidConfig` when no `passkeyDomain` is configured or the association
      * file does not vouch for this build, `RainError.UserRejected` when the sheet was dismissed,
-     * and `RainError.ProviderError` for a ceremony or sign-up the device or the backend refused
-     * for another reason. Managed mode only.
+     * `RainError.ProviderError` for a ceremony or sign-up the device or the backend refused for
+     * another reason, and `RainError.InternalError` for an unusable backend response inside the
+     * ceremony. The session switch and the backfill run after the ceremony, so a sign-up that
+     * succeeded can still end in `RainError.TokenExpired` or `RainError.Unauthorized`. Managed mode
+     * only.
      *
      * @param activity As for [loginWithPasskey].
      */
@@ -513,9 +527,14 @@ class TurnkeyProvider internal constructor(
     /**
      * Registers a passkey bound to [TurnkeyConfig]'s `passkeyDomain` on the signed-in account, so
      * the next sign-in can use it. Requires a live session, checked before the sheet:
-     * `RainError.TokenExpired` fires before any biometric prompt. No new account and no session
-     * change; other authentication calls wait while the sheet is open. One passkey per device is
-     * enough, and each call registers another with the credential provider. Throws
+     * `RainError.TokenExpired` fires before any biometric prompt. A session revoked server-side
+     * between that check and the registration still surfaces as `RainError.TokenExpired` after the
+     * prompt, with [TurnkeyConfig.onSessionExpired] firing; a registration the backend refused
+     * leaves a passkey on the device that signs into nothing. The passkey request asks the
+     * credential provider for user verification as preferred, not required, so gate this call as
+     * the host gates export. No new account and no session change; other authentication calls wait
+     * while the sheet is open. One passkey per device is enough, and each call registers another
+     * with the credential provider. Throws
      * `RainError.InvalidConfig` when no `passkeyDomain` is configured or the association file does
      * not vouch for this build, `RainError.UserRejected` when the sheet was dismissed,
      * `RainError.Unauthorized` when the backend refuses the registration, and `RainError.ProviderError`
@@ -534,7 +553,8 @@ class TurnkeyProvider internal constructor(
      * so that contact becomes a login method for it; distinct from [sendLoginCode], which starts a
      * login. Requires a live session: `RainError.TokenExpired` before anything is sent. The contact
      * is canonicalized like a login contact (see [LoginContact]) and that string is what the account
-     * stores; a second call replaces the pending code, and a login or a [logout] drops it. Accounts
+     * stores; calling it again for the same contact replaces the pending code, a call for another
+     * contact or channel retires it before anything is sent, and a login or a [logout] drops it. Accounts
      * are never merged: a contact another account already owns does not move wallets, and the
      * backend's answer surfaces on confirm. Throws `RainError.InvalidConfig` for a blank or
      * malformed contact, and `RainError.ProviderError` when the code request is refused. Managed
