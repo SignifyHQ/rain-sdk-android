@@ -1,5 +1,6 @@
 package com.rain.sdk.wallet
 
+import android.app.Activity
 import android.app.Application
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
@@ -45,6 +46,7 @@ class RainProviderTest {
     // Lazy, so the vendor type is not touched before a test's JDK guard runs.
     private val backing by lazy { mockk<TurnkeyProvider>() }
     private val provider by lazy { RainProvider(backing) }
+    private val activity = mockk<Activity>()
     private var mainSet = false
 
     @After
@@ -109,6 +111,7 @@ class RainProviderTest {
             sessionPolicy = policy,
             onSessionExpired = hook,
             sponsorGas = false,
+            passkeyDomain = "passkeys.example.com",
         ).toBacking(mockk<Application>())
 
         // No address override exists on the Rain wallet, so the backing always resolves the
@@ -118,6 +121,7 @@ class RainProviderTest {
         assertThat(mapped.managedAuthProxyConfigId).isEqualTo(RainWalletBackend.AUTH_CONFIG_ID)
         assertThat(mapped.onSessionExpired).isSameInstanceAs(hook)
         assertThat(mapped.sponsorGas).isFalse()
+        assertThat(mapped.managedPasskeyDomain).isEqualTo("passkeys.example.com")
         // The backing policy is a data class, so one assertion pins all six fields.
         assertThat(mapped.sessionPolicy).isEqualTo(
             TurnkeySessionPolicy(
@@ -233,6 +237,53 @@ class RainProviderTest {
     }
 
     @Test
+    fun `loginWithPasskey forwards the activity`() = runBlocking {
+        coEvery { backing.loginWithPasskey(activity) } just Runs
+
+        provider.loginWithPasskey(activity)
+
+        coVerify(exactly = 1) { backing.loginWithPasskey(activity) }
+    }
+
+    @Test
+    fun `signUpWithPasskey forwards the activity`() = runBlocking {
+        coEvery { backing.signUpWithPasskey(activity) } just Runs
+
+        provider.signUpWithPasskey(activity)
+
+        coVerify(exactly = 1) { backing.signUpWithPasskey(activity) }
+    }
+
+    @Test
+    fun `addPasskey forwards the activity`() = runBlocking {
+        coEvery { backing.addPasskey(activity) } just Runs
+
+        provider.addPasskey(activity)
+
+        coVerify(exactly = 1) { backing.addPasskey(activity) }
+    }
+
+    @Test
+    fun `sendContactVerificationCode forwards each channel as the matching backing contact`() = runBlocking {
+        coEvery { backing.sendContactVerificationCode(any<LoginContact>()) } just Runs
+
+        provider.sendContactVerificationCode(RainWalletContact.Email("user@example.com"))
+        provider.sendContactVerificationCode(RainWalletContact.Sms("+15551234567"))
+
+        coVerify(exactly = 1) { backing.sendContactVerificationCode(LoginContact.Email("user@example.com")) }
+        coVerify(exactly = 1) { backing.sendContactVerificationCode(LoginContact.Sms("+15551234567")) }
+    }
+
+    @Test
+    fun `confirmContactVerification forwards the code`() = runBlocking {
+        coEvery { backing.confirmContactVerification("481902") } just Runs
+
+        provider.confirmContactVerification("481902")
+
+        coVerify(exactly = 1) { backing.confirmContactVerification("481902") }
+    }
+
+    @Test
     fun `exportRecoveryPhrase forwards and returns the phrase`() = runBlocking {
         coEvery { backing.exportRecoveryPhrase() } returns "twelve words"
 
@@ -270,6 +321,24 @@ class RainProviderTest {
         }
 
         assertThat(thrown).isSameInstanceAs(cancellation)
+    }
+
+    @Test
+    fun `a passkey call passes a RainError and a cancellation through unchanged`() {
+        val refused = RainError.UserRejected()
+        val cancellation = CancellationException("caller went away")
+        coEvery { backing.loginWithPasskey(activity) } throws refused
+        coEvery { backing.addPasskey(activity) } throws cancellation
+
+        val thrownError = assertThrows(RainError.UserRejected::class.java) {
+            runBlocking { provider.loginWithPasskey(activity) }
+        }
+        val thrownCancellation = assertThrows(CancellationException::class.java) {
+            runBlocking { provider.addPasskey(activity) }
+        }
+
+        assertThat(thrownError).isSameInstanceAs(refused)
+        assertThat(thrownCancellation).isSameInstanceAs(cancellation)
     }
 
     @Test

@@ -1,15 +1,33 @@
 package com.rain.sdk.wallet
 
+import android.app.Application
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.turnkey.LoginContact
 import com.rain.sdk.turnkey.TurnkeyAuthState
 import com.rain.sdk.turnkey.TurnkeySessionPolicy
 import com.rain.sdk.turnkey.TurnkeySessionState
+import io.mockk.mockk
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.assertThrows
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /** Every neutral type maps one-to-one onto its backing type, and value semantics hold. */
+@OptIn(ExperimentalCoroutinesApi::class)
 class RainWalletMappingTest {
+
+    private var mainSet = false
+
+    @After
+    fun tearDown() {
+        if (mainSet) Dispatchers.resetMain()
+    }
 
     @Test
     fun `the default policy maps onto the backing defaults`() {
@@ -117,8 +135,50 @@ class RainWalletMappingTest {
     fun `the config prints every field and the hook as set or null`() {
         assertThat(RainWalletConfig().toString()).isEqualTo(
             "RainWalletConfig(sessionPolicy=${RainWalletSessionPolicy()}, " +
-                "onSessionExpired=null, sponsorGas=true)"
+                "onSessionExpired=null, sponsorGas=true, passkeyDomain=null)"
         )
         assertThat(RainWalletConfig(onSessionExpired = {}).toString()).contains("onSessionExpired=set")
+        assertThat(RainWalletConfig(passkeyDomain = "passkeys.example.com").toString())
+            .endsWith("passkeyDomain=passkeys.example.com)")
+    }
+
+    @Test
+    fun `a null or blank passkeyDomain maps to none, a host name is trimmed`() {
+        useRealBacking()
+        val application = mockk<Application>()
+
+        assertThat(RainWalletConfig().toBacking(application).managedPasskeyDomain).isNull()
+        assertThat(RainWalletConfig(passkeyDomain = "   ").toBacking(application).managedPasskeyDomain).isNull()
+        assertThat(RainWalletConfig(passkeyDomain = " passkeys.example.com ").toBacking(application).managedPasskeyDomain)
+            .isEqualTo("passkeys.example.com")
+    }
+
+    @Test
+    fun `a passkeyDomain with a scheme, port or path is refused when the provider is built`() {
+        useRealBacking()
+        val application = mockk<Application>()
+
+        for (malformed in listOf("https://passkeys.example.com", "passkeys.example.com:443", "passkeys.example.com/app")) {
+            val thrown = assertThrows(RainError.InvalidConfig::class.java) {
+                RainProvider(application, RainWalletConfig(passkeyDomain = malformed))
+            }
+            assertThat(thrown.message).contains("bare host name")
+        }
+    }
+
+    /**
+     * Building the backing configuration references the wallet backend's process-wide singleton,
+     * whose class initializer needs JDK 24 class files and a main dispatcher; the same guards as
+     * `RainProviderTest.useRealBacking`.
+     */
+    private fun useRealBacking() {
+        val major = System.getProperty("java.version")?.substringBefore('.')?.toIntOrNull() ?: 0
+        assumeTrue("the wallet backend's class files need a JDK 24 test launcher", major >= JDK_24)
+        Dispatchers.setMain(StandardTestDispatcher())
+        mainSet = true
+    }
+
+    private companion object {
+        const val JDK_24 = 24
     }
 }
