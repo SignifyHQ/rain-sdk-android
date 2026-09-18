@@ -2,7 +2,6 @@ package com.rain.sdk.turnkey
 
 import com.turnkey.core.models.errors.TurnkeyKotlinError
 import com.turnkey.crypto.utils.TurnkeyCryptoError
-import kotlinx.coroutines.CancellationException
 
 /**
  * Turns whatever an export call threw into what the adapter rethrows. One place, reachable by unit
@@ -17,12 +16,11 @@ internal object TurnkeyExportFailures {
      * `FailedToExportWallet` when a crypto error is anywhere in the chain, because the vendor's
      * `InvalidHexString` carries the ephemeral decryption key in its message and every wrapper's
      * message repeats its cause's. Else the vendor's own `FailedToExportWallet` unchanged. Else [e]
-     * wrapped in one. The chain walk is bounded so a cyclic cause cannot spin it.
+     * wrapped in one. Both walks are [causeChain], so a cyclic cause cannot spin them.
      */
     fun rethrowable(e: Exception): Throwable {
-        val chain = causeChain(e)
-        val cancellation = chain.firstOrNull { it is CancellationException }
-        val rejected = chain.firstOrNull { it is TurnkeyCryptoError }
+        val cancellation = e.cancellationInChain()
+        val rejected = e.causeChain().firstOrNull { it is TurnkeyCryptoError }
         return when {
             cancellation != null -> cancellation
             rejected != null -> TurnkeyKotlinError.FailedToExportWallet(
@@ -32,10 +30,4 @@ internal object TurnkeyExportFailures {
             else -> TurnkeyKotlinError.FailedToExportWallet(e)
         }
     }
-
-    private fun causeChain(e: Throwable): List<Throwable> =
-        generateSequence(e) { current -> current.cause?.takeIf { it !== current } }.take(MAX_CAUSE_DEPTH).toList()
-
-    /** Bounds the cause walk so a cyclic cause chain cannot spin it. */
-    private const val MAX_CAUSE_DEPTH = 8
 }

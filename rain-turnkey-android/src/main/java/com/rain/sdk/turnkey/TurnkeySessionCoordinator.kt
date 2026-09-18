@@ -330,13 +330,13 @@ internal class TurnkeySessionCoordinator(
         if (e !is RainError) Timber.w(e, "Rain SDK: wallet backend call failed")
     }
 
-    private fun isAuthFailure(e: Throwable): Boolean = anyInChain(e) { t ->
+    private fun isAuthFailure(e: Throwable): Boolean = e.causeChain().any { t ->
         t is RainError.TokenExpired ||
             t is TurnkeyKotlinError.InvalidSession ||
             TurnkeyErrorMapping.turnkeyHttpStatus(t) == 401
     }
 
-    private fun isTransient(e: Throwable): Boolean = anyInChain(e) { t ->
+    private fun isTransient(e: Throwable): Boolean = e.causeChain().any { t ->
         t is IOException ||
             TurnkeyErrorMapping.turnkeyHttpStatus(t)?.let { isTransientStatus(it) } == true
     }
@@ -344,24 +344,14 @@ internal class TurnkeySessionCoordinator(
     private fun isTransientStatus(status: Int): Boolean =
         status == 408 || status == 429 || status in 500..599
 
-    private inline fun anyInChain(e: Throwable, predicate: (Throwable) -> Boolean): Boolean {
-        var current: Throwable? = e
-        var depth = 0
-        while (current != null && depth < MAX_CAUSE_DEPTH) {
-            if (predicate(current)) return true
-            current = current.cause.takeIf { it !== current }
-            depth++
-        }
-        return false
-    }
-
-    private companion object {
-        const val MAX_CAUSE_DEPTH = 8
-
+    internal companion object {
         /** Extra wait past the expiry instant so an early timer wake cannot re-derive Active. */
-        const val EXPIRY_RECHECK_SLACK_MS = 50L
+        private const val EXPIRY_RECHECK_SLACK_MS = 50L
 
-        /** Longest a call waits for Turnkey's async session restore before judging the session. */
+        /**
+         * Longest a call waits for Turnkey's async session restore before judging the session. The
+         * managed auth's logout waits on a restore in flight for the same span, so it reads this.
+         */
         const val AUTH_RESTORE_TIMEOUT_MS = 10_000L
     }
 }

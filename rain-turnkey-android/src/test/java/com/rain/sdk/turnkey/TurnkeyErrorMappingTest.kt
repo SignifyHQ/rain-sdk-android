@@ -416,7 +416,7 @@ class TurnkeyErrorMappingTest {
         )
         val mapped = mapping.mapTurnkeyError(error)
         assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
-        val chain = generateSequence<Throwable>(mapped) { it.cause?.takeIf { c -> c !== it } }.toList()
+        val chain = mapped.causeChain().toList()
         assertThat(chain.any { it.message?.contains("500") == true }).isTrue()
     }
 
