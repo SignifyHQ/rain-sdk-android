@@ -1,5 +1,6 @@
 package com.rain.sdk.sample.screens
 
+import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.os.SystemClock
@@ -45,6 +46,9 @@ enum class RainWalletExportKind(val label: String) {
     SolanaKey("Solana private key"),
 }
 
+/** The passkey call whose sheet or request is running, one at a time. */
+enum class RainWalletPasskeyAction { Login, SignUp, AddPasskey }
+
 /** A revealed export value. `toString` hides the value, so state logging and diffs never print it. */
 data class RevealedSecret(val kind: RainWalletExportKind, val value: String) {
     override fun toString(): String = "RevealedSecret(kind=$kind)"
@@ -70,6 +74,7 @@ class HomeViewModel(
         rainWalletChannel = ContactChannel.fromRecordOrEmail(store.rainWalletChannel),
         rainWalletEmail = store.rainWalletEmail,
         rainWalletPhone = store.rainWalletPhone,
+        rainWalletPasskeySession = store.rainWalletPasskeyOwner,
         turnkeyOrgId = store.turnkeyOrgId,
         turnkeyAuthProxyConfigId = store.turnkeyAuthProxyConfigId,
         turnkeyChannel = ContactChannel.fromRecordOrEmail(store.turnkeyChannel),
@@ -213,7 +218,8 @@ class HomeViewModel(
                 recordedRainWalletOwner() == null ->
                     resumeFallback("Saved Rain Wallet session has no recorded owner — log in again")
                 else -> {
-                    _state.update { it.copy(rainWalletSessionActive = true) }
+                    val passkey = recordedRainWalletOwner() is RainWalletOwner.Passkey
+                    _state.update { it.copy(rainWalletSessionActive = true, rainWalletPasskeySession = passkey) }
                     initializeRainWithRainWallet()
                 }
             }
@@ -457,9 +463,12 @@ class HomeViewModel(
         _state.update {
             it.copy(
                 rainWalletSessionActive = false,
+                rainWalletPasskeySession = false,
                 rainWalletOtpSent = false,
                 rainWalletOtpCode = "",
                 rainWalletRevealedSecret = null,
+                rainWalletAttachCodeSent = false,
+                rainWalletAttachCode = "",
                 statusText = "Rain Wallet session expired — log in again"
             )
         }
@@ -583,6 +592,7 @@ class HomeViewModel(
                     it.copy(
                         isLoading = false,
                         rainWalletSessionActive = true,
+                        rainWalletPasskeySession = false,
                         statusText = "Session active — initializing Rain..."
                     )
                 }
@@ -646,50 +656,81 @@ class HomeViewModel(
     }
 
     /**
-     * Who the device's Rain Wallet session belongs to, as the sample records it: the channel of the last
-     * successful login and the contact in that channel's slot. Null when nothing is recorded. The
-     * slots double as the prefill for the fields, and an install from before the phone channel
-     * recorded only the email, so a blank channel reads as an email owner.
+     * Who the device's Rain Wallet session belongs to, as the sample records it: a passkey login or
+     * sign-up, or the channel of the last successful code login with the contact in that channel's
+     * slot. The slots double as the prefill for the fields and hold the contacts attached to the
+     * account since. An install from before the phone channel recorded only the email, so a blank
+     * channel reads as an email owner.
      */
-    private fun recordedRainWalletOwner(): Pair<ContactChannel, String>? {
+    private sealed interface RainWalletOwner {
+        data class Contact(val channel: ContactChannel, val contact: String) : RainWalletOwner
+        data object Passkey : RainWalletOwner
+    }
+
+    /** The recorded owner, or null when nothing is recorded. */
+    private fun recordedRainWalletOwner(): RainWalletOwner? {
+        if (store.rainWalletPasskeyOwner) return RainWalletOwner.Passkey
         val channel = ContactChannel.fromRecordOrEmail(store.rainWalletChannel)
-        val contact = when (channel) {
-            ContactChannel.Email -> store.rainWalletEmail
-            ContactChannel.Phone -> store.rainWalletPhone
-        }.trim()
-        return if (contact.isBlank()) null else channel to contact
+        val contact = rainWalletContactSlot(channel).trim()
+        return if (contact.isBlank()) null else RainWalletOwner.Contact(channel, contact)
     }
 
-    /** Email compares ignoring case; a phone number compares on its `+` and digits only. */
-    private fun isRecordedRainWalletOwner(channel: ContactChannel, contact: String): Boolean {
-        val (ownerChannel, owner) = recordedRainWalletOwner() ?: return false
-        return ownerChannel == channel && channel.sameContact(owner, contact)
+    /**
+     * True when the recorded owner's account signs in with [contact] on [channel]: the contact it
+     * logged in with, or one attached to it since, which is what that channel's slot holds. Email
+     * compares ignoring case; a phone number compares on its `+` and digits only.
+     */
+    private fun isRecordedRainWalletOwner(channel: ContactChannel, contact: String): Boolean =
+        recordedRainWalletOwner() != null && channel.sameContact(rainWalletContactSlot(channel), contact)
+
+    private fun rainWalletContactSlot(channel: ContactChannel): String = when (channel) {
+        ContactChannel.Email -> store.rainWalletEmail
+        ContactChannel.Phone -> store.rainWalletPhone
     }
 
-    private fun recordRainWalletOwner(channel: ContactChannel, contact: String) {
-        store.rainWalletChannel = channel.name
+    private fun writeRainWalletContactSlot(channel: ContactChannel, contact: String) {
         when (channel) {
             ContactChannel.Email -> store.rainWalletEmail = contact
             ContactChannel.Phone -> store.rainWalletPhone = contact
         }
     }
 
+    private fun recordRainWalletOwner(channel: ContactChannel, contact: String) {
+        store.rainWalletPasskeyOwner = false
+        store.rainWalletChannel = channel.name
+        writeRainWalletContactSlot(channel, contact)
+    }
+
+    /** A passkey owner has no login contact; the slots fill as contacts are attached. */
+    private fun recordRainWalletPasskeyOwner() {
+        store.rainWalletPasskeyOwner = true
+        store.rainWalletChannel = ""
+    }
+
     /** Both slots go blank too, so a blank channel cannot read as a legacy email owner. */
     private fun forgetRainWalletOwner() {
+        store.rainWalletPasskeyOwner = false
         store.rainWalletChannel = ""
         store.rainWalletEmail = ""
         store.rainWalletPhone = ""
     }
 
-    private data class RainWalletOwnerSnapshot(val channel: String, val email: String, val phone: String)
+    private data class RainWalletOwnerSnapshot(
+        val passkey: Boolean,
+        val channel: String,
+        val email: String,
+        val phone: String,
+    )
 
     private fun snapshotRainWalletOwner() = RainWalletOwnerSnapshot(
+        passkey = store.rainWalletPasskeyOwner,
         channel = store.rainWalletChannel,
         email = store.rainWalletEmail,
         phone = store.rainWalletPhone,
     )
 
     private fun restoreRainWalletOwner(snapshot: RainWalletOwnerSnapshot) {
+        store.rainWalletPasskeyOwner = snapshot.passkey
         store.rainWalletChannel = snapshot.channel
         store.rainWalletEmail = snapshot.email
         store.rainWalletPhone = snapshot.phone
@@ -769,6 +810,279 @@ class HomeViewModel(
                         statusText = "Rain wallet init failed: ${e.message}"
                     )
                 }
+            }
+        }
+    }
+
+    // ---------- Rain Wallet passkeys and contact attach ----------
+
+    /** Whether the screen has an Activity to present the passkey sheet from; a preview has none. */
+    fun onRainWalletActivityAvailable(available: Boolean) {
+        if (_state.value.rainWalletActivityAvailable != available) {
+            _state.update { it.copy(rainWalletActivityAvailable = available) }
+        }
+    }
+
+    /**
+     * Signs in with a passkey through the system sheet. The Activity is used for this one call and
+     * never stored, the rule the `Application` parameters already follow.
+     */
+    fun loginWithRainWalletPasskey(activity: Activity) {
+        runRainWalletPasskey(RainWalletPasskeyAction.Login, "RainWallet.passkeyLogin", "Passkey sign-in") {
+            it.loginWithPasskey(activity)
+        }
+    }
+
+    /** Creates a new account with a passkey as its only login; a returning user signs in instead. */
+    fun signUpWithRainWalletPasskey(activity: Activity) {
+        runRainWalletPasskey(RainWalletPasskeyAction.SignUp, "RainWallet.passkeySignup", "Passkey sign-up") {
+            it.signUpWithPasskey(activity)
+        }
+    }
+
+    /**
+     * The shared passkey path: the provider is recorded and prepared as for a code login, the
+     * previous owner is forgotten before the SDK call and the passkey owner recorded after it, then
+     * Rain initializes as it does after a confirmed code. Failures log and show the code and the
+     * class only, because an auth-proxy failure can echo the contact.
+     */
+    private fun runRainWalletPasskey(
+        action: RainWalletPasskeyAction,
+        area: String,
+        label: String,
+        call: suspend (RainProvider) -> Unit,
+    ) {
+        if (_state.value.rainWalletPasskeyInFlight != null || _state.value.isLoading) return
+        SampleLog.i(area, "starting")
+        // Recorded before the provider is prepared so a relaunch resumes it, as for a code login.
+        store.provider = SessionStore.Provider.RainWallet
+        _state.update {
+            it.copy(rainWalletPasskeyInFlight = action, statusText = "$label: waiting for the passkey sheet...")
+        }
+        viewModelScope.launch {
+            var provider: RainProvider? = null
+            val previousOwner = snapshotRainWalletOwner()
+            var hadSession = false
+            try {
+                val prepared = session.rainWalletProvider ?: session.prepareRainWallet(app)
+                provider = prepared
+                prepared.awaitSessionRestore()
+                _state.update { it.copy(backendOwner = SessionStore.Provider.RainWallet) }
+                hadSession = prepared.hasActiveSession()
+                // The call may switch the device's session and then fail before it returns, so the
+                // owner of the previous session is forgotten first and the new one written on success.
+                forgetRainWalletOwner()
+                call(prepared)
+                recordRainWalletPasskeyOwner()
+                SampleLog.i(area, "session active")
+                _state.update {
+                    it.copy(
+                        rainWalletSessionActive = true,
+                        rainWalletPasskeySession = true,
+                        rainWalletOtpSent = false,
+                        rainWalletOtpCode = "",
+                        statusText = "$label succeeded; initializing Rain...",
+                    )
+                }
+                initializeRainWithRainWallet()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RainError) {
+                SampleLog.w(area, "failed ${e.errorCode.code} (${e.javaClass.simpleName})")
+                onRainWalletPasskeyFailed(provider, label, previousOwner, hadSession, e)
+            } finally {
+                _state.update { it.copy(rainWalletPasskeyInFlight = null) }
+            }
+        }
+    }
+
+    /**
+     * A passkey flow's failure. A closed sheet or a refused request never reached a login, so the
+     * previous owner still owns whatever session is live. When the login went through and a later
+     * step failed, the session is live and the sample carries on signed in, as after a code.
+     * Otherwise whose session is live is unknown, so the owner stays unrecorded and the user signs
+     * in again.
+     */
+    private fun onRainWalletPasskeyFailed(
+        provider: RainProvider?,
+        label: String,
+        previousOwner: RainWalletOwnerSnapshot,
+        hadSession: Boolean,
+        e: RainError,
+    ) {
+        val code = e.errorCode.code
+        when {
+            e is RainError.UserRejected || e is RainError.InvalidConfig -> {
+                restoreRainWalletOwner(previousOwner)
+                val status = if (e is RainError.UserRejected) {
+                    "Passkey sheet closed ($code), no passkey used"
+                } else {
+                    "$label refused ($code)"
+                }
+                _state.update { it.copy(statusText = status) }
+            }
+            !hadSession && provider?.hasActiveSession() == true -> {
+                recordRainWalletPasskeyOwner()
+                _state.update {
+                    it.copy(
+                        rainWalletSessionActive = true,
+                        rainWalletPasskeySession = true,
+                        statusText = "$label signed in; wallet setup finishes when Rain initializes ($code)",
+                    )
+                }
+            }
+            else -> _state.update { it.copy(statusText = "$label failed ($code)") }
+        }
+    }
+
+    /** Registers a passkey on the signed-in account, so the next sign-in can use it. */
+    fun addRainWalletPasskey(activity: Activity) {
+        val provider = session.rainWalletProvider
+        if (provider == null || !_state.value.rainWalletSessionActive) {
+            _state.update { it.copy(statusText = "Sign in with the Rain wallet first") }
+            return
+        }
+        if (_state.value.rainWalletPasskeyInFlight != null) return
+        SampleLog.i("RainWallet.addPasskey", "starting")
+        _state.update {
+            it.copy(
+                rainWalletPasskeyInFlight = RainWalletPasskeyAction.AddPasskey,
+                statusText = "Waiting for the passkey sheet...",
+            )
+        }
+        viewModelScope.launch {
+            try {
+                provider.addPasskey(activity)
+                SampleLog.i("RainWallet.addPasskey", "registered")
+                _state.update { it.copy(statusText = "Passkey added; the next sign-in can use it") }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RainError.UserRejected) {
+                SampleLog.w("RainWallet.addPasskey", "sheet closed ${e.errorCode.code}")
+                _state.update { it.copy(statusText = "Passkey sheet closed (${e.errorCode.code}), no passkey added") }
+            } catch (e: RainError) {
+                SampleLog.w("RainWallet.addPasskey", "failed ${e.errorCode.code} (${e.javaClass.simpleName})")
+                _state.update { it.copy(statusText = "Add passkey failed (${e.errorCode.code})") }
+            } finally {
+                _state.update { it.copy(rainWalletPasskeyInFlight = null) }
+            }
+        }
+    }
+
+    fun onRainWalletAttachChannelChanged(channel: ContactChannel) {
+        _state.update { it.copy(rainWalletAttachChannel = channel) }
+    }
+
+    fun onRainWalletAttachEmailChanged(value: String) {
+        _state.update { it.copy(rainWalletAttachEmail = value) }
+    }
+
+    fun onRainWalletAttachPhoneChanged(value: String) {
+        _state.update { it.copy(rainWalletAttachPhone = value) }
+    }
+
+    fun onRainWalletAttachCodeChanged(value: String) {
+        _state.update { it.copy(rainWalletAttachCode = value) }
+    }
+
+    /**
+     * The provider for an attach call, or null with the status set: no live session, a blank
+     * contact, or on confirm no code out or a blank code. An attach call already in flight also
+     * yields null, silently.
+     */
+    private fun rainWalletAttachProviderOrNull(s: HomeUiState, confirming: Boolean): RainProvider? {
+        val provider = session.rainWalletProvider?.takeIf { s.rainWalletSessionActive }
+        val refusal = when {
+            provider == null -> "Sign in with the Rain wallet first"
+            confirming && !s.rainWalletAttachCodeSent -> "Send a verification code first"
+            confirming && s.rainWalletAttachCode.isBlank() -> "Verification code required"
+            !confirming && s.rainWalletAttachContact.isBlank() -> "${s.rainWalletAttachChannel.fieldLabel} is required"
+            else -> null
+        }
+        if (refusal != null) _state.update { it.copy(statusText = refusal) }
+        return if (refusal != null || s.rainWalletAttachInFlight) null else provider
+    }
+
+    /**
+     * Sends a verification code to the contact to attach to the signed-in account; distinct from
+     * the login code. A second tap requests a new code for the pinned contact.
+     */
+    fun sendRainWalletAttachCode(app: Application) {
+        val s = _state.value
+        val provider = rainWalletAttachProviderOrNull(s, confirming = false) ?: return
+        val channel = s.rainWalletAttachChannel
+        val resend = s.rainWalletAttachCodeSent
+        SampleLog.i(
+            "RainWallet.attach",
+            (if (resend) "requesting a new verification code" else "starting contact attach") + " channel=${channel.name}"
+        )
+        _state.update { it.copy(rainWalletAttachInFlight = true, statusText = "Sending verification code...") }
+        viewModelScope.launch {
+            try {
+                val contact = resolveContact(app, channel, s.rainWalletAttachEmail, s.rainWalletAttachPhone)
+                SampleLog.i("RainWallet.attach", "contact=${channel.mask(contact)}")
+                provider.sendContactVerificationCode(channel.toRainWalletContact(contact))
+                SampleLog.i("RainWallet.attach", if (resend) "new verification code sent" else "verification code sent")
+                _state.update {
+                    // Pinned to what the code went to; a converted phone number shows its E.164 form.
+                    it.withRainWalletAttachContact(channel, contact).copy(
+                        rainWalletAttachCodeSent = true,
+                        rainWalletAttachCode = "",
+                        statusText = "Verification code sent; ${channel.inboxHint}",
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RainError) {
+                SampleLog.w("RainWallet.attach", "send failed ${e.errorCode.code} (${e.javaClass.simpleName})")
+                _state.update { it.copy(statusText = "Verification code failed (${e.errorCode.code})") }
+            } finally {
+                _state.update { it.copy(rainWalletAttachInFlight = false) }
+            }
+        }
+    }
+
+    /**
+     * Confirms the verification code and attaches the contact, which can then sign in to this
+     * account by code; the contact goes into its owner slot, so a code login for it reuses the live
+     * session. A rejected code keeps the challenge; any other failure restarts from "Send
+     * verification code", which replaces a challenge the SDK kept.
+     */
+    fun confirmRainWalletAttach() {
+        val s = _state.value
+        val provider = rainWalletAttachProviderOrNull(s, confirming = true) ?: return
+        SampleLog.i("RainWallet.attach", "confirming verification code")
+        _state.update { it.copy(rainWalletAttachInFlight = true, statusText = "Confirming verification code...") }
+        viewModelScope.launch {
+            try {
+                provider.confirmContactVerification(s.rainWalletAttachCode.trim())
+                writeRainWalletContactSlot(s.rainWalletAttachChannel, s.rainWalletAttachContact.trim())
+                SampleLog.i("RainWallet.attach", "contact attached")
+                _state.update {
+                    it.copy(
+                        rainWalletAttachCodeSent = false,
+                        rainWalletAttachCode = "",
+                        statusText = "Contact attached; it can sign in to this account by code",
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RainError.InvalidLoginCode) {
+                SampleLog.w("RainWallet.attach", "verification code rejected (${e.errorCode.code})")
+                _state.update {
+                    it.copy(rainWalletAttachCode = "", statusText = "That code was not accepted; check it and try again")
+                }
+            } catch (e: RainError) {
+                SampleLog.w("RainWallet.attach", "confirm failed ${e.errorCode.code} (${e.javaClass.simpleName})")
+                _state.update {
+                    it.copy(
+                        rainWalletAttachCodeSent = false,
+                        rainWalletAttachCode = "",
+                        statusText = "Contact attach failed (${e.errorCode.code}); request a new verification code",
+                    )
+                }
+            } finally {
+                _state.update { it.copy(rainWalletAttachInFlight = false) }
             }
         }
     }
@@ -1261,8 +1575,15 @@ class HomeViewModel(
             // Real logout so the next run requires fresh auth (and resume detects no session).
             TurnkeyAuthSample.logout()
             PrivyAuthSample.logout()
-            // The backend owner survives: the singleton stays configured until a relaunch.
-            _state.update { seededState(it.mode).copy(backendOwner = it.backendOwner, statusText = "Session cleared") }
+            // The backend owner survives: the singleton stays configured until a relaunch, and so does
+            // the Activity flag, which only the screen's composition writes.
+            _state.update {
+                seededState(it.mode).copy(
+                    backendOwner = it.backendOwner,
+                    rainWalletActivityAvailable = it.rainWalletActivityAvailable,
+                    statusText = "Session cleared",
+                )
+            }
         }
     }
 }
@@ -1282,6 +1603,19 @@ data class HomeUiState(
     val rainWalletRevealedSecret: RevealedSecret? = null,
     /** The export row whose reveal is running; the other rows disable meanwhile. */
     val rainWalletExportInFlight: RainWalletExportKind? = null,
+    /** The session was established with a passkey; the header then names no contact. */
+    val rainWalletPasskeySession: Boolean = false,
+    /** The passkey call whose sheet or request is running; the passkey buttons disable meanwhile. */
+    val rainWalletPasskeyInFlight: RainWalletPasskeyAction? = null,
+    /** True while the screen has an Activity to present the passkey sheet from; false in previews. */
+    val rainWalletActivityAvailable: Boolean = false,
+    /** The attach step: a contact to add to the signed-in account as a login method. */
+    val rainWalletAttachChannel: ContactChannel = ContactChannel.Email,
+    val rainWalletAttachEmail: String = "",
+    val rainWalletAttachPhone: String = "",
+    val rainWalletAttachCode: String = "",
+    val rainWalletAttachCodeSent: Boolean = false,
+    val rainWalletAttachInFlight: Boolean = false,
     val turnkeyOrgId: String = "",
     val turnkeyAuthProxyConfigId: String = "",
     val turnkeyChannel: ContactChannel = ContactChannel.Email,
@@ -1343,6 +1677,19 @@ data class HomeUiState(
         ContactChannel.Phone -> copy(rainWalletChannel = channel, rainWalletPhone = contact)
     }
 
+    /** The contact the attach step's selected channel sends to. */
+    val rainWalletAttachContact: String
+        get() = when (rainWalletAttachChannel) {
+            ContactChannel.Email -> rainWalletAttachEmail
+            ContactChannel.Phone -> rainWalletAttachPhone
+        }
+
+    /** Pins the attach channel and its field to what the verification code went to; see [withRainWalletContact]. */
+    fun withRainWalletAttachContact(channel: ContactChannel, contact: String): HomeUiState = when (channel) {
+        ContactChannel.Email -> copy(rainWalletAttachChannel = channel, rainWalletAttachEmail = contact)
+        ContactChannel.Phone -> copy(rainWalletAttachChannel = channel, rainWalletAttachPhone = contact)
+    }
+
     /** The contact the selected Turnkey channel sends to. */
     val turnkeyContact: String
         get() = when (turnkeyChannel) {
@@ -1363,6 +1710,10 @@ data class HomeUiState(
     /** The Turnkey card's contact entry, as one value for the shared fields. */
     val turnkeyContactInput: ContactInput
         get() = ContactInput(turnkeyChannel, turnkeyEmail, turnkeyPhone)
+
+    /** The attach step's contact entry, as one value for the shared fields. */
+    val rainWalletAttachInput: ContactInput
+        get() = ContactInput(rainWalletAttachChannel, rainWalletAttachEmail, rainWalletAttachPhone)
 }
 
 /** One tab's contact entry: the channel switch plus the two per-channel fields. */
@@ -1372,6 +1723,12 @@ data class ContactInput(val channel: ContactChannel, val email: String, val phon
         ContactChannel.Email -> email
         ContactChannel.Phone -> if (phone.isBlank()) "" else SampleLog.maskPhone(phone)
     }
+}
+
+/** The typed contact for the SDK, on this channel. */
+private fun ContactChannel.toRainWalletContact(contact: String): RainWalletContact = when (this) {
+    ContactChannel.Email -> RainWalletContact.Email(contact)
+    ContactChannel.Phone -> RainWalletContact.Sms(contact)
 }
 
 private fun SessionStore.Provider.toMode(): WalletMode = when (this) {

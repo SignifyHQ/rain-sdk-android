@@ -1,6 +1,7 @@
 package com.rain.sdk.sample.screens
 
 import android.app.Application
+import androidx.activity.compose.LocalActivity
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -84,10 +85,13 @@ internal val WalletMode.displayName: String
         WalletMode.Privy -> "Privy"
     }
 
-/** "Rain Wallet · dev@rain.xyz" once connected; the bare provider name where there is no account. */
+/**
+ * "Rain Wallet · dev@rain.xyz" once connected, "Rain Wallet · passkey" after a passkey login; the bare
+ * provider name where there is no account.
+ */
 private fun HomeUiState.connectedSubtitle(): String {
     val account = when (mode) {
-        WalletMode.RainWallet -> rainWalletContactInput.headline()
+        WalletMode.RainWallet -> if (rainWalletPasskeySession) "passkey" else rainWalletContactInput.headline()
         WalletMode.Turnkey -> turnkeyContactInput.headline()
         WalletMode.Privy -> privyEmail
         WalletMode.Portal -> ""
@@ -124,7 +128,13 @@ fun HomeScreen(
             onClearSession = viewModel::clearSession,
         )
     }
-    val providerActions = remember(viewModel, application) { ProviderCardActions.bound(viewModel, application) }
+    // The passkey sheet needs a foreground Activity. A preview has none, so the card reads the
+    // view model's flag and disables the passkey buttons while it is false.
+    val activity = LocalActivity.current
+    LaunchedEffect(viewModel, activity) { viewModel.onRainWalletActivityAvailable(activity != null) }
+    val providerActions = remember(viewModel, application, activity) {
+        ProviderCardActions.bound(viewModel, application, activity)
+    }
 
     val exportActions = remember(viewModel, application) {
         ExportKeysActions(
