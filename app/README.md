@@ -117,6 +117,17 @@ mainnet-only, so naming the testnet tokens keeps the balance screen readable.
   slated to move behind `POST /v1/issuing/users/{userId}/wallet`), so the app has no recovery UI.
 - **Solana history** rows carry the wallet backend's activity id rather than a resolvable signature, so those
   rows are not linked to an explorer.
+- **Demo keystore.** `app/demo-debug.keystore` is committed on purpose and signs both the debug and
+  the release build. The Rain Wallet card's passkeys are bound to this certificate's SHA-256
+  fingerprint through `https://passkeys.uptop.xyz/.well-known/assetlinks.json`, served from the
+  `SignifyHQ/passkeys-demo` repository, so a build signed with any other key (Android Studio's own
+  debug key included) gets `RAIN_102` at the passkey sheet. The alias and both passwords are the
+  standard debug ones, `androiddebugkey` and `android`; nothing else may live in this file. To print
+  the fingerprint:
+
+  ```bash
+  /usr/bin/keytool -list -v -keystore app/demo-debug.keystore -alias androiddebugkey -storepass android -keypass android | grep 'SHA256:'
+  ```
 
 ## Project structure
 

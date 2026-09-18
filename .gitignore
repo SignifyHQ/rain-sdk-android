@@ -41,6 +41,8 @@ render.experimental.xml
 # Keystore files
 *.jks
 *.keystore
+# The sample's shared debug keystore: the demo's passkeys are bound to its certificate fingerprint
+!app/demo-debug.keystore
 *.pem
 *.p12
 *.key
