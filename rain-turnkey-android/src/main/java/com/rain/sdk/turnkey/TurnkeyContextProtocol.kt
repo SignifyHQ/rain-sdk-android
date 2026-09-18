@@ -414,15 +414,21 @@ internal class TurnkeyContextAdapter(
         )
     }
 
+    // The vendor's passkey flows generate the session's P-256 key pair, open the Keystore master key
+    // and rewrite its stores on the calling thread, as refreshSession's vendor call does, and hosts
+    // call from the main thread. The credential sheet is launched through the Activity and needs no
+    // main-thread caller.
     override suspend fun completePasskeyLogin(activity: Activity, rpId: String, sessionKey: String) {
-        context.loginWithPasskey(
-            activity = activity,
-            sessionKey = sessionKey,
-            // Revokes this user's other Turnkey sessions server-side on a successful login, the
-            // same rule as the code login; a refused passkey never reaches this point.
-            invalidateExisting = true,
-            rpId = rpId,
-        )
+        withContext(ioDispatcher) {
+            context.loginWithPasskey(
+                activity = activity,
+                sessionKey = sessionKey,
+                // Revokes this user's other Turnkey sessions server-side on a successful login, the
+                // same rule as the code login; a refused passkey never reaches this point.
+                invalidateExisting = true,
+                rpId = rpId,
+            )
+        }
     }
 
     override suspend fun completePasskeySignUp(
@@ -432,36 +438,39 @@ internal class TurnkeyContextAdapter(
         passkeyName: String,
         signupWallet: TurnkeyWalletSpec,
     ) {
-        context.signUpWithPasskey(
-            activity = activity,
-            sessionKey = sessionKey,
-            passkeyDisplayName = passkeyName,
-            // The wallet is created inside the signup request; the vendor replaces the
-            // authenticators and API keys of these params with the passkey and its temporary key
-            // and keeps the wallet. `CustomWallet` carries no mnemonic length, so the seed gets
-            // Turnkey's default of 12 words, the length the createWallet fallback pins.
-            createSubOrgParams = CreateSubOrgParams(
-                customWallet = CustomWallet(
-                    walletName = signupWallet.name,
-                    walletAccounts = signupWallet.accounts.toVendorParams(),
-                )
-            ),
-            invalidateExisting = true,
-            rpId = rpId,
-        )
+        withContext(ioDispatcher) {
+            context.signUpWithPasskey(
+                activity = activity,
+                sessionKey = sessionKey,
+                passkeyDisplayName = passkeyName,
+                // The wallet is created inside the signup request; the vendor replaces the
+                // authenticators and API keys of these params with the passkey and its temporary key
+                // and keeps the wallet. `CustomWallet` carries no mnemonic length, so the seed gets
+                // Turnkey's default of 12 words, the length the createWallet fallback pins.
+                createSubOrgParams = CreateSubOrgParams(
+                    customWallet = CustomWallet(
+                        walletName = signupWallet.name,
+                        walletAccounts = signupWallet.accounts.toVendorParams(),
+                    )
+                ),
+                invalidateExisting = true,
+                rpId = rpId,
+            )
+        }
     }
 
-    override suspend fun createPasskeyCredential(activity: Activity, rpId: String, name: String): PasskeyRegistration {
-        val result = createPasskey(
-            activity = activity,
-            // A fresh user id per registration, the vendor's own sign-up shape and Turnkey's guidance;
-            // the credential provider shows the name, and the vendor sends it as the display name too.
-            user = PasskeyUser(id = UUID.randomUUID().toString(), name = name, displayName = name),
-            rpId = rpId,
-            excludeCredentials = emptyList(),
-        )
-        return PasskeyRegistration(challenge = result.challenge, attestation = result.attestation)
-    }
+    override suspend fun createPasskeyCredential(activity: Activity, rpId: String, name: String): PasskeyRegistration =
+        withContext(ioDispatcher) {
+            val result = createPasskey(
+                activity = activity,
+                // A fresh user id per registration, the vendor's own sign-up shape and Turnkey's guidance;
+                // the credential provider shows the name, and the vendor sends it as the display name too.
+                user = PasskeyUser(id = UUID.randomUUID().toString(), name = name, displayName = name),
+                rpId = rpId,
+                excludeCredentials = emptyList(),
+            )
+            PasskeyRegistration(challenge = result.challenge, attestation = result.attestation)
+        }
 
     override suspend fun registerAuthenticator(
         organizationId: String,
@@ -487,7 +496,8 @@ internal class TurnkeyContextAdapter(
     }
 
     @Suppress("TooGenericExceptionCaught") // best-effort cleanup: a key that will not delete is logged, the token is already in hand
-    override suspend fun verifyOtpToken(challenge: OtpChallenge, otpCode: String): String {
+    override suspend fun verifyOtpToken(challenge: OtpChallenge, otpCode: String): String = withContext(ioDispatcher) {
+        // The throwaway key pair and the code's encryption are generated on the calling thread.
         val result = context.verifyOtp(
             otpId = challenge.otpId,
             otpCode = otpCode,
@@ -504,7 +514,7 @@ internal class TurnkeyContextAdapter(
         } catch (e: Exception) {
             Timber.w("Rain SDK: could not delete the verification key pair (%s)", e.javaClass.simpleName)
         }
-        return result.verificationToken
+        result.verificationToken
     }
 
     override suspend fun setUserEmail(organizationId: String, userId: String, email: String, verificationToken: String) {

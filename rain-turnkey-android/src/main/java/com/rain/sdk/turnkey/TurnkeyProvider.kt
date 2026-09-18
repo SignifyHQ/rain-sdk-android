@@ -29,8 +29,8 @@ internal const val TURNKEY_PROVIDER_CLOSED_MESSAGE = "This provider was closed; 
  *   Turnkey's Kotlin SDK itself (passkeys, auth proxy, OAuth, OTP), completes login, and hands the
  *   authenticated [TurnkeyContext] singleton here. The SDK never touches authentication.
  * - **Managed** — `TurnkeyConfig(application, organizationId, authProxyConfigId)`: the SDK owns
- *   Turnkey authentication (one-time code by email or SMS through Turnkey's auth proxy, Ethereum
- *   and Solana accounts provisioned on first login). Internal API, marked
+ *   Turnkey authentication (a one-time code by email or SMS, or a passkey, through Turnkey's auth
+ *   proxy; Ethereum and Solana accounts provisioned on first login). Internal API, marked
  *   [InternalRainTurnkeyApi]: the building block of the Rain wallet provider (`RainProvider` in `rain-wallet-android`), not a host-facing mode.
  *
  * @param turnkey The `TurnkeyContext` singleton every wallet call goes through — authenticated by
@@ -48,7 +48,8 @@ internal const val TURNKEY_PROVIDER_CLOSED_MESSAGE = "This provider was closed; 
  *                         coroutine's thread or a watcher thread; hop to the main thread before
  *                         touching UI, and never call back into the SDK synchronously from it.
  *                         Restart authentication from here (in managed mode: `sendLoginCode` /
- *                         `confirmLoginCode` again). A deliberate `logout()` does not fire it.
+ *                         `confirmLoginCode` again, or `loginWithPasskey`). A deliberate `logout()`
+ *                         does not fire it.
  * @param sponsorGas When true, every EVM send on a Turnkey broadcast chain is sponsored —
  *                   transfers, collateral withdrawals, Auth Pull approvals, and raw
  *                   `sendTransaction` calls alike: Turnkey's Gas Station builds and pays the
@@ -467,7 +468,8 @@ class TurnkeyProvider internal constructor(
      * Turnkey sessions on every device (`invalidateExisting`) and backfills a missing Ethereum or
      * Solana account onto the existing wallet. A dismissed sheet, a refused passkey or a failed
      * ceremony leaves the current session untouched. Throws `RainError.InvalidConfig` before any
-     * vendor call when no `passkeyDomain` is configured, `RainError.UserRejected` when the sheet
+     * vendor call when no `passkeyDomain` is configured, or when the association file does not vouch
+     * for this build, `RainError.UserRejected` when the sheet
      * was dismissed or the device holds no passkey for the domain, and `RainError.ProviderError`
      * for a ceremony the device or the backend refused for another reason. Managed mode only.
      *
@@ -481,7 +483,9 @@ class TurnkeyProvider internal constructor(
      *   retains it no longer than the call.
      */
     @InternalRainTurnkeyApi
-    suspend fun loginWithPasskey(activity: Activity) = requireManagedAuth().loginWithPasskey(activity)
+    suspend fun loginWithPasskey(activity: Activity) {
+        requireManagedAuth().loginWithPasskey(activity)
+    }
 
     /**
      * Creates a new account with a passkey as its only login method and one wallet holding an
@@ -490,8 +494,10 @@ class TurnkeyProvider internal constructor(
      * [loginWithPasskey] or a login code, or ends up with a second, empty wallet; accounts are
      * never merged. Refused with `RainError.InvalidConfig` while any session is selected on this
      * device, so log out first: the vendor swaps its process-wide client for the whole ceremony and
-     * a wallet call made meanwhile would read the live session as dead. If the passkey was created
-     * but the login that followed failed, the account exists and [loginWithPasskey] reaches it.
+     * a wallet call made meanwhile would read the live session as dead. If the sign-up request
+     * succeeded but the login that followed failed, the account exists and [loginWithPasskey]
+     * reaches it; if the sign-up request itself failed, no account exists and the passkey the sheet
+     * created signs into nothing. Both arrive as `RainError.ProviderError`.
      * Throws `RainError.InvalidConfig` when no `passkeyDomain` is configured or the association
      * file does not vouch for this build, `RainError.UserRejected` when the sheet was dismissed,
      * and `RainError.ProviderError` for a ceremony or sign-up the device or the backend refused
@@ -500,7 +506,9 @@ class TurnkeyProvider internal constructor(
      * @param activity As for [loginWithPasskey].
      */
     @InternalRainTurnkeyApi
-    suspend fun signUpWithPasskey(activity: Activity) = requireManagedAuth().signUpWithPasskey(activity)
+    suspend fun signUpWithPasskey(activity: Activity) {
+        requireManagedAuth().signUpWithPasskey(activity)
+    }
 
     /**
      * Registers a passkey bound to [TurnkeyConfig]'s `passkeyDomain` on the signed-in account, so
@@ -517,7 +525,9 @@ class TurnkeyProvider internal constructor(
      * @param activity As for [loginWithPasskey].
      */
     @InternalRainTurnkeyApi
-    suspend fun addPasskey(activity: Activity) = requireManagedAuth().addPasskey(activity)
+    suspend fun addPasskey(activity: Activity) {
+        requireManagedAuth().addPasskey(activity)
+    }
 
     /**
      * Sends a verification code to a contact the signed-in user wants to attach to this account,
@@ -531,8 +541,9 @@ class TurnkeyProvider internal constructor(
      * mode only.
      */
     @InternalRainTurnkeyApi
-    suspend fun sendContactVerificationCode(contact: LoginContact) =
+    suspend fun sendContactVerificationCode(contact: LoginContact) {
         requireManagedAuth().sendContactVerificationCode(contact)
+    }
 
     /**
      * Confirms the code from [sendContactVerificationCode] and attaches the verified contact. The
@@ -546,12 +557,14 @@ class TurnkeyProvider internal constructor(
      * Managed mode only.
      */
     @InternalRainTurnkeyApi
-    suspend fun confirmContactVerification(code: String) = requireManagedAuth().confirmContactVerification(code)
+    suspend fun confirmContactVerification(code: String) {
+        requireManagedAuth().confirmContactVerification(code)
+    }
 
     /**
      * Clears the selected session (full logout) — after waiting for a restore in flight to
      * settle — without firing [TurnkeyConfig.onSessionExpired]; cached accounts still go stale
-     * and a pending login code is dropped. [hasActiveSession] and [currentAuthState] read
+     * and a pending login code and a pending contact verification are dropped. [hasActiveSession] and [currentAuthState] read
      * unauthenticated as soon as it returns. A no-op when no session is selected. Managed mode only —
      * throws `RainError.InvalidConfig` in bring-your-own mode, where the host owns the session.
      */

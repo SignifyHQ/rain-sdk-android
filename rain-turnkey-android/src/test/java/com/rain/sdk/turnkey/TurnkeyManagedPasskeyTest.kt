@@ -246,6 +246,33 @@ class TurnkeyManagedPasskeyTest {
     }
 
     @Test
+    fun `a cancelled passkey sign-up propagates the cancellation and keeps a session the vendor already selected`() = runTest {
+        // The vendor stored and, with nothing selected, selected the fresh session before the
+        // cancellation landed: the account exists, so the device stays signed in, as after a login.
+        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), session = null)
+        turnkey.passkeyStoresBeforeThrowing = true
+        turnkey.passkeySignUpError = CancellationException("cancelled")
+        val controller = controller(turnkey)
+
+        expectThrows<CancellationException> { controller.signUpWithPasskey(activity) }
+
+        val fresh = turnkey.passkeySignUpCalls.single().sessionKey
+        assertThat(turnkey.selectedSessionKey).isEqualTo(fresh)
+        assertThat(turnkey.clearSessionCalls).isEmpty()
+        assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
+        assertThat(hookCalls).isEqualTo(0)
+
+        // Cancelled before the vendor stored anything: nothing is selected and nothing was cleared.
+        val early = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), session = null)
+        early.passkeySignUpError = CancellationException("cancelled")
+
+        expectThrows<CancellationException> { controller(early).signUpWithPasskey(activity) }
+
+        assertThat(early.selectedSessionKey).isNull()
+        assertThat(early.clearSelectedSessionCallCount).isEqualTo(0)
+    }
+
+    @Test
     fun `passkey sign-up with a session selected is refused up front with no vendor call`() = runTest {
         val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()))
         val controller = controller(turnkey)

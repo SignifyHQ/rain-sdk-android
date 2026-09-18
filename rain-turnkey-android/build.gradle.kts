@@ -91,6 +91,10 @@ dependencies {
     // `crypto` reaches the compile classpath through sdk-kotlin as well. The adapter's key export
     // imports it directly, so it is named here for the same bookkeeping reason.
     implementation(libs.turnkey.crypto)
+    // `passkey` and `stamper` reach the compile classpath through sdk-kotlin too. The adapter runs
+    // the passkey ceremony and matches their error types directly, so both are named here.
+    implementation(libs.turnkey.passkey)
+    implementation(libs.turnkey.stamper)
 
     // ed25519 public-key derivation for the exported Solana keypair, the vendor's own method. The
     // same bcprov-jdk15to18 build and 1.84 floor are already on every consumer's runtime classpath
@@ -116,7 +120,7 @@ dependencies {
     testImplementation(libs.json)
     testImplementation(libs.kotlinx.coroutines.test)
     // Already on the test runtime classpath via mockk; declared so reflection compiles cleanly.
-    testImplementation(kotlin("reflect"))
+    testImplementation(libs.kotlin.reflect)
 }
 
 mavenPublishing {

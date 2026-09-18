@@ -4,6 +4,7 @@ import android.app.Activity
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
 import io.mockk.mockk
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Test
@@ -88,6 +89,67 @@ class TurnkeyManagedContactAttachTest {
 
         assertThat(turnkey.completeOtpCalls.single().otpId).isEqualTo("otp-login")
         assertThat(turnkey.verifyOtpTokenCalls).hasSize(1)
+    }
+
+    @Test
+    fun `a second send replaces the pending verification code, and a failed second send keeps the first`() = runTest {
+        val turnkey = MockTurnkey()
+        val controller = controller(turnkey)
+        turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-1", encryptionTargetBundle = "b1", channel = OtpChannel.EMAIL)
+        controller.sendContactVerificationCode(LoginContact.Email("first@example.com"))
+        turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-2", encryptionTargetBundle = "b2", channel = OtpChannel.EMAIL)
+        controller.sendContactVerificationCode(LoginContact.Email("second@example.com"))
+
+        controller.confirmContactVerification("111111")
+
+        assertThat(turnkey.verifyOtpTokenCalls.single().otpId).isEqualTo("otp-2")
+        assertThat(turnkey.setUserEmailCalls.single().contact).isEqualTo("second@example.com")
+
+        // A replacement that fails leaves the earlier challenge in place.
+        turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-3", encryptionTargetBundle = "b3", channel = OtpChannel.EMAIL)
+        controller.sendContactVerificationCode(LoginContact.Email("third@example.com"))
+        turnkey.sendOtpError = RainError.ProviderError(RuntimeException("refused"))
+        expectThrows<RainError.ProviderError> { controller.sendContactVerificationCode(LoginContact.Email("fourth@example.com")) }
+        turnkey.sendOtpError = null
+
+        controller.confirmContactVerification("222222")
+
+        assertThat(turnkey.verifyOtpTokenCalls.last().otpId).isEqualTo("otp-3")
+        assertThat(turnkey.setUserEmailCalls.last().contact).isEqualTo("third@example.com")
+    }
+
+    @Test
+    fun `a cancellation inside the verify step propagates as itself and keeps the pending challenge`() = runTest {
+        val turnkey = MockTurnkey()
+        val controller = controller(turnkey)
+        controller.sendContactVerificationCode(LoginContact.Email("user@example.com"))
+        turnkey.verifyOtpTokenError = CancellationException("cancelled")
+
+        expectThrows<CancellationException> { controller.confirmContactVerification("123456") }
+
+        assertThat(turnkey.verifyOtpTokenCalls).hasSize(1)
+        assertThat(turnkey.setUserEmailCalls).isEmpty()
+
+        // The challenge survived: the retry spends the same one, with no new code requested.
+        turnkey.verifyOtpTokenError = null
+        controller.confirmContactVerification("123456")
+
+        assertThat(turnkey.verifyOtpTokenCalls.map { it.otpId }.distinct()).hasSize(1)
+        assertThat(turnkey.sendOtpCalls).hasSize(1)
+        assertThat(turnkey.setUserEmailCalls).hasSize(1)
+    }
+
+    @Test
+    fun `a cancellation inside the send step propagates as itself and leaves nothing to confirm`() = runTest {
+        val turnkey = MockTurnkey()
+        val controller = controller(turnkey)
+        turnkey.sendOtpError = CancellationException("cancelled")
+
+        expectThrows<CancellationException> { controller.sendContactVerificationCode(LoginContact.Email("user@example.com")) }
+
+        turnkey.sendOtpError = null
+        expectThrows<RainError.InvalidConfig> { controller.confirmContactVerification("123456") }
+        assertThat(turnkey.verifyOtpTokenCalls).isEmpty()
     }
 
     @Test

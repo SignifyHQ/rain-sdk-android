@@ -233,7 +233,8 @@ class RainProvider internal constructor(
 
     /**
      * Clears the stored session (full logout), after waiting for a restore in flight to settle,
-     * without firing [RainWalletConfig.onSessionExpired]; a pending login code is dropped.
+     * without firing [RainWalletConfig.onSessionExpired]; a pending login code and a pending contact
+     * verification are dropped.
      * [hasActiveSession] and [currentAuthState] read unauthenticated as soon as it returns. A no-op
      * when no session is selected, but not infallible: it runs the same backend readiness checks as
      * every other authentication call.
@@ -285,10 +286,12 @@ class RainProvider internal constructor(
      * Ethereum and a Solana account created inside the same request, then signs it in as
      * [loginWithPasskey] does. Every call mints a fresh account, so a returning user must use
      * [loginWithPasskey] or a login code, or they end up with a second, empty wallet; accounts are
-     * never merged. Log out first, because a live session on this device is refused. If the wallet
-     * was created but the login that followed failed, the account exists and [loginWithPasskey]
-     * reaches it. [exportRecoveryPhrase] is the backup path for an account whose only login is a
-     * passkey; [sendContactVerificationCode] adds an email or phone as a second one.
+     * never merged. Log out first, because a live session on this device is refused. If the sign-up
+     * request succeeded but the login that followed failed, the account exists and
+     * [loginWithPasskey] reaches it; if the sign-up request itself failed, no account exists and
+     * the passkey the sheet created signs into nothing. Both arrive as `RainError.ProviderError`.
+     * [exportRecoveryPhrase] is the backup path for an account whose only login is a passkey;
+     * [sendContactVerificationCode] adds an email or phone as a second one.
      *
      * @param activity The foreground Activity the sheet is presented from; see [loginWithPasskey]
      *   for its lifetime and what cancellation does.
@@ -339,7 +342,9 @@ class RainProvider internal constructor(
      * (see [RainWalletContact]) and that string is what the account stores. Accounts are never
      * merged: a contact that already belongs to another account does not move wallets, and the
      * backend's answer surfaces on confirm. A second call replaces the pending code; a login or a
-     * [logout] drops it.
+     * [logout] drops it. The SDK adds no user-presence check before the attach beyond the live
+     * session, which can be one restored at launch, so gate the call as you gate export, with a
+     * biometric prompt or a fresh login, and show the user which contacts sign in to the account.
      *
      * @throws RainError.InvalidConfig (`RAIN_102`) for a blank email or a phone number outside
      *   E.164, on a wallet backend configuration conflict for this launch, or when this provider

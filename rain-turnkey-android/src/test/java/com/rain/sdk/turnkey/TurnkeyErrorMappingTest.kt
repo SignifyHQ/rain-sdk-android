@@ -652,6 +652,20 @@ class TurnkeyErrorMappingTest {
     }
 
     @Test
+    fun `a bare stamper failure is classified by its cause like a wrapped login failure`() {
+        // The stamper's own wrapper without the vendor's login wrapper around it.
+        val cancelled = com.turnkey.stamper.utils.TurnkeyStamperError.AssertionFailed(
+            com.turnkey.passkey.utils.TurnkeyPasskeyError.AssertionFailed(
+                androidx.credentials.exceptions.GetCredentialCancellationException("cancelled")
+            )
+        )
+        assertThat(mapping.classify(cancelled)).isInstanceOf(RainError.UserRejected::class.java)
+
+        val broken = com.turnkey.stamper.utils.TurnkeyStamperError.AssertionFailed(RuntimeException("boom"))
+        assertThat(mapping.classify(broken)).isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    @Test
     fun `a passkey failure whose only signal is the prose maps to UserRejected`() {
         // No typed leaf in the chain: the shared prose rules read the wrapper's message, which the
         // vendor builds by concatenating every cause's message.

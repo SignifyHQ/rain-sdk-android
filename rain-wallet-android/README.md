@@ -83,6 +83,10 @@ Notes:
 - Capabilities: `EXPORT`, `MULTI_CHAIN`, plus `GAS_SPONSORSHIP` while `sponsorGas` is on. Signing is
   not gated behind a biometric prompt, so gate export yourself. No capability advertises passkeys;
   `hasActiveSession()` and `authState` answer the same for a code or a passkey login.
+- Attaching a contact adds a permanent login route with no user-presence check beyond a live session,
+  which can be one restored at launch, so gate `sendContactVerificationCode` and
+  `confirmContactVerification` as you gate export, and show the user which contacts sign in to the
+  account. `addPasskey` is covered by the credential provider's own user verification.
 - Minified builds inherit one rule from the wallet backend's adapter: `-dontwarn
   org.bitcoinj.core.Base58`, for a class the backend references on its export path and never loads.
   It lands in your whole R8 configuration, so a reference of your own to that class stops warning.

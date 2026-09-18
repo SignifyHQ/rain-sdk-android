@@ -30,6 +30,9 @@ turnkey-http-types = "2.1.0"
 # com.turnkey:crypto is versioned separately from sdk-kotlin, whose metadata requires this value
 # without pinning it, so a bump here would win: move it together with the sdk-kotlin version.
 turnkey-crypto = "1.0.1"
+# com.turnkey:passkey and com.turnkey:stamper are versioned apart from sdk-kotlin as well; the adapter
+# runs the passkey ceremony and matches their error types directly, so both are named.
+turnkey-passkey-stamper = "1.0.3"
 privy = "0.15.0"
 # Security: pin Turnkey transitive deps above CVE-affected versions.
 # bitcoinj < 0.17.1 = GHSA-hfcf-v2f8-x9pc (P2PKH/P2WPKH verify bypass).
@@ -91,6 +94,8 @@ turnkey-http = { module = "com.turnkey:http", version.ref = "turnkey-http-types"
 turnkey-types = { module = "com.turnkey:types", version.ref = "turnkey-http-types" }
 # Declared so the module names what it imports. sdk-kotlin already carries it transitively.
 turnkey-crypto = { module = "com.turnkey:crypto", version.ref = "turnkey-crypto" }
+turnkey-passkey = { module = "com.turnkey:passkey", version.ref = "turnkey-passkey-stamper" }
+turnkey-stamper = { module = "com.turnkey:stamper", version.ref = "turnkey-passkey-stamper" }
 # Pulls Privy's KMP model artifacts (kmp-embedded-wallet-public / kmp-authentication-public) transitively.
 privy-core = { module = "io.privy:privy-core", version.ref = "privy" }
 web3j-core = { module = "org.web3j:core", version.ref = "web3j" }

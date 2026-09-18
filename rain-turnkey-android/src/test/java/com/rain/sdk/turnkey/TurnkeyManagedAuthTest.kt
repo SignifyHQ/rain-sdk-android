@@ -503,11 +503,16 @@ class TurnkeyManagedAuthTest {
         expectThrows<RainError.InvalidConfig> { controller.confirmLoginCode("123456") }
         expectThrows<RainError.InvalidConfig> { controller.loginWithPasskey(activity) }
         expectThrows<RainError.InvalidConfig> { controller.signUpWithPasskey(activity) }
+        expectThrows<RainError.InvalidConfig> { controller.addPasskey(activity) }
+        expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Email("user@example.com")) }
+        expectThrows<RainError.InvalidConfig> { controller.confirmContactVerification("123456") }
         expectThrows<RainError.InvalidConfig> { controller.awaitSessionRestore(timeoutMs = 100) }
         expectThrows<RainError.InvalidConfig> { controller.logout() }
 
         assertThat(turnkey.awaitReadyCallCount).isEqualTo(0)
         assertThat(turnkey.sendOtpCalls).isEmpty()
+        assertThat(turnkey.createPasskeyCalls).isEmpty()
+        assertThat(turnkey.verifyOtpTokenCalls).isEmpty()
         assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
     }
 
