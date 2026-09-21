@@ -298,9 +298,8 @@ class RainSdk private constructor(
     val isRainApiConfigured: Boolean get() = rainApiConfig.isConfigured
 
     /**
-     * Sets or replaces the Rain program Api-Key and userId at runtime. The cached client
-     * session token is discarded lazily — the next API call re-mints against the new pair.
-     * The SDK never persists these values.
+     * Sets or replaces the Rain program Api-Key and userId at runtime; the next API call carries
+     * the new pair. The SDK never persists these values.
      */
     fun configureRainApi(apiKey: String, userId: String) {
         rainApiConfig.setCredentials(apiKey, userId)
@@ -314,6 +313,8 @@ class RainSdk private constructor(
      * null. Needs no wallet provider, only the configured Api-Key/userId and RPC endpoints.
      *
      * @throws RainError.ApiNotConfigured when no credentials were supplied.
+     * @throws RainError.Unauthorized when Rain rejects the Api-Key (HTTP 401 or 403). Not retried:
+     *   the same key cannot succeed on a second attempt.
      */
     @Throws(RainError::class)
     suspend fun fetchCollateralContracts(): List<RainCollateralContract> =
@@ -335,6 +336,9 @@ class RainSdk private constructor(
      *
      * @param amountBaseUnits Withdrawal amount in the token's base units.
      * @param adminAddress One of the contract's [RainCollateralContract.adminAddresses].
+     * @throws RainError.ApiNotConfigured when no credentials were supplied.
+     * @throws RainError.Unauthorized when Rain rejects the Api-Key (HTTP 401 or 403). Not retried:
+     *   the same key cannot succeed on a second attempt.
      * @throws RainError.SignatureNotReady when Rain has not produced the signature yet — retry
      *   after the carried `retryAfter` seconds.
      */

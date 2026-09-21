@@ -14,6 +14,10 @@ import com.turnkey.types.TGetSendTransactionStatusBody
 import com.turnkey.types.TGetSendTransactionStatusResponse
 import com.turnkey.types.TGetWalletAddressBalancesBody
 import com.turnkey.types.TGetWalletAddressBalancesResponse
+import com.turnkey.types.TListEthTransactionHistoryBody
+import com.turnkey.types.TListEthTransactionHistoryResponse
+import com.turnkey.types.TListSolTransactionHistoryBody
+import com.turnkey.types.TListSolTransactionHistoryResponse
 import com.turnkey.types.TSolSendTransactionBody
 import com.turnkey.types.TSolSendTransactionResponse
 import com.turnkey.types.V1Activity
@@ -33,6 +37,7 @@ import com.turnkey.types.V1Result
 import com.turnkey.types.V1SignRawPayloadResult
 import com.turnkey.types.V1SolSendTransactionIntent
 import com.turnkey.types.V1SolSendTransactionResult
+import com.turnkey.types.V1SolSendTransactionResultV2
 import com.turnkey.types.V1SolanaSendTransactionStatus
 import com.turnkey.types.V1WalletAccount
 import kotlinx.coroutines.CompletableDeferred
@@ -96,12 +101,28 @@ internal class MockTurnkeyClient(
     /** When set, [getNonces] throws this instead of producing a response. */
     var getNoncesError: Exception? = null
 
+    /**
+     * Indexed history fixtures. Null, the default, answers the way Turnkey does for an organization
+     * without the transaction history feature: the vendor client's HTTP 403, so suites that do not
+     * set a page exercise the activity-log fallback.
+     */
+    var mockEthHistory: TListEthTransactionHistoryResponse? = null
+    var mockSolHistory: TListSolTransactionHistoryResponse? = null
+
+    /** When set, [listEthTransactionHistory] throws this instead of producing a response. */
+    var listEthHistoryError: Exception? = null
+
+    /** When set, [listSolTransactionHistory] throws this instead of producing a response. */
+    var listSolHistoryError: Exception? = null
+
     val walletAddressBalanceCalls = mutableListOf<TGetWalletAddressBalancesBody>()
     val ethSendTransactionCalls = mutableListOf<TEthSendTransactionBody>()
     val solSendTransactionCalls = mutableListOf<TSolSendTransactionBody>()
     val sendTransactionStatusCalls = mutableListOf<TGetSendTransactionStatusBody>()
     val getActivitiesCalls = mutableListOf<TGetActivitiesBody>()
     val getNoncesCalls = mutableListOf<TGetNoncesBody>()
+    val listEthHistoryCalls = mutableListOf<TListEthTransactionHistoryBody>()
+    val listSolHistoryCalls = mutableListOf<TListSolTransactionHistoryBody>()
 
     override suspend fun getNonces(input: TGetNoncesBody): TGetNoncesResponse {
         getNoncesCalls += input
@@ -147,14 +168,14 @@ internal class MockTurnkeyClient(
         return TSolSendTransactionResponse(
             activity = MockTurnkey.makeActivity(
                 id = UUID.randomUUID().toString(),
-                from = input.signWith,
-                to = input.signWith,
+                from = input.signWiths.single(),
+                to = input.signWiths.single(),
                 caip2 = input.caip2,
                 value = null,
                 data = null,
                 sendTransactionStatusId = mockSolSendTransactionStatusId
             ),
-            result = V1SolSendTransactionResult(sendTransactionStatusId = mockSolSendTransactionStatusId)
+            result = V1SolSendTransactionResultV2(sendTransactionStatusId = mockSolSendTransactionStatusId)
         )
     }
 
@@ -185,30 +206,22 @@ internal class MockTurnkeyClient(
         getActivitiesError?.let { throw it }
         return TGetActivitiesResponse(activities = mockActivities)
     }
-}
 
-/**
- * History stub for tests that exercise the activity-log fallback: every indexed query fails
- * the way it does for an org without the transaction history feature.
- */
-internal object ThrowingTurnkeyHistory : TurnkeyHistoryProtocol {
     override suspend fun listEthTransactionHistory(
-        organizationId: String,
-        sessionPublicKey: String,
-        address: String,
-        caip2: String,
-        limit: Int
-    ): TurnkeyEthHistoryResponse =
-        throw TurnkeyHistoryError(403, "transaction history feature is not enabled")
+        input: TListEthTransactionHistoryBody
+    ): TListEthTransactionHistoryResponse {
+        listEthHistoryCalls += input
+        listEthHistoryError?.let { throw it }
+        return mockEthHistory ?: throw MockTurnkey.historyHttpError(MockTurnkey.ETH_HISTORY_PATH, 403)
+    }
 
     override suspend fun listSolTransactionHistory(
-        organizationId: String,
-        sessionPublicKey: String,
-        address: String,
-        caip2: String,
-        limit: Int
-    ): TurnkeySolHistoryResponse =
-        throw TurnkeyHistoryError(403, "transaction history feature is not enabled")
+        input: TListSolTransactionHistoryBody
+    ): TListSolTransactionHistoryResponse {
+        listSolHistoryCalls += input
+        listSolHistoryError?.let { throw it }
+        return mockSolHistory ?: throw MockTurnkey.historyHttpError(MockTurnkey.SOL_HISTORY_PATH, 403)
+    }
 }
 
 internal class MockTurnkey(
@@ -469,6 +482,15 @@ internal class MockTurnkey(
         const val DEFAULT_SOLANA_RECIPIENT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
         const val DEFAULT_ORG_ID = "org-id"
         const val DEFAULT_SESSION_KEY = "com.turnkey.sdk.session"
+        const val ETH_HISTORY_PATH = "/public/v1/query/list_eth_transaction_history"
+        const val SOL_HISTORY_PATH = "/public/v1/query/list_sol_transaction_history"
+
+        /**
+         * The vendor client's failure for a non-2xx history response: a plain `RuntimeException`
+         * whose message carries the status, the shape `TurnkeyErrorMapping.turnkeyHttpStatus` reads.
+         */
+        fun historyHttpError(path: String, status: Int): RuntimeException =
+            RuntimeException("HTTP error from $path: $status")
 
         fun defaultSession(): Session = Session(
             userId = "user-id",

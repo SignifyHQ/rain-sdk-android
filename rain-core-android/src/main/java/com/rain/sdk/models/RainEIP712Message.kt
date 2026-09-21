@@ -1,5 +1,7 @@
 package com.rain.sdk.models
 
+import java.util.Locale
+
 /**
  * The EIP-712 message a wallet signs to authorize a withdrawal, plus the salt bound into it.
  *
@@ -20,6 +22,6 @@ class RainEIP712Message internal constructor(
 
     /** [salt] as a `0x`-prefixed lowercase hex string. */
     val saltHex: String get() = saltBytes.joinToString(prefix = "0x", separator = "") {
-        "%02x".format(it)
+        "%02x".format(Locale.ROOT, it)
     }
 }

@@ -82,8 +82,9 @@ that capability finds no bundled provider.
 
 ## Requirements
 
-- Android SDK 28+ (Turnkey-compatible)
-- Kotlin 2.2.x (the SDK is built with Kotlin 2.2.20)
+- minSdk 28 or higher (the wallet vendors require it)
+- compileSdk 36 or higher (the AARs declare minCompileSdk 36; the SDK itself compiles against 37)
+- Kotlin 2.2 recommended; Kotlin 2.1 compiles against the SDK's metadata through the compiler's one-version-ahead reading (the SDK is built with Kotlin 2.2.21 and ships Java 11 bytecode)
 
 ## Quick Start
 
@@ -356,10 +357,14 @@ val result = client.sendToken(
 
 ### 7. Rain API: Collateral Contracts & Admin Signature
 
-The SDK talks to the Rain issuing API directly — supply your program **Api-Key** and Rain
-**userId** and it handles session (CST) minting, caching, and refresh internally. Credentials
-are never persisted by the SDK. In production, prefer minting server-to-server and keeping the
-Api-Key off the device.
+The SDK talks to the Rain issuing API directly: supply your program **Api-Key** and Rain
+**userId**, and every call carries the Api-Key header. Credentials are never persisted by the
+SDK. In production, keep the Api-Key off the device: point the SDK at your own backend with
+`RainApiEnvironment.Custom(url)` and pass a per-user token as the `apiKey` value. The SDK sends
+that string as the `Api-Key` header on the same two paths, `/v1/issuing/users/{userId}/contracts`
+and `/v1/issuing/users/{userId}/signatures/withdrawals`, so your backend validates the token,
+swaps in the real key and forwards the request. With Auth Pull on a custom gateway, pair it with
+`RainAuthPullConfig.custom(...)`, which names the operator and token contracts explicitly.
 
 ```kotlin
 import com.rain.sdk.models.RainApiEnvironment

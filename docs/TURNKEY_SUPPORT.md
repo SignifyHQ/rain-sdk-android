@@ -6,7 +6,7 @@ Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provide
 
 - `minSdk = 28` (matches Turnkey's requirement).
 - Managed mode: nothing to initialize — the SDK configures Turnkey itself. Bring-your-own mode: the Turnkey Kotlin SDK initialized in your `Application.onCreate()`, with the passkey/auth-proxy/OAuth/OTP flow completed by the host app.
-- **JDK 24+** to run unit tests that touch Turnkey types (the Turnkey 2.0.0 AAR ships class-file major version 68 / Java 24). Production Android builds are unaffected — R8/D8 dexes Turnkey's bytecode regardless of host JVM version. The `TurnkeyWalletProviderTest` suite skips itself automatically on JDKs older than 24 via `Assume.assumeTrue`.
+- **JDK 24+** to run unit tests that touch Turnkey types (`com.turnkey:encoding:1.0.0`, pulled in by the Turnkey SDK, ships class-file major version 68 / Java 24). Production Android builds are unaffected — R8/D8 dexes Turnkey's bytecode regardless of host JVM version. The `TurnkeyWalletProviderTest` suite skips itself automatically on JDKs older than 24 via `Assume.assumeTrue`.
 
 ## Adding the dependency
 
@@ -20,10 +20,11 @@ dependencies {
 An app that does not register Turnkey should not depend on this module: the Turnkey artifacts come with it, and nothing else in the SDK pulls them. Internally the module pulls in:
 
 ```
-com.turnkey:sdk-kotlin:2.0.0
-com.turnkey:http:2.0.0
-com.turnkey:types:2.0.0
+com.turnkey:sdk-kotlin:2.0.1
+com.turnkey:http:2.1.0
+com.turnkey:types:2.1.0
 com.turnkey:crypto:1.0.1
+com.turnkey:encoding:1.0.0
 ```
 
 ## Two modes
@@ -121,7 +122,7 @@ independently; providers no longer replace one another.
 
 Managed mode is not a host-facing mode. Every member of it — the `TurnkeyConfig(application, organizationId, authProxyConfigId)` constructor, `sendLoginCode` / `confirmLoginCode` / `logout` / `awaitSessionRestore` / `hasActiveSession` / `authState` / `currentAuthState`, `LoginContact` and `TurnkeyAuthState` — is marked `@InternalRainTurnkeyApi`, a `@RequiresOptIn` annotation at error level: a host app that calls any of them gets a compile error naming the reason. It is the building block of the Rain wallet provider (`RainProvider` in `rain-wallet-android`), which exposes the same flow in Rain's own terms with no Turnkey types; that module opts in module-wide with `-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi`. The rest of this section documents the flow for that caller.
 
-Before the first run, in the Turnkey dashboard: enable the **Auth Proxy** for your parent organization with **Email OTP** turned on, and **SMS OTP** as well when phone numbers are used (each auth method has its own toggle), copy its auth-proxy config id (it identifies the configuration and is safe to ship in the app; the Turnkey SDK sends it as the `X-Auth-Proxy-Config-ID` header on every proxy call), and set the code format (6–9 characters, numeric or alphanumeric; one setting shared by email and SMS) and the session lifetime (900 seconds by default) there. The SDK reads none of these settings; it obeys them. SMS authentication is a Turnkey Enterprise feature that Turnkey enables on request, off by default on top-level organizations. Leave the dashboard captcha off while this SDK pins Turnkey's Kotlin SDK 2.0.0: that SDK sends no captcha token, so an enabled captcha refuses every code request on both channels.
+Before the first run, in the Turnkey dashboard: enable the **Auth Proxy** for your parent organization with **Email OTP** turned on, and **SMS OTP** as well when phone numbers are used (each auth method has its own toggle), copy its auth-proxy config id (it identifies the configuration and is safe to ship in the app; the Turnkey SDK sends it as the `X-Auth-Proxy-Config-ID` header on every proxy call), and set the code format (6–9 characters, numeric or alphanumeric; one setting shared by email and SMS) and the session lifetime (900 seconds by default) there. The SDK reads none of these settings; it obeys them. SMS authentication is a Turnkey Enterprise feature that Turnkey enables on request, off by default on top-level organizations. Leave the dashboard captcha off while this SDK pins Turnkey's Kotlin SDK 2.0.1: that SDK sends no captcha token, so an enabled captcha refuses every code request on both channels.
 
 The SDK configures Turnkey against your parent organization and auth-proxy configuration, runs the one-time-code flow, email or SMS, on the provider itself, and provisions one wallet holding an Ethereum and a Solana account on first login:
 
@@ -183,7 +184,7 @@ After the Turnkey-backed `client` is resolved, every wallet operation routes thr
 | `client.getBalances(chainId)` | `TurnkeyClient.getWalletAddressBalances` (CAIP-19) on supported chains; Multicall3 / parallel `eth_call` otherwise |
 | `client.sendNative(...)` / `client.sendToken(...)` | `TurnkeyClient.ethSendTransaction` + `getSendTransactionStatus` polling. Only on Turnkey's managed-broadcast chains — other chains (Avalanche, Celo, ZKsync, Plasma, Ink) are read-only and sends throw `RAIN_105` up front. By default (`sponsorGas = true`), every EVM send (transfers, withdrawals, approvals, raw sends) is sponsored by Turnkey Gas Station (minimal payload carrying Turnkey's gas-station nonce for replay protection, fee estimate `0`), and Solana network fees are sponsored too (a zero-SOL sender skips the fee check and dry run; rent for a new recipient token account is a separate Turnkey toggle and stays with the sender). `TurnkeyConfig(sponsorGas = false)` returns to self-paid sends, and is required on a Turnkey organization without sponsorship enabled. Monad caveat: Turnkey sponsors through EIP-7702 delegation and Monad reverts any delegated-account transaction that would leave the balance under 10 MON, so a sponsored native MON send from a small wallet quotes `0` and then fails on chain (token sends are unaffected). |
 | `client.withdrawCollateral(...)` | EVM: `TurnkeyContext.signRawPayload` (EIP-712) + `ethSendTransaction`. Solana: core composes the withdrawal, skipping its self-paid dry run while the adapter sponsors the fee, then `solSendTransaction`. Either chain: a chain outside Turnkey's coverage is refused with `RAIN_105` before anything is read or signed, and a revert Turnkey reports after broadcast surfaces as `WithdrawalRevertedByNetwork`, the same as a failed dry run. |
-| `client.getTransactions(...)` | `TurnkeyClient.getActivities` (filtered to `ACTIVITY_TYPE_ETH_SEND_TRANSACTION`) |
+| `client.getTransactions(...)` | `TurnkeyClient.listEthTransactionHistory`, the indexed history (receives and externally submitted transactions included, EVM addresses in EIP-55 form), when the transaction history feature is enabled for the organization; otherwise `TurnkeyClient.getActivities` filtered to `ACTIVITY_TYPE_ETH_SEND_TRANSACTION`, sends only. The fallback runs only when Turnkey refuses the indexed query (HTTP 403 for an organization without the feature, logged once per provider); a dead session, a transport failure or a page that could not be decoded surfaces as its own error. |
 | `client.estimateGas(...)` | `0` without any RPC while `sponsorGas` is on (the default) and the chain is a Turnkey broadcast chain; RPC `eth_estimateGas` + `eth_gasPrice` otherwise |
 
 On Solana chain ids the same methods route to `TurnkeyClient.solSendTransaction` /
@@ -210,8 +211,10 @@ chain ids (`RainChain.SOLANA_MAINNET` 900 / `SOLANA_DEVNET` 901 / `SOLANA_TESTNE
   in particular), `getTokenBalances` discovers holdings from the node via `getTokenAccountsByOwner`
   against both token programs. Solana keeps token metadata off chain, so symbol / name stay null
   unless the mint is registered.
-- **History.** From Turnkey's activity log (`ACTIVITY_TYPE_SOL_SEND_TRANSACTION`) — sends only, and
-  the row's hash is the Turnkey status id, not an explorer-resolvable signature.
+- **History.** From Turnkey's indexed history (`list_sol_transaction_history`) when the transaction
+  history feature is enabled for the organization: receives included, and the row's hash is the real
+  signature. Otherwise from the activity log (`ACTIVITY_TYPE_SOL_SEND_TRANSACTION`), sends only,
+  where the row's hash is the Turnkey status id, not an explorer-resolvable signature.
 - **Encoding.** Turnkey hex-decodes `unsignedTransaction` despite the type documenting base64, so
   Rain sends hex. Turnkey returns a status id rather than a signature; Rain polls for it, then
   recovers it from `getSignaturesForAddress` (newer than the pre-send baseline only) and verifies
@@ -353,7 +356,12 @@ What every wallet call now does:
    instead of burning a round-trip on a guaranteed 401.
 2. **Proactive refresh** — with `autoRefresh` on (the default), a session expired or inside
    `refreshBufferSeconds` of expiry is refreshed through Turnkey's `refreshSession` before the
-   call. Refreshes are single-flighted: concurrent calls share one refresh.
+   call. Refreshes are single-flighted: concurrent calls share one refresh. Turnkey's refresh
+   rotates the key but leaves its public `session` flow on the old session, so Rain re-selects the
+   session afterwards. That reload also refreshes Turnkey's user and wallet state (its
+   `autoRefreshManagedStates`, on by default) and fires the `onSessionSelected` hook of the
+   `TurnkeyConfig` a bring-your-own host passed to `TurnkeyContext.init`. A reload that fails is
+   logged and is not a session death.
 3. **Refresh-on-401** — a call rejected with HTTP 401 / `InvalidSession` is refreshed and
    retried exactly once. A 401 means Turnkey rejected the request before executing it, so this
    is safe for sends too. A second 401 surfaces as `RainError.TokenExpired`.
@@ -428,11 +436,11 @@ Turnkey (via `com.turnkey:crypto` and `com.turnkey:encoding`) depends on **`org.
 
 ```
 Duplicate class org.bouncycastle.asn1.pkcs.EncryptionScheme found in modules
-  bcprov-jdk15to18-1.82.jar -> jetified-bcprov-jdk15to18-1.82 (org.bouncycastle:bcprov-jdk15to18:1.82)
-  bcprov-jdk18on-1.73.jar  -> jetified-bcprov-jdk18on-1.73  (org.bouncycastle:bcprov-jdk18on:1.73)
+  bcprov-jdk15to18-1.82.jar -> bcprov-jdk15to18-1.82 (org.bouncycastle:bcprov-jdk15to18:1.82)
+  bcprov-jdk18on-1.73.jar  -> bcprov-jdk18on-1.73  (org.bouncycastle:bcprov-jdk18on:1.73)
 ```
 
-The two artifacts are parallel builds of the same library for different JDK targets — their class APIs are interchangeable. Rain SDK standardizes on `bcprov-jdk15to18`, floored at 1.84 by a published constraint, and publishes the `bcprov-jdk18on` exclusion on every dependency edge that would otherwise pull it: web3j in core, Portal and Privy, and `privy-core` in the Privy module. The Turnkey adapter declares `bcprov-jdk15to18` itself as well, for the ed25519 derivation behind the exported Solana keypair. It is the same artifact at the same floor, so nothing new reaches a consumer's classpath, and the `bcprov-jdk18on` exclusion is unchanged.
+The two artifacts are parallel builds of the same library for different JDK targets — their class APIs are interchangeable. Rain SDK standardizes on `bcprov-jdk15to18`, floored at the catalog's `bouncycastle` version (1.86 today) by a published constraint, and publishes the `bcprov-jdk18on` exclusion on every dependency edge that would otherwise pull it: web3j in core, Portal and Privy, and `privy-core` in the Privy module. The Turnkey adapter declares `bcprov-jdk15to18` itself as well, for the ed25519 derivation behind the exported Solana keypair. It is the same artifact at the same floor, so nothing new reaches a consumer's classpath, and the `bcprov-jdk18on` exclusion is unchanged.
 
 **Gradle consumers** (resolve via Module Metadata): no action required as long as you reach the vendor SDKs only through Rain's modules. The exclusions above are part of the published metadata, and Gradle inherits them along each edge that declares them.
 
@@ -448,7 +456,7 @@ configurations.all {
 Or, if you'd rather scope it to a specific dependency:
 
 ```kotlin
-implementation("org.web3j:core:4.10.0") {
+implementation("org.web3j:core:4.10.3") {
     exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
 }
 ```
@@ -467,7 +475,7 @@ Maven POM equivalent (for non-Gradle consumers):
 <dependency>
     <groupId>org.web3j</groupId>
     <artifactId>core</artifactId>
-    <version>4.10.0</version>
+    <version>4.10.3</version>
     <exclusions>
         <exclusion>
             <groupId>org.bouncycastle</groupId>

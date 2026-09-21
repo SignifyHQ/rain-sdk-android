@@ -4,7 +4,6 @@ import com.rain.sdk.internal.error.RainError
 import com.turnkey.core.models.AuthState
 import com.turnkey.core.models.Session
 import com.turnkey.core.models.errors.TurnkeyKotlinError
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -25,8 +24,7 @@ import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Guards every Turnkey call behind session-expiry checks, proactive refresh, refresh-on-401
- * retry, and transient-failure backoff, per [TurnkeySessionPolicy]. Mirrors the CST handling
- * in `RainSessionStore`/`RainApiService.withCst`, adapted to Turnkey's externally-owned
+ * retry, and transient-failure backoff, per [TurnkeySessionPolicy], for Turnkey's externally-owned
  * session.
  *
  * Terminal auth failures always surface as [RainError.TokenExpired], advance [deathEpoch] and
@@ -186,9 +184,10 @@ internal class TurnkeySessionCoordinator(
             val client = turnkey.turnkeyClient ?: expireAndThrow()
             try {
                 return block(session, client)
-            } catch (e: CancellationException) {
-                throw e
             } catch (e: Exception) {
+                // A cancellation leaves as itself, bare or wrapped in the vendor's failure type (its
+                // own calls catch Throwable): the caller going away is not a failure to classify.
+                e.cancellationInChain()?.let { throw it }
                 when {
                     isAuthFailure(e) -> {
                         // A 401 means Turnkey rejected the request before executing it, so a
@@ -284,9 +283,10 @@ internal class TurnkeySessionCoordinator(
         return try {
             turnkey.refreshSession(policy.refreshExpirationSeconds)
             turnkey.session?.let { RefreshOutcome.Fresh(it) } ?: RefreshOutcome.Dead(null)
-        } catch (e: CancellationException) {
-            throw e
         } catch (e: Exception) {
+            // A cancellation leaves as itself, bare or wrapped: FailedToRefreshSession wraps whatever
+            // ended the refresh, and a screen closed mid-refresh is not a session death.
+            e.cancellationInChain()?.let { throw it }
             Timber.w(e, "Rain SDK: wallet session refresh failed")
             RefreshOutcome.Dead(e)
         }
@@ -330,40 +330,28 @@ internal class TurnkeySessionCoordinator(
         if (e !is RainError) Timber.w(e, "Rain SDK: wallet backend call failed")
     }
 
-    private fun isAuthFailure(e: Throwable): Boolean = anyInChain(e) { t ->
+    private fun isAuthFailure(e: Throwable): Boolean = e.causeChain().any { t ->
         t is RainError.TokenExpired ||
             t is TurnkeyKotlinError.InvalidSession ||
-            (t is TurnkeyHistoryError && t.statusCode == 401) ||
             TurnkeyErrorMapping.turnkeyHttpStatus(t) == 401
     }
 
-    private fun isTransient(e: Throwable): Boolean = anyInChain(e) { t ->
+    private fun isTransient(e: Throwable): Boolean = e.causeChain().any { t ->
         t is IOException ||
-            (t is TurnkeyHistoryError && isTransientStatus(t.statusCode)) ||
             TurnkeyErrorMapping.turnkeyHttpStatus(t)?.let { isTransientStatus(it) } == true
     }
 
     private fun isTransientStatus(status: Int): Boolean =
         status == 408 || status == 429 || status in 500..599
 
-    private inline fun anyInChain(e: Throwable, predicate: (Throwable) -> Boolean): Boolean {
-        var current: Throwable? = e
-        var depth = 0
-        while (current != null && depth < MAX_CAUSE_DEPTH) {
-            if (predicate(current)) return true
-            current = current.cause.takeIf { it !== current }
-            depth++
-        }
-        return false
-    }
-
-    private companion object {
-        const val MAX_CAUSE_DEPTH = 8
-
+    internal companion object {
         /** Extra wait past the expiry instant so an early timer wake cannot re-derive Active. */
-        const val EXPIRY_RECHECK_SLACK_MS = 50L
+        private const val EXPIRY_RECHECK_SLACK_MS = 50L
 
-        /** Longest a call waits for Turnkey's async session restore before judging the session. */
+        /**
+         * Longest a call waits for Turnkey's async session restore before judging the session. The
+         * managed auth's logout waits on a restore in flight for the same span, so it reads this.
+         */
         const val AUTH_RESTORE_TIMEOUT_MS = 10_000L
     }
 }

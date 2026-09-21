@@ -11,7 +11,6 @@ import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
 import java.math.BigInteger
-import java.time.Instant
 
 class RainApiClientTest {
 
@@ -32,57 +31,10 @@ class RainApiClientTest {
         server.shutdown()
     }
 
-    // ---------- Session ----------
-
-    @Test
-    fun `createSession parses token and expiry`() = runBlocking {
-        server.enqueue(
-            json("""{"token":"cst_abc","expiresAt":"2030-01-01T00:00:00Z","userId":"user-abc"}""")
-        )
-
-        val session = client.createSession(baseUrl, credentials)
-
-        assertThat(session.token).isEqualTo("cst_abc")
-        assertThat(session.expiresAt).isEqualTo(Instant.parse("2030-01-01T00:00:00Z"))
-    }
-
-    @Test
-    fun `createSession sends Api-Key header with empty body and no content type`() = runBlocking {
-        server.enqueue(json("""{"token":"cst_abc","expiresAt":"2030-01-01T00:00:00Z"}"""))
-
-        client.createSession(baseUrl, credentials)
-
-        val recorded = server.takeRequest()
-        assertThat(recorded.method).isEqualTo("POST")
-        assertThat(recorded.path).isEqualTo("/v1/issuing/users/user-abc/sessions")
-        assertThat(recorded.getHeader("Api-Key")).isEqualTo("key-123")
-        assertThat(recorded.body.size).isEqualTo(0)
-        // Rain 400s when an empty body declares a content type — must stay absent.
-        assertThat(recorded.getHeader("Content-Type")).isNull()
-    }
-
-    @Test
-    fun `createSession without parseable expiry yields null expiresAt`() = runBlocking {
-        server.enqueue(json("""{"token":"cst_abc","expiresAt":"not-a-date"}"""))
-
-        val session = client.createSession(baseUrl, credentials)
-
-        assertThat(session.expiresAt).isNull()
-    }
-
-    @Test
-    fun `createSession with missing token throws NetworkError`() {
-        server.enqueue(json("""{"expiresAt":"2030-01-01T00:00:00Z"}"""))
-
-        assertThrows(RainError.NetworkError::class.java) {
-            runBlocking { client.createSession(baseUrl, credentials) }
-        }
-    }
-
     // ---------- Contracts ----------
 
     @Test
-    fun `getContracts parses full and minimal contracts and sends Bearer header`() = runBlocking {
+    fun `getContracts parses full and minimal contracts and sends the Api-Key header`() = runBlocking {
         server.enqueue(
             json(
                 """
@@ -109,11 +61,13 @@ class RainApiClientTest {
             )
         )
 
-        val contracts = client.getContracts(baseUrl, "cst_abc", "user-abc")
+        val contracts = client.getContracts(baseUrl, credentials)
 
         val recorded = server.takeRequest()
         assertThat(recorded.path).isEqualTo("/v1/issuing/users/user-abc/contracts")
-        assertThat(recorded.getHeader("Authorization")).isEqualTo("Bearer cst_abc")
+        assertThat(recorded.getHeader("Api-Key")).isEqualTo("key-123")
+        // No session token anywhere: the key itself authenticates every call.
+        assertThat(recorded.getHeader("Authorization")).isNull()
 
         assertThat(contracts).hasSize(2)
         val full = contracts[0]
@@ -162,7 +116,7 @@ class RainApiClientTest {
             )
         )
 
-        val contract = client.getContracts(baseUrl, "cst_abc", "user-abc").single()
+        val contract = client.getContracts(baseUrl, credentials).single()
 
         assertThat(contract.id).isNull()
         assertThat(contract.depositAddress).isNull()
@@ -175,7 +129,7 @@ class RainApiClientTest {
     fun `getContracts on empty array returns empty list`() = runBlocking {
         server.enqueue(json("[]"))
 
-        val contracts = client.getContracts(baseUrl, "cst_abc", "user-abc")
+        val contracts = client.getContracts(baseUrl, credentials)
 
         assertThat(contracts).isEmpty()
     }
@@ -183,13 +137,12 @@ class RainApiClientTest {
     // ---------- Withdrawal signature ----------
 
     @Test
-    fun `getWithdrawalSignature sends expected query params`() = runBlocking {
+    fun `getWithdrawalSignature sends the Api-Key header and the expected query params`() = runBlocking {
         server.enqueue(readySignature())
 
         client.getWithdrawalSignature(
             baseUrl = baseUrl,
-            cst = "cst_abc",
-            userId = "user-abc",
+            credentials = credentials,
             chainId = 43114,
             tokenAddress = "0xtoken",
             amountBaseUnits = BigInteger("1500000"),
@@ -198,7 +151,10 @@ class RainApiClientTest {
             isAmountNative = true,
         )
 
-        val url = server.takeRequest().requestUrl!!
+        val recorded = server.takeRequest()
+        assertThat(recorded.getHeader("Api-Key")).isEqualTo("key-123")
+        assertThat(recorded.getHeader("Authorization")).isNull()
+        val url = recorded.requestUrl!!
         assertThat(url.encodedPath).isEqualTo("/v1/issuing/users/user-abc/signatures/withdrawals")
         assertThat(url.queryParameter("chainId")).isEqualTo("43114")
         assertThat(url.queryParameter("token")).isEqualTo("0xtoken")
@@ -266,7 +222,7 @@ class RainApiClientTest {
         server.enqueue(MockResponse().setResponseCode(401).setBody("bad key"))
 
         assertThrows(RainError.Unauthorized::class.java) {
-            runBlocking { client.getContracts(baseUrl, "cst_abc", "user-abc") }
+            runBlocking { client.getContracts(baseUrl, credentials) }
         }
     }
 
@@ -275,7 +231,7 @@ class RainApiClientTest {
         server.enqueue(MockResponse().setResponseCode(403).setBody("forbidden"))
 
         assertThrows(RainError.Unauthorized::class.java) {
-            runBlocking { client.getContracts(baseUrl, "cst_abc", "user-abc") }
+            runBlocking { client.getContracts(baseUrl, credentials) }
         }
     }
 
@@ -284,7 +240,7 @@ class RainApiClientTest {
         server.enqueue(MockResponse().setResponseCode(500).setBody("boom"))
 
         val error = assertThrows(RainError.ApiError::class.java) {
-            runBlocking { client.getContracts(baseUrl, "cst_abc", "user-abc") }
+            runBlocking { client.getContracts(baseUrl, credentials) }
         }
         assertThat(error.statusCode).isEqualTo(500)
         assertThat(error.message).contains("boom")
@@ -295,7 +251,7 @@ class RainApiClientTest {
         server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
 
         assertThrows(RainError.NetworkError::class.java) {
-            runBlocking { client.getContracts(baseUrl, "cst_abc", "user-abc") }
+            runBlocking { client.getContracts(baseUrl, credentials) }
         }
     }
 
@@ -304,7 +260,45 @@ class RainApiClientTest {
         server.enqueue(json("<html>gateway error</html>"))
 
         assertThrows(RainError.NetworkError::class.java) {
-            runBlocking { client.getContracts(baseUrl, "cst_abc", "user-abc") }
+            runBlocking { client.getContracts(baseUrl, credentials) }
+        }
+    }
+
+    @Test
+    fun `empty 200 body on contracts maps to NetworkError`() {
+        server.enqueue(json(""))
+
+        assertThrows(RainError.NetworkError::class.java) {
+            runBlocking { client.getContracts(baseUrl, credentials) }
+        }
+    }
+
+    @Test
+    fun `empty 200 body on the signature call maps to NetworkError`() {
+        server.enqueue(json(""))
+
+        assertThrows(RainError.NetworkError::class.java) {
+            runBlocking { fetchSignature() }
+        }
+    }
+
+    @Test
+    fun `empty 502 body maps to ApiError carrying the status`() {
+        server.enqueue(MockResponse().setResponseCode(502))
+
+        val error = assertThrows(RainError.ApiError::class.java) {
+            runBlocking { fetchSignature() }
+        }
+        assertThat(error.statusCode).isEqualTo(502)
+    }
+
+    @Test
+    fun `a server that never answers times out into NetworkError`() {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        val impatient = RainApiClient(timeoutSeconds = 1)
+
+        assertThrows(RainError.NetworkError::class.java) {
+            runBlocking { impatient.getContracts(baseUrl, credentials) }
         }
     }
 
@@ -326,8 +320,7 @@ class RainApiClientTest {
 
     private suspend fun fetchSignature() = client.getWithdrawalSignature(
         baseUrl = baseUrl,
-        cst = "cst_abc",
-        userId = "user-abc",
+        credentials = credentials,
         chainId = 1,
         tokenAddress = "0xtoken",
         amountBaseUnits = BigInteger.ONE,

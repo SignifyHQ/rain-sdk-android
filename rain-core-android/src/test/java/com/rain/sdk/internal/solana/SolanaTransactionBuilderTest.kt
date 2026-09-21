@@ -8,6 +8,7 @@ import org.sol4k.PublicKey
 import org.sol4k.Transaction
 import org.sol4k.instruction.BaseInstruction
 import java.math.BigInteger
+import java.util.Locale
 import org.sol4k.AccountMeta as Sol4kAccountMeta
 
 /**
@@ -96,7 +97,7 @@ class SolanaTransactionBuilderTest {
         // Turnkey hex-decodes this field (not base64), so it must be valid lowercase hex.
         assertThat(hex).matches("[0-9a-f]+")
         assertThat(hex.length).isEqualTo(bytes.size * 2)
-        assertThat(hex).isEqualTo(bytes.joinToString("") { "%02x".format(it) })
+        assertThat(hex).isEqualTo(bytes.joinToString("") { "%02x".format(Locale.ROOT, it) })
     }
 
     @Test

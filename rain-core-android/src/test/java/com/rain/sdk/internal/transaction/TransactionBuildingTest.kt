@@ -24,6 +24,7 @@ import java.math.BigDecimal
 import java.math.BigInteger
 import java.time.Instant
 import java.util.Base64
+import java.util.Locale
 import java.util.concurrent.CompletableFuture
 
 /**
@@ -87,7 +88,7 @@ class TransactionBuildingTest {
         assertThat(eip712.salt).hasLength(32)
         // saltHex renders the same 32 bytes the EIP-712 domain carries.
         assertThat(eip712.saltHex).isEqualTo(
-            "0x" + eip712.salt.joinToString("") { "%02x".format(it) }
+            "0x" + eip712.salt.joinToString("") { "%02x".format(Locale.ROOT, it) }
         )
         assertThat(json).contains(eip712.saltHex)
     }

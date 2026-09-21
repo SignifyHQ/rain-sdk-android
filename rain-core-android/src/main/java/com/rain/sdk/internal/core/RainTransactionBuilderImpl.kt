@@ -51,6 +51,7 @@ internal class RainTransactionBuilderImpl(
         rpcEndpoints[chainId]
             ?: throw RainError.InvalidConfig("No RPC endpoint configured for chainId $chainId")
 
+    @Suppress("ThrowsCount") // the RPC error, the undecodable value and the pass-through-or-wrap catch
     override suspend fun getLatestNonce(
         chainId: Int,
         proxyAddress: String
@@ -166,6 +167,7 @@ internal class RainTransactionBuilderImpl(
         return RainEIP712Message(message = jsonString, salt = saltBytes)
     }
 
+    @Suppress("ThrowsCount") // one precise rejection per malformed input, instead of an opaque on-chain revert
     override fun buildWithdrawTransactionData(
         addresses: RainWithdrawAddresses,
         amount: BigDecimal,

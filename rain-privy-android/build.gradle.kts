@@ -1,8 +1,5 @@
-import com.vanniktech.maven.publish.SonatypeHost
-
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.dokka)
     alias(libs.plugins.vanniktech.maven.publish)
 }
@@ -11,11 +8,15 @@ version = libs.versions.rain.sdk.get()
 
 android {
     namespace = "com.rain.sdk.privy"
-    compileSdk = 36
+    compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
-        minSdk = 28
-        targetSdk = 36
+        minSdk = libs.versions.minSdk.get().toInt()
+        // Partner apps on compileSdk 36, all Play asks for today, can still consume this AAR. Without
+        // this, AGP 9 stamps the module's own compileSdk as the consumer floor.
+        aarMetadata {
+            minCompileSdk = libs.versions.minCompileSdk.get().toInt()
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
@@ -28,11 +29,18 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
-    kotlinOptions {
-        jvmTarget = "1.8"
+    lint {
+        // Libraries carry no targetSdk of their own; lint still checks behaviour changes up to this level.
+        targetSdk = libs.versions.targetSdk.get().toInt()
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
     }
 }
 
@@ -50,6 +58,15 @@ dependencies {
     api(libs.privy.core) {
         exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
     }
+    constraints {
+        // Privy's datastore dependency declares kotlin-parcelize-runtime 1.9.22, and through it the
+        // deprecated kotlin-android-extensions-runtime, on the runtime classpath, three Kotlin releases
+        // behind the stdlib. The 2.x artifact drops that dependency. Declared on the api scope so the
+        // constraint publishes with the module and consumers resolve the same version.
+        api("org.jetbrains.kotlin:kotlin-parcelize-runtime") {
+            version { require(libs.versions.kotlin.get()) }
+        }
+    }
 
     // Web3j for ERC-20 ABI encoding in sendToken calldata. Shares core's Bouncy Castle note.
     implementation(libs.web3j.core) {
@@ -64,6 +81,10 @@ dependencies {
     // does not opt in to yet, so it keeps its own client. Privy's EIP-1193 provider handles custody
     // (sign/send) only.
     implementation(libs.okhttp)
+    // Privy's Ktor engine declares okhttp-sse 4.12.0, which still references a class OkHttp 5 removed
+    // (okhttp3.internal.Util). Nothing here uses server-sent events, but the pair must stay on one
+    // version so R8 sees a complete graph.
+    runtimeOnly(libs.okhttp.sse)
 
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
@@ -100,6 +121,6 @@ mavenPublishing {
         }
     }
 
-    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+    publishToMavenCentral()
     signAllPublications()
 }

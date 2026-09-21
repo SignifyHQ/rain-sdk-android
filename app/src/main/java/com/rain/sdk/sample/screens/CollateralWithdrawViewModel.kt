@@ -36,10 +36,9 @@ class CollateralWithdrawViewModel(
                 val walletAddress = rainClient.getWalletAddress(chain.chainId)
                 SampleLog.d("Withdraw.contract", "wallet address=$walletAddress")
 
-                // Rain provisions one collateral contract per chain family — pick the one
-                // matching the active chain (Solana cluster exact, any EVM otherwise).
-                val contract = rainSdk.fetchCollateralContracts()
-                    .firstOrNull { chain.ownsCollateralContract(it.chainId) }
+                // The contract on the active chain when Rain provisioned one there, else the
+                // first of the chain's family (see WalletChain.collateralContract).
+                val contract = chain.collateralContract(rainSdk.fetchCollateralContracts())
                 if (contract == null) {
                     SampleLog.w("Withdraw.contract", "no collateral contract for ${chain.displayName}")
                     // Clear the previous chain's tokens so a failed switch shows nothing stale.

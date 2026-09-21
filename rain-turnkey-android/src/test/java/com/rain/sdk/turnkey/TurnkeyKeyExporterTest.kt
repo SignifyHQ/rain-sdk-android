@@ -502,7 +502,7 @@ class TurnkeyKeyExporterTest {
         expectThrows<RainError.ProviderError> { exporter.exportRecoveryPhrase() }
 
         val logged = seen.toString()
-        val chains = throwables.flatMap { t -> generateSequence(t) { it.cause?.takeIf { c -> c !== it } }.toList() }
+        val chains = throwables.flatMap { t -> t.causeChain().toList() }
         secrets.forEach { secret ->
             assertThat(logged).doesNotContain(secret)
             chains.forEach { link -> assertThat(link.message.orEmpty()).doesNotContain(secret) }

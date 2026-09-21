@@ -20,6 +20,7 @@ import kotlinx.coroutines.CancellationException
 import timber.log.Timber
 import java.math.BigDecimal
 import java.math.BigInteger
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Turnkey-based implementation of [WalletProvider]. Materialized by [TurnkeyProvider] when a
@@ -308,12 +309,18 @@ internal class TurnkeyWalletProvider(
 
     // ---------- transactions ----------
 
+    /** Set once the feature gate has been logged, so a wallet without the feature logs it once, not per page. */
+    private val indexedHistoryGateLogged = AtomicBoolean(false)
+
     /**
-     * Transaction history. Turnkey's indexed history queries are the primary source, since they
-     * cover the wallet's full on-chain history (receives and externally-submitted transactions
-     * included). When the indexed query is unavailable, most commonly because the history feature
-     * is not enabled for the Turnkey organization, the provider falls back to the activity log,
-     * which lists only transactions sent through Turnkey.
+     * Transaction history. Turnkey's indexed history queries, issued through the vendor's own
+     * client, are the primary source, since they cover the wallet's full on-chain history (receives
+     * and externally-submitted transactions included). When the wallet backend refuses the indexed
+     * query, most commonly because the history feature is not enabled for the Turnkey organization,
+     * the provider falls back to the activity log, which lists only transactions sent through
+     * Turnkey. Every other failure surfaces: a dead session or a transport failure would fail the
+     * activity path the same way, and a page the client could not decode is a defect to report, not
+     * a reason to show a shorter history.
      */
     override suspend fun getTransactions(
         chainId: Int,
@@ -329,17 +336,45 @@ internal class TurnkeyWalletProvider(
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: RainError.TokenExpired) {
-            // The activity path needs the same session, so falling back would only fail again.
-            throw e
         } catch (e: Exception) {
-            Timber.w(e, "Rain SDK: indexed history unavailable, falling back to activities")
+            // The coordinator hands out RainErrors; anything else escaped the row mapping itself and
+            // leaves as a provider failure rather than as a bare exception core cannot classify.
+            if (!isIndexedHistoryRefusal(e)) throw e as? RainError ?: RainError.ProviderError(e)
+            logIndexedHistoryRefusal(e)
         }
         return if (SolanaChains.isSolanaChain(chainId)) {
             manager.getSolanaTransactionsFromActivities(chainId, limit, offset, order)
         } else {
             manager.getEvmTransactionsFromActivities(chainId, limit, offset, order)
         }
+    }
+
+    /**
+     * True when the wallet backend answered the indexed query and refused it, the case the activity
+     * log covers. An HTTP 403 (the feature is enabled per organization; the vendor client drops the
+     * body that says so) arrives as [RainError.Unauthorized]; any other HTTP status the coordinator
+     * did not retry, or gave up retrying, arrives as [RainError.ProviderError] over the vendor
+     * failure that carries the status in its message.
+     */
+    private fun isIndexedHistoryRefusal(e: Exception): Boolean = when (e) {
+        is RainError.Unauthorized -> true
+        is RainError.ProviderError ->
+            e.cause?.causeChain()?.any { TurnkeyErrorMapping.turnkeyHttpStatus(it) != null } == true
+        else -> false
+    }
+
+    private fun logIndexedHistoryRefusal(e: Exception) {
+        if (e is RainError.Unauthorized) {
+            // The documented normal case for an organization without the feature: one line, once.
+            if (indexedHistoryGateLogged.compareAndSet(false, true)) {
+                Timber.i(
+                    "Rain SDK: indexed transaction history is not enabled for this wallet backend organization; " +
+                        "history comes from the activity log, which lists sends only"
+                )
+            }
+            return
+        }
+        Timber.w(e, "Rain SDK: indexed history refused by the wallet backend, falling back to activities")
     }
 
     // ---------- solana sends ----------

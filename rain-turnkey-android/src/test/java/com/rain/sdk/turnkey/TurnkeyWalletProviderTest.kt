@@ -37,9 +37,7 @@ class TurnkeyWalletProviderTest {
         walletAddressOverride = walletAddressOverride,
         httpClient = OkHttpClient(),
         // Inject a mock reader so unknown-token enrichment never hits the network.
-        chainReader = MockChainReader(),
-        // Indexed history fails like a feature-gated org, so these tests cover the activity path.
-        history = ThrowingTurnkeyHistory
+        chainReader = MockChainReader()
     )
 
     @Test
@@ -332,8 +330,7 @@ class TurnkeyWalletProviderTest {
                 turnkey = turnkey,
                 rpcEndpoints = mapOf(1 to "https://eth.example/rpc"),
                 httpClient = OkHttpClient(),
-                chainReader = reader,
-                history = ThrowingTurnkeyHistory
+                chainReader = reader
             )
 
             val token = provider.getBalances(chainId = 1)

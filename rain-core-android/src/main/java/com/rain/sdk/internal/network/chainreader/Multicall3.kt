@@ -2,6 +2,7 @@ package com.rain.sdk.internal.network.chainreader
 
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.utils.strippingHexPrefix
+import java.util.Locale
 
 /**
  * ABI encoding/decoding for the [Multicall3](https://www.multicall3.com) contract, limited
@@ -127,7 +128,7 @@ internal object Multicall3 {
             val dataHex = buildString(2 + dataLen * 2) {
                 append("0x")
                 for (idx in dataStart until dataEnd) {
-                    append(String.format("%02x", bytes[idx].toInt() and 0xFF))
+                    append(String.format(Locale.ROOT, "%02x", bytes[idx].toInt() and 0xFF))
                 }
             }
             results += Result(success = success, returnData = dataHex)

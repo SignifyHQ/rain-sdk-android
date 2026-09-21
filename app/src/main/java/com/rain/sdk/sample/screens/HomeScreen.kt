@@ -28,11 +28,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.rain.sdk.sample.ContactChannel
 import com.rain.sdk.sample.R
 import com.rain.sdk.sample.RainSampleApp
 import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.SampleEnvironment
-import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.Screen
 import com.rain.sdk.sample.SessionHealth
 import com.rain.sdk.sample.WalletChain
@@ -87,13 +87,8 @@ internal val WalletMode.displayName: String
 /** "Rain Wallet · dev@rain.xyz" once connected; the bare provider name where there is no account. */
 private fun HomeUiState.connectedSubtitle(): String {
     val account = when (mode) {
-        WalletMode.RainWallet -> when (rainWalletChannel) {
-            RainWalletContactChannel.Email -> rainWalletEmail
-            // The header shows up in screenshots, so a phone number is masked.
-            RainWalletContactChannel.Phone ->
-                if (rainWalletPhone.isBlank()) "" else SampleLog.maskPhone(rainWalletPhone)
-        }
-        WalletMode.Turnkey -> turnkeyEmail
+        WalletMode.RainWallet -> rainWalletContactInput.headline()
+        WalletMode.Turnkey -> turnkeyContactInput.headline()
         WalletMode.Privy -> privyEmail
         WalletMode.Portal -> ""
     }.trim()
@@ -220,7 +215,8 @@ private fun HomeContent(
             // for every provider.
             RainApiCard(state, actions)
             ProviderCard(state = state, actions = providerActions)
-            // Available as soon as the login step is done, before "Initialize Rain".
+            // Available as soon as a session is live: a fresh login initializes Rain on its own; a
+            // restored or reused session shows it before "Initialize Rain" as well as after.
             if (state.mode == WalletMode.RainWallet && state.rainWalletSessionActive) {
                 ExportKeysCard(state = state, actions = exportActions)
             }
@@ -479,7 +475,7 @@ private fun HomeConnectRainWalletSmsPreview() {
     HomePreview(
         HomeUiState(
             mode = WalletMode.RainWallet,
-            rainWalletChannel = RainWalletContactChannel.Phone,
+            rainWalletChannel = ContactChannel.Phone,
             rainWalletPhone = PREVIEW_HOME_PHONE,
             rainWalletOtpSent = true,
         ),
@@ -631,7 +627,7 @@ private fun HomeConnectedRainWalletPhonePreview() {
     // The subtitle masks the number, because this header shows up in screenshots.
     HomePreview(
         connectedRainWalletState().copy(
-            rainWalletChannel = RainWalletContactChannel.Phone,
+            rainWalletChannel = ContactChannel.Phone,
             rainWalletPhone = PREVIEW_HOME_PHONE,
         ),
     )

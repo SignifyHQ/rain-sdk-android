@@ -969,8 +969,7 @@ class RainSdkManagerApprovalTest {
 
     /** Mined, but every read died on the wire: that is a network error, and the wire error is the cause. */
     @Test
-    fun `a mined approval whose allowance reads all fail untyped surfaces NetworkError with the cause`():
-        Unit = runBlocking {
+    fun `a mined approval whose allowance reads all fail untyped surfaces NetworkError with the cause`(): Unit = runBlocking {
         val wire = IOException("socket closed")
         val reader = MockChainReader(receiptStatus = true, receiptBlockNumber = "0x2a", allowanceError = wire)
         val (manager, _, _) = TestManagers.approvalManager(

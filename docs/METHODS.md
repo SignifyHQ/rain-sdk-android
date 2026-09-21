@@ -91,16 +91,18 @@ via `builder()` to change configuration.
 
 The SDK talks to the Rain issuing API directly: supply a program **Api-Key** and Rain **userId**
 (builder `rainApiCredentials(apiKey, userId)` or `configureRainApi(apiKey, userId)` at runtime) and
-it mints, caches, and refreshes the client session token internally. Credentials are never
-persisted. Select the environment with `rainApiEnvironment(...)` (`Dev` default, `Production`,
-`Custom(url)`).
+every call authenticates with the Api-Key header. Credentials are never persisted. Select the
+environment with `rainApiEnvironment(...)` (`Dev` default, `Production`, `Custom(url)`). To keep
+the Api-Key off the device, select `Custom(url)` pointing at your own backend and pass a per-user
+token as `apiKey`: the SDK sends it as the `Api-Key` header on the same two paths, and the backend
+validates the token, swaps in the real key and forwards the request (with Auth Pull on a custom
+gateway, `RainAuthPullConfig.custom(...)` names the operator and token contracts).
 
 These methods need no wallet provider — only the credentials and RPC endpoints.
 
 #### configureRainApi(apiKey, userId)
 
-Sets or replaces the Api-Key / userId pair at runtime. The cached session token is discarded lazily;
-the next API call re-mints against the new pair.
+Sets or replaces the Api-Key / userId pair at runtime; the next API call carries the new pair.
 
 - **Suspend:** No
 
@@ -115,7 +117,8 @@ Fetches the user's collateral contracts (`GET /v1/issuing/users/{userId}/contrac
 `name` / `symbol` / `decimals` are enriched from the SDK token store (registry, host-registered
 tokens, or an on-chain read) — best-effort, so a failed lookup leaves them null.
 
-- **Throws:** `RainError.ApiNotConfigured` when no credentials were supplied.
+- **Throws:** `RainError.ApiNotConfigured` when no credentials were supplied; `RainError.Unauthorized`
+  (`RAIN_202`) when Rain rejects the Api-Key, which no retry can fix.
 - **Suspend:** Yes
 
 #### fetchCollateralContract(): RainCollateralContract
@@ -131,8 +134,9 @@ Fetches the admin withdrawal signature
 (`GET /v1/issuing/users/{userId}/signatures/withdrawals`) that authorizes a `withdrawCollateral`
 call.
 
-- **Throws:** `RainError.SignatureNotReady` while Rain prepares the signature; retry after the
-  carried `retryAfter` seconds.
+- **Throws:** `RainError.ApiNotConfigured` when no credentials were supplied; `RainError.Unauthorized`
+  (`RAIN_202`) when Rain rejects the Api-Key, which no retry can fix; `RainError.SignatureNotReady`
+  while Rain prepares the signature; retry after the carried `retryAfter` seconds.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
@@ -755,6 +759,7 @@ Solana account rather than the EVM one), or a Rain collateral deposit address.
 Fetches transaction history for the current wallet on the given network.
 
 - **Returns:** `List<RainTransaction>` — the transaction records. `value` is a `BigDecimal?` in human-readable units; null when decimals could not be resolved, with `rawValue` still populated.
+- **Source (Turnkey and Rain wallet):** the wallet backend's indexed history when the transaction history feature is enabled for the organization: receives and externally submitted transactions included, EVM addresses in EIP-55 form, real Solana signatures in `hash`. Otherwise the activity log, which lists sends only and, on Solana, carries the backend's status id in `hash`. The fallback runs only when the backend refuses the indexed query; a dead session, a transport failure or a page that could not be decoded surfaces as its own error.
 - **Throws:** `RainError` if transaction history cannot be retrieved.
 - **Suspend:** Yes
 
@@ -969,7 +974,7 @@ Format: `"RainSDK Error [CODE]: message"`
 | `RAIN_104` | `RainError.ApiNotConfigured` | A Rain API call was made before `configureRainApi(apiKey, userId)`. |
 | `RAIN_105` | `RainError.ChainNotSupported` | The active wallet provider cannot broadcast transactions on this chain (e.g. Turnkey-managed sends do not cover Avalanche); carries `chainId`. Thrown before any network or wallet work on every send, withdrawals and approvals included (core asks the provider first, and the provider's broadcast funnel checks again). Reads — balances, history, estimates — are never gated. |
 | `RAIN_201` | `RainError.TokenExpired` | Provider session token expired or invalid. |
-| `RAIN_202` | `RainError.Unauthorized` | Invalid or missing token / permissions. |
+| `RAIN_202` | `RainError.Unauthorized` | Rain API: the Api-Key was rejected (HTTP 401 or 403); not retried, since the same key cannot succeed. Wallet backends: a request refused with HTTP 403, such as a feature the organization lacks. |
 | `RAIN_203` | `RainError.InvalidLoginCode` | The one-time login code was refused (mistyped, expired, or already used) — the Rain wallet's and Turnkey's managed login only. Ask the user to re-enter it or request a new one; the existing session, if any, is untouched. **Differs from iOS.** A rejection the auth proxy wraps in an HTTP 500 cannot be classified on Android, because Turnkey's Kotlin SDK drops the response body that carries the real status. The same wrong code is `RAIN_501` here and `RAIN_203` on iOS. A host that shares login logic across platforms must treat `RAIN_501` from `confirmLoginCode` as retryable on Android. The challenge is kept, so the same remedies apply. This note stays until Turnkey's Kotlin SDK forwards the body. An expired code (5 minutes by default) or one locked after 3 wrong attempts arrives the same way; only `sendLoginCode` again gets the user past those. |
 | `RAIN_301` | `RainError.NetworkError` | Network/connectivity failure. |
 | `RAIN_302` | `RainError.ApiError` | The Rain API returned an error status; the message carries the status code and any details. |

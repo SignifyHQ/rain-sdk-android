@@ -2,7 +2,7 @@ package com.rain.sdk.internal.network.rainapi
 
 import com.rain.sdk.internal.error.RainError
 
-/** The credential pair a client session token is minted against. */
+/** The program Api-Key and Rain user id every Rain API call is authenticated with. */
 internal data class RainApiCredentials(val apiKey: String, val userId: String)
 
 /**

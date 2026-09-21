@@ -74,7 +74,6 @@ internal class PortalManager(
      * @param legacyEthChainId The default chain ID for legacy operations
      * @param rpcConfig Map of chain identifiers to RPC URLs
      * @param featureFlags Portal feature flags
-     * @param backupConfigs Portal backup configuration (optional)
      * @param autoApprove Whether to auto-approve transactions
      */
     fun initialize(
