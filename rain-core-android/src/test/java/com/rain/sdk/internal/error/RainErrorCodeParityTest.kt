@@ -15,15 +15,13 @@ class RainErrorCodeParityTest {
             RainErrorCode.SDK_NOT_INITIALIZED to "RAIN_101",
             RainErrorCode.INVALID_CONFIG to "RAIN_102",
             RainErrorCode.INVALID_RPC_URL to "RAIN_103",
-            RainErrorCode.API_NOT_CONFIGURED to "RAIN_104",
             RainErrorCode.CHAIN_NOT_SUPPORTED to "RAIN_105",
             RainErrorCode.TOKEN_EXPIRED to "RAIN_201",
             RainErrorCode.UNAUTHORIZED to "RAIN_202",
             RainErrorCode.INVALID_LOGIN_CODE to "RAIN_203",
             RainErrorCode.NETWORK_ERROR to "RAIN_301",
             RainErrorCode.API_ERROR to "RAIN_302",
-            RainErrorCode.SIGNATURE_NOT_READY to "RAIN_303",
-            RainErrorCode.NO_COLLATERAL_CONTRACTS to "RAIN_304",
+            RainErrorCode.TRANSACTION_PENDING to "RAIN_303",
             RainErrorCode.USER_REJECTED to "RAIN_401",
             RainErrorCode.INSUFFICIENT_FUNDS to "RAIN_402",
             RainErrorCode.TRANSACTION_SIMULATION_FAILED to "RAIN_403",
@@ -36,6 +34,8 @@ class RainErrorCodeParityTest {
         )
         expected.forEach { (code, value) -> assertThat(code.code).isEqualTo(value) }
         assertThat(RainErrorCode.entries).hasSize(expected.size)
+        // Codes retired with the Rain issuing API layer stay unassigned unless a release says otherwise.
+        assertThat(RainErrorCode.entries.map { it.code }).containsNoneOf("RAIN_104", "RAIN_304")
     }
 
     @Test
@@ -47,17 +47,13 @@ class RainErrorCodeParityTest {
             RainError.InvalidConfig("x") to "RAIN_102",
             RainError.ProviderNotRegistered("x") to "RAIN_102",
             RainError.InvalidRpcUrl("x") to "RAIN_103",
-            RainError.ApiNotConfigured() to "RAIN_104",
-            // iOS must mirror this code before its next release.
             RainError.ChainNotSupported(43114, "x") to "RAIN_105",
             RainError.TokenExpired() to "RAIN_201",
             RainError.Unauthorized("x") to "RAIN_202",
             RainError.InvalidLoginCode() to "RAIN_203",
             RainError.NetworkError(cause = underlying) to "RAIN_301",
             RainError.ApiError(500, "x") to "RAIN_302",
-            RainError.SignatureNotReady("pending", 30) to "RAIN_303",
             RainError.TransactionPending("status-id") to "RAIN_303",
-            RainError.NoCollateralContracts() to "RAIN_304",
             RainError.UserRejected() to "RAIN_401",
             RainError.InsufficientFunds() to "RAIN_402",
             RainError.TransactionSimulationFailed(underlying) to "RAIN_403",
@@ -81,6 +77,6 @@ class RainErrorCodeParityTest {
         // A case added to the sealed hierarchy but not listed above fails here.
         assertThat(cases.map { it.first::class }.toSet())
             .isEqualTo(RainError::class.sealedSubclasses.toSet())
-        assertThat(cases).hasSize(27)
+        assertThat(cases).hasSize(24)
     }
 }

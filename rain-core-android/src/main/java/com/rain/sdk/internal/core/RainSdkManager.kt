@@ -59,7 +59,7 @@ import java.math.BigInteger
  * Construction now happens through [com.rain.sdk.RainSdk] / a [com.rain.sdk.provider.ProviderDescriptor],
  * which materializes the provider (Portal, Turnkey, or a host-supplied one) and hands the
  * built `WalletProvider` here. The manager itself imports no provider SDK — it only orchestrates
- * Rain domain logic (Rain API calls, collateral flows, balances, tx) against the port.
+ * Rain domain logic (collateral flows, balances, tx) against the port.
  *
  * @param walletProvider The resolved provider this client routes every operation through.
  * @param rpcEndpoints The chains the SDK was configured with; used by [getAllBalances] to fan out.
@@ -87,12 +87,12 @@ internal class RainSdkManager(
     private val chainReader: ChainReader = EvmChainReader(rpcEndpoints = rpcEndpoints),
     /**
      * Chains an Auth Pull approval may target: the host's [com.rain.sdk.RainAuthPullConfig] narrowed
-     * to the chains that have an RPC endpoint. Held as a resolved set rather than the environment
-     * itself so the approval guard has one thing to check and no opinion about API hosts, and
-     * exposed on [RainClient] so host UI can gate on exactly what the guard enforces.
+     * to the chains that have an RPC endpoint. Held as a resolved set so the approval guard has one
+     * thing to check, and exposed on [RainClient] so host UI can gate on exactly what the guard
+     * enforces.
      */
     override val authPullChainIds: Set<Int> = emptySet(),
-    /** Rain's operator for the configured environment — the only spender an approval may name. */
+    /** Rain's operator for the configured Auth Pull targets: the only spender an approval may name. */
     private val authPullOperator: String? = null,
     /** The trusted token contract per Auth Pull chain — the only token an approval may target. */
     private val authPullTokenAddresses: Map<Int, String> = emptyMap(),
@@ -714,9 +714,9 @@ internal class RainSdkManager(
         }
         if (chainId !in authPullChainIds) {
             throw RainError.InvalidConfig(
-                "chainId=$chainId is not an Auth Pull chain for the configured Rain API environment " +
-                    "(expected one of ${authPullChainIds.sorted().joinToString(", ")}). Set " +
-                    "RainSdk.Builder.rainApiEnvironment(...) to match the chain you are approving on."
+                "chainId=$chainId is not an Auth Pull chain for this client " +
+                    "(expected one of ${authPullChainIds.sorted().joinToString(", ")}). Check the " +
+                    "RainAuthPullConfig and the RPC endpoints the SDK was built with."
             )
         }
         if (!contractAddress.isValidEthereumAddress) {

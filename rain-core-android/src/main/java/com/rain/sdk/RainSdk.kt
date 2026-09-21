@@ -9,8 +9,6 @@ import com.rain.sdk.internal.error.ErrorMapper
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.error.noRpcEndpointConfigured
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
-import com.rain.sdk.internal.network.rainapi.RainApiConfigStore
-import com.rain.sdk.internal.network.rainapi.RainApiService
 import com.rain.sdk.internal.solana.SolanaSupport
 import com.rain.sdk.internal.tokenstore.TokenInfoValidation
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
@@ -18,8 +16,6 @@ import com.rain.sdk.internal.utils.isValidEthereumAddress
 import com.rain.sdk.internal.utils.isZeroAddress
 import com.rain.sdk.models.NetworkConfig
 import com.rain.sdk.models.RainAdminSignature
-import com.rain.sdk.models.RainApiEnvironment
-import com.rain.sdk.models.RainCollateralContract
 import com.rain.sdk.models.RainEIP712Message
 import com.rain.sdk.models.RainTransactionParameters
 import com.rain.sdk.models.RainWithdrawAddresses
@@ -30,7 +26,6 @@ import com.rain.sdk.provider.ProviderId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
 import java.math.BigDecimal
 import java.math.BigInteger
@@ -63,9 +58,7 @@ class RainSdk private constructor(
     private val rpcEndpoints: Map<Int, String>,
     private val registered: Map<ProviderId, ProviderDescriptor>,
     private val seedTokens: List<TokenInfo>,
-    rainApiEnvironment: RainApiEnvironment,
     private val authPullConfig: RainAuthPullConfig?,
-    initialRainApiCredentials: Pair<String, String>?,
 ) {
     private val mutex = Mutex()
 
@@ -73,8 +66,6 @@ class RainSdk private constructor(
 
     // Concurrent so [reset] can evict safely without holding the resolution mutex.
     private val clients = ConcurrentHashMap<ProviderId, RainClient>()
-
-    private val rainApiConfig = RainApiConfigStore(baseUrl = rainApiEnvironment.baseUrl)
 
     /**
      * Auth Pull targets for this instance, handed to every resolved client so an approval cannot
@@ -87,20 +78,16 @@ class RainSdk private constructor(
         authPullConfig?.tokenAddresses?.filterKeys { it in rpcEndpoints }.orEmpty()
 
     /**
-     * The chains Auth Pull is actually enabled on for *this* instance — the configured
+     * The chains Auth Pull is actually enabled on for *this* instance: the configured
      * [RainAuthPullConfig]'s chains intersected with the chains that have an RPC endpoint. Empty
      * when no [Builder.authPullConfig] was supplied.
      *
-     * This, not [RainAuthPullChains.supported], is what the approval guard enforces. Gate host UI
-     * on it: `supported(...)` answers for an environment, this answers for the SDK the host built,
-     * and the two differ whenever a config is narrower than its environment, an RPC endpoint is
-     * missing, or the environment is [RainApiEnvironment.Custom] — which `supported(...)` reports
-     * as empty however the gateway is configured.
+     * This, not the static [RainAuthPullChains.SANDBOX] / [RainAuthPullChains.PRODUCTION] sets, is
+     * what the approval guard enforces. Gate host UI on it: the static sets answer for an
+     * environment, this answers for the SDK the host built, and the two differ whenever a config is
+     * narrower than its environment or an RPC endpoint is missing.
      */
     val authPullChainIds: Set<Int> = authPullTokenAddresses.keys.toSet()
-
-    @Volatile
-    private var rainApiService: RainApiService? = null
 
     @Volatile
     private var closed = false
@@ -114,14 +101,11 @@ class RainSdk private constructor(
     init {
         // Fail fast on a bad URL / chain id, before anything is resolved.
         ConfigManager().validateRpcEndpoints(rpcEndpoints)
-        initialRainApiCredentials?.let { (apiKey, userId) ->
-            rainApiConfig.setCredentials(apiKey, userId)
-        }
     }
 
     /**
      * Shared, vendor-free infrastructure handed to every provider. Built exactly once, after
-     * endpoint validation, so clients and the Rain API service always see one [TokenMetadataStore].
+     * endpoint validation, so every client and [tokenMetadata] see one [TokenMetadataStore].
      */
     private val sharedContext: ProviderContext = run {
         val evm = EvmChainReader(rpcEndpoints = rpcEndpoints)
@@ -199,7 +183,8 @@ class RainSdk private constructor(
      * ABI-encodes the `withdrawAsset` call for the collateral controller. Pure encoding — no RPC,
      * so it needs no chain id.
      *
-     * @param executorSignature Rain's authorization, from [fetchAdminSignature].
+     * @param executorSignature Rain's authorization for this withdrawal, obtained by the host from the Rain API,
+     *   `GET /v1/issuing/users/{userId}/signatures/withdrawals`.
      * @param walletSalt The salt from [RainEIP712Message.salt], unchanged.
      * @param walletSignature The wallet's hex signature over [RainEIP712Message.message].
      */
@@ -343,84 +328,8 @@ class RainSdk private constructor(
         sharedContext.tokenStore.register(tokens)
     }
 
-    // --- Rain API (issuing) --------------------------------------------------------------
-
-    /** True once an Api-Key and userId have been supplied (builder or [configureRainApi]). */
-    val isRainApiConfigured: Boolean get() = rainApiConfig.isConfigured
-
     /**
-     * Sets or replaces the Rain program Api-Key and userId at runtime; the next API call carries
-     * the new pair. The SDK never persists these values.
-     */
-    fun configureRainApi(apiKey: String, userId: String) {
-        rainApiConfig.setCredentials(apiKey, userId)
-    }
-
-    /**
-     * Fetches the user's collateral contracts (`GET /v1/issuing/users/{userId}/contracts`).
-     *
-     * Token `name`/`symbol`/`decimals` are enriched from the SDK token store (registry,
-     * host-registered tokens, or an on-chain read) — best-effort, a failed lookup leaves them
-     * null. Needs no wallet provider, only the configured Api-Key/userId and RPC endpoints.
-     *
-     * @throws RainError.ApiNotConfigured when no credentials were supplied.
-     * @throws RainError.Unauthorized when Rain rejects the Api-Key (HTTP 401 or 403). Not retried:
-     *   the same key cannot succeed on a second attempt.
-     */
-    @Throws(RainError::class)
-    suspend fun fetchCollateralContracts(): List<RainCollateralContract> =
-        rainApi().fetchCollateralContracts()
-
-    /**
-     * Convenience for the common single-contract case: the first collateral contract.
-     *
-     * @throws RainError.NoCollateralContracts when the user has none.
-     */
-    @Throws(RainError::class)
-    suspend fun fetchCollateralContract(): RainCollateralContract =
-        fetchCollateralContracts().firstOrNull() ?: throw RainError.NoCollateralContracts()
-
-    /**
-     * Fetches the admin withdrawal signature
-     * (`GET /v1/issuing/users/{userId}/signatures/withdrawals`) that authorizes a
-     * [RainClient.withdrawCollateral] call.
-     *
-     * @param amountBaseUnits Withdrawal amount in the token's base units.
-     * @param adminAddress One of the contract's [RainCollateralContract.adminAddresses].
-     * @throws RainError.ApiNotConfigured when no credentials were supplied.
-     * @throws RainError.Unauthorized when Rain rejects the Api-Key (HTTP 401 or 403). Not retried:
-     *   the same key cannot succeed on a second attempt.
-     * @throws RainError.SignatureNotReady when Rain has not produced the signature yet — retry
-     *   after the carried `retryAfter` seconds.
-     */
-    @Throws(RainError::class)
-    suspend fun fetchAdminSignature(
-        chainId: Int,
-        tokenAddress: String,
-        amountBaseUnits: BigInteger,
-        adminAddress: String,
-        recipientAddress: String,
-        isAmountNative: Boolean = true,
-    ): RainAdminSignature = rainApi().fetchAdminSignature(
-        chainId = chainId,
-        tokenAddress = tokenAddress,
-        amountBaseUnits = amountBaseUnits,
-        adminAddress = adminAddress,
-        recipientAddress = recipientAddress,
-        isAmountNative = isAmountNative,
-    )
-
-    private fun rainApi(): RainApiService = synchronized(this) {
-        rainApiService?.let { return@synchronized it }
-        RainApiService(
-            configStore = rainApiConfig,
-            tokenStore = sharedContext.tokenStore,
-            chainReader = sharedContext.evmChainReader,
-        ).also { rainApiService = it }
-    }
-
-    /**
-     * Evicts the resolved clients and clears the Rain API credentials. Idempotent.
+     * Evicts the resolved clients. Idempotent.
      *
      * The chain configuration is immutable state fixed at [Builder.build], so this instance stays
      * usable: the next [provider] / [first] call re-resolves from scratch. Build a new [RainSdk]
@@ -434,9 +343,7 @@ class RainSdk private constructor(
     fun reset() {
         clients.values.forEach { runCatching { it.reset() } }
         clients.clear()
-        rainApiConfig.clear()
-        rainApiService = null
-        Timber.d("Rain SDK: Reset (resolved clients evicted; Rain API credentials cleared)")
+        Timber.d("Rain SDK: Reset (resolved clients evicted)")
     }
 
     /**
@@ -476,9 +383,7 @@ class RainSdk private constructor(
         private val descriptors = LinkedHashMap<ProviderId, ProviderDescriptor>()
         private var rpcEndpoints: Map<Int, String> = emptyMap()
         private val seedTokens = mutableListOf<TokenInfo>()
-        private var rainApiEnvironment: RainApiEnvironment = RainApiEnvironment.Dev
         private var authPullConfig: RainAuthPullConfig? = null
-        private var rainApiCredentials: Pair<String, String>? = null
 
         /** Sets the `chainId → RPC URL` map every provider shares. Required. */
         fun rpcEndpoints(endpoints: Map<Int, String>): Builder = apply {
@@ -518,11 +423,6 @@ class RainSdk private constructor(
             seedTokens += tokens
         }
 
-        /** Selects the Rain issuing API environment. Defaults to [RainApiEnvironment.Dev]. */
-        fun rainApiEnvironment(environment: RainApiEnvironment): Builder = apply {
-            rainApiEnvironment = environment
-        }
-
         /**
          * Enables Auth Pull for the exact operator and token contracts in [config]. Without this
          * call, approval, allowance, confirmation, and approval-fee methods fail closed.
@@ -532,20 +432,13 @@ class RainSdk private constructor(
         }
 
         /**
-         * Optionally supplies the Rain program Api-Key and userId at build time — same effect
-         * as calling [RainSdk.configureRainApi] on the built instance.
-         */
-        fun rainApiCredentials(apiKey: String, userId: String): Builder = apply {
-            rainApiCredentials = apiKey to userId
-        }
-
-        /**
-         * Zero registered providers is allowed: the SDK is then wallet-agnostic,
-         * exposing [RainSdk.transactionBuilder] and the Rain API methods; resolving a
-         * [RainSdk.provider] still throws [RainError.ProviderNotRegistered] until one is registered.
+         * Zero registered providers is allowed: the SDK is then wallet-agnostic, exposing the
+         * transaction-building helpers ([RainSdk.buildEIP712Message], [RainSdk.buildWithdrawTransactionData])
+         * and [RainSdk.tokenMetadata]; resolving a [RainSdk.provider] still throws
+         * [RainError.ProviderNotRegistered] until one is registered.
          *
-         * @throws RainError.InvalidConfig if no RPC endpoints were configured, the Rain API
-         *   base URL doesn't parse, or both the Rain wallet provider and the Turnkey provider are
+         * @throws RainError.InvalidConfig if no RPC endpoints were configured, a seed token or the Auth
+         *   Pull configuration is invalid, or both the Rain wallet provider and the Turnkey provider are
          *   registered: they drive one process-wide wallet backend, so an app uses one or the other.
          */
         fun build(): RainSdk {
@@ -553,11 +446,6 @@ class RainSdk private constructor(
                 throw RainError.InvalidConfig("At least one RPC endpoint is required")
             }
             TokenInfoValidation.requireValid(seedTokens)
-            if (rainApiEnvironment.baseUrl.toHttpUrlOrNull() == null) {
-                throw RainError.InvalidConfig(
-                    "Invalid Rain API base URL: ${rainApiEnvironment.baseUrl}"
-                )
-            }
             validateAuthPullConfig()
             requireOneWalletBackendProvider()
             // Ownership moves here: descriptors replaced during registration are closed only once the
@@ -568,9 +456,7 @@ class RainSdk private constructor(
                 rpcEndpoints = rpcEndpoints.toMap(),
                 registered = descriptors.toMap(),
                 seedTokens = seedTokens.toList(),
-                rainApiEnvironment = rainApiEnvironment,
                 authPullConfig = authPullConfig,
-                initialRainApiCredentials = rainApiCredentials,
             )
         }
 
@@ -597,26 +483,12 @@ class RainSdk private constructor(
                 throw RainError.InvalidConfig("Auth Pull must configure at least one token contract")
             }
 
-            val expectedKind = when (rainApiEnvironment) {
-                is RainApiEnvironment.Dev -> RainAuthPullConfig.Kind.SANDBOX
-                is RainApiEnvironment.Production -> RainAuthPullConfig.Kind.PRODUCTION
-                is RainApiEnvironment.Custom -> RainAuthPullConfig.Kind.CUSTOM
-            }
-            if (config.kind != expectedKind) {
-                throw RainError.InvalidConfig(
-                    "Auth Pull configuration does not match the configured Rain API environment"
-                )
-            }
-            val environmentChains = RainAuthPullChains.supported(rainApiEnvironment)
-            val allowedChains = if (rainApiEnvironment is RainApiEnvironment.Custom) {
-                RainAuthPullChains.SANDBOX + RainAuthPullChains.PRODUCTION
-            } else {
-                environmentChains
-            }
-            val unexpected = config.tokenAddresses.keys - allowedChains
+            // A configuration may name the chains of the environment its kind stands for; a custom
+            // configuration may draw on either environment's set, and nothing outside them.
+            val unexpected = config.tokenAddresses.keys - RainAuthPullChains.supported(config.kind)
             if (unexpected.isNotEmpty()) {
                 throw RainError.InvalidConfig(
-                    "Auth Pull chains ${unexpected.sorted()} do not match the configured Rain API environment"
+                    "Auth Pull chains ${unexpected.sorted()} are not Auth Pull chains for this configuration's environment"
                 )
             }
             config.tokenAddresses.forEach { (chainId, address) ->
