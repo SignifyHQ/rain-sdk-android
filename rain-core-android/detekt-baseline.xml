@@ -55,13 +55,10 @@
     <ID>MagicNumber:RainTransactionBuilderImpl.kt:RainTransactionBuilderImpl$32</ID>
     <ID>MagicNumber:SolanaAddresses.kt:SolanaAddresses$0x7F</ID>
     <ID>MagicNumber:SolanaAddresses.kt:SolanaAddresses$255</ID>
-    <ID>MagicNumber:SolanaChainReader.kt:SolanaChainReader$32</ID>
     <ID>MagicNumber:SolanaCollateralWithdraw.kt:SolanaCollateralAccounts$8</ID>
     <ID>MagicNumber:SolanaCollateralWithdraw.kt:SolanaCollateralAccounts.BorshReader$0xFF</ID>
-    <ID>MagicNumber:SolanaCollateralWithdraw.kt:SolanaCollateralAccounts.BorshReader$32</ID>
     <ID>MagicNumber:SolanaCollateralWithdraw.kt:SolanaCollateralAccounts.BorshReader$4</ID>
     <ID>MagicNumber:SolanaCollateralWithdraw.kt:SolanaCollateralAccounts.BorshReader$8</ID>
-    <ID>MagicNumber:SolanaCollateralWithdraw.kt:SolanaCollateralWithdrawComposer$32</ID>
     <ID>MagicNumber:SolanaCollateralWithdraw.kt:SolanaWithdrawMessages$0x19</ID>
     <ID>MagicNumber:SolanaCollateralWithdraw.kt:SolanaWithdrawMessages$0xFF</ID>
     <ID>MagicNumber:SolanaCollateralWithdraw.kt:SolanaWithdrawMessages$0xFFFFFFFFL</ID>

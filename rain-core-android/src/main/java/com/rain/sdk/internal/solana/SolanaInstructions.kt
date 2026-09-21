@@ -152,12 +152,14 @@ object SolanaInstructions {
      * back through the instructions sysvar.
      */
     fun ed25519Verify(signer: ByteArray, signature: ByteArray, message: ByteArray): Instruction {
-        require(signer.size == 32) { "ed25519 signer must be 32 bytes, got ${signer.size}" }
+        require(signer.size == SolanaAddresses.PUBLIC_KEY_LENGTH) {
+            "ed25519 signer must be ${SolanaAddresses.PUBLIC_KEY_LENGTH} bytes, got ${signer.size}"
+        }
         require(signature.size == 64) { "ed25519 signature must be 64 bytes, got ${signature.size}" }
         require(message.size == 32) { "ed25519 message must be 32 bytes, got ${message.size}" }
 
         val pubkeyOffset = 2 + 14 // count + padding + one offsets struct
-        val signatureOffset = pubkeyOffset + 32
+        val signatureOffset = pubkeyOffset + SolanaAddresses.PUBLIC_KEY_LENGTH
         val messageOffset = signatureOffset + 64
 
         val data = ByteArray(messageOffset + 32)

@@ -24,7 +24,6 @@ import java.util.Base64
  */
 @RainAdapterApi
 object SolanaTransactionDecoder {
-    private const val PUBLIC_KEY_LENGTH = 32
     private const val SIGNATURE_LENGTH = 64
 
     /**
@@ -183,10 +182,10 @@ object SolanaTransactionDecoder {
         // Account keys.
         val accountCount = reader.readCompactU16()
         val accounts = ArrayList<ByteArray>(accountCount)
-        repeat(accountCount) { accounts += reader.readBytes(PUBLIC_KEY_LENGTH) }
+        repeat(accountCount) { accounts += reader.readBytes(SolanaAddresses.PUBLIC_KEY_LENGTH) }
 
         // Recent blockhash.
-        reader.skip(PUBLIC_KEY_LENGTH)
+        reader.skip(SolanaAddresses.PUBLIC_KEY_LENGTH)
 
         val instructionCount = reader.readCompactU16()
         val instructions = ArrayList<DecodedInstruction>(instructionCount)

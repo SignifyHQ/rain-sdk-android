@@ -193,7 +193,7 @@ internal class SolanaCollateralWithdrawComposer(
 
     private fun decodeKey(address: String, label: String): ByteArray {
         val bytes = runCatching { Base58.decode(address) }.getOrNull()
-        if (bytes == null || bytes.size != 32) {
+        if (bytes == null || bytes.size != SolanaAddresses.PUBLIC_KEY_LENGTH) {
             throw RainError.InvalidConfig("Invalid Solana $label address: $address")
         }
         return bytes
@@ -374,8 +374,8 @@ internal object SolanaCollateralAccounts {
         }
 
         fun pubkey(): ByteArray {
-            val start = next(32)
-            return data.copyOfRange(start, start + 32)
+            val start = next(SolanaAddresses.PUBLIC_KEY_LENGTH)
+            return data.copyOfRange(start, start + SolanaAddresses.PUBLIC_KEY_LENGTH)
         }
 
         fun string(): String {

@@ -199,7 +199,7 @@ class SolanaTransferComposer(
     /** Base58-decodes a Solana address, rejecting anything that isn't a 32-byte key. */
     private fun decodeAddress(address: String, label: String): ByteArray {
         val bytes = runCatching { Base58.decode(address) }.getOrNull()
-        if (bytes == null || bytes.size != SOLANA_PUBLIC_KEY_LENGTH) {
+        if (bytes == null || bytes.size != SolanaAddresses.PUBLIC_KEY_LENGTH) {
             throw RainError.InvalidConfig("Invalid Solana $label address: $address")
         }
         return bytes
@@ -257,9 +257,5 @@ class SolanaTransferComposer(
         throw RainError.TransactionSimulationFailed(
             IllegalStateException(simulation.error ?: "Solana transaction simulation failed")
         )
-    }
-
-    private companion object {
-        const val SOLANA_PUBLIC_KEY_LENGTH = 32
     }
 }

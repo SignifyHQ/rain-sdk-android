@@ -19,7 +19,6 @@ import java.io.ByteArrayOutputStream
  */
 @RainAdapterApi
 object SolanaTransactionBuilder {
-    private const val PUBLIC_KEY_LENGTH = 32
     private const val SIGNATURE_LENGTH = 64
     private val HEX_DIGITS = "0123456789abcdef".toCharArray()
 
@@ -79,7 +78,7 @@ object SolanaTransactionBuilder {
         extraReadonlyKeys: List<ByteArray> = emptyList()
     ): ByteArray {
         require(instructions.isNotEmpty()) { "A transaction needs at least one instruction" }
-        require(feePayer.size == PUBLIC_KEY_LENGTH) {
+        require(feePayer.size == SolanaAddresses.PUBLIC_KEY_LENGTH) {
             "Invalid fee payer (expected 32 bytes, got ${feePayer.size})"
         }
         val blockhash = decodeKey(recentBlockhash, "recentBlockhash")
@@ -121,7 +120,7 @@ object SolanaTransactionBuilder {
         val merged = LinkedHashMap<List<Byte>, AccountMeta>()
         for (instruction in instructions) {
             for (account in instruction.accounts) {
-                require(account.pubkey.size == PUBLIC_KEY_LENGTH) {
+                require(account.pubkey.size == SolanaAddresses.PUBLIC_KEY_LENGTH) {
                     "Invalid instruction account (expected 32 bytes, got ${account.pubkey.size})"
                 }
                 val key = account.pubkey.toList()
@@ -165,7 +164,7 @@ object SolanaTransactionBuilder {
     ): Collection<ByteArray> {
         val extras = LinkedHashMap<List<Byte>, ByteArray>()
         for (key in keys) {
-            require(key.size == PUBLIC_KEY_LENGTH) {
+            require(key.size == SolanaAddresses.PUBLIC_KEY_LENGTH) {
                 "Invalid extra account key (expected 32 bytes, got ${key.size})"
             }
             val k = key.toList()
@@ -228,7 +227,7 @@ object SolanaTransactionBuilder {
         } catch (e: IllegalArgumentException) {
             throw IllegalArgumentException("Invalid Solana $label address: $address", e)
         }
-        require(bytes.size == PUBLIC_KEY_LENGTH) {
+        require(bytes.size == SolanaAddresses.PUBLIC_KEY_LENGTH) {
             "Invalid Solana $label address (expected 32 bytes, got ${bytes.size}): $address"
         }
         return bytes
