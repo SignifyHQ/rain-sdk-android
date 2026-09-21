@@ -159,7 +159,6 @@
     <ID>TooManyFunctions:SolanaRpcClient.kt:SolanaRpcClient</ID>
     <ID>TooManyFunctions:WalletProvider.kt:WalletProvider</ID>
     <ID>UseOrEmpty:RainClient.kt:RainClient$(balance.token as? Token.Contract)?.address ?: ""</ID>
-    <ID>UseOrEmpty:RainError.kt:RainError.ApiError$details?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: ""</ID>
     <ID>UseOrEmpty:SolanaRpcClient.kt:SolanaRpcClient$value.optJSONArray("logs")?.let { array -> (0 until array.length()).mapNotNull { array.optString(it, "").ifEmpty { null } } } ?: emptyList()</ID>
     <ID>UseOrEmpty:TokenMetadataStore.kt:TokenMetadataStore$knownTokens[chainId]?.toList() ?: emptyList()</ID>
     <ID>UseOrEmpty:TokenRegistry.kt:TokenRegistry$tokensByChainId[chainId] ?: emptyList()</ID>

@@ -2,9 +2,9 @@ package com.rain.sdk.internal.error
 
 /**
  * The `RAIN_*` codes every [RainError] carries. The values are a published contract hosts switch on,
- * pinned by `RainErrorCodeParityTest`: a code keeps its meaning across releases. RAIN_104 and RAIN_304
- * have been unassigned since the Rain issuing API left the SDK, and RAIN_303 is [TRANSACTION_PENDING]
- * alone.
+ * pinned by `RainErrorCodeParityTest`: a code keeps its meaning across releases. RAIN_104, RAIN_302 and
+ * RAIN_304 have been unassigned since the Rain issuing API left the SDK, and RAIN_303 is
+ * [TRANSACTION_PENDING] alone.
  */
 enum class RainErrorCode(val code: String) {
     SDK_NOT_INITIALIZED("RAIN_101"),
@@ -17,7 +17,6 @@ enum class RainErrorCode(val code: String) {
     INVALID_LOGIN_CODE("RAIN_203"),
 
     NETWORK_ERROR("RAIN_301"),
-    API_ERROR("RAIN_302"),
     TRANSACTION_PENDING("RAIN_303"),
 
     USER_REJECTED("RAIN_401"),
@@ -88,13 +87,6 @@ sealed class RainError(
     // --- 3xx Network ---
     class NetworkError(message: String? = null, cause: Throwable? = null) :
         RainError(RainErrorCode.NETWORK_ERROR, message, cause)
-
-    /** The Rain API returned a non-success HTTP status (other than 401/403 → [Unauthorized]). */
-    class ApiError(val statusCode: Int, details: String? = null) :
-        RainError(
-            RainErrorCode.API_ERROR,
-            "Rain API error $statusCode${details?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: ""}"
-        )
 
     /**
      * The transaction was handed to the wallet provider or broadcast, but the SDK stopped waiting
