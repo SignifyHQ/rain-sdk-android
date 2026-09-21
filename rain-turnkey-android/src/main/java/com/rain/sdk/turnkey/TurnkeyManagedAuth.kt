@@ -361,8 +361,9 @@ internal class TurnkeyManagedAuthController(
         flowMutex.withLock {
             prepare()
             // Do not clear mid-restore: the vendor completes its readiness signal before the last
-            // of its configuration is assigned, and a clear in that window half-applies.
-            awaitRestoreSettled(RESTORE_SETTLE_TIMEOUT_MS)
+            // of its configuration is assigned, and a clear in that window half-applies. The wait is
+            // bounded by the coordinator's own restore timeout, so logout never outlasts a wallet call.
+            awaitRestoreSettled(TurnkeySessionCoordinator.AUTH_RESTORE_TIMEOUT_MS)
             if (context.selectedSessionKey == null) {
                 // Nothing to clear, so nothing to suppress — an armed suppression with no death to
                 // consume it would silence the next genuine one.
@@ -579,9 +580,6 @@ internal class TurnkeyManagedAuthController(
 
         /** Longest a call waits for the vendor's readiness signal before giving up on this launch. */
         const val READY_TIMEOUT_MS = 15_000L
-
-        /** Longest [logout] waits for a restore in flight before clearing; the coordinator's own bound. */
-        const val RESTORE_SETTLE_TIMEOUT_MS = 10_000L
 
         const val SESSION_MIN_REMAINING_SECONDS = 30.0
         const val SESSION_KEY_PREFIX = "rain-turnkey-"
