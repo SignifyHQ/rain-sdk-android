@@ -7,9 +7,7 @@
     <ID>CyclomaticComplexMethod:CollateralWithdrawScreen.kt:@Composable private fun CollateralWithdrawContent</ID>
     <ID>LongMethod:AuthPullScreen.kt:@Suppress("LongParameterList") // Slot-style Compose API: state, a support flag, and the callbacks. @Composable private fun AuthPullContent</ID>
     <ID>LongMethod:AuthPullViewModel.kt:AuthPullViewModel$fun approve</ID>
-    <ID>LongMethod:BalancesViewModel.kt:BalancesViewModel$fun fetchCollateralBalances</ID>
     <ID>LongMethod:CollateralWithdrawScreen.kt:@Composable private fun CollateralWithdrawContent</ID>
-    <ID>LongMethod:CollateralWithdrawViewModel.kt:CollateralWithdrawViewModel$fun loadContractInfo</ID>
     <ID>LongMethod:CollateralWithdrawViewModel.kt:CollateralWithdrawViewModel$private fun runWithdrawFlow</ID>
     <ID>LongMethod:HomeViewModel.kt:HomeViewModel$fun initializeRainWithPrivy</ID>
     <ID>LongMethod:HomeViewModel.kt:HomeViewModel$fun initializeSdk</ID>
@@ -52,7 +50,6 @@
     <ID>UseOrEmpty:BalancesViewModel.kt:BalancesViewModel$token.name ?: ""</ID>
     <ID>UseOrEmpty:CollateralWithdrawViewModel.kt:CollateralWithdrawViewModel$WalletChain.entries.firstOrNull { it.chainId == _state.value.chainId }?.nativeSymbol ?: ""</ID>
     <ID>UseOrEmpty:CollateralWithdrawViewModel.kt:CollateralWithdrawViewModel$contract.adminAddresses.firstOrNull() ?: ""</ID>
-    <ID>UseOrEmpty:CollateralWithdrawViewModel.kt:CollateralWithdrawViewModel$error.retryAfter?.let { " — retry in ${it}s" } ?: ""</ID>
     <ID>UseOrEmpty:CollateralWithdrawViewModel.kt:CollateralWithdrawViewModel$token.symbol ?: ""</ID>
     <ID>UseOrEmpty:SessionStore.kt:SessionStore.&lt;no name provided>$prefs?.getString(key, "") ?: ""</ID>
   </CurrentIssues>

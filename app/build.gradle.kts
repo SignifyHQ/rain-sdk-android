@@ -63,6 +63,8 @@ dependencies {
 
     implementation(libs.portal.android)
     implementation(libs.timber)
+    // The demo's own Rain API client (RainApiClient.kt): the Rain issuing API is the host's call, not the SDK's.
+    implementation(libs.okhttp)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.security.crypto)
@@ -84,4 +86,9 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.navigation.compose)
 
+    // JVM tests for the demo's Rain API client. The real org.json stands in for android.jar's stubs.
+    testImplementation(libs.junit)
+    testImplementation(libs.truth)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.json)
 }

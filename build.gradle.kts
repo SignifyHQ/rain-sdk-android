@@ -41,8 +41,9 @@ val allowedSkippedTests = setOf(
     "com.rain.sdk.internal.transaction.RainTransactionBuilderImplTest" +
         ".getLatestNonce uses real network and returns nonce gt 0"
 )
-val sdkTestModules =
-    listOf("rain-core-android", "rain-turnkey-android", "rain-portal-android", "rain-privy-android", "rain-wallet-android")
+// Every module with JVM unit tests: the five SDK modules and the sample, whose tests pin its host reference code.
+val unitTestModules =
+    listOf("rain-core-android", "rain-turnkey-android", "rain-portal-android", "rain-privy-android", "rain-wallet-android", "app")
 
 // detekt: static analysis on all modules, defaults + config/detekt/detekt.yml overrides.
 // CI runs the type-resolving tasks (`detektMain detektTest`) — the bare `detekt` task has
@@ -177,9 +178,9 @@ tasks.register("checkVendorFreeClasspaths") {
 // Fails the build if any unit test skipped, so JDK-gated Turnkey suites can't pass by not running.
 tasks.register("checkNoSkippedUnitTests") {
     group = "verification"
-    description = "Fails if any SDK unit test was skipped (allowlisted env-gated tests excepted)."
-    mustRunAfter(sdkTestModules.map { ":$it:testDebugUnitTest" })
-    val resultDirs = sdkTestModules.map { it to project(it).layout.buildDirectory.dir("test-results/testDebugUnitTest") }
+    description = "Fails if any unit test was skipped (allowlisted env-gated tests excepted)."
+    mustRunAfter(unitTestModules.map { ":$it:testDebugUnitTest" })
+    val resultDirs = unitTestModules.map { it to project(it).layout.buildDirectory.dir("test-results/testDebugUnitTest") }
     val allowed = allowedSkippedTests
     val summaryFile = System.getenv("GITHUB_STEP_SUMMARY")
     doLast {

@@ -15,8 +15,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.WalletChain
 import com.rain.sdk.sample.ui.RainBackHeader
 import com.rain.sdk.sample.ui.RainBadge
@@ -42,12 +42,12 @@ import java.math.BigDecimal
 @Composable
 fun CollateralWithdrawScreen(
     innerPadding: PaddingValues,
-    rainSdk: RainSdk,
+    session: RainSession,
     rainClient: RainClient,
     selectedChain: WalletChain,
     onBack: () -> Unit,
     viewModel: CollateralWithdrawViewModel = viewModel(
-        factory = CollateralWithdrawViewModelFactory(rainSdk, rainClient)
+        factory = CollateralWithdrawViewModelFactory(session, rainClient)
     )
 ) {
     val state by viewModel.state.collectAsState()
@@ -143,6 +143,10 @@ private fun CollateralWithdrawContent(
                 }
             }
 
+            // A token whose decimals the SDK could not establish stays listed, with every money
+            // action below disabled: the amount would otherwise be scaled by a guess.
+            state.decimalsUnavailableText?.let { RainMuted(it) }
+
             RainField(
                 label = "Recipient address",
                 value = state.recipientAddress,
@@ -196,7 +200,7 @@ private fun CollateralWithdrawContent(
                         modifier = Modifier.weight(1f),
                         style = RainButtonStyle.Secondary,
                         height = 48.dp,
-                        enabled = !state.isWithdrawing && (token?.balance?.signum() ?: 0) > 0,
+                        enabled = !state.isWithdrawing && state.selectedTokenDecimalsKnown && (token?.balance?.signum() ?: 0) > 0,
                     )
                     RainButton(
                         text = "Withdraw",
@@ -330,6 +334,15 @@ private fun CollateralWithdrawLoadedPreview() {
 @Composable
 private fun CollateralWithdrawOverBalancePreview() {
     CollateralWithdrawPreview(previewLoadedState.copy(selectedTokenIndex = 1, amount = "5"))
+}
+
+@Preview(name = "Decimals unknown", showBackground = true, heightDp = 900)
+@Composable
+private fun CollateralWithdrawUnknownDecimalsPreview() {
+    // A token the SDK could not resolve: listed, helper text shown, every money action disabled.
+    CollateralWithdrawPreview(
+        previewLoadedState.copy(availableTokens = listOf(previewTokens[0].copy(name = "Token", symbol = "", decimals = null)))
+    )
 }
 
 @Preview(name = "Withdrawing", showBackground = true, heightDp = 900)

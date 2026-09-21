@@ -1257,6 +1257,7 @@ class HomeViewModel(
                 return@launch
             }
             session.reset()
+            session.clearRainApi()
             store.clear()
             // Real logout so the next run requires fresh auth (and resume detects no session).
             TurnkeyAuthSample.logout()

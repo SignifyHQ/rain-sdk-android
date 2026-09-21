@@ -12,8 +12,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.WalletChain
 import com.rain.sdk.sample.ui.RainAmount
 import com.rain.sdk.sample.ui.RainBackHeader
@@ -35,11 +35,11 @@ import java.math.BigDecimal
 @Composable
 fun BalancesScreen(
     innerPadding: PaddingValues,
-    rainSdk: RainSdk,
+    session: RainSession,
     rainClient: RainClient,
     selectedChain: WalletChain,
     onBack: () -> Unit,
-    viewModel: BalancesViewModel = viewModel(factory = BalancesViewModelFactory(rainSdk, rainClient)),
+    viewModel: BalancesViewModel = viewModel(factory = BalancesViewModelFactory(session, rainClient)),
 ) {
     val state by viewModel.state.collectAsState()
 
