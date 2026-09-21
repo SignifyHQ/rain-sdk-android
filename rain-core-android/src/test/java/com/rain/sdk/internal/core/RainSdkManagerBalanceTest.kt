@@ -126,6 +126,30 @@ class RainSdkManagerBalanceTest {
     }
 
     @Test
+    fun `registerTokens rejects decimals outside the supported range`() {
+        // No money path can scale by such a value, so the entry is refused at registration.
+        val (manager, _) = TestManagers.stubProviderManager()
+
+        assertThrows(RainError.InvalidConfig::class.java) {
+            manager.registerTokens(
+                listOf(TokenInfo(chainId = 1, address = TestFixtures.TOKEN_ADDRESS, symbol = "BAD", decimals = 78))
+            )
+        }
+    }
+
+    @Test
+    fun `registerTokens accepts decimals 0 and 77`() {
+        val (manager, _) = TestManagers.stubProviderManager()
+
+        manager.registerTokens(
+            listOf(
+                TokenInfo(chainId = 1, address = TestFixtures.TOKEN_ADDRESS, symbol = "ZERO", decimals = 0),
+                TokenInfo(chainId = 1, address = "0x00000000000000000000000000000000000000BB", symbol = "MAX", decimals = 77)
+            )
+        )
+    }
+
+    @Test
     fun `registerTokens accepts valid EVM and base58 solana addresses`() {
         val (manager, _) = TestManagers.stubProviderManager()
 

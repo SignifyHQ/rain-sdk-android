@@ -125,8 +125,6 @@
     <ID>ReturnCount:SolanaTransactionDecoder.kt:SolanaTransactionDecoder$fun decode: Transfer?</ID>
     <ID>ReturnCount:SolanaTransactionDecoder.kt:SolanaTransactionDecoder$private fun decodeInstruction: Transfer?</ID>
     <ID>ReturnCount:SolanaTransactionDecoder.kt:SolanaTransactionDecoder$private fun hexToBytes: ByteArray?</ID>
-    <ID>ReturnCount:TokenMetadataStore.kt:TokenMetadataStore$suspend fun decimalsOrNull: Int?</ID>
-    <ID>ReturnCount:TokenMetadataStore.kt:TokenMetadataStore$suspend fun tokenInfo: TokenInfo</ID>
     <ID>ReturnCount:VendorErrorClassifier.kt:VendorErrorClassifier$fun fromVendorMessage: RainError?</ID>
     <ID>SwallowedException:RainHexUtils.kt:RainHexUtils$e: Exception</ID>
     <ID>SwallowedException:RainSdkManager.kt:RainSdkManager$e: ArithmeticException</ID>

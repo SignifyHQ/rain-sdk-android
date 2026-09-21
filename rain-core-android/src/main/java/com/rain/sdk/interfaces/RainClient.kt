@@ -529,8 +529,17 @@ interface RainClient {
      * Re-registering a host-added address replaces its entry; built-in registry tokens are
      * trusted and cannot be overridden.
      *
+     * The shared store is updated in the background, so a lookup issued right after this call may
+     * not see the entry yet; [com.rain.sdk.RainSdk.registerTokens] returns once the entries are
+     * stored.
+     *
      * @param tokens Tokens to add to the SDK's token store.
+     * @throws RainError.InvalidConfig (`RAIN_102`) when an entry's address is malformed for its
+     *   chain family (EVM: 40 hex characters with a correct EIP-55 checksum when mixed-case;
+     *   Solana: base58 decoding to 32 bytes) or its `decimals` lies outside 0..77. The whole list
+     *   is validated first, so nothing is registered.
      */
+    @Throws(RainError::class)
     fun registerTokens(tokens: List<TokenInfo>)
 
     /**

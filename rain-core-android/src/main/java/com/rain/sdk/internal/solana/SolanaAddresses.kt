@@ -18,7 +18,8 @@ import java.security.MessageDigest
  */
 @RainAdapterApi
 object SolanaAddresses {
-    private const val PUBLIC_KEY_LENGTH = 32
+    /** Byte length of a Solana public key, the size every address and mint decodes to. */
+    internal const val PUBLIC_KEY_LENGTH = 32
     private const val MAX_SEEDS = 16
     private const val MAX_SEED_LENGTH = 32
 

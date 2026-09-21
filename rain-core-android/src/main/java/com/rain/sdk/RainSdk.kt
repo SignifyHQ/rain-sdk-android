@@ -7,10 +7,12 @@ import com.rain.sdk.internal.core.RainSdkManager
 import com.rain.sdk.internal.core.RainTransactionBuilderImpl
 import com.rain.sdk.internal.error.ErrorMapper
 import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.internal.error.noRpcEndpointConfigured
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.network.rainapi.RainApiConfigStore
 import com.rain.sdk.internal.network.rainapi.RainApiService
 import com.rain.sdk.internal.solana.SolanaSupport
+import com.rain.sdk.internal.tokenstore.TokenInfoValidation
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.internal.utils.isValidEthereumAddress
 import com.rain.sdk.internal.utils.isZeroAddress
@@ -292,6 +294,55 @@ class RainSdk private constructor(
         return provider(match.id)
     }
 
+    // --- Token metadata ------------------------------------------------------------------
+
+    /**
+     * Metadata (symbol, name, decimals) for a contract token known only by address, such as the
+     * tokens listed in a collateral contract. Resolution order: the built-in registry,
+     * host-registered tokens, then on-chain `decimals()` / `symbol()` / `name()` reads over the
+     * configured RPC endpoint, cached once decimals resolve. Needs no wallet provider.
+     *
+     * Returns `null` when decimals could not be established (unknown token, failed read, RPC
+     * unreachable), never a guessed default, since callers scale withdrawal and approval amounts
+     * with it. `symbol` and `name` inside a non-null result may still be null. Solana chains
+     * resolve from the registry and host-registered tokens only.
+     *
+     * @throws RainError.InvalidConfig when no RPC endpoint was configured for [chainId], or when
+     *   [address] is malformed for its chain family: on EVM chains 40 hex characters with a correct
+     *   EIP-55 checksum when mixed-case, on Solana chains base58 decoding to 32 bytes. Both checks
+     *   assert the host's configuration, not whether this lookup would need the network: a chain
+     *   the SDK was not built with is a configuration error even for a registry token.
+     */
+    @Throws(RainError::class)
+    suspend fun tokenMetadata(chainId: Int, address: String): TokenInfo? {
+        if (chainId !in rpcEndpoints) throw noRpcEndpointConfigured(chainId)
+        TokenInfoValidation.requireValidAddress(chainId, address)
+        return sharedContext.tokenStore.tokenInfoOrNull(chainId, address)
+    }
+
+    /**
+     * Registers token metadata after [Builder.build], without a resolved provider. Unlike
+     * [RainClient.registerTokens], which applies to the store in the background, this call returns
+     * once the entries are stored, so a [tokenMetadata] call that follows it sees them. The store
+     * is shared, so every resolved client sees them too. A built-in registry token cannot be
+     * overridden.
+     *
+     * The same checks run on [Builder.registerTokens] seeds at [Builder.build] and on
+     * [RainClient.registerTokens]. The chain id is not checked against the configured endpoints; a
+     * later [tokenMetadata] for a chain the SDK was not built with throws regardless.
+     *
+     * @throws RainError.InvalidConfig when an entry's address is malformed for its chain family (EVM:
+     *   40 hex characters with a correct EIP-55 checksum when mixed-case; Solana: base58 decoding to
+     *   32 bytes), or its `decimals` lies outside 0..77. The whole list is validated first, so
+     *   nothing is registered.
+     */
+    @Throws(RainError::class)
+    suspend fun registerTokens(tokens: List<TokenInfo>) {
+        if (tokens.isEmpty()) return
+        TokenInfoValidation.requireValid(tokens)
+        sharedContext.tokenStore.register(tokens)
+    }
+
     // --- Rain API (issuing) --------------------------------------------------------------
 
     /** True once an Api-Key and userId have been supplied (builder or [configureRainApi]). */
@@ -458,7 +509,11 @@ class RainSdk private constructor(
             if (previous != null && previous !== descriptor) replaced += previous
         }
 
-        /** Seeds the shared token store with extra token metadata. */
+        /**
+         * Seeds the shared token store with extra token metadata. Validated at [build] exactly as
+         * [RainSdk.registerTokens] validates: a malformed address or `decimals` outside 0..77 fails
+         * the build.
+         */
         fun registerTokens(tokens: List<TokenInfo>): Builder = apply {
             seedTokens += tokens
         }
@@ -497,6 +552,7 @@ class RainSdk private constructor(
             if (rpcEndpoints.isEmpty()) {
                 throw RainError.InvalidConfig("At least one RPC endpoint is required")
             }
+            TokenInfoValidation.requireValid(seedTokens)
             if (rainApiEnvironment.baseUrl.toHttpUrlOrNull() == null) {
                 throw RainError.InvalidConfig(
                     "Invalid Rain API base URL: ${rainApiEnvironment.baseUrl}"

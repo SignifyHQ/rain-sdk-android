@@ -4,6 +4,7 @@ import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.TokenRegistry
 import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.internal.error.noRpcEndpointConfigured
 import com.rain.sdk.internal.utils.isValidEthereumAddress
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
@@ -412,7 +413,7 @@ class EvmChainReader(
      */
     private fun resolveRpcUrl(chainId: Int): String {
         val rpcUrl = rpcUrlResolver(chainId)
-            ?: throw RainError.InvalidConfig("No RPC endpoint configured for chainId=$chainId")
+            ?: throw noRpcEndpointConfigured(chainId)
         if (rpcUrl.toHttpUrlOrNull() == null) {
             throw RainError.InvalidConfig("Invalid RPC URL for chainId=$chainId: $rpcUrl")
         }

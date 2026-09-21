@@ -84,53 +84,72 @@ class TokenMetadataStore @RainAdapterApi constructor(
 
     /**
      * Resolves metadata for a contract token: known tokens first, then the enrichment cache,
-     * then a one-time on-chain `decimals()` / `symbol()` read (cached on success).
+     * then a one-time on-chain `decimals()` / `symbol()` read (cached on success). Falls back to
+     * the 18-decimal default when `decimals()` cannot be read; [decimalsOrNull] does not.
      */
     suspend fun tokenInfo(chainId: Int, address: String): TokenInfo {
         val key = address.lowercase()
-
-        mutex.withLock {
-            knownTokens[chainId]?.firstOrNull { it.address.lowercase() == key }?.let { return it }
-            enrichmentCache[chainId]?.get(key)?.let { return it }
-        }
+        val cached = cachedOrNull(chainId, key)
+        if (cached != null) return cached
 
         // Enrich outside the lock so a slow RPC doesn't block lookups for other tokens.
         val enriched = enrich(chainId, address)
-
-        // A fallback `decimals` is a guess, not a fact: caching it would pin a balance that is
-        // wrong by orders of magnitude for the rest of the process. Retry on the next lookup.
-        if (!enriched.decimalsResolved) return enriched.info
-
-        return mutex.withLock {
-            // Another coroutine may have enriched the same token while we were off-lock.
-            enrichmentCache[chainId]?.get(key)?.let { return@withLock it }
-            enrichmentCache.getOrPut(chainId) { mutableMapOf() }[key] = enriched.info
+        return if (enriched.decimalsResolved) {
+            cacheEnriched(chainId, key, enriched.info)
+        } else {
+            // A fallback `decimals` is a guess, not a fact: caching it would pin a balance that is
+            // wrong by orders of magnitude for the rest of the process. Retry on the next lookup.
+            Timber.w(
+                "Rain SDK: decimals() unresolved for token=%s chainId=%d; %d-decimal default used, not cached",
+                address,
+                chainId,
+                RainClient.DEFAULT_ERC20_DECIMALS
+            )
             enriched.info
         }
     }
 
     /**
-     * A contract token's decimals, or null when unknown to the registry and the on-chain read
-     * failed. Never substitutes the 18-decimal default: money paths must not scale by a guess.
+     * Strict metadata resolution: known tokens, then the enrichment cache, then, on EVM chains, a
+     * one-time on-chain read; `null` when `decimals` could not be established, never the
+     * 18-decimal default. The answer a caller needs before scaling a money amount for a token it
+     * knows only by address. `symbol` and `name` may be null inside a non-null result. Solana
+     * chains resolve from the registry and host-registered tokens only: the read path is
+     * EVM-only and an SPL mint carries no on-chain symbol.
      */
-    suspend fun decimalsOrNull(chainId: Int, address: String): Int? {
+    internal suspend fun tokenInfoOrNull(chainId: Int, address: String): TokenInfo? {
         val key = address.lowercase()
-
-        mutex.withLock {
-            knownTokens[chainId]?.firstOrNull { it.address.lowercase() == key }
-                ?.let { return it.decimals }
-            enrichmentCache[chainId]?.get(key)?.let { return it.decimals }
-        }
+        val cached = cachedOrNull(chainId, key)
+        if (cached != null || SolanaChains.isSolanaChain(chainId)) return cached
 
         // Enrich outside the lock so a slow RPC doesn't block lookups for other tokens.
         val enriched = enrich(chainId, address)
-        if (!enriched.decimalsResolved) return null
+        return if (enriched.decimalsResolved) cacheEnriched(chainId, key, enriched.info) else null
+    }
 
-        return mutex.withLock {
-            enrichmentCache[chainId]?.get(key)?.let { return@withLock it.decimals }
-            enrichmentCache.getOrPut(chainId) { mutableMapOf() }[key] = enriched.info
-            enriched.info.decimals
-        }
+    /**
+     * A contract token's decimals, or null when unknown to the registry and the on-chain read
+     * failed. Never substitutes the 18-decimal default: money paths must not scale by a guess.
+     * Solana chain ids resolve from the registry and host registrations only; no on-chain read is
+     * attempted for a mint.
+     */
+    suspend fun decimalsOrNull(chainId: Int, address: String): Int? =
+        tokenInfoOrNull(chainId, address)?.decimals
+
+    // ---------- Lookup helpers ----------
+
+    /** Known tokens, then the enrichment cache, under the lock. Null when neither holds the token. */
+    private suspend fun cachedOrNull(chainId: Int, key: String): TokenInfo? = mutex.withLock {
+        knownTokens[chainId]?.firstOrNull { it.address.lowercase() == key }
+            ?: enrichmentCache[chainId]?.get(key)
+    }
+
+    /**
+     * Caches a resolved enrichment under the lock. Another coroutine may have enriched the same
+     * token while this one was off-lock; the earlier entry wins so both callers see one object.
+     */
+    private suspend fun cacheEnriched(chainId: Int, key: String, info: TokenInfo): TokenInfo = mutex.withLock {
+        enrichmentCache.getOrPut(chainId) { mutableMapOf() }.getOrPut(key) { info }
     }
 
     // ---------- Enrichment ----------
@@ -149,13 +168,12 @@ class TokenMetadataStore @RainAdapterApi constructor(
                     onSuccess = { it to true },
                     onFailure = { e ->
                         if (e is CancellationException) throw e
-                        // Falling back here misreports the balance by orders of magnitude for
-                        // any non-18-decimal token, so it must never fail silently.
+                        // The caller decides what an unresolved decimals means: `tokenInfo` falls
+                        // back to the default for display, the strict lookups return null.
                         Timber.w(
                             e,
                             "Rain SDK: decimals() read failed for token=$address " +
-                                "chainId=$chainId — falling back to " +
-                                "${RainClient.DEFAULT_ERC20_DECIMALS}"
+                                "chainId=$chainId; metadata unresolved"
                         )
                         RainClient.DEFAULT_ERC20_DECIMALS to false
                     }

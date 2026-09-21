@@ -14,6 +14,7 @@ import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.solana.SolanaCollateralWithdrawComposer
 import com.rain.sdk.internal.solana.SolanaRpcClient
 import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
+import com.rain.sdk.internal.tokenstore.TokenInfoValidation
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.internal.transaction.TransactionCoordinator
 import com.rain.sdk.internal.transaction.TransactionExecutor
@@ -352,10 +353,10 @@ internal class RainSdkManager(
         val resolved = tokenStore?.decimalsOrNull(chainId, contractAddress)
             ?: throw RainError.TokenNotFound(contractAddress, chainId)
 
-        // Scaling raises 10 to this power; uint256 max is ~1.16e77, so anything finer is unusable.
-        if (resolved !in 0..77) {
+        if (resolved !in RainAmountUtils.DECIMALS_RANGE) {
             throw RainError.InvalidConfig(
-                "Token $contractAddress reports $resolved decimals, outside the supported range 0..77"
+                "Token $contractAddress reports $resolved decimals, outside the supported range " +
+                    "${RainAmountUtils.DECIMALS_RANGE}"
             )
         }
         return resolved
@@ -743,16 +744,8 @@ internal class RainSdkManager(
 
     override fun registerTokens(tokens: List<TokenInfo>) {
         if (tokens.isEmpty()) return
-        // Reject malformed EVM addresses at the source: an entry that enters the store rides into
-        // every balance batch on its chain. Solana mints are base58 and validated by their own
-        // paths. Validate the whole list before adding anything, so a bad entry registers nothing.
-        tokens.forEach { token ->
-            if (!SolanaChains.isSolanaChain(token.chainId) && !RainHexUtils.isValidAddress(token.address)) {
-                throw RainError.InvalidConfig(
-                    "Invalid token address for chainId=${token.chainId}: ${token.address}"
-                )
-            }
-        }
+        // The whole list is checked before anything is added, so a bad entry registers nothing.
+        TokenInfoValidation.requireValid(tokens)
         registeredTokens.addAll(tokens)
         // Apply to the live store too, fire-and-forget so registration stays synchronous.
         tokenStore?.let { store ->

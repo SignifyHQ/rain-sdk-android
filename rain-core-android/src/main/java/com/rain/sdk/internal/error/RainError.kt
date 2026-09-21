@@ -221,3 +221,7 @@ sealed class RainError(
     class InternalError(details: String, cause: Throwable? = null) :
         RainError(RainErrorCode.INTERNAL_LOGIC_ERROR, details, cause)
 }
+
+/** The one message for a chain the SDK was not built with, shared by the RPC-backed paths. */
+internal fun noRpcEndpointConfigured(chainId: Int): RainError.InvalidConfig =
+    RainError.InvalidConfig("No RPC endpoint configured for chainId=$chainId")

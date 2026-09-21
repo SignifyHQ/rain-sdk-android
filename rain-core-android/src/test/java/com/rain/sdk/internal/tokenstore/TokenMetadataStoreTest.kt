@@ -3,7 +3,9 @@ package com.rain.sdk.internal.tokenstore
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.helpers.MockChainReader
 import com.rain.sdk.models.TokenInfo
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 /**
@@ -15,6 +17,9 @@ class TokenMetadataStoreTest {
     // Chain-1 registry USDC (checksummed in the registry; lookups are case-insensitive).
     private val usdcEthereum = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
     private val unknown = "0xAbCdEf1234567890abcdef1234567890aBcDeF12"
+
+    // A base58 SPL mint; no Solana chain has registry entries, so it is unknown until registered.
+    private val solanaMint = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
 
     @Test
     fun `tokenInfo returns registry metadata without enrichment for a known token`() = runBlocking {
@@ -247,5 +252,126 @@ class TokenMetadataStoreTest {
         assertThat(store.nativeCurrencyOrNull(com.rain.sdk.RainChain.SOLANA_MAINNET)?.symbol)
             .isEqualTo("SOL")
         assertThat(store.nativeCurrencyOrNull(123456)).isNull()
+    }
+
+    // ---- tokenInfoOrNull: the strict lookup behind decimalsOrNull and RainSdk.tokenMetadata ----
+
+    @Test
+    fun `tokenInfoOrNull returns null and caches nothing when decimals() fails`() = runBlocking {
+        val reader = MockChainReader(decimals = 8, metadataError = RuntimeException("rpc down"))
+        val store = TokenMetadataStore(reader)
+
+        assertThat(store.tokenInfoOrNull(chainId = 1, address = unknown)).isNull()
+
+        // The RPC recovers; the store must retry rather than serve a cached miss.
+        reader.metadataError = null
+        assertThat(store.tokenInfoOrNull(chainId = 1, address = unknown)?.decimals).isEqualTo(8)
+        assertThat(reader.decimalsCalls).hasSize(2)
+    }
+
+    @Test
+    fun `tokenInfoOrNull caches a successful read`() = runBlocking {
+        val reader = MockChainReader(decimals = 8, symbol = "TKN", name = "Token")
+        val store = TokenMetadataStore(reader)
+
+        val first = store.tokenInfoOrNull(chainId = 1, address = unknown)
+        val second = store.tokenInfoOrNull(chainId = 1, address = unknown.lowercase())
+
+        assertThat(first).isEqualTo(TokenInfo(1, unknown, "TKN", 8, "Token"))
+        assertThat(second).isSameInstanceAs(first)
+        assertThat(reader.decimalsCalls).hasSize(1)
+    }
+
+    @Test
+    fun `tokenInfoOrNull returns registry metadata without an on-chain read`() = runBlocking {
+        val reader = MockChainReader(decimals = 99, symbol = "WRONG")
+        val store = TokenMetadataStore(reader)
+
+        val info = store.tokenInfoOrNull(chainId = 1, address = usdcEthereum)
+
+        assertThat(info?.symbol).isEqualTo("USDC")
+        assertThat(info?.decimals).isEqualTo(6)
+        assertThat(reader.decimalsCalls).isEmpty()
+    }
+
+    @Test
+    fun `tokenInfoOrNull returns host-registered metadata without an on-chain read`() = runBlocking {
+        val reader = MockChainReader(decimals = 99)
+        val store = TokenMetadataStore(reader)
+        val registered = TokenInfo(1, unknown, "HOST", 4, "Host Token")
+        store.register(listOf(registered))
+
+        assertThat(store.tokenInfoOrNull(chainId = 1, address = unknown.lowercase())).isEqualTo(registered)
+        assertThat(reader.decimalsCalls).isEmpty()
+    }
+
+    @Test
+    fun `tokenInfoOrNull on a Solana chain never touches the reader and is null when unregistered`() =
+        runBlocking {
+            val reader = MockChainReader(decimals = 6, symbol = "USDC")
+            val store = TokenMetadataStore(reader)
+
+            assertThat(store.tokenInfoOrNull(chainId = 901, address = solanaMint)).isNull()
+
+            val registered = TokenInfo(901, solanaMint, "USDC", 6, "USD Coin")
+            store.register(listOf(registered))
+            assertThat(store.tokenInfoOrNull(chainId = 901, address = solanaMint)).isEqualTo(registered)
+
+            assertThat(reader.decimalsCalls).isEmpty()
+            assertThat(reader.symbolCalls).isEmpty()
+        }
+
+    @Test
+    fun `tokenInfoOrNull keeps a result whose symbol() and name() failed but decimals() resolved`() =
+        runBlocking {
+            val reader = MockChainReader(
+                decimals = 8,
+                symbolError = RuntimeException("symbol reverted"),
+                nameError = RuntimeException("name reverted")
+            )
+            val store = TokenMetadataStore(reader)
+
+            assertThat(store.tokenInfoOrNull(chainId = 1, address = unknown))
+                .isEqualTo(TokenInfo(1, unknown, null, 8, null))
+        }
+
+    @Test
+    fun `decimalsOrNull on a Solana chain id returns null without an on-chain read`() = runBlocking {
+        // Both assertions carry weight: against this mock the old path returned 6, and the call
+        // count pins that a base58 mint is never sent to the EVM reader.
+        val reader = MockChainReader(decimals = 6)
+        val store = TokenMetadataStore(reader)
+
+        assertThat(store.decimalsOrNull(chainId = 901, address = solanaMint)).isNull()
+        assertThat(reader.decimalsCalls).isEmpty()
+    }
+
+    // ---- cancellation propagates through every enrichment branch ------------------------
+
+    @Test
+    fun `tokenInfoOrNull rethrows a cancellation raised by the decimals read`() {
+        val store = TokenMetadataStore(MockChainReader(metadataError = CancellationException("cancelled")))
+
+        assertThrows(CancellationException::class.java) {
+            runBlocking { store.tokenInfoOrNull(chainId = 1, address = unknown) }
+        }
+    }
+
+    @Test
+    fun `tokenInfoOrNull rethrows a cancellation raised by the symbol read`() {
+        val store = TokenMetadataStore(MockChainReader(decimals = 8, symbolError = CancellationException("cancelled")))
+
+        assertThrows(CancellationException::class.java) {
+            runBlocking { store.tokenInfoOrNull(chainId = 1, address = unknown) }
+        }
+    }
+
+    @Test
+    fun `tokenInfoOrNull rethrows a cancellation raised by the name read`() {
+        val store = TokenMetadataStore(MockChainReader(decimals = 8, nameError = CancellationException("cancelled")))
+
+        assertThrows(CancellationException::class.java) {
+            runBlocking { store.tokenInfoOrNull(chainId = 1, address = unknown) }
+        }
     }
 }
