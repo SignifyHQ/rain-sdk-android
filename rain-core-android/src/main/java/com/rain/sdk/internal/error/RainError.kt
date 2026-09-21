@@ -1,23 +1,26 @@
 package com.rain.sdk.internal.error
 
 /**
- * The `RAIN_*` codes every [RainError] carries. The values are a published contract hosts switch on,
- * pinned by `RainErrorCodeParityTest`: a code keeps its meaning across releases. RAIN_104, RAIN_302 and
- * RAIN_304 have been unassigned since the Rain issuing API left the SDK, and RAIN_303 is
- * [TRANSACTION_PENDING] alone.
+ * The `RAIN_*` codes every [RainError] carries. The values are a published contract hosts switch on, and
+ * `RainErrorCodeParityTest` pins them: changing one is a breaking change. The map was compacted once, when
+ * the Rain issuing API cases left the SDK: [CHAIN_NOT_SUPPORTED] moved from RAIN_105 to RAIN_104 and
+ * [TRANSACTION_PENDING] from RAIN_303 to RAIN_302, so the sequence has no gaps. RAIN_104 and RAIN_302
+ * belonged to the removed `ApiNotConfigured` and `ApiError` cases; RAIN_304 was retired with them, and
+ * RAIN_105 and RAIN_303 were vacated by the moves. None of the three is reused: a new 1xx code starts at
+ * RAIN_106 and a new 3xx code at RAIN_305.
  */
 enum class RainErrorCode(val code: String) {
     SDK_NOT_INITIALIZED("RAIN_101"),
     INVALID_CONFIG("RAIN_102"),
     INVALID_RPC_URL("RAIN_103"),
-    CHAIN_NOT_SUPPORTED("RAIN_105"),
+    CHAIN_NOT_SUPPORTED("RAIN_104"),
 
     TOKEN_EXPIRED("RAIN_201"),
     UNAUTHORIZED("RAIN_202"),
     INVALID_LOGIN_CODE("RAIN_203"),
 
     NETWORK_ERROR("RAIN_301"),
-    TRANSACTION_PENDING("RAIN_303"),
+    TRANSACTION_PENDING("RAIN_302"),
 
     USER_REJECTED("RAIN_401"),
     INSUFFICIENT_FUNDS("RAIN_402"),
@@ -94,7 +97,7 @@ sealed class RainError(
      * confirmation window lapsed. NOT a failure: the transaction may still confirm, and resending it
      * risks a duplicate transfer. Resume from [statusId], the identifier the path had (a provider
      * status id, which getTransactions resolves to the hash once available, or the transaction or
-     * user-operation hash itself), rather than sending again. Reported as `RAIN_303`.
+     * user-operation hash itself), rather than sending again. Reported as `RAIN_302`.
      */
     class TransactionPending(val statusId: String) :
         RainError(

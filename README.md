@@ -339,7 +339,7 @@ import java.math.BigDecimal
 
 // Send native token (ETH on Base). Turnkey sends work only on Turnkey's
 // managed-broadcast chains; other configured chains (e.g. Avalanche) stay
-// read-only and sends there fail fast with RAIN_105.
+// read-only and sends there fail fast with RAIN_104.
 val result = client.sendNative(
     chainId = 8453,
     to = "0x...",

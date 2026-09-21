@@ -15,12 +15,12 @@ class RainErrorCodeParityTest {
             RainErrorCode.SDK_NOT_INITIALIZED to "RAIN_101",
             RainErrorCode.INVALID_CONFIG to "RAIN_102",
             RainErrorCode.INVALID_RPC_URL to "RAIN_103",
-            RainErrorCode.CHAIN_NOT_SUPPORTED to "RAIN_105",
+            RainErrorCode.CHAIN_NOT_SUPPORTED to "RAIN_104",
             RainErrorCode.TOKEN_EXPIRED to "RAIN_201",
             RainErrorCode.UNAUTHORIZED to "RAIN_202",
             RainErrorCode.INVALID_LOGIN_CODE to "RAIN_203",
             RainErrorCode.NETWORK_ERROR to "RAIN_301",
-            RainErrorCode.TRANSACTION_PENDING to "RAIN_303",
+            RainErrorCode.TRANSACTION_PENDING to "RAIN_302",
             RainErrorCode.USER_REJECTED to "RAIN_401",
             RainErrorCode.INSUFFICIENT_FUNDS to "RAIN_402",
             RainErrorCode.TRANSACTION_SIMULATION_FAILED to "RAIN_403",
@@ -33,8 +33,8 @@ class RainErrorCodeParityTest {
         )
         expected.forEach { (code, value) -> assertThat(code.code).isEqualTo(value) }
         assertThat(RainErrorCode.entries).hasSize(expected.size)
-        // Codes retired with the Rain issuing API layer stay unassigned unless a release says otherwise.
-        assertThat(RainErrorCode.entries.map { it.code }).containsNoneOf("RAIN_104", "RAIN_302", "RAIN_304")
+        // Vacated and retired codes stay unassigned unless a release says otherwise.
+        assertThat(RainErrorCode.entries.map { it.code }).containsNoneOf("RAIN_105", "RAIN_303", "RAIN_304")
     }
 
     @Test
@@ -46,12 +46,12 @@ class RainErrorCodeParityTest {
             RainError.InvalidConfig("x") to "RAIN_102",
             RainError.ProviderNotRegistered("x") to "RAIN_102",
             RainError.InvalidRpcUrl("x") to "RAIN_103",
-            RainError.ChainNotSupported(43114, "x") to "RAIN_105",
+            RainError.ChainNotSupported(43114, "x") to "RAIN_104",
             RainError.TokenExpired() to "RAIN_201",
             RainError.Unauthorized("x") to "RAIN_202",
             RainError.InvalidLoginCode() to "RAIN_203",
             RainError.NetworkError(cause = underlying) to "RAIN_301",
-            RainError.TransactionPending("status-id") to "RAIN_303",
+            RainError.TransactionPending("status-id") to "RAIN_302",
             RainError.UserRejected() to "RAIN_401",
             RainError.InsufficientFunds() to "RAIN_402",
             RainError.TransactionSimulationFailed(underlying) to "RAIN_403",
