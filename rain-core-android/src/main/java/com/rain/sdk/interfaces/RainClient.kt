@@ -525,7 +525,8 @@ interface RainClient {
 
     /**
      * Registers additional tokens with the SDK so their metadata (decimals / symbol) resolves
-     * without an on-chain enrichment call. Retained across re-initialization; cleared by [reset].
+     * without an on-chain enrichment call. Retained across [reset], since the store is shared by every
+     * client the `RainSdk` resolves.
      * Re-registering a host-added address replaces its entry; built-in registry tokens are
      * trusted and cannot be overridden.
      *
@@ -543,9 +544,9 @@ interface RainClient {
     fun registerTokens(tokens: List<TokenInfo>)
 
     /**
-     * Clears all SDK state — wallet provider, Portal/Turnkey contexts, and stored chain
-     * configuration. After this returns, the SDK is back to the same state as immediately
-     * after construction and must be re-initialized before further use. Idempotent.
+     * Clears this client's own state only. The shared token store and the chain configuration the
+     * `RainSdk` owns survive, so one client resetting does not deconfigure the others. Idempotent.
+     * Prefer `RainSdk.reset()` to tear down the whole SDK.
      */
     fun reset()
 

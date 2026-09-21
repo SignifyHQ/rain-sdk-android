@@ -54,11 +54,11 @@ All four are in the SDK's built-in token registry, so balance and allowance read
 decimals with no `registerTokens` call and no on-chain lookup. The public API is
 token-address-based rather than USDC-only, so it keeps working when Rain adds assets.
 
-`RainAuthPullChains` holds these two sets, keyed by environment:
+`RainAuthPullChains` holds these two sets:
 
 ```kotlin
-val chains = RainAuthPullChains.supported(RainApiEnvironment.Dev)   // {84532, 421614}
-RainAuthPullChains.isSupported(RainChain.BASE_MAINNET, RainApiEnvironment.Dev)  // false
+RainAuthPullChains.SANDBOX      // {84532, 421614}
+RainAuthPullChains.PRODUCTION   // {8453, 42161}
 ```
 
 **To gate UI, use `authPullChainIds` instead.** The environment's set is the wider answer; what a
@@ -72,11 +72,11 @@ if (chainId !in enabled) { /* don't offer Auth Pull here */ }
 ```
 
 The two differ whenever a configuration is narrower than its environment, an RPC endpoint is
-missing, or the environment is `Custom` — which `supported(...)` reports as empty however the
-gateway is configured, making the resolved set the only way to enumerate a custom gateway's chains.
-Reach for `supported(...)` only where no SDK exists yet, such as a chain picker built at startup.
+missing, or the configuration is a custom one that mixes both sets. Only the resolved set lists a
+custom configuration's chains. Reach for the static sets only where no SDK exists yet, such as a chain
+picker built at startup.
 
-## Environments must match
+## The configuration is the environment
 
 The sandbox and production chain sets are disjoint, and the operator and USDC addresses differ
 between them. Approving on the wrong environment's chain still mines a perfectly valid allowance —
@@ -86,21 +86,22 @@ succeeds against any address, so nothing downstream would catch it.
 The SDK therefore rejects mismatched chain, token, and operator targets locally with
 `RainError.InvalidConfig` (`RAIN_102`), before wallet access.
 
-The environment defaults to `RainApiEnvironment.Dev`, but Auth Pull itself is disabled until the
-builder receives a trusted configuration:
+The SDK has no Rain-environment setting of its own. The `RainAuthPullConfig` you pass is the
+environment, and its chains must belong to that environment's set. Auth Pull stays disabled until the
+builder receives one:
 
 ```kotlin
 val rain = RainSdk.builder()
     .rpcEndpoints(rpcEndpoints)
-    .rainApiEnvironment(RainApiEnvironment.Dev)
     .authPullConfig(RainAuthPullConfig.sandbox(rainOperatorAddress))
     .register(provider)
     .build()
 ```
 
 The SDK then requires the exact configured operator and canonical USDC contract on every approval,
-allowance read, confirmation, and fee estimate. `RainApiEnvironment.Custom` fails closed; a custom
-gateway must explicitly use `RainAuthPullConfig.custom(operator, tokenAddresses)`.
+allowance read, confirmation, and fee estimate. A non-standard deployment uses
+`RainAuthPullConfig.custom(operator, tokenAddresses)`, whose chains may come from either
+environment's set; calling it asserts that the operator is Rain's on every listed chain.
 
 ## The operator address
 
@@ -108,7 +109,7 @@ The spender is Rain's operator: **one address per environment**, the same on eve
 that environment, and different between sandbox and production.
 
 It is trusted builder configuration, deliberately not an SDK constant — read it from Rain rather
-than hardcoding it, and key it off the same environment the SDK is configured with. Rain publishes
+than hardcoding it, and key it off the environment your Rain API integration targets. Rain publishes
 the
 current values in its
 [Auth Pull docs](https://docs.rain.xyz/docs/authorization-pull-from-user-wallet).
