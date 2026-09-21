@@ -116,7 +116,6 @@
     <ID>ReturnCount:VendorErrorClassifier.kt:VendorErrorClassifier$fun fromVendorMessage: RainError?</ID>
     <ID>SwallowedException:RainHexUtils.kt:RainHexUtils$e: Exception</ID>
     <ID>SwallowedException:RainSdkManager.kt:RainSdkManager$e: ArithmeticException</ID>
-    <ID>SwallowedException:SolanaCollateralWithdraw.kt:SolanaCollateralWithdrawComposer$e: Exception</ID>
     <ID>SwallowedException:SolanaCollateralWithdraw.kt:SolanaCollateralWithdrawComposer$e: IllegalArgumentException</ID>
     <ID>SwallowedException:SolanaTransferComposer.kt:SolanaTransferComposer$e: ArithmeticException</ID>
     <ID>SwallowedException:Web3jProvider.kt:Web3jProvider$e: Exception</ID>
@@ -140,7 +139,6 @@
     <ID>TooGenericExceptionCaught:RainSdkManager.kt:RainSdkManager$e: Exception</ID>
     <ID>TooGenericExceptionCaught:RainTransactionBuilderImpl.kt:RainTransactionBuilderImpl$e: Exception</ID>
     <ID>TooGenericExceptionCaught:SolanaChainReader.kt:SolanaChainReader$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:SolanaCollateralWithdraw.kt:SolanaCollateralWithdrawComposer$e: Exception</ID>
     <ID>TooGenericExceptionCaught:TransactionCoordinator.kt:TransactionCoordinator$e: Exception</ID>
     <ID>TooGenericExceptionCaught:TransactionExecutor.kt:TransactionExecutor$e: Exception</ID>
     <ID>TooGenericExceptionCaught:TransactionSigner.kt:TransactionSigner$e: Exception</ID>

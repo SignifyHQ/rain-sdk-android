@@ -3,6 +3,7 @@ package com.rain.sdk.internal.solana
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.constants.SolanaPrograms
 import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.internal.error.RainErrorCode
 import com.rain.sdk.internal.helpers.MockRpcServer
 import com.rain.sdk.internal.helpers.SolanaWithdrawFixtures
 import kotlinx.coroutines.runBlocking
@@ -13,6 +14,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
 import java.math.BigInteger
+import java.util.Base64
 
 /**
  * End-to-end composition test against real devnet fixtures: the account data, addresses,
@@ -200,6 +202,63 @@ class SolanaCollateralWithdrawComposerTest {
         }
 
     // ---------- fixtures ----------
+
+    /** Rain's `expiresAt` arrives in more than one shape; every shape must encode the expiry the executor signed. */
+    @Test
+    fun `accepts every expiresAt shape and encodes the same expiry`(): Unit = runBlocking {
+        stubHappyPath()
+        for (shape in listOf("1784912091", " 1784912091 ", "2026-07-24T18:54:51+02:00", "2026-07-24T16:54:51.250Z")) {
+            val unsigned = composer().composeWithdraw(
+                chainId = devnet,
+                ownerAddress = owner,
+                collateralAddress = collateral,
+                mintAddress = mint,
+                recipientAddress = owner,
+                amountBaseUnits = BigInteger.ONE,
+                adminSignature = adminSignature.copy(expiresAt = shape)
+            )
+            assertThat(unsigned.transactionHex).isEqualTo(SolanaWithdrawFixtures.GOLDEN_WITHDRAW_TX_HEX)
+        }
+    }
+
+    @Test
+    fun `rejects a blank expiresAt as InvalidConfig`(): Unit = runBlocking {
+        stubHappyPath()
+        val error = assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking {
+                composer().composeWithdraw(
+                    chainId = devnet,
+                    ownerAddress = owner,
+                    collateralAddress = collateral,
+                    mintAddress = mint,
+                    recipientAddress = owner,
+                    amountBaseUnits = BigInteger.ONE,
+                    adminSignature = adminSignature.copy(expiresAt = " ")
+                )
+            }
+        }
+        assertThat(error).hasMessageThat().contains("Invalid expiresAt format")
+    }
+
+    @Test
+    fun `rejects a 31-byte salt as InvalidConfig through the shared decoder`(): Unit = runBlocking {
+        stubHappyPath()
+        val error = assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking {
+                composer().composeWithdraw(
+                    chainId = devnet,
+                    ownerAddress = owner,
+                    collateralAddress = collateral,
+                    mintAddress = mint,
+                    recipientAddress = owner,
+                    amountBaseUnits = BigInteger.ONE,
+                    adminSignature = adminSignature.copy(salt = Base64.getEncoder().encodeToString(ByteArray(31)))
+                )
+            }
+        }
+        assertThat(error.errorCode).isEqualTo(RainErrorCode.INVALID_CONFIG)
+        assertThat(error).hasMessageThat().contains("RainAdminSignature.salt must be 32 bytes, got 31")
+    }
 
     private fun contextual(value: Any): JSONObject = SolanaWithdrawFixtures.contextual(value)
 

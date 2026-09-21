@@ -42,8 +42,8 @@ data class RainWithdrawAddresses(
  * @property salt Base64 of the 32-byte salt Rain signed with, on every chain.
  * @property signature The admin signature: on EVM chains 0x-prefixed hex of 65 bytes, on Solana
  *   base64 of the 64-byte ed25519 signature.
- * @property expiresAt When the authorization lapses: unix seconds, or an ISO-8601 instant such as
- *   "2030-12-31T23:59:59Z".
+ * @property expiresAt When the authorization lapses: unix seconds, or an ISO-8601 date-time with Z or a
+ *   numeric offset, such as "2030-12-31T23:59:59Z" or "2030-12-31T23:59:59+02:00".
  */
 data class RainAdminSignature(
     val salt: String,
