@@ -359,7 +359,8 @@ val result = client.sendToken(
 ### 7. Rain API: collateral contracts and admin signature (host responsibility)
 
 The SDK does not call the Rain issuing API. The two things a withdrawal needs from Rain come from
-your backend, which holds the program Api-Key and calls the API on the user's behalf:
+your backend, which holds the program Api-Key and sends it as the `Api-Key` request header on every
+call it makes on the user's behalf:
 
 - `GET /v1/issuing/users/{userId}/contracts` returns the user's collateral contracts. From the one
   on your chain, take `chainId`, `proxyAddress`, `controllerAddress`, `tokens[].address` and, for
@@ -367,8 +368,9 @@ your backend, which holds the program Api-Key and calls the API on the user's be
 - `GET /v1/issuing/users/{userId}/signatures/withdrawals?chainId=&token=&amount=&adminAddress=&recipientAddress=&isAmountNative=true`
   returns Rain's authorization for one withdrawal: `signature.salt`, `signature.data` and
   `expiresAt`. Poll while `status` is not `"ready"`, waiting `retryAfter` seconds when the response
-  carries that field. `token` is the token contract address (the SPL mint on Solana) and `amount` is
-  in the token's base units, the same scale `withdrawCollateral` derives from `amount` and `decimals`.
+  carries that field, and treat `"ready"` without `signature.data` as not ready. `token` is the token
+  contract address (the SPL mint on Solana) and `amount` is in the token's base units, the same scale
+  `withdrawCollateral` derives from `amount` and `decimals`.
 
 Build the SDK's inputs from those fields and hand them to the withdrawal methods:
 
@@ -382,7 +384,7 @@ val addresses = RainWithdrawAddresses(
 val adminSignature = RainAdminSignature(
     salt = response.signature.salt,      // base64, 32 bytes
     signature = response.signature.data, // EVM: 0x-hex, 65 bytes; Solana: base64, 64 bytes
-    expiresAt = response.expiresAt,      // unix seconds or an ISO-8601 instant
+    expiresAt = response.expiresAt,      // unix seconds, or ISO-8601 with Z or a numeric offset
 )
 ```
 

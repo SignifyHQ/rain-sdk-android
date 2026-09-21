@@ -39,14 +39,11 @@ import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.utils.QRGenerator
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.math.BigDecimal
@@ -118,9 +115,6 @@ internal class RainSdkManager(
      * non-suspend public API callable from any thread.
      */
     private val registeredTokens = java.util.concurrent.CopyOnWriteArrayList<TokenInfo>()
-
-    /** Fire-and-forget scope for applying late `registerTokens` calls to a live store. */
-    private val tokenRegistrationScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val validator = TransactionValidator()
     private val signer = TransactionSigner({ walletProvider }, errorMapper)
@@ -347,20 +341,12 @@ internal class RainSdkManager(
 
     /**
      * The token's decimals from the registry or a strict on-chain read. Refuses to guess: a
-     * default 18 against a 6-decimal token would move 10^12 times the intended amount.
+     * default 18 against a 6-decimal token would move 10^12 times the intended amount. The store
+     * itself refuses a chain value outside `0..77` with `InvalidConfig`.
      */
-    private suspend fun requireDecimals(chainId: Int, contractAddress: String): Int {
-        val resolved = tokenStore?.decimalsOrNull(chainId, contractAddress)
+    private suspend fun requireDecimals(chainId: Int, contractAddress: String): Int =
+        tokenStore?.decimalsOrNull(chainId, contractAddress)
             ?: throw RainError.TokenNotFound(contractAddress, chainId)
-
-        if (resolved !in RainAmountUtils.DECIMALS_RANGE) {
-            throw RainError.InvalidConfig(
-                "Token $contractAddress reports $resolved decimals, outside the supported range " +
-                    "${RainAmountUtils.DECIMALS_RANGE}"
-            )
-        }
-        return resolved
-    }
 
     /** Validates and EIP-55 checksums an EVM recipient; a malformed address must never broadcast. */
     private fun checksummedRecipient(to: String): String {
@@ -747,10 +733,8 @@ internal class RainSdkManager(
         // The whole list is checked before anything is added, so a bad entry registers nothing.
         TokenInfoValidation.requireValid(tokens)
         registeredTokens.addAll(tokens)
-        // Apply to the live store too, fire-and-forget so registration stays synchronous.
-        tokenStore?.let { store ->
-            tokenRegistrationScope.launch { store.register(tokens) }
-        }
+        // Stored before this returns, so a lookup that follows sees the entries.
+        tokenStore?.registerNow(tokens)
     }
 
     override fun reset() {

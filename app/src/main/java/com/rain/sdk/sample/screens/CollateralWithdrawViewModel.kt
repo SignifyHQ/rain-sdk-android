@@ -13,6 +13,7 @@ import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain
 import com.rain.sdk.sample.WithdrawalSignatureRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -60,7 +61,7 @@ class CollateralWithdrawViewModel(
                     "contract=${contract.proxyAddress} tokens=${contract.tokens.size} chainId=${contract.chainId}"
                 )
 
-                val tokens = withdrawTokens(contract)
+                val tokens = withdrawRows(contract)
 
                 _state.update {
                     it.copy(
@@ -77,6 +78,7 @@ class CollateralWithdrawViewModel(
                     )
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 SampleLog.e("Withdraw.contract", "failed: ${e.message}", e)
                 _state.update {
                     it.copy(
@@ -206,21 +208,11 @@ class CollateralWithdrawViewModel(
     }
 
     /**
-     * The screen's rows. Name, symbol and decimals come from RainSdk.tokenMetadata through
-     * RainSession.fetchCollateralContract. A token whose decimals the SDK could not establish keeps
-     * null here, and the screen disables its money actions rather than scaling by a guess; each such
-     * token is logged once, so a greyed-out row can be explained from logcat.
+     * The screen's rows, from [withdrawTokens]. Each token whose decimals the SDK could not establish
+     * is logged once, so a greyed-out row can be explained from logcat.
      */
-    private fun withdrawTokens(contract: CollateralContract): List<WithdrawTokenOption> {
-        val tokens = contract.tokens.map { token ->
-            WithdrawTokenOption(
-                name = token.name ?: "Token",
-                symbol = token.symbol ?: "",
-                address = token.address,
-                decimals = token.decimals,
-                balance = token.balanceAmount ?: BigDecimal.ZERO
-            )
-        }
+    private fun withdrawRows(contract: CollateralContract): List<WithdrawTokenOption> {
+        val tokens = withdrawTokens(contract)
         tokens.filter { it.decimals == null }.forEach { token ->
             SampleLog.w("Withdraw.contract", "decimals unresolved for ${token.address}; withdrawal disabled")
         }
@@ -228,9 +220,10 @@ class CollateralWithdrawViewModel(
     }
 
     /**
-     * Shared prep for every withdrawal-shaped call: refuse a token whose decimals are unknown,
-     * validate the amount, resolve (and cache) the admin signature for these exact inputs, then hand
-     * the pieces to [action]. Each of the three SDK entry points differs only in what it does with them.
+     * Shared prep for every withdrawal-shaped call: [withdrawInput] refuses a token whose decimals are
+     * unknown and validates the amount, then the admin signature is resolved (and cached) for these
+     * exact inputs and the pieces go to [action]. Each of the three SDK entry points differs only in
+     * what it does with them.
      */
     private fun runWithdrawFlow(
         amountOverride: BigDecimal?,
@@ -243,40 +236,17 @@ class CollateralWithdrawViewModel(
         ) -> Unit
     ) {
         val current = _state.value
-        val token = current.selectedToken ?: return
-        // Never scale by a guess: the screen disables these actions, and this guards the model too.
-        val decimals = token.decimals
-        if (decimals == null) {
-            _state.update { it.copy(errorText = current.decimalsUnavailableText) }
-            return
-        }
-        val rawAmount = amountOverride ?: current.amount.toBigDecimalOrNull()
-        if (rawAmount == null || rawAmount.signum() <= 0) {
-            _state.update { it.copy(errorText = "Enter a valid amount") }
-            return
-        }
-        // Normalize to the token's precision (round DOWN) so the SDK's scale guard never trips
-        // and the signed amount, base units, and on-chain tx all agree.
-        val amountBd = rawAmount.setScale(decimals, RoundingMode.DOWN)
-        if (amountBd.signum() <= 0) {
-            _state.update { it.copy(errorText = "Amount is below the token's minimum unit") }
-            return
-        }
-        // UI-side guard: never request more than the token's available balance. BigDecimal
-        // end-to-end, so "max" compares exactly — no epsilon needed.
-        if (amountBd > token.balance) {
-            _state.update {
-                it.copy(
-                    errorText = "Amount exceeds available balance " +
-                        "(${token.balanceDisplay} ${token.symbol})"
-                )
+        val input = when (val prepared = withdrawInput(current, amountOverride)) {
+            null -> return
+            is WithdrawInput.Refused -> {
+                _state.update { it.copy(errorText = prepared.errorText) }
+                return
             }
-            return
+            is WithdrawInput.Ready -> prepared
         }
-        if (current.adminAddress.isBlank()) {
-            _state.update { it.copy(errorText = "Contract has no admin address") }
-            return
-        }
+        val token = input.token
+        val decimals = input.decimals
+        val amountBd = input.amount
 
         SampleLog.i(tag, "token=${token.symbol} amount=${amountBd.toPlainString()} to=${current.recipientAddress}")
         _state.update {
@@ -308,6 +278,7 @@ class CollateralWithdrawViewModel(
 
                 action(addresses, amountBd, decimals, adminSig)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 SampleLog.e(tag, "failed: ${e.message}", e)
                 _state.update {
                     it.copy(
@@ -379,12 +350,59 @@ class CollateralWithdrawViewModel(
 }
 
 /**
+ * The screen's rows for [contract]. Name, symbol and decimals come from `RainSdk.tokenMetadata`
+ * through `RainSession.fetchCollateralContract`. A token whose decimals the SDK could not establish
+ * keeps null here, and the screen disables its money actions rather than scaling by a guess; a
+ * balance the API left out reads as zero.
+ */
+internal fun withdrawTokens(contract: CollateralContract): List<WithdrawTokenOption> =
+    contract.tokens.map { token ->
+        WithdrawTokenOption(
+            name = token.name ?: "Token",
+            symbol = token.symbol.orEmpty(),
+            address = token.address,
+            decimals = token.decimals,
+            balance = token.balanceAmount ?: BigDecimal.ZERO
+        )
+    }
+
+/**
  * The row the screen opens on: the first token whose decimals the SDK established, or none. A token
  * without decimals stays listed with its money actions disabled, so opening on it would only show a
  * disabled form; opening on none is the honest answer when no token is withdrawable.
  */
 internal fun defaultWithdrawSelection(tokens: List<WithdrawTokenOption>): Int =
     tokens.indexOfFirst { it.decimals != null }
+
+/** What a withdrawal-shaped call needs from the screen state, or the text to show instead. */
+internal sealed class WithdrawInput {
+    data class Ready(val token: WithdrawTokenOption, val decimals: Int, val amount: BigDecimal) : WithdrawInput()
+    data class Refused(val errorText: String) : WithdrawInput()
+}
+
+/**
+ * The checks every withdrawal-shaped call runs before touching the SDK, in this order: a token whose
+ * decimals are unknown is refused first, so nothing downstream scales by a guess; the amount must be
+ * positive, survive rounding down to the token's precision (so the signed amount, the base units and
+ * the on-chain transaction agree) and fit the balance, compared exactly as `BigDecimal`; the contract
+ * needs an admin. Null when no token is selected, which the screen does not report.
+ */
+internal fun withdrawInput(current: CollateralWithdrawUiState, amountOverride: BigDecimal?): WithdrawInput? {
+    val token = current.selectedToken ?: return null
+    val decimals = token.decimals
+    val rawAmount = amountOverride ?: current.amount.toBigDecimalOrNull()
+    val amount = if (decimals != null && rawAmount != null) rawAmount.setScale(decimals, RoundingMode.DOWN) else null
+    return when {
+        decimals == null ->
+            WithdrawInput.Refused(current.decimalsUnavailableText ?: "Decimals unknown; money actions are disabled")
+        rawAmount == null || rawAmount.signum() <= 0 -> WithdrawInput.Refused("Enter a valid amount")
+        amount == null || amount.signum() <= 0 -> WithdrawInput.Refused("Amount is below the token's minimum unit")
+        amount > token.balance ->
+            WithdrawInput.Refused("Amount exceeds available balance (${token.balanceDisplay} ${token.symbol})")
+        current.adminAddress.isBlank() -> WithdrawInput.Refused("Contract has no admin address")
+        else -> WithdrawInput.Ready(token = token, decimals = decimals, amount = amount)
+    }
+}
 
 data class WithdrawTokenOption(
     val name: String,

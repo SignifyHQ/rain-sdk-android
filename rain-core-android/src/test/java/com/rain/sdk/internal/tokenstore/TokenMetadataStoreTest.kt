@@ -1,6 +1,8 @@
 package com.rain.sdk.internal.tokenstore
 
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.MockChainReader
 import com.rain.sdk.models.TokenInfo
 import kotlinx.coroutines.CancellationException
@@ -373,5 +375,45 @@ class TokenMetadataStoreTest {
         assertThrows(CancellationException::class.java) {
             runBlocking { store.tokenInfoOrNull(chainId = 1, address = unknown) }
         }
+    }
+
+    // ---- the decimals range and in-place registration -------------------------------------
+
+    @Test
+    fun `tokenInfoOrNull refuses decimals outside the supported range as InvalidConfig and caches nothing`() = runBlocking {
+        val reader = MockChainReader(decimals = 78, symbol = "BAD")
+        val store = TokenMetadataStore(reader)
+
+        val error = assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking { store.tokenInfoOrNull(chainId = 1, address = unknown) }
+        }
+        assertThat(error).hasMessageThat().contains("reports 78 decimals, outside the supported range 0..77")
+
+        // The next read answers within range; the store must read again rather than serve a cached refusal.
+        reader.decimals = 6
+        assertThat(store.tokenInfoOrNull(chainId = 1, address = unknown)?.decimals).isEqualTo(6)
+        assertThat(reader.decimalsCalls).hasSize(2)
+    }
+
+    @Test
+    fun `tokenInfo falls back to the default for decimals outside the supported range and caches nothing`() = runBlocking {
+        val reader = MockChainReader(decimals = 78, symbol = "BAD")
+        val store = TokenMetadataStore(reader)
+
+        assertThat(store.tokenInfo(chainId = 1, address = unknown).decimals).isEqualTo(RainClient.DEFAULT_ERC20_DECIMALS)
+        store.tokenInfo(chainId = 1, address = unknown)
+        assertThat(reader.decimalsCalls).hasSize(2)
+    }
+
+    @Test
+    fun `registerNow stores before it returns so a lookup that follows needs no chain read`() = runBlocking {
+        val reader = MockChainReader(decimals = 99)
+        val store = TokenMetadataStore(reader)
+        val token = TokenInfo(1, unknown, "TKN", 8, "Token")
+
+        store.registerNow(listOf(token))
+
+        assertThat(store.tokenInfoOrNull(chainId = 1, address = unknown)).isEqualTo(token)
+        assertThat(reader.decimalsCalls).isEmpty()
     }
 }

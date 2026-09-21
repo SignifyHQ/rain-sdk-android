@@ -185,7 +185,7 @@ object SolanaTransactionDecoder {
         repeat(accountCount) { accounts += reader.readBytes(SolanaAddresses.PUBLIC_KEY_LENGTH) }
 
         // Recent blockhash.
-        reader.skip(SolanaAddresses.PUBLIC_KEY_LENGTH)
+        reader.skip(SolanaTransactionBuilder.BLOCKHASH_LENGTH)
 
         val instructionCount = reader.readCompactU16()
         val instructions = ArrayList<DecodedInstruction>(instructionCount)

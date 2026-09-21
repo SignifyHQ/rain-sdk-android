@@ -7,7 +7,6 @@
     <ID>Filename:RainSdkManagerTest.kt:com.rain.sdk.internal.core.RainSdkManagerTest.kt</ID>
     <ID>InjectDispatcher:JsonRpcClient.kt:JsonRpcClient$IO</ID>
     <ID>InjectDispatcher:RainSdkManager.kt:RainSdkManager$Default</ID>
-    <ID>InjectDispatcher:RainSdkManager.kt:RainSdkManager$IO</ID>
     <ID>InjectDispatcher:RainTransactionBuilderImpl.kt:RainTransactionBuilderImpl$IO</ID>
     <ID>InjectDispatcher:TransactionCoordinator.kt:TransactionCoordinator$IO</ID>
     <ID>InstanceOfCheckForException:RainSdkManager.kt:RainSdkManager$e is RainError</ID>
@@ -155,7 +154,6 @@
     <ID>TooManyFunctions:WalletProvider.kt:WalletProvider</ID>
     <ID>UseOrEmpty:RainClient.kt:RainClient$(balance.token as? Token.Contract)?.address ?: ""</ID>
     <ID>UseOrEmpty:SolanaRpcClient.kt:SolanaRpcClient$value.optJSONArray("logs")?.let { array -> (0 until array.length()).mapNotNull { array.optString(it, "").ifEmpty { null } } } ?: emptyList()</ID>
-    <ID>UseOrEmpty:TokenMetadataStore.kt:TokenMetadataStore$knownTokens[chainId]?.toList() ?: emptyList()</ID>
     <ID>UseOrEmpty:TokenRegistry.kt:TokenRegistry$tokensByChainId[chainId] ?: emptyList()</ID>
     <ID>VariableNaming:RainAuthPullConfigTest.kt:RainAuthPullConfigTest$/** A real EVM chain that is not an Auth Pull chain in either environment. */ private val ETHEREUM_MAINNET = 1</ID>
   </CurrentIssues>

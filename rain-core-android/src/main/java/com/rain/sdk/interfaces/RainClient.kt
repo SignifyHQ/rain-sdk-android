@@ -530,13 +530,13 @@ interface RainClient {
      * Re-registering a host-added address replaces its entry; built-in registry tokens are
      * trusted and cannot be overridden.
      *
-     * The shared store is updated in the background, so a lookup issued right after this call may
-     * not see the entry yet; [com.rain.sdk.RainSdk.registerTokens] returns once the entries are
-     * stored.
+     * The entries are stored in the shared store before this returns, so a lookup issued right after
+     * this call sees them; [com.rain.sdk.RainSdk.registerTokens] is the same operation for a host that
+     * has no resolved client yet.
      *
      * @param tokens Tokens to add to the SDK's token store.
      * @throws RainError.InvalidConfig (`RAIN_102`) when an entry's address is malformed for its
-     *   chain family (EVM: 40 hex characters with a correct EIP-55 checksum when mixed-case;
+     *   chain family (EVM: `0x` followed by 40 hex characters with a correct EIP-55 checksum when mixed-case;
      *   Solana: base58 decoding to 32 bytes) or its `decimals` lies outside 0..77. The whole list
      *   is validated first, so nothing is registered.
      */

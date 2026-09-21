@@ -2,6 +2,7 @@ package com.rain.sdk.internal.transaction
 
 import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import com.rain.sdk.internal.core.RainTransactionBuilderImpl
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.TestFixtures
@@ -415,7 +416,7 @@ class TransactionBuildingTest {
     fun `buildWithdrawTransactionData accepts every expiresAt shape the parser accepts`() {
         val reference = withdrawWith(executorSignature(expiresAt = "2025-01-01T00:00:00Z"))
         for (shape in listOf("1735689600", " 1735689600 ", "2025-01-01T02:00:00+02:00", "2025-01-01T00:00:00.000Z")) {
-            assertThat(withdrawWith(executorSignature(expiresAt = shape))).isEqualTo(reference)
+            assertWithMessage(shape).that(withdrawWith(executorSignature(expiresAt = shape))).isEqualTo(reference)
         }
     }
 

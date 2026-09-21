@@ -4,7 +4,6 @@ import android.app.Application
 import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.models.TokenInfo
 import com.rain.sdk.portal.PortalConfig
 import com.rain.sdk.portal.PortalProvider
 import com.rain.sdk.privy.PrivyConfig
@@ -21,10 +20,7 @@ import io.portalhq.android.Portal
 import io.portalhq.android.storage.mobile.PortalNamespace
 import io.privy.sdk.Privy
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -174,27 +170,21 @@ class RainSession {
     suspend fun fetchCollateralContract(chain: WalletChain): CollateralContract? {
         val contract = chain.collateralContract(requireRainApi().fetchCollateralContracts())
         val sdk = rain
-        return if (contract == null || sdk == null) contract else contract.copy(tokens = tokensWithMetadata(sdk, contract))
+        if (contract == null || sdk == null) return contract
+        val tokens = tokensWithMetadata(
+            contract = contract,
+            lookup = sdk::tokenMetadata,
+            onUnavailable = { token, error ->
+                // A chain this build has no RPC endpoint for, or an address the SDK rejects: the token
+                // stays unnamed rather than the screen guessing its scale.
+                SampleLog.w(
+                    "RainApi",
+                    "token metadata unavailable for ${token.address} on chainId=${contract.chainId}: ${error.errorCode.code}"
+                )
+            },
+        )
+        return contract.copy(tokens = tokens)
     }
-
-    private suspend fun tokensWithMetadata(sdk: RainSdk, contract: CollateralContract): List<CollateralToken> =
-        coroutineScope {
-            contract.tokens
-                .map { token -> async { token.withMetadata(tokenMetadataOrNull(sdk, contract.chainId, token.address)) } }
-                .awaitAll()
-        }
-
-    private suspend fun tokenMetadataOrNull(sdk: RainSdk, chainId: Int, address: String): TokenInfo? = try {
-        sdk.tokenMetadata(chainId, address)
-    } catch (e: RainError) {
-        // A chain this build has no RPC endpoint for, or an address the SDK rejects: the token stays
-        // unnamed rather than the screen guessing its scale.
-        SampleLog.w("RainApi", "token metadata unavailable for $address on chainId=$chainId: ${e.errorCode.code}")
-        null
-    }
-
-    private fun CollateralToken.withMetadata(info: TokenInfo?): CollateralToken =
-        if (info == null) this else copy(name = info.name, symbol = info.symbol, decimals = info.decimals)
 
     // Shared builder config: naming for every chain's testnet token plus the Auth Pull targets,
     // applied identically whichever provider is registered (see WalletChain.defaultTokenInfo).

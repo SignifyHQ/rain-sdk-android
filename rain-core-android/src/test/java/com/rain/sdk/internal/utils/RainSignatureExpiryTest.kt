@@ -1,7 +1,9 @@
 package com.rain.sdk.internal.utils
 
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.internal.error.RainErrorCode
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -40,9 +42,24 @@ class RainSignatureExpiryTest {
     fun `anything else is InvalidConfig and names the accepted shapes`() {
         for (bad in listOf("", "   ", "not-a-timestamp", "2026-07-24", "2026-07-24T16:54:51", "1784912091.5")) {
             val error = assertThrows(RainError.InvalidConfig::class.java) { RainSignatureExpiry.parseEpochSeconds(bad) }
-            assertThat(error.errorCode.code).isEqualTo("RAIN_102")
-            assertThat(error).hasMessageThat().contains("Invalid expiresAt format")
-            assertThat(error).hasMessageThat().contains("unix seconds or an ISO-8601 instant")
+            assertWithMessage(bad).that(error.errorCode).isEqualTo(RainErrorCode.INVALID_CONFIG)
+            assertWithMessage(bad).that(error).hasMessageThat().contains("Invalid expiresAt format")
+            assertWithMessage(bad).that(error).hasMessageThat().contains("unix seconds or an ISO-8601 instant")
         }
+    }
+
+    @Test
+    fun `a value before the unix epoch is InvalidConfig`() {
+        for (bad in listOf("-5", "1969-12-31T23:59:59Z")) {
+            val error = assertThrows(RainError.InvalidConfig::class.java) { RainSignatureExpiry.parseEpochSeconds(bad) }
+            assertWithMessage(bad).that(error.errorCode).isEqualTo(RainErrorCode.INVALID_CONFIG)
+            assertWithMessage(bad).that(error).hasMessageThat().contains("before the unix epoch")
+        }
+    }
+
+    @Test
+    fun `an integer is always seconds, so a millisecond value reads as a far future`() {
+        // No unit heuristic: the signed expiry then no longer matches, and the contract rejects the authorization.
+        assertThat(RainSignatureExpiry.parseEpochSeconds("1784912091000")).isEqualTo(1784912091000L)
     }
 }

@@ -290,39 +290,50 @@ class RainSdk private constructor(
      * Returns `null` when decimals could not be established (unknown token, failed read, RPC
      * unreachable), never a guessed default, since callers scale withdrawal and approval amounts
      * with it. `symbol` and `name` inside a non-null result may still be null. Solana chains
-     * resolve from the registry and host-registered tokens only.
+     * resolve from the registry and host-registered tokens only. A `null` result is not cached, so a
+     * later call reads the chain again.
      *
+     * @param chainId Numeric chain ID the token lives on; it must have a configured RPC endpoint.
+     * @param address Token contract address, or the SPL mint on Solana chains.
+     * @return The token's metadata, or `null` when its decimals could not be established.
+     * @throws RainError.SdkNotInitialized after [close].
      * @throws RainError.InvalidConfig when no RPC endpoint was configured for [chainId], or when
-     *   [address] is malformed for its chain family: on EVM chains 40 hex characters with a correct
-     *   EIP-55 checksum when mixed-case, on Solana chains base58 decoding to 32 bytes. Both checks
-     *   assert the host's configuration, not whether this lookup would need the network: a chain
-     *   the SDK was not built with is a configuration error even for a registry token.
+     *   [address] is malformed for its chain family: on EVM chains `0x` followed by 40 hex characters
+     *   with a correct EIP-55 checksum when mixed-case, on Solana chains base58 decoding to 32 bytes.
+     *   Both checks assert the host's configuration, not whether this lookup would need the network:
+     *   a chain the SDK was not built with is a configuration error even for a registry token. Also
+     *   when the chain reports `decimals()` outside 0..77, a token no money path can scale by; nothing
+     *   is cached then, and the same refusal meets every SDK path that needs the value.
      */
     @Throws(RainError::class)
     suspend fun tokenMetadata(chainId: Int, address: String): TokenInfo? {
+        if (closed) throw RainError.SdkNotInitialized()
         if (chainId !in rpcEndpoints) throw noRpcEndpointConfigured(chainId)
         TokenInfoValidation.requireValidAddress(chainId, address)
         return sharedContext.tokenStore.tokenInfoOrNull(chainId, address)
     }
 
     /**
-     * Registers token metadata after [Builder.build], without a resolved provider. Unlike
-     * [RainClient.registerTokens], which applies to the store in the background, this call returns
-     * once the entries are stored, so a [tokenMetadata] call that follows it sees them. The store
-     * is shared, so every resolved client sees them too. A built-in registry token cannot be
-     * overridden.
+     * Registers token metadata after [Builder.build], without a resolved provider. The entries are
+     * stored before this returns, so a [tokenMetadata] call that follows sees them, and the store is
+     * shared, so every resolved client sees them too. Re-registering a host-added address replaces
+     * its entry; a built-in registry token cannot be overridden.
      *
      * The same checks run on [Builder.registerTokens] seeds at [Builder.build] and on
-     * [RainClient.registerTokens]. The chain id is not checked against the configured endpoints; a
-     * later [tokenMetadata] for a chain the SDK was not built with throws regardless.
+     * [RainClient.registerTokens], which stores into the same shared store the same way. The chain id
+     * is not checked against the configured endpoints; a later [tokenMetadata] for a chain the SDK
+     * was not built with throws regardless.
      *
+     * @param tokens Tokens to add to the shared token store; an empty list is a no-op.
+     * @throws RainError.SdkNotInitialized after [close].
      * @throws RainError.InvalidConfig when an entry's address is malformed for its chain family (EVM:
-     *   40 hex characters with a correct EIP-55 checksum when mixed-case; Solana: base58 decoding to
-     *   32 bytes), or its `decimals` lies outside 0..77. The whole list is validated first, so
-     *   nothing is registered.
+     *   `0x` followed by 40 hex characters with a correct EIP-55 checksum when mixed-case; Solana:
+     *   base58 decoding to 32 bytes), or its `decimals` lies outside 0..77. The whole list is
+     *   validated first, so nothing is registered.
      */
     @Throws(RainError::class)
     suspend fun registerTokens(tokens: List<TokenInfo>) {
+        if (closed) throw RainError.SdkNotInitialized()
         if (tokens.isEmpty()) return
         TokenInfoValidation.requireValid(tokens)
         sharedContext.tokenStore.register(tokens)
@@ -350,8 +361,8 @@ class RainSdk private constructor(
      * Full teardown: [reset], then closes every registered provider so their vendor clients and
      * session watchers stop and their `onSessionExpired` hooks can never fire again. Idempotent.
      *
-     * Terminal, unlike [reset] — [provider] and [first] throw afterwards. Build a new [RainSdk]
-     * via [builder] for the next login.
+     * Terminal, unlike [reset]: [provider], [first], [tokenMetadata] and [registerTokens] throw
+     * [RainError.SdkNotInitialized] afterwards. Build a new [RainSdk] via [builder] for the next login.
      */
     fun close() {
         closed = true
@@ -433,8 +444,8 @@ class RainSdk private constructor(
 
         /**
          * Zero registered providers is allowed: the SDK is then wallet-agnostic, exposing the
-         * transaction-building helpers ([RainSdk.buildEIP712Message], [RainSdk.buildWithdrawTransactionData])
-         * and [RainSdk.tokenMetadata]; resolving a [RainSdk.provider] still throws
+         * transaction-building helpers ([RainSdk.buildEIP712Message], [RainSdk.buildWithdrawTransactionData]),
+         * [RainSdk.tokenMetadata] and [RainSdk.registerTokens]; resolving a [RainSdk.provider] still throws
          * [RainError.ProviderNotRegistered] until one is registered.
          *
          * @throws RainError.InvalidConfig if no RPC endpoints were configured, a seed token or the Auth

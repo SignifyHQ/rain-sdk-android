@@ -3,9 +3,9 @@ package com.rain.sdk.sample
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -150,6 +150,16 @@ class RainApiClientTest {
 
         enqueue(200, """{"contracts":[]}""")
         assertThrows(RainApiError.Decoding::class.java) { contracts() }
+
+        // An empty 2xx body is how a gateway fails; it must not read as "no contracts".
+        enqueue(200, "")
+        assertThrows(RainApiError.Decoding::class.java) { contracts() }
+    }
+
+    @Test
+    fun `fetchAdminSignature rejects an empty 200 body`() {
+        enqueue(200, "")
+        assertThrows(RainApiError.Decoding::class.java) { signature() }
     }
 
     @Test
@@ -303,35 +313,71 @@ class RainApiClientTest {
     }
 
     @Test
-    fun `the default client has connect, read and call timeouts`() {
+    fun `the default client has connect, read and call timeouts and follows no redirect`() {
         val http = RainApiClient.defaultHttpClient()
 
         assertThat(http.connectTimeoutMillis).isEqualTo(30_000)
         assertThat(http.readTimeoutMillis).isEqualTo(30_000)
         assertThat(http.callTimeoutMillis).isEqualTo(60_000)
+        assertThat(http.followRedirects).isFalse()
+        assertThat(http.followSslRedirects).isFalse()
     }
 
     @Test
-    fun `cancelling the caller surfaces the cancellation rather than a transport error`() {
+    fun `a redirect is refused so the key never follows it to another host`() {
+        val elsewhere = MockWebServer().also { it.start() }
+        try {
+            server.enqueue(
+                MockResponse().setResponseCode(302).setHeader("Location", elsewhere.url("/v1/issuing/users/user-abc/contracts").toString())
+            )
+            val strict = RainApiClient(baseUrl = server.url("/").toString(), apiKey = API_KEY, userId = "user-abc")
+
+            val error = assertThrows(RainApiError.Http::class.java) { runBlocking { strict.fetchCollateralContracts() } }
+
+            assertThat(error.statusCode).isEqualTo(302)
+            assertThat(elsewhere.requestCount).isEqualTo(0)
+        } finally {
+            elsewhere.shutdown()
+        }
+    }
+
+    @Test
+    fun `a plain http base URL is refused unless it names the loopback host`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            RainApiClient(baseUrl = "http://example.test", apiKey = API_KEY, userId = "user-abc")
+        }
+        assertThat(error).hasMessageThat().contains("https")
+
+        // The local test server is plain http on the loopback host; every test here builds against it.
+        RainApiClient(baseUrl = server.url("/").toString(), apiKey = API_KEY, userId = "user-abc")
+    }
+
+    @Test
+    fun `cancelling the caller cancels the call instead of waiting for a timeout`() {
         server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
-        val impatient = clientWith(OkHttpClient.Builder().readTimeout(300, TimeUnit.MILLISECONDS).build())
+        val patient = clientWith(OkHttpClient.Builder().readTimeout(10, TimeUnit.SECONDS).build())
         var seen: Throwable? = null
+        val startedAt = System.nanoTime()
 
         runBlocking {
             val job = launch {
                 try {
-                    impatient.fetchCollateralContracts()
+                    patient.fetchCollateralContracts()
                 } catch (e: CancellationException) {
                     seen = e
                 } catch (e: RainApiError) {
                     seen = e
                 }
             }
-            delay(50)
+            // Let the call reach the wire, then cancel while the server is still holding the response.
+            yield()
+            assertThat(server.takeRequest(5, TimeUnit.SECONDS)).isNotNull()
             job.cancelAndJoin()
         }
 
         assertThat(seen).isInstanceOf(CancellationException::class.java)
+        // Cancellation is immediate: nowhere near the 10 s read timeout.
+        assertThat(TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startedAt)).isLessThan(5)
     }
 
     private fun signatureRequest() = WithdrawalSignatureRequest(

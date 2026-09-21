@@ -109,8 +109,10 @@ null. Solana chains resolve from the registry and host-registered tokens only. A
 cached, so a later call reads the chain again.
 
 - **Throws:** `RainError.InvalidConfig` (`RAIN_102`) when no RPC endpoint was configured for
-  `chainId`, or when `address` is malformed for its chain family: on EVM chains 40 hex characters
-  with a correct EIP-55 checksum when mixed-case, on Solana chains base58 decoding to 32 bytes.
+  `chainId`, when `address` is malformed for its chain family (on EVM chains `0x` followed by 40 hex
+  characters with a correct EIP-55 checksum when mixed-case, on Solana chains base58 decoding to 32
+  bytes), or when the chain reports `decimals()` outside `0..77`, a token no money path can scale by;
+  nothing is cached then. `RainError.SdkNotInitialized` (`RAIN_101`) after `close()`.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
@@ -120,17 +122,18 @@ cached, so a later call reads the chain again.
 
 #### registerTokens(tokens: List\<TokenInfo\>)
 
-Registers token metadata after `build()`, without a resolved provider. Returns once the entries are
-stored, so a `tokenMetadata` call that follows sees them; every resolved client shares the store. A
-built-in registry token cannot be overridden.
+Registers token metadata after `build()`, without a resolved provider. The entries are stored before
+the call returns, so a `tokenMetadata` call that follows sees them; every resolved client shares the
+store. Re-registering a host-added address replaces its entry; a built-in registry token cannot be
+overridden.
 
-Three methods register tokens and run the same checks: `Builder.registerTokens` for tokens known
-before `build()`, this method for a token discovered before any client exists, and
-`RainClient.registerTokens` on a resolved client, which applies to the store in the background.
+Three methods register tokens, run the same checks and store into the same shared store in place:
+`Builder.registerTokens` for tokens known before `build()`, this method for a token discovered before
+any client exists, and `RainClient.registerTokens` on a resolved client.
 
 - **Throws:** `RainError.InvalidConfig` (`RAIN_102`) when an entry's address is malformed for its
   chain family (as above) or its `decimals` lies outside `0..77`. The whole list is validated first,
-  so nothing is registered.
+  so nothing is registered. `RainError.SdkNotInitialized` (`RAIN_101`) after `close()`.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
@@ -405,7 +408,7 @@ every EVM send (transfers, withdrawals, approvals) is sponsored, so zero is the 
 
 ---
 
-### estimateWithdrawalFee(chainId, addresses, amount, decimals, salt, signature, expiresAt)
+### estimateWithdrawalFee(chainId, addresses, amount, decimals, adminSignature, nonce)
 
 Estimates the total fee required to execute a collateral withdrawal transaction. The withdrawal
 authorization (`salt` / `signature` / `expiresAt`, fetched by the host from the Rain API) is
@@ -716,10 +719,10 @@ registry tokens are trusted and cannot be overridden: a registration naming one 
 warning.
 
 - **Throws:** `RainError.InvalidConfig` (`RAIN_102`) when an entry's address is malformed for its chain
-  family (EVM: 40 hex characters with a correct EIP-55 checksum when mixed-case; Solana: base58 decoding
-  to 32 bytes) or its `decimals` lies outside `0..77`; the whole list is validated first, so nothing is
-  registered. Validation is synchronous; the store update runs in the background, so a lookup that must
-  see the entries uses `RainSdk.registerTokens` instead.
+  family (EVM: `0x` followed by 40 hex characters with a correct EIP-55 checksum when mixed-case; Solana:
+  base58 decoding to 32 bytes) or its `decimals` lies outside `0..77`; the whole list is validated first,
+  so nothing is registered. The entries are stored before the call returns, so a lookup that follows
+  sees them.
 - **Returns:** `Unit`
 - **Suspend:** No
 
@@ -799,6 +802,9 @@ old shape. Slated for removal in the next major version.
 | `RainSdk.isRainApiConfigured`, `configureRainApi(apiKey, userId)`, `fetchCollateralContracts()`, `fetchCollateralContract()`, `fetchAdminSignature(...)` | Your backend calls the Rain API and hands the SDK `RainWithdrawAddresses` and `RainAdminSignature` (README section 7); `tokenMetadata(chainId, address)` replaces the token enrichment those calls did | The SDK no longer holds a program Api-Key, so a shim would have nothing to call |
 | `RainSdk.Builder.rainApiEnvironment(environment)`, `rainApiCredentials(apiKey, userId)` | None: the SDK has no Rain environment setting; the `RainAuthPullConfig` factory you call (`sandbox`, `production`, `custom`) names the environment for Auth Pull | Same |
 | `RainAuthPullChains.supported(environment)`, `isSupported(chainId, environment)` | `RainAuthPullChains.SANDBOX` / `PRODUCTION` before an SDK exists; `authPullChainIds` on a built SDK | `RainApiEnvironment` no longer exists |
+| Models `RainApiEnvironment` (`Dev`, `Production`, `Custom`), `RainCollateralContract`, `RainCollateralToken` | Your own response types for the two endpoints; README section 7 lists the fields the SDK consumes, and `tokenMetadata` supplies a token's `name`, `symbol` and `decimals` | They described the SDK's own Rain API calls, which no longer exist |
+| `RainError.ApiNotConfigured`, `RainError.ApiError`, `RainError.SignatureNotReady`, `RainError.NoCollateralContracts` | Your backend client's own errors: it decides when to poll again on `status` and `retryAfter`, and how to report a rejected key or an empty contract list | The SDK no longer makes the calls that raised them |
+| `RainErrorCode.API_NOT_CONFIGURED`, `API_ERROR`, `NO_COLLATERAL_CONTRACTS`; `RainErrorCode.SIGNATURE_NOT_READY` | None for the first three (`RAIN_104` and `RAIN_302` now mean `ChainNotSupported` and `TransactionPending`); `SIGNATURE_NOT_READY` is renamed `TRANSACTION_PENDING` (`RAIN_302`), the constant `TransactionPending` always carried | An enum constant cannot be deprecated in place without keeping the removed case alive |
 | `withdrawCollateral(chainId, addresses, amount, decimals, adminSignature, nonce, autoSend = false): RainWithdrawResult` | `withdrawCollateral(...)` to broadcast, `prepareWithdrawal(...)` to build only | The current method shares the leading parameters, so a shim with a defaulted `autoSend` would never be selected for calls that omit it — Kotlin prefers the overload using fewer defaults — and could not restore the old prepare-only default. See the migration note under [withdrawCollateral](#withdrawcollateralchainid-addresses-amount-decimals-adminsignature-nonce). |
 
 ---
@@ -938,6 +944,7 @@ pre-set to `"0x0"`. Hosts can hand the result to any provider for signing / broa
 | **`RainWalletContact`** | Sealed: `Email(value)` or `Sms(value)`, the contact a login code goes to and the identity the account is keyed on. `toString()` hides the value. |
 | **`RainWalletKeyAccount`** | Enum: `ETHEREUM`, `SOLANA`. Which of the Rain wallet's keys `RainProvider.exportPrivateKey` returns. |
 | **`WalletProvider`** | The port each adapter implements. Public so hosts can ship their own wallet stack. |
+| **`TokenInfo`** | A token the SDK reads balances for and scales amounts by: `chainId` (numeric; EIP-155 for EVM chains, 900 to 902 for the Solana clusters), `address` (the ERC-20 contract, or the SPL mint on Solana), `symbol: String?`, `decimals: Int`, `name: String?`. Returned by `tokenMetadata`, accepted by the three `registerTokens` methods. |
 | **`RainWithdrawAddresses`** | `proxyAddress`, `controllerAddress`, `tokenAddress`, `recipientAddress`. Has `validated()` method for address checksumming. |
 | **`RainAdminSignature`** | Rain's authorization for one withdrawal, passed through unchanged: `salt` (base64, 32 bytes on every chain), `signature` (EVM: 0x-hex, 65 bytes; Solana: base64, 64 bytes), `expiresAt` (unix seconds, or an ISO-8601 instant with Z or a numeric offset). |
 | **`RainPreparedWithdrawal`** | Sealed: `Evm(parameters: RainTransactionParameters)` or `Solana(transfer: UnsignedSolanaTransfer)`. Has `evmParameters` / `solanaTransfer` accessors. |
@@ -963,8 +970,8 @@ Format: `"RainSDK Error [CODE]: message"`
 
 | Code | Class | Meaning |
 |------|-------|---------|
-| `RAIN_101` | `RainError.SdkNotInitialized` | Operation called before the SDK's chain configuration was set up (i.e. before `build()`). |
-| `RAIN_102` | `RainError.InvalidConfig` / `RainError.ProviderNotRegistered` | Invalid RPC URL, chain ID, or address format; a malformed withdrawal salt, signature or expiry handed to a withdrawal method; a token registration with a malformed address or mint or `decimals` outside `0..77`; a `tokenMetadata` lookup with a malformed address or a chain the SDK has no RPC endpoint for; a blank email or a phone number outside E.164 handed to `sendLoginCode`; for a Turnkey key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors); a closed `TurnkeyProvider` or `RainProvider` asked to authenticate or export; the Rain wallet provider and the Turnkey provider registered on one `RainSdk` (`build()` refuses the pair); no provider registered for the requested id; or no provider matched a capability. |
+| `RAIN_101` | `RainError.SdkNotInitialized` | Operation called before the SDK's chain configuration was set up (i.e. before `build()`), or on a `RainSdk` after `close()`. |
+| `RAIN_102` | `RainError.InvalidConfig` / `RainError.ProviderNotRegistered` / `RainError.TokenNotFound` / `RainError.InvalidRecipient` | Invalid RPC URL, chain ID, or address format; a token whose decimals could not be established when a money path needed them (`TokenNotFound`); a recipient that cannot receive the transfer (`InvalidRecipient`); a malformed withdrawal salt, signature or expiry handed to a withdrawal method; a token registration with a malformed address or mint or `decimals` outside `0..77`; a `tokenMetadata` lookup with a malformed address or a chain the SDK has no RPC endpoint for; a blank email or a phone number outside E.164 handed to `sendLoginCode`; for a Turnkey key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors); a closed `TurnkeyProvider` or `RainProvider` asked to authenticate or export; the Rain wallet provider and the Turnkey provider registered on one `RainSdk` (`build()` refuses the pair); no provider registered for the requested id; or no provider matched a capability. |
 | `RAIN_103` | `RainError.InvalidRpcUrl` | RPC URL could not be parsed as a valid URL. |
 | `RAIN_104` | `RainError.ChainNotSupported` | The active wallet provider cannot broadcast transactions on this chain (e.g. Turnkey-managed sends do not cover Avalanche); carries `chainId`. Thrown before any network or wallet work on every send, withdrawals and approvals included (core asks the provider first, and the provider's broadcast funnel checks again). Reads — balances, history, estimates — are never gated. |
 | `RAIN_201` | `RainError.TokenExpired` | Provider session token expired or invalid. |
@@ -973,7 +980,7 @@ Format: `"RainSDK Error [CODE]: message"`
 | `RAIN_301` | `RainError.NetworkError` | Network/connectivity failure. |
 | `RAIN_302` | `RainError.TransactionPending` | Submitted, not yet confirmed. `statusId` is what to resume from (status id, UserOperation hash, or transaction hash). Do not resend. |
 | `RAIN_401` | `RainError.UserRejected` | User cancelled the signing request in the wallet. |
-| `RAIN_402` | `RainError.InsufficientFunds` | Balance too low for the requested amount or gas. |
+| `RAIN_402` | `RainError.InsufficientFunds` / `RainError.InsufficientTokenBalance` / `RainError.TokenAccountNotFound` | Balance too low for the requested amount or gas; a token balance below the requested amount (`InsufficientTokenBalance`); a Solana sender with no token account for the mint (`TokenAccountNotFound`). |
 | `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight `eth_call` simulation failed (e.g. contract revert, insufficient funds), or the provider reported that the broadcast transaction reverted (Turnkey's decoded failure status). |
 | `RAIN_404` | `RainError.WalletUnavailable` | The backing provider returned no usable wallet address (e.g. Turnkey context has no Ethereum account), or, for a Turnkey or Rain wallet key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors). |
 | `RAIN_405` | `RainError.WithdrawalRevertedByNetwork` | Withdrawal reverted on-chain (e.g. duplicate withdrawal, already-used signature). A fee-sponsored withdrawal skips the dry run; a revert the provider reports after broadcast maps here too. |

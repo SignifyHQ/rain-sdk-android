@@ -8,6 +8,7 @@ import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -77,6 +78,7 @@ class WalletInfoViewModel(
                     )
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 SampleLog.e("WalletInfo", "failed: ${e.message}", e)
                 _state.update {
                     it.copy(

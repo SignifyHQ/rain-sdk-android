@@ -5,9 +5,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.models.Token
+import com.rain.sdk.sample.CollateralToken
 import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -70,6 +72,7 @@ class BalancesViewModel(
                     )
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 SampleLog.e("Balances.fetch", "failed: ${e.message}", e)
                 _state.update {
                     it.copy(
@@ -119,28 +122,15 @@ class BalancesViewModel(
                     "success — address=$collateralAddress tokens=${tokens.size}"
                 )
 
-                // Collateral balances come from the API, not on-chain.
-                // Tokens are deposited into the smart contract, so the user's
-                // wallet won't hold them — same as root app's CollateralContract.cryptoAssets.
-                val collateralBalances = tokens.map { token ->
-                    CollateralTokenBalance(
-                        symbol = token.symbol ?: token.name ?: "Unknown",
-                        name = token.name ?: "",
-                        address = token.address,
-                        decimals = token.decimals,
-                        balance = token.balanceAmount ?: BigDecimal.ZERO,
-                        exchangeRate = token.exchangeRate
-                    )
-                }
-
                 _state.update {
                     it.copy(
                         collateralWalletAddress = collateralAddress,
-                        collateralBalances = collateralBalances,
+                        collateralBalances = collateralBalances(tokens),
                         isCollateralLoading = false
                     )
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 SampleLog.e("Balances.collateral", "failed: ${e.message}", e)
                 _state.update {
                     it.copy(
@@ -152,6 +142,23 @@ class BalancesViewModel(
         }
     }
 
+    /**
+     * Collateral balances come from the API, not from the chain: the tokens sit in the collateral
+     * contract, so the user's wallet does not hold them. Decimals stay null when the SDK could not
+     * establish them; the screen shows the row and guesses nothing.
+     */
+    private fun collateralBalances(tokens: List<CollateralToken>): List<CollateralTokenBalance> =
+        tokens.map { token ->
+            CollateralTokenBalance(
+                symbol = token.symbol ?: token.name ?: "Unknown",
+                name = token.name.orEmpty(),
+                address = token.address,
+                decimals = token.decimals,
+                balance = token.balanceAmount ?: BigDecimal.ZERO,
+                exchangeRate = token.exchangeRate
+            )
+        }
+
     fun loadWalletAddresses(chain: WalletChain = WalletChain.BASE_SEPOLIA) {
         if (rainClient.isInitialized) {
             viewModelScope.launch {
@@ -160,6 +167,7 @@ class BalancesViewModel(
                     SampleLog.d("Balances.address", "wallet address=$address")
                     _state.update { it.copy(internalWalletAddress = address) }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     SampleLog.w("Balances.address", "getAddress failed: ${e.message}", e)
                 }
             }

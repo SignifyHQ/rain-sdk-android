@@ -32,7 +32,7 @@ internal object RainAmountUtils {
         if (decimals !in DECIMALS_RANGE) {
             throw RainError.InvalidAmount(
                 amount = amount.toPlainString(),
-                reason = "token decimals must be between 0 and 77, got $decimals"
+                reason = "token decimals must be within $DECIMALS_RANGE, got $decimals"
             )
         }
         val baseUnits = try {

@@ -1,14 +1,14 @@
 package com.rain.sdk.sample
 
 import com.rain.sdk.models.RainAdminSignature
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -17,6 +17,8 @@ import java.math.BigDecimal
 import java.math.BigInteger
 import java.net.HttpURLConnection
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 // The Rain issuing API is the host's responsibility, not the SDK's. The SDK builds and sends
 // transactions; the data those transactions need, the user's collateral contract and Rain's admin
@@ -108,17 +110,23 @@ sealed class RainApiError(message: String, cause: Throwable? = null) : Exception
 
 /**
  * Minimal OkHttp client for the two Rain API calls the wallet flows need. Every request carries the
- * program key in the `Api-Key` header. Plain Kotlin, no Android types, so it also runs under JVM
- * tests and reads as host reference code; callers do the logging.
+ * program key in the `Api-Key` header, so the base URL must be https; the loopback host is allowed
+ * for tests. Plain Kotlin, no Android types, so it also runs under JVM tests and reads as host
+ * reference code; callers do the logging.
  */
 class RainApiClient(
     baseUrl: String,
     private val apiKey: String,
     private val userId: String,
     private val httpClient: OkHttpClient = defaultHttpClient(),
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val baseUrl: HttpUrl = baseUrl.toHttpUrl()
+
+    init {
+        require(this.baseUrl.isHttps || this.baseUrl.isLoopback()) {
+            "Rain API base URL must be https, the Api-Key travels in a header: $baseUrl"
+        }
+    }
 
     /** `GET /v1/issuing/users/{userId}/contracts`. Tokens come back without name, symbol or decimals. */
     suspend fun fetchCollateralContracts(): List<CollateralContract> {
@@ -157,25 +165,17 @@ class RainApiClient(
         baseUrl.newBuilder().addPathSegments("v1/issuing/users").addPathSegment(userId)
 
     /** The body on 2xx; 401 and 403 are [RainApiError.Unauthorized], other statuses [RainApiError.Http]. */
-    private suspend fun get(url: HttpUrl): String = withContext(ioDispatcher) {
+    private suspend fun get(url: HttpUrl): String {
         val request = Request.Builder()
             .url(url)
             .header("Api-Key", apiKey)
             .header("Accept", "application/json")
             .get()
             .build()
-        try {
-            httpClient.newCall(request).execute().use { response ->
-                val body = response.body.string()
-                val error = statusError(response.code, response.isSuccessful, body)
-                if (error != null) throw error
-                body
-            }
-        } catch (e: IOException) {
-            // A failure after the caller cancelled is reported as the cancellation, not as a transport error.
-            ensureActive()
-            throw RainApiError.Transport(e)
-        }
+        val reply = httpClient.newCall(request).await()
+        val error = statusError(reply.code, reply.successful, reply.body)
+        if (error != null) throw error
+        return reply.body
     }
 
     private fun statusError(code: Int, successful: Boolean, body: String): RainApiError? = when {
@@ -183,6 +183,39 @@ class RainApiClient(
             RainApiError.Unauthorized(code)
         !successful -> RainApiError.Http(code, body.take(ERROR_BODY_PREVIEW_CHARS).ifBlank { null })
         else -> null
+    }
+
+    /** What a completed call left behind: the status and the body, read on OkHttp's thread. */
+    private class Reply(val code: Int, val successful: Boolean, val body: String)
+
+    /**
+     * Runs the call on OkHttp's own threads and reads the body there, so the caller's dispatcher never
+     * blocks. Cancelling the caller cancels the call at once instead of waiting for a socket timeout.
+     * The success body is read whole, an error body only up to the preview the error carries.
+     */
+    private suspend fun Call.await(): Reply = suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation { cancel() }
+        enqueue(object : Callback {
+            override fun onResponse(call: Call, response: Response) {
+                val reply = try {
+                    response.use { it.toReply() }
+                } catch (e: IOException) {
+                    if (continuation.isActive) continuation.resumeWithException(RainApiError.Transport(e))
+                    return
+                }
+                if (continuation.isActive) continuation.resume(reply)
+            }
+
+            override fun onFailure(call: Call, e: IOException) {
+                // After our own cancel() the continuation is already cancelled; nothing to report.
+                if (continuation.isActive) continuation.resumeWithException(RainApiError.Transport(e))
+            }
+        })
+    }
+
+    private fun Response.toReply(): Reply {
+        val text = if (isSuccessful) body.string() else peekBody(ERROR_BODY_PREVIEW_CHARS.toLong()).string()
+        return Reply(code = code, successful = isSuccessful, body = text)
     }
 
     // ---------- Wire format ----------
@@ -244,15 +277,21 @@ class RainApiClient(
 
         /**
          * The one OkHttp client the demo shares between every [RainApiClient] it builds: 30 s to connect
-         * and to read, 60 s for a whole call.
+         * and to read, 60 s for a whole call, and no redirects. OkHttp keeps custom headers such as
+         * `Api-Key` across a redirect to another host, so a 3xx surfaces as [RainApiError.Http] instead.
          */
         fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .followRedirects(false)
+            .followSslRedirects(false)
             .build()
     }
 }
+
+/** The local test server; the only host a plain-http Rain API base URL may name. */
+private fun HttpUrl.isLoopback(): Boolean = host == "localhost" || host == "127.0.0.1" || host == "::1"
 
 // The two org.json implementations disagree on the edges: one stringifies a JSON null as "null"
 // and coerces numbers to strings, the other returns the default and throws on a number. Reading

@@ -2,9 +2,11 @@ package com.rain.sdk
 
 import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.MockRpcServer
 import com.rain.sdk.internal.network.chainreader.ERC20Selectors
+import com.rain.sdk.internal.solana.Base58
 import com.rain.sdk.models.TokenInfo
 import io.mockk.every
 import io.mockk.mockkStatic
@@ -139,13 +141,15 @@ class RainSdkTokenMetadataTest {
         rpc.stubNetworkFailure("eth_call")
         val rain = sdk()
 
-        val error = assertThrows(RainError.InvalidConfig::class.java) {
-            runBlocking {
-                rain.registerTokens(listOf(TokenInfo(RainChain.BASE_SEPOLIA, hostToken, "BAD", 78, null)))
+        for (decimals in listOf(78, -1)) {
+            val error = assertThrows(RainError.InvalidConfig::class.java) {
+                runBlocking {
+                    rain.registerTokens(listOf(TokenInfo(RainChain.BASE_SEPOLIA, hostToken, "BAD", decimals, null)))
+                }
             }
+            assertWithMessage("decimals=$decimals").that(error).hasMessageThat()
+                .contains("Invalid token decimals for chainId=84532")
         }
-
-        assertThat(error).hasMessageThat().contains("Invalid token decimals for chainId=84532")
         assertThat(runBlocking { rain.tokenMetadata(RainChain.BASE_SEPOLIA, hostToken) }).isNull()
     }
 
@@ -169,14 +173,45 @@ class RainSdkTokenMetadataTest {
     fun `registerTokens rejects a Solana mint that is not 32 bytes of base58`() {
         val rain = sdk()
 
-        val error = assertThrows(RainError.InvalidConfig::class.java) {
-            runBlocking {
-                rain.registerTokens(listOf(TokenInfo(RainChain.SOLANA_DEVNET, "not-base58!", "BAD", 6, null)))
+        for (mint in listOf("not-base58!", Base58.encode(ByteArray(33)), Base58.encode(ByteArray(31)))) {
+            val error = assertThrows(RainError.InvalidConfig::class.java) {
+                runBlocking {
+                    rain.registerTokens(listOf(TokenInfo(RainChain.SOLANA_DEVNET, mint, "BAD", 6, null)))
+                }
             }
+            assertWithMessage(mint).that(error).hasMessageThat().contains("token mint for chainId=901")
+        }
+        assertThat(runBlocking { rain.tokenMetadata(RainChain.SOLANA_DEVNET, solanaMint) }).isNull()
+    }
+
+    @Test
+    fun `tokenMetadata and registerTokens reject an EVM address without the 0x prefix`() {
+        val rain = sdk()
+        // The store keys entries by the string as given, so a bare spelling would never meet its 0x twin.
+        val bare = hostToken.removePrefix("0x")
+
+        val lookup = assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking { rain.tokenMetadata(RainChain.BASE_SEPOLIA, bare) }
+        }
+        val registration = assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking { rain.registerTokens(listOf(TokenInfo(RainChain.BASE_SEPOLIA, bare, "TST", 8, null))) }
         }
 
-        assertThat(error).hasMessageThat().contains("token mint for chainId=901")
-        assertThat(runBlocking { rain.tokenMetadata(RainChain.SOLANA_DEVNET, solanaMint) }).isNull()
+        assertThat(lookup).hasMessageThat().contains("expected a 0x prefix")
+        assertThat(registration).hasMessageThat().contains("expected a 0x prefix")
+        assertThat(rpc.recordedMethods).isEmpty()
+    }
+
+    @Test
+    fun `tokenMetadata accepts a correctly checksummed mixed-case address`() = runBlocking {
+        val rain = sdk()
+
+        // Base Sepolia USDC as the registry spells it: mixed case carrying a valid EIP-55 checksum.
+        val info = rain.tokenMetadata(RainChain.BASE_SEPOLIA, "0x036CbD53842c5426634e7929541eC2318f3dCF7e")
+
+        assertThat(info?.symbol).isEqualTo("USDC")
+        assertThat(info?.decimals).isEqualTo(6)
+        assertThat(rpc.recordedMethods).isEmpty()
     }
 
     @Test
@@ -216,12 +251,30 @@ class RainSdkTokenMetadataTest {
 
     @Test
     fun `build rejects a seed token with decimals outside the supported range`() {
-        assertThrows(RainError.InvalidConfig::class.java) {
-            RainSdk.builder()
-                .rpcEndpoints(mapOf(RainChain.BASE_SEPOLIA to rpc.urlFor(RainChain.BASE_SEPOLIA)))
-                .registerTokens(listOf(TokenInfo(RainChain.BASE_SEPOLIA, hostToken, "BAD", 78, null)))
-                .build()
+        for (decimals in listOf(78, -1)) {
+            assertThrows("decimals=$decimals", RainError.InvalidConfig::class.java) {
+                RainSdk.builder()
+                    .rpcEndpoints(mapOf(RainChain.BASE_SEPOLIA to rpc.urlFor(RainChain.BASE_SEPOLIA)))
+                    .registerTokens(listOf(TokenInfo(RainChain.BASE_SEPOLIA, hostToken, "BAD", decimals, null)))
+                    .build()
+            }
         }
+    }
+
+    // ---- after close ----------------------------------------------------------------------
+
+    @Test
+    fun `tokenMetadata and registerTokens throw SdkNotInitialized after close`() {
+        val rain = sdk()
+        rain.close()
+
+        assertThrows(RainError.SdkNotInitialized::class.java) {
+            runBlocking { rain.tokenMetadata(RainChain.BASE_SEPOLIA, hostToken) }
+        }
+        assertThrows(RainError.SdkNotInitialized::class.java) {
+            runBlocking { rain.registerTokens(listOf(TokenInfo(RainChain.BASE_SEPOLIA, hostToken, "TST", 8, null))) }
+        }
+        assertThat(rpc.recordedMethods).isEmpty()
     }
 
     // ---- the chain read itself ----------------------------------------------------------
@@ -238,6 +291,26 @@ class RainSdkTokenMetadataTest {
 
         assertThat(info).isEqualTo(TokenInfo(RainChain.BASE_SEPOLIA, hostToken, "TST", 6, "Test"))
         assertThat(rpc.recordedMethods.count { it == "eth_call" }).isEqualTo(3)
+    }
+
+    @Test
+    fun `tokenMetadata refuses a chain read of decimals outside the supported range and caches nothing`() {
+        // decimals() = 78: no money path can scale by it, so the token is refused, like requireDecimals always did.
+        rpc.stubObjectWhenBodyContains("eth_call", ERC20Selectors.DECIMALS, "0x" + "0".repeat(62) + "4e")
+        rpc.stubObjectWhenBodyContains("eth_call", ERC20Selectors.SYMBOL, abiString("BAD"))
+        rpc.stubObjectWhenBodyContains("eth_call", ERC20Selectors.NAME, abiString("Bad"))
+        val rain = sdk()
+
+        val error = assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking { rain.tokenMetadata(RainChain.BASE_SEPOLIA, hostToken) }
+        }
+        assertThat(error).hasMessageThat().contains("reports 78 decimals, outside the supported range 0..77")
+        val readsAfterFirstCall = rpc.recordedMethods.count { it == "eth_call" }
+
+        assertThrows(RainError.InvalidConfig::class.java) {
+            runBlocking { rain.tokenMetadata(RainChain.BASE_SEPOLIA, hostToken) }
+        }
+        assertThat(rpc.recordedMethods.count { it == "eth_call" }).isGreaterThan(readsAfterFirstCall)
     }
 
     /** ABI encoding of a dynamic `string` return value: offset, length, then the UTF-8 bytes right-padded. */

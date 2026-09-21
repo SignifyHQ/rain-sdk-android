@@ -1,6 +1,7 @@
 package com.rain.sdk.internal.solana
 
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import com.rain.sdk.internal.constants.SolanaPrograms
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.error.RainErrorCode
@@ -217,7 +218,7 @@ class SolanaCollateralWithdrawComposerTest {
                 amountBaseUnits = BigInteger.ONE,
                 adminSignature = adminSignature.copy(expiresAt = shape)
             )
-            assertThat(unsigned.transactionHex).isEqualTo(SolanaWithdrawFixtures.GOLDEN_WITHDRAW_TX_HEX)
+            assertWithMessage(shape).that(unsigned.transactionHex).isEqualTo(SolanaWithdrawFixtures.GOLDEN_WITHDRAW_TX_HEX)
         }
     }
 
