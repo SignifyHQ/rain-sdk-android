@@ -93,7 +93,7 @@ Notes:
   org.bitcoinj.core.Base58`, for a class the backend references on its export path and never loads.
   It lands in your whole R8 configuration, so a reference of your own to that class stops warning.
 - Sends work on the chains the wallet backend broadcasts to; other configured chains are read-only,
-  and a send there throws `RainError.ChainNotSupported` (`RAIN_105`) before any network work.
+  and a send there throws `RainError.ChainNotSupported` (`RAIN_104`) before any network work.
 - `RainWalletSessionState` and `RainWalletAuthState` are open by design: each carries one internal
   case, so a `when` over them needs an `else` branch and a state can be added later without a
   source break.

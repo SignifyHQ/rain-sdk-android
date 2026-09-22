@@ -2,7 +2,6 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.dokka)
     alias(libs.plugins.vanniktech.maven.publish)
 }
@@ -88,9 +87,6 @@ dependencies {
         exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
     }
 
-    // JSON Serialization
-    implementation(libs.kotlinx.serialization.json)
-    
     // Coroutines
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)

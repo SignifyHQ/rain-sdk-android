@@ -52,7 +52,7 @@ interface RainTransactionBuilder {
      *
      * Pure encoding — no RPC, so it needs no chain id.
      *
-     * @param executorSignature Rain's authorization, from `RainSdk.fetchAdminSignature`.
+     * @param executorSignature Rain's authorization for this withdrawal, fetched by the host from the Rain API.
      * @param walletSalt The salt from [RainEIP712Message.salt], unchanged.
      * @param walletSignature The wallet's hex signature over [RainEIP712Message.message].
      */

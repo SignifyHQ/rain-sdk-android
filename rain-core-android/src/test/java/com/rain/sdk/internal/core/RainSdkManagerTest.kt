@@ -63,7 +63,7 @@ class RainSdkBuilderTest {
 
     @Test
     fun `build succeeds with zero providers (wallet-agnostic mode)`() {
-        // transactionBuilder + Rain API work without any wallet provider.
+        // transactionBuilder + tokenMetadata work without any wallet provider.
         val sdk = RainSdk.builder()
             .rpcEndpoints(mapOf(1 to "https://rpc.test"))
             .build()

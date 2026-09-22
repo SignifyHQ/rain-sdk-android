@@ -3,11 +3,13 @@ package com.rain.sdk.sample.screens
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.models.Token
+import com.rain.sdk.sample.CollateralToken
+import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,7 +18,7 @@ import kotlinx.coroutines.launch
 import java.math.BigDecimal
 
 class BalancesViewModel(
-    private val rainSdk: RainSdk,
+    private val session: RainSession,
     private val rainClient: RainClient
 ) : ViewModel() {
 
@@ -70,6 +72,7 @@ class BalancesViewModel(
                     )
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 SampleLog.e("Balances.fetch", "failed: ${e.message}", e)
                 _state.update {
                     it.copy(
@@ -87,9 +90,9 @@ class BalancesViewModel(
             _state.update { it.copy(collateralError = "SDK not initialized") }
             return
         }
-        if (!rainSdk.isRainApiConfigured) {
+        if (!session.isRainApiConfigured) {
             SampleLog.w("Balances.collateral", "Rain API not configured")
-            _state.update { it.copy(collateralError = "Rain Api-Key and user ID required") }
+            _state.update { it.copy(collateralError = RainSession.RAIN_API_CREDENTIALS_REQUIRED) }
             return
         }
 
@@ -98,9 +101,9 @@ class BalancesViewModel(
 
         viewModelScope.launch {
             try {
-                // The contract on the active chain when Rain provisioned one there, else the
-                // first of the chain's family (see WalletChain.collateralContract).
-                val contract = chain.collateralContract(rainSdk.fetchCollateralContracts())
+                // From the demo's own Rain API client, exact chain first (see
+                // WalletChain.collateralContract); a host makes this call from its backend.
+                val contract = session.fetchCollateralContract(chain)
                 if (contract == null) {
                     SampleLog.w("Balances.collateral", "no collateral contract for ${chain.displayName}")
                     _state.update {
@@ -119,28 +122,15 @@ class BalancesViewModel(
                     "success — address=$collateralAddress tokens=${tokens.size}"
                 )
 
-                // Collateral balances come from the API, not on-chain.
-                // Tokens are deposited into the smart contract, so the user's
-                // wallet won't hold them — same as root app's CollateralContract.cryptoAssets.
-                val collateralBalances = tokens.map { token ->
-                    CollateralTokenBalance(
-                        symbol = token.symbol ?: token.name ?: "Unknown",
-                        name = token.name ?: "",
-                        address = token.address,
-                        decimals = token.decimals ?: 18,
-                        balance = token.balanceAmount ?: BigDecimal.ZERO,
-                        exchangeRate = token.exchangeRate
-                    )
-                }
-
                 _state.update {
                     it.copy(
                         collateralWalletAddress = collateralAddress,
-                        collateralBalances = collateralBalances,
+                        collateralBalances = collateralBalances(tokens),
                         isCollateralLoading = false
                     )
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 SampleLog.e("Balances.collateral", "failed: ${e.message}", e)
                 _state.update {
                     it.copy(
@@ -152,6 +142,23 @@ class BalancesViewModel(
         }
     }
 
+    /**
+     * Collateral balances come from the API, not from the chain: the tokens sit in the collateral
+     * contract, so the user's wallet does not hold them. Decimals stay null when the SDK could not
+     * establish them; the screen shows the row and guesses nothing.
+     */
+    private fun collateralBalances(tokens: List<CollateralToken>): List<CollateralTokenBalance> =
+        tokens.map { token ->
+            CollateralTokenBalance(
+                symbol = token.symbol ?: token.name ?: "Unknown",
+                name = token.name.orEmpty(),
+                address = token.address,
+                decimals = token.decimals,
+                balance = token.balanceAmount ?: BigDecimal.ZERO,
+                exchangeRate = token.exchangeRate
+            )
+        }
+
     fun loadWalletAddresses(chain: WalletChain = WalletChain.BASE_SEPOLIA) {
         if (rainClient.isInitialized) {
             viewModelScope.launch {
@@ -160,6 +167,7 @@ class BalancesViewModel(
                     SampleLog.d("Balances.address", "wallet address=$address")
                     _state.update { it.copy(internalWalletAddress = address) }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     SampleLog.w("Balances.address", "getAddress failed: ${e.message}", e)
                 }
             }
@@ -171,7 +179,8 @@ data class CollateralTokenBalance(
     val symbol: String,
     val name: String,
     val address: String,
-    val decimals: Int,
+    /** Null when the SDK could not establish the token's decimals; shown, never guessed. */
+    val decimals: Int?,
     val balance: BigDecimal,
     val exchangeRate: Double
 ) {
@@ -229,13 +238,13 @@ data class WalletTokenBalance(
 }
 
 class BalancesViewModelFactory(
-    private val rainSdk: RainSdk,
+    private val session: RainSession,
     private val rainClient: RainClient
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(BalancesViewModel::class.java)) {
-            return BalancesViewModel(rainSdk, rainClient) as T
+            return BalancesViewModel(session, rainClient) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

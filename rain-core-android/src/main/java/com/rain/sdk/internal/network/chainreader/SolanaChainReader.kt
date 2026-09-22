@@ -234,7 +234,7 @@ class SolanaChainReader(
     }
 
     private fun validateAddress(address: String) {
-        val valid = runCatching { Base58.decode(address).size == 32 }.getOrDefault(false)
+        val valid = runCatching { Base58.decode(address).size == SolanaAddresses.PUBLIC_KEY_LENGTH }.getOrDefault(false)
         if (!valid) {
             throw RainError.InternalError("Invalid Solana wallet address: $address")
         }
@@ -242,7 +242,7 @@ class SolanaChainReader(
 
     private fun decodeAddress(address: String, label: String): ByteArray {
         val bytes = runCatching { Base58.decode(address) }.getOrNull()
-        if (bytes == null || bytes.size != 32) {
+        if (bytes == null || bytes.size != SolanaAddresses.PUBLIC_KEY_LENGTH) {
             throw RainError.InternalError("Invalid Solana $label address: $address")
         }
         return bytes

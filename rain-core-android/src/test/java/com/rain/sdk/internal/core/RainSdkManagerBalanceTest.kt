@@ -2,9 +2,12 @@ package com.rain.sdk.internal.core
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.internal.helpers.MockChainReader
 import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers
+import com.rain.sdk.internal.solana.Base58
+import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
@@ -123,6 +126,58 @@ class RainSdkManagerBalanceTest {
                 listOf(TokenInfo(chainId = 1, address = "0x7f5c764c", symbol = "BAD", decimals = 6))
             )
         }
+    }
+
+    @Test
+    fun `registerTokens rejects decimals outside the supported range`() {
+        // No money path can scale by such a value, so the entry is refused at registration.
+        val (manager, _) = TestManagers.stubProviderManager()
+
+        for (decimals in listOf(78, -1)) {
+            assertThrows("decimals=$decimals", RainError.InvalidConfig::class.java) {
+                manager.registerTokens(
+                    listOf(TokenInfo(chainId = 1, address = TestFixtures.TOKEN_ADDRESS, symbol = "BAD", decimals = decimals))
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `registerTokens rejects a Solana mint that is not 32 bytes`() {
+        val (manager, _) = TestManagers.stubProviderManager()
+
+        assertThrows(RainError.InvalidConfig::class.java) {
+            manager.registerTokens(
+                listOf(
+                    TokenInfo(
+                        chainId = com.rain.sdk.RainChain.SOLANA_DEVNET,
+                        address = Base58.encode(ByteArray(33)),
+                        symbol = "BAD",
+                        decimals = 6
+                    )
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `registerTokens accepts decimals 0 and 77 and stores them before it returns`() {
+        val reader = MockChainReader(decimals = 99)
+        val store = TokenMetadataStore(reader)
+        val (manager, _) = TestManagers.stubProviderManager(tokenStore = store)
+        val max = "0x00000000000000000000000000000000000000BB"
+
+        manager.registerTokens(
+            listOf(
+                TokenInfo(chainId = 1, address = TestFixtures.TOKEN_ADDRESS, symbol = "ZERO", decimals = 0),
+                TokenInfo(chainId = 1, address = max, symbol = "MAX", decimals = 77)
+            )
+        )
+
+        // In place, not in the background: the store answers at once and never reads the chain for them.
+        assertThat(runBlocking { store.decimalsOrNull(1, TestFixtures.TOKEN_ADDRESS) }).isEqualTo(0)
+        assertThat(runBlocking { store.decimalsOrNull(1, max) }).isEqualTo(77)
+        assertThat(reader.decimalsCalls).isEmpty()
     }
 
     @Test

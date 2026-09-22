@@ -2,7 +2,6 @@ package com.rain.sdk.sample
 
 import com.rain.sdk.RainAuthPullChains
 import com.rain.sdk.RainChain
-import com.rain.sdk.models.RainCollateralContract
 import com.rain.sdk.models.TokenInfo
 
 /**
@@ -116,8 +115,8 @@ enum class WalletChain(
 
     /**
      * Whether Rain's Auth Pull runs on this chain *in the environment this build is configured
-     * for*. Read from the SDK rather than restated here. Approvals are ERC-20, so Solana is out
-     * either way.
+     * for*. Read from the SDK's chain sets through [SampleEnvironment.authPullChains] rather than
+     * restated here. Approvals are ERC-20, so Solana is out either way.
      *
      * This is the picker's answer, and it has to exist before any SDK does — the chain list is
      * built at startup, the SDK only after the user supplies credentials. Once a client exists it
@@ -126,7 +125,7 @@ enum class WalletChain(
      * gates on that instead.
      */
     val supportsAuthPull: Boolean
-        get() = RainAuthPullChains.isSupported(chainId, SampleEnvironment.rainApi)
+        get() = chainId in SampleEnvironment.authPullChains
 
     /** Rain's Auth Pull operator for the configured environment. See [SampleEnvironment]. */
     val defaultAuthPullOperator: String
@@ -169,7 +168,7 @@ enum class WalletChain(
      * user's collateral on several EVM chains and lists the contracts in no fixed order, so the
      * family match alone could show a different contract from one launch to the next.
      */
-    fun collateralContract(contracts: List<RainCollateralContract>): RainCollateralContract? =
+    fun collateralContract(contracts: List<CollateralContract>): CollateralContract? =
         contracts.firstOrNull { it.chainId == chainId }
             ?: contracts.firstOrNull { ownsCollateralContract(it.chainId) }
 
@@ -225,8 +224,9 @@ enum class WalletChain(
         /**
          * Chains this build does not offer in the picker but Rain may host a user's collateral on.
          * The SDK reads collateral token names, symbols and decimals from the token contracts, so
-         * it needs an RPC endpoint there; without one the withdraw screen calls every token
-         * "Token". The picker stays as it is: nothing is sent on these chains.
+         * it needs an RPC endpoint there; without one the withdraw screen lists the token without
+         * a name and with its money actions disabled. The picker stays as it is: nothing is sent
+         * on these chains.
          */
         private val COLLATERAL_ONLY_CHAINS = mapOf(
             ETHEREUM_SEPOLIA to CollateralOnlyChain(

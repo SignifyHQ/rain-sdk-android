@@ -220,9 +220,9 @@ private fun HomeContent(
                 )
             }
 
-            // Rain API credentials are independent of the wallet provider: they authenticate
-            // contract/signature calls to the Rain dev API, so they live in their own card shown
-            // for every provider.
+            // Rain API credentials are independent of the wallet provider: they feed the demo's own
+            // Rain API client (contracts and withdrawal signatures; a shipped app makes those calls
+            // from its backend), so they live in their own card shown for every provider.
             RainApiCard(state, actions)
             ProviderCard(state = state, actions = providerActions)
             // Available as soon as a session is live: a fresh login initializes Rain on its own; a
@@ -255,8 +255,8 @@ private fun HomeContent(
 
         if (connected) {
             // Connection details stay on the screen after connecting, as before the redesign. The
-            // Rain API card is still live (configureRainApi), so a wallet can be connected first
-            // and the program keys pasted afterwards; the provider card shows what was used and,
+            // Rain API card is still live (it rebuilds the demo's client), so a wallet can be connected
+            // first and the program key pasted afterwards; the provider card shows what was used and,
             // after a resume, still offers a fresh sign-in.
             RainLabel("Connection")
             RainApiCard(state, actions)

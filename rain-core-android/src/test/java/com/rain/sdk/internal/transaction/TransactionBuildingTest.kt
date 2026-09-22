@@ -2,6 +2,7 @@ package com.rain.sdk.internal.transaction
 
 import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import com.rain.sdk.internal.core.RainTransactionBuilderImpl
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.TestFixtures
@@ -364,6 +365,59 @@ class TransactionBuildingTest {
         }.exceptionOrNull()
 
         assertThat(ex).isInstanceOf(RainError.InvalidConfig::class.java)
+    }
+
+    private fun withdrawWith(executorSignature: RainAdminSignature): String = builder.buildWithdrawTransactionData(
+        addresses = validAddresses,
+        amount = BigDecimal("100.0"),
+        decimals = 18,
+        executorSignature = executorSignature,
+        walletSalt = ByteArray(32),
+        walletSignature = "0x" + "42".repeat(65)
+    )
+
+    private fun executorSignature(
+        salt: String = Base64.getEncoder().encodeToString(ByteArray(32)),
+        signature: String = "0x" + "bb".repeat(65),
+        expiresAt: String = "2025-01-01T00:00:00Z"
+    ) = RainAdminSignature(salt = salt, signature = signature, expiresAt = expiresAt)
+
+    /** A host builds the signature from its own JSON, so a bad salt is its configuration error, not an SDK failure. */
+    @Test
+    fun `buildWithdrawTransactionData rejects an executor salt that is not base64 as InvalidConfig`() {
+        val error = assertThrows(RainError.InvalidConfig::class.java) { withdrawWith(executorSignature(salt = "not base64!")) }
+        assertThat(error).hasMessageThat().contains("RainAdminSignature.salt is not valid base64")
+    }
+
+    @Test
+    fun `buildWithdrawTransactionData rejects a 31-byte executor salt`() {
+        val error = assertThrows(RainError.InvalidConfig::class.java) {
+            withdrawWith(executorSignature(salt = Base64.getEncoder().encodeToString(ByteArray(31))))
+        }
+        assertThat(error).hasMessageThat().contains("RainAdminSignature.salt must be 32 bytes")
+    }
+
+    @Test
+    fun `buildWithdrawTransactionData rejects a 64-byte executor signature`() {
+        val error = assertThrows(RainError.InvalidConfig::class.java) {
+            withdrawWith(executorSignature(signature = "0x" + "bb".repeat(64)))
+        }
+        assertThat(error).hasMessageThat().contains("expected 65 bytes")
+    }
+
+    @Test
+    fun `buildWithdrawTransactionData rejects a blank expiresAt`() {
+        val error = assertThrows(RainError.InvalidConfig::class.java) { withdrawWith(executorSignature(expiresAt = "  ")) }
+        assertThat(error).hasMessageThat().contains("Invalid expiresAt format")
+    }
+
+    /** Every accepted shape of the same instant must encode the same calldata. */
+    @Test
+    fun `buildWithdrawTransactionData accepts every expiresAt shape the parser accepts`() {
+        val reference = withdrawWith(executorSignature(expiresAt = "2025-01-01T00:00:00Z"))
+        for (shape in listOf("1735689600", " 1735689600 ", "2025-01-01T02:00:00+02:00", "2025-01-01T00:00:00.000Z")) {
+            assertWithMessage(shape).that(withdrawWith(executorSignature(expiresAt = shape))).isEqualTo(reference)
+        }
     }
 
     @Test

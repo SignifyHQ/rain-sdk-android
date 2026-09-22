@@ -203,11 +203,14 @@ class RainSdkManagerApprovalTest {
     fun `a production chain is rejected on a sandbox-configured client`(): Unit = runBlocking {
         val (manager, stub, _) = TestManagers.approvalManager()
 
-        // Base mainnet is an Auth Pull chain, but not this environment's — approving here would
-        // mine a real mainnet allowance for the sandbox operator.
-        assertThrows(RainError.InvalidConfig::class.java) {
+        // Base mainnet is an Auth Pull chain, but not this client's: approving here would mine a
+        // real mainnet allowance for the sandbox operator.
+        val error = assertThrows(RainError.InvalidConfig::class.java) {
             runBlocking { manager.approveTokenAllowance(RainChain.BASE_MAINNET, usdc, spender) }
         }
+        // The guard must send hosts to the configuration, not to a removed environment setting.
+        assertThat(error.message).contains("RainAuthPullConfig")
+        assertThat(error.message).doesNotContain("rainApiEnvironment")
         assertThat(stub.sendTransactionCalls).isEmpty()
     }
 

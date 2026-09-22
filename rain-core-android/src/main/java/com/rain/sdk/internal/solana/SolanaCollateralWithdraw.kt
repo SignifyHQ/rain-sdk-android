@@ -1,12 +1,13 @@
 package com.rain.sdk.internal.solana
 
 import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.internal.utils.RainSignatureExpiry
+import com.rain.sdk.internal.utils.RainSignatureSalt
 import com.rain.sdk.models.RainAdminSignature
 import org.web3j.crypto.Hash
 import timber.log.Timber
 import java.io.ByteArrayOutputStream
 import java.math.BigInteger
-import java.time.Instant
 import java.util.Base64
 
 /**
@@ -81,9 +82,9 @@ internal class SolanaCollateralWithdrawComposer(
             .firstOrNull()
             ?: throw RainError.InvalidConfig("Coordinator has no executors to verify the Rain signature against")
 
-        val salt = decodeBase64(adminSignature.salt, "signature salt", expectedSize = 32)
+        val salt = RainSignatureSalt.decode(adminSignature.salt)
         val signature = decodeBase64(adminSignature.signature, "signature", expectedSize = 64)
-        val expiresAtEpochSeconds = parseExpiresAt(adminSignature.expiresAt)
+        val expiresAtEpochSeconds = RainSignatureExpiry.parseEpochSeconds(adminSignature.expiresAt)
 
         val mint = solanaRpcClient.getMintInfo(rpcUrl, mintAddress)
             ?: throw RainError.TokenNotFound(mintAddress, chainId)
@@ -178,16 +179,6 @@ internal class SolanaCollateralWithdrawComposer(
         return UnsignedSolanaTransfer(transaction, blockhash, createsRecipientAccount = createDestination)
     }
 
-    /** `expiresAt` arrives as ISO-8601 from the Rain API; accept a raw epoch too, defensively. */
-    private fun parseExpiresAt(value: String): Long {
-        value.toLongOrNull()?.let { return it }
-        return try {
-            Instant.parse(value).epochSecond
-        } catch (e: Exception) {
-            throw RainError.InvalidConfig("Unparseable signature expiry: '$value'")
-        }
-    }
-
     private fun decodeBase64(value: String, label: String, expectedSize: Int): ByteArray {
         val bytes = try {
             Base64.getDecoder().decode(value)
@@ -202,7 +193,7 @@ internal class SolanaCollateralWithdrawComposer(
 
     private fun decodeKey(address: String, label: String): ByteArray {
         val bytes = runCatching { Base58.decode(address) }.getOrNull()
-        if (bytes == null || bytes.size != 32) {
+        if (bytes == null || bytes.size != SolanaAddresses.PUBLIC_KEY_LENGTH) {
             throw RainError.InvalidConfig("Invalid Solana $label address: $address")
         }
         return bytes
@@ -383,8 +374,8 @@ internal object SolanaCollateralAccounts {
         }
 
         fun pubkey(): ByteArray {
-            val start = next(32)
-            return data.copyOfRange(start, start + 32)
+            val start = next(SolanaAddresses.PUBLIC_KEY_LENGTH)
+            return data.copyOfRange(start, start + SolanaAddresses.PUBLIC_KEY_LENGTH)
         }
 
         fun string(): String {

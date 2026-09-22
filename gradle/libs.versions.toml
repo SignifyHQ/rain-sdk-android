@@ -53,8 +53,6 @@ okhttp = "5.4.0"
 
 # -- Kotlin --
 coroutines = "1.11.0"
-# Ceiling while the compiler is 2.2: 1.10 and later are built with Kotlin 2.3 and put stdlib 2.3 on the classpath.
-kotlinx-serialization = "1.9.0"
 
 # -- Tooling --
 zxing = "3.5.4"
@@ -114,7 +112,6 @@ json = { module = "org.json:json", version.ref = "json" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
-kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
 kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect", version.ref = "kotlin" }
 
 # -- AndroidX --
