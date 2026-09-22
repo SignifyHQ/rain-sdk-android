@@ -4,7 +4,9 @@ import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.utils.RainHexUtils
 
 /**
- * Groups all addresses required for a withdrawal operation.
+ * The addresses a withdrawal needs. Three come from the user's collateral contract as the Rain API
+ * returns it (`GET /v1/issuing/users/{userId}/contracts`: `proxyAddress`, `controllerAddress` and
+ * the token's `tokens[].address`); the recipient is the host's choice.
  *
  * @property proxyAddress The address of the collateral proxy contract.
  * @property controllerAddress The address of the collateral controller contract.
@@ -32,11 +34,16 @@ data class RainWithdrawAddresses(
 }
 
 /**
- * Groups the admin signature and its associated metadata.
+ * Rain's authorization for one withdrawal, as the Rain API returns it
+ * (`GET /v1/issuing/users/{userId}/signatures/withdrawals`): `signature.salt`, `signature.data`
+ * and the top-level `expiresAt`, passed through unchanged. The host fetches it from its backend;
+ * the SDK only consumes it.
  *
- * @property salt The salt used for the admin signature.
- * @property signature The hex string of the admin signature.
- * @property expiresAt The expiration timestamp (ISO-8601 String, e.g. "2030-12-31T23:59:59Z").
+ * @property salt Base64 of the 32-byte salt Rain signed with, on every chain.
+ * @property signature The admin signature: on EVM chains 0x-prefixed hex of 65 bytes, on Solana
+ *   base64 of the 64-byte ed25519 signature.
+ * @property expiresAt When the authorization lapses: unix seconds, or an ISO-8601 date-time with Z or a
+ *   numeric offset, such as "2030-12-31T23:59:59Z" or "2030-12-31T23:59:59+02:00".
  */
 data class RainAdminSignature(
     val salt: String,

@@ -7,6 +7,8 @@ import com.rain.sdk.internal.network.Web3jProvider
 import com.rain.sdk.internal.utils.RainAmountUtils
 import com.rain.sdk.internal.utils.RainEip712Utils
 import com.rain.sdk.internal.utils.RainHexUtils
+import com.rain.sdk.internal.utils.RainSignatureExpiry
+import com.rain.sdk.internal.utils.RainSignatureSalt
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainEIP712Message
 import com.rain.sdk.models.RainWithdrawAddresses
@@ -30,8 +32,6 @@ import timber.log.Timber
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.security.SecureRandom
-import java.time.Instant
-import java.util.Base64
 import org.web3j.abi.datatypes.Function as Web3jFunction
 
 /**
@@ -181,13 +181,11 @@ internal class RainTransactionBuilderImpl(
 
             val amountBaseUnits = RainAmountUtils.toBaseUnits(amount, decimals)
 
-            val expiryTimestamp = parseExpiresAt(executorSignature.expiresAt)
+            val expiryTimestamp = RainSignatureExpiry.parseEpochSeconds(executorSignature.expiresAt)
 
             // Reject malformed inputs here, with precise messages, instead of an opaque on-chain revert.
-            val executorSalt = Base64.getDecoder().decode(executorSignature.salt)
-            if (executorSalt.size != 32) {
-                throw RainError.InvalidConfig("Executor salt must be 32 bytes, got ${executorSalt.size}")
-            }
+            val executorSalt = RainSignatureSalt.decode(executorSignature.salt)
+            // The wallet's own EIP-712 domain salt from buildEIP712Message: a bytes32 word, not Rain's salt above.
             if (walletSalt.size != 32) {
                 throw RainError.InvalidConfig("Wallet salt must be 32 bytes, got ${walletSalt.size}")
             }
@@ -218,19 +216,5 @@ internal class RainTransactionBuilderImpl(
             if (e is RainError) throw e
             throw RainError.InternalError("Failed to build transaction data: ${e.message}", e)
         }
-    }
-
-    /**
-     * Accepts either a unix-seconds string or an ISO-8601 instant, in that order — Rain's API has
-     * returned both shapes.
-     */
-    private fun parseExpiresAt(expiresAt: String): Long {
-        val trimmed = expiresAt.trim()
-        trimmed.toLongOrNull()?.let { return it }
-        return runCatching { Instant.parse(trimmed).epochSecond }.getOrNull()
-            ?: runCatching { java.time.OffsetDateTime.parse(trimmed).toEpochSecond() }.getOrNull()
-            ?: throw RainError.InvalidConfig(
-                "Invalid expiresAt format: $expiresAt. Expected a unix-seconds or ISO-8601 string."
-            )
     }
 }

@@ -29,10 +29,10 @@ screens otherwise need a real provider login to reach.
 | Screen | What it exercises |
 |---|---|
 | **Home** | Provider choice (Rain Wallet / Turnkey / Portal MPC / Privy), Rain API credentials, auth, `RainSdk` build, session card, active-wallet dropdown, feature grid, and for a signed-in Rain Wallet session the *Export keys* card (`exportRecoveryPhrase`, `exportPrivateKey`) |
-| **Wallet & QR** | `getWalletAddress(chainId)` and the collateral deposit address from `fetchCollateralContracts()`, each with a QR bitmap from `generateAddressQRCode(address)` |
-| **Balances** | Collateral balances (Rain API) plus the wallet's own native and token balances (`getBalance`, `getTokenBalances`) |
+| **Wallet & QR** | `getWalletAddress(chainId)` and the collateral deposit address from the demo's own `RainApiClient` (a call a shipped app makes from its backend), each with a QR bitmap from `generateAddressQRCode(address)` |
+| **Balances** | Collateral balances from the demo's `RainApiClient`, with token names and decimals from `RainSdk.tokenMetadata`, plus the wallet's own native and token balances (`getBalance`, `getTokenBalances`) |
 | **Send tokens** | `sendNative` and `sendToken` (ERC-20 on EVM, SPL on Solana) |
-| **Withdraw collateral** | `fetchAdminSignature` + `withdrawCollateral`, with `estimateWithdrawalFee` and `prepareWithdrawal` dry runs, on both EVM and Solana collateral |
+| **Withdraw collateral** | The withdrawal signature from the demo's `RainApiClient` + `withdrawCollateral`, with `estimateWithdrawalFee` and `prepareWithdrawal` dry runs, on both EVM and Solana collateral; a token whose decimals the SDK cannot resolve stays listed with its money actions disabled |
 | **Auth pull** | `getTokenAllowance`, `estimateApprovalFee`, `approveTokenAllowance` + `confirmTokenAllowance`, and revocation |
 | **History** | `getTransactions(chainId, limit, offset, order)`, newest-first |
 
@@ -100,7 +100,9 @@ methods:
   wallets are created on first sign-in.
 
 Rain API credentials (program `Api-Key` + Rain `userId`) are separate from the wallet provider: they
-authenticate the contract and withdrawal-signature calls, and are entered in their own card on Home.
+feed the demo's own `RainApiClient` (contracts and withdrawal signatures) and are entered in their own
+card on Home. The on-device Api-Key is a demo shortcut. A shipped app fetches contracts and signatures
+from its own backend, and the program key never leaves it.
 The last working values — provider choice, Rain API credentials, and each provider's ids and contact
 (email, or phone and channel for the Rain wallet) — are kept in an encrypted store (`SessionStore`) so the
 next launch pre-fills them and resumes the session; *Clear session* wipes them.
@@ -126,6 +128,7 @@ app/src/main/java/com/rain/sdk/sample/
 ├── RainSampleApp.kt         # Application: session store + vendor init at launch
 ├── Screen.kt                # Route definitions for the seven screens
 ├── RainSession.kt           # Holds the built RainSdk + resolved RainClient; prepares the Rain wallet provider, builds Turnkey
+├── RainApiClient.kt         # The demo's own Rain API client (contracts, withdrawal signature): host reference code
 ├── SessionStore.kt          # Encrypted store of the last working ids and credentials
 ├── WalletSessionStatus.kt   # Provider session state as the Home screen shows it
 ├── WalletChain.kt           # Demo networks, explorer links, address validation
@@ -185,7 +188,6 @@ val sdk = RainSdk.builder()
     .rpcEndpoints(rpcEndpoints)                                   // Map<Int, String>
     .register(rainWalletProvider)                                 // prepared + authenticated first
     .registerTokens(WalletChain.entries.map { it.defaultTokenInfo })
-    .rainApiCredentials(apiKey, userId)                           // optional
     .build()
 val client = sdk.provider(ProviderId.RAIN)
 ```

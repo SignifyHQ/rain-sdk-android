@@ -19,7 +19,8 @@ import java.io.ByteArrayOutputStream
  */
 @RainAdapterApi
 object SolanaTransactionBuilder {
-    private const val PUBLIC_KEY_LENGTH = 32
+    /** Byte length of a recent blockhash: a SHA-256 digest, the same size as a public key but not one. */
+    internal const val BLOCKHASH_LENGTH = 32
     private const val SIGNATURE_LENGTH = 64
     private val HEX_DIGITS = "0123456789abcdef".toCharArray()
 
@@ -79,10 +80,10 @@ object SolanaTransactionBuilder {
         extraReadonlyKeys: List<ByteArray> = emptyList()
     ): ByteArray {
         require(instructions.isNotEmpty()) { "A transaction needs at least one instruction" }
-        require(feePayer.size == PUBLIC_KEY_LENGTH) {
+        require(feePayer.size == SolanaAddresses.PUBLIC_KEY_LENGTH) {
             "Invalid fee payer (expected 32 bytes, got ${feePayer.size})"
         }
-        val blockhash = decodeKey(recentBlockhash, "recentBlockhash")
+        val blockhash = decodeKey(recentBlockhash, "recentBlockhash", expectedLength = BLOCKHASH_LENGTH)
 
         val accounts = accountTable(feePayer, instructions, extraReadonlyKeys)
         val extraSigners = accounts.count { it.isSigner } - 1
@@ -121,7 +122,7 @@ object SolanaTransactionBuilder {
         val merged = LinkedHashMap<List<Byte>, AccountMeta>()
         for (instruction in instructions) {
             for (account in instruction.accounts) {
-                require(account.pubkey.size == PUBLIC_KEY_LENGTH) {
+                require(account.pubkey.size == SolanaAddresses.PUBLIC_KEY_LENGTH) {
                     "Invalid instruction account (expected 32 bytes, got ${account.pubkey.size})"
                 }
                 val key = account.pubkey.toList()
@@ -165,7 +166,7 @@ object SolanaTransactionBuilder {
     ): Collection<ByteArray> {
         val extras = LinkedHashMap<List<Byte>, ByteArray>()
         for (key in keys) {
-            require(key.size == PUBLIC_KEY_LENGTH) {
+            require(key.size == SolanaAddresses.PUBLIC_KEY_LENGTH) {
                 "Invalid extra account key (expected 32 bytes, got ${key.size})"
             }
             val k = key.toList()
@@ -222,14 +223,18 @@ object SolanaTransactionBuilder {
         return sb.toString()
     }
 
-    private fun decodeKey(address: String, label: String): ByteArray {
+    private fun decodeKey(
+        address: String,
+        label: String,
+        expectedLength: Int = SolanaAddresses.PUBLIC_KEY_LENGTH
+    ): ByteArray {
         val bytes = try {
             Base58.decode(address)
         } catch (e: IllegalArgumentException) {
             throw IllegalArgumentException("Invalid Solana $label address: $address", e)
         }
-        require(bytes.size == PUBLIC_KEY_LENGTH) {
-            "Invalid Solana $label address (expected 32 bytes, got ${bytes.size}): $address"
+        require(bytes.size == expectedLength) {
+            "Invalid Solana $label address (expected $expectedLength bytes, got ${bytes.size}): $address"
         }
         return bytes
     }

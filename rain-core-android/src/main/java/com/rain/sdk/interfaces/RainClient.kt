@@ -55,7 +55,7 @@ interface RainClient {
      * @param amount The amount to withdraw
      * @param decimals Token decimals. Scales [amount] on every chain including Solana, where it is
      *                 not checked against the SPL mint — pass the mint's real decimals
-     * @param adminSignature The withdrawal authorization from `RainSdk.fetchAdminSignature`
+     * @param adminSignature Rain's authorization for this withdrawal, fetched by the host from the Rain API
      * @param nonce Optional nonce; resolved from the contract when null
      * @return The transaction hash (EVM) or transaction signature (Solana)
      */
@@ -150,7 +150,7 @@ interface RainClient {
      * @param addresses All required addresses for the withdrawal.
      * @param amount The amount to withdraw (human units).
      * @param decimals Token decimals.
-     * @param adminSignature The withdrawal authorization from `RainSdk.fetchAdminSignature`
+     * @param adminSignature Rain's authorization for this withdrawal, fetched by the host from the Rain API
      * @param nonce Optional nonce; pin the estimate to the nonce the withdrawal will sign.
      * @return Estimated withdrawal fee in the chain's native token, as an exact [BigDecimal].
      * @throws RainError if estimation fails, or if [chainId] is a Solana chain.
@@ -426,9 +426,9 @@ interface RainClient {
      * matches what the approval methods below enforce.
      *
      * Empty until `RainSdk.Builder.authPullConfig(...)` supplies the trusted targets, and narrower
-     * than `RainAuthPullChains.supported(environment)` whenever the configuration is narrower than
-     * its environment or a chain has no RPC endpoint. Gate host UI on this rather than on the
-     * environment's chain set, so a chain is never offered that an approval would reject.
+     * than the static `RainAuthPullChains.SANDBOX` / `PRODUCTION` sets whenever the configuration
+     * is narrower than its environment or a chain has no RPC endpoint. Gate host UI on this rather
+     * than on an environment's chain set, so a chain is never offered that an approval would reject.
      */
     val authPullChainIds: Set<Int> get() = emptySet()
 
@@ -525,18 +525,28 @@ interface RainClient {
 
     /**
      * Registers additional tokens with the SDK so their metadata (decimals / symbol) resolves
-     * without an on-chain enrichment call. Retained across re-initialization; cleared by [reset].
+     * without an on-chain enrichment call. Retained across [reset], since the store is shared by every
+     * client the `RainSdk` resolves.
      * Re-registering a host-added address replaces its entry; built-in registry tokens are
      * trusted and cannot be overridden.
      *
+     * The entries are stored in the shared store before this returns, so a lookup issued right after
+     * this call sees them; [com.rain.sdk.RainSdk.registerTokens] is the same operation for a host that
+     * has no resolved client yet.
+     *
      * @param tokens Tokens to add to the SDK's token store.
+     * @throws RainError.InvalidConfig (`RAIN_102`) when an entry's address is malformed for its
+     *   chain family (EVM: `0x` followed by 40 hex characters with a correct EIP-55 checksum when mixed-case;
+     *   Solana: base58 decoding to 32 bytes) or its `decimals` lies outside 0..77. The whole list
+     *   is validated first, so nothing is registered.
      */
+    @Throws(RainError::class)
     fun registerTokens(tokens: List<TokenInfo>)
 
     /**
-     * Clears all SDK state — wallet provider, Portal/Turnkey contexts, and stored chain
-     * configuration. After this returns, the SDK is back to the same state as immediately
-     * after construction and must be re-initialized before further use. Idempotent.
+     * Clears this client's own state only. The shared token store and the chain configuration the
+     * `RainSdk` owns survive, so one client resetting does not deconfigure the others. Idempotent.
+     * Prefer `RainSdk.reset()` to tear down the whole SDK.
      */
     fun reset()
 

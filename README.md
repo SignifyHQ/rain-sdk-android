@@ -321,6 +321,7 @@ val all: List<Balance> = client.getAllBalances()
 
 // Optionally register extra tokens so their metadata resolves without an on-chain lookup.
 // Built-in tokens are trusted: a registration for an address the SDK already ships is ignored.
+// The same call exists on the builder and, after build(), on RainSdk itself (rain.registerTokens).
 client.registerTokens(
     listOf(TokenInfo(chainId = 43114, address = "0x...", symbol = "FOO", decimals = 18))
 )
@@ -338,7 +339,7 @@ import java.math.BigDecimal
 
 // Send native token (ETH on Base). Turnkey sends work only on Turnkey's
 // managed-broadcast chains; other configured chains (e.g. Avalanche) stay
-// read-only and sends there fail fast with RAIN_105.
+// read-only and sends there fail fast with RAIN_104.
 val result = client.sendNative(
     chainId = 8453,
     to = "0x...",
@@ -355,52 +356,53 @@ val result = client.sendToken(
 )
 ```
 
-### 7. Rain API: Collateral Contracts & Admin Signature
+### 7. Rain API: collateral contracts and admin signature (host responsibility)
 
-The SDK talks to the Rain issuing API directly: supply your program **Api-Key** and Rain
-**userId**, and every call carries the Api-Key header. Credentials are never persisted by the
-SDK. In production, keep the Api-Key off the device: point the SDK at your own backend with
-`RainApiEnvironment.Custom(url)` and pass a per-user token as the `apiKey` value. The SDK sends
-that string as the `Api-Key` header on the same two paths, `/v1/issuing/users/{userId}/contracts`
-and `/v1/issuing/users/{userId}/signatures/withdrawals`, so your backend validates the token,
-swaps in the real key and forwards the request. With Auth Pull on a custom gateway, pair it with
-`RainAuthPullConfig.custom(...)`, which names the operator and token contracts explicitly.
+The SDK does not call the Rain issuing API. The two things a withdrawal needs from Rain come from
+your backend, which holds the program Api-Key and sends it as the `Api-Key` request header on every
+call it makes on the user's behalf:
+
+- `GET /v1/issuing/users/{userId}/contracts` returns the user's collateral contracts. From the one
+  on your chain, take `chainId`, `proxyAddress`, `controllerAddress`, `tokens[].address` and, for
+  the signature request, one of `adminAddresses`.
+- `GET /v1/issuing/users/{userId}/signatures/withdrawals?chainId=&token=&amount=&adminAddress=&recipientAddress=&isAmountNative=true`
+  returns Rain's authorization for one withdrawal: `signature.salt`, `signature.data` and
+  `expiresAt`. Poll while `status` is not `"ready"`, waiting `retryAfter` seconds when the response
+  carries that field, and treat `"ready"` without `signature.data` as not ready. `token` is the token
+  contract address (the SPL mint on Solana) and `amount` is in the token's base units, the same scale
+  `withdrawCollateral` derives from `amount` and `decimals`.
+
+Build the SDK's inputs from those fields and hand them to the withdrawal methods:
 
 ```kotlin
-import com.rain.sdk.models.RainApiEnvironment
-import java.math.BigInteger
-
-val rain = RainSdk.builder()
-    .rpcEndpoints(mapOf(84532 to "https://sepolia.base.org"))
-    .register(/* provider */)
-    .rainApiEnvironment(RainApiEnvironment.Dev) // default; Production / Custom(baseUrl) available
-    .rainApiCredentials(apiKey = "…", userId = "…") // or configureRainApi(...) at runtime
-    .build()
-
-// Or set / replace credentials later (e.g. entered in your UI):
-rain.configureRainApi(apiKey = "…", userId = "…")
-
-// GET /v1/issuing/users/{userId}/contracts — token name/symbol/decimals are enriched from
-// the SDK token store or an on-chain read (best-effort; null when unresolvable)
-val contract = rain.fetchCollateralContract()   // first contract, or RainError.NoCollateralContracts
-val contracts = rain.fetchCollateralContracts() // full list
-
-// GET /v1/issuing/users/{userId}/signatures/withdrawals
-// Throws RainError.SignatureNotReady(status, retryAfter) while Rain prepares the signature.
-val adminSignature = rain.fetchAdminSignature(
-    chainId = contract.chainId,
-    tokenAddress = contract.tokens.first().address,
-    amountBaseUnits = BigInteger("100000000"), // base units
-    adminAddress = contract.adminAddresses.first(),
-    recipientAddress = "0x..."
+val addresses = RainWithdrawAddresses(
+    proxyAddress = contract.proxyAddress,
+    controllerAddress = contract.controllerAddress,
+    tokenAddress = token.address,
+    recipientAddress = recipient,
+)
+val adminSignature = RainAdminSignature(
+    salt = response.signature.salt,      // base64, 32 bytes
+    signature = response.signature.data, // EVM: 0x-hex, 65 bytes; Solana: base64, 64 bytes
+    expiresAt = response.expiresAt,      // unix seconds, or ISO-8601 with Z or a numeric offset
 )
 ```
+
+Token `name`, `symbol` and `decimals` are not on the wire. Resolve them with
+`rain.tokenMetadata(chainId, address)`. It answers from the built-in registry, then from
+host-registered tokens, then from an on-chain read. It returns `null` when decimals cannot be
+established and never guesses, so disable money actions for such a token rather than assuming a
+scale. It throws `RainError.InvalidConfig` when the SDK has no RPC endpoint for the chain or the
+address is malformed; both are configuration errors, not lookups that failed.
+
+Keep the program Api-Key on your server. The demo app takes it as on-device input only because it has no
+backend; its reference client is `app/src/main/java/com/rain/sdk/sample/RainApiClient.kt`.
 
 ### 8. Withdraw Collateral
 
 The SDK uses `RainWithdrawAddresses` and `RainAdminSignature` to group withdrawal parameters.
-Both are typically produced by the Rain API methods above (`fetchCollateralContract` supplies
-the addresses, `fetchAdminSignature` returns a ready `RainAdminSignature`):
+Both come from the Rain API responses your backend fetches, as section 7 shows (the collateral
+contract supplies the addresses and the withdrawal-signature response supplies the `RainAdminSignature`):
 
 ```kotlin
 import com.rain.sdk.models.RainWithdrawAddresses
@@ -510,7 +512,6 @@ part is the SDK's; the pull itself is Rain's.
 val authPull = RainAuthPullConfig.sandbox(rainOperatorAddress)
 val rain = RainSdk.builder()
     .rpcEndpoints(rpcEndpoints)
-    .rainApiEnvironment(RainApiEnvironment.Dev)
     .authPullConfig(authPull)
     .register(provider)
     .build()
@@ -550,12 +551,14 @@ val confirmed = client.confirmTokenAllowance(
 Sandbox runs on Base Sepolia and Arbitrum Sepolia, production on Base and Arbitrum; USDC on all four
 is in the built-in token registry. Auth Pull remains disabled until `authPullConfig(...)` supplies
 Rain's trusted operator and canonical token targets, and the SDK rejects any different chain, token,
-or spender before a wallet prompt. `RainApiEnvironment.Custom` fails closed unless it receives an
-explicit custom Auth Pull configuration.
+or spender before a wallet prompt. The configuration you pass is the environment: `sandbox(...)`
+and `production(...)` carry their own chains, and `custom(...)` may name chains from either set for a
+non-standard deployment.
 
 Gate your UI on `rain.authPullChainIds` (also on `RainClient`), which is what the approval guard
-enforces: the configuration narrowed to chains with an RPC endpoint. `RainAuthPullChains.supported(...)`
-answers for an environment and is the wider set — use it only before an SDK exists.
+enforces: the configuration narrowed to chains with an RPC endpoint. `RainAuthPullChains.SANDBOX` and
+`RainAuthPullChains.PRODUCTION` answer for an environment and are the wider sets; use them only before
+an SDK exists.
 `RainTokenAllowance.rawAmount` is the exact base-unit value and the one to compare against — gate on
 `isUnlimited` before rendering a number. Full guide: [docs/AUTH_PULL.md](docs/AUTH_PULL.md).
 

@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import okhttp3.OkHttpClient
 
 /**
  * App-side holder around the modular [RainSdk].
@@ -126,33 +127,70 @@ class RainSession {
         rain = null
     }
 
-    // Rain API credentials entered in the Home screen. Stashed here because the SDK is built
-    // lazily — applied via the builder at build time and pushed through configureRainApi when
-    // the SDK already exists.
-    private var rainApiKey: String = ""
-    private var rainUserId: String = ""
+    // The Rain issuing API is the host's call, not the SDK's. This demo makes it from the device
+    // with the program key typed on the Home card, which a shipped app must never do; the client it
+    // builds is the reference for what a host runs on its backend. See RainApiClient.kt.
+    private val rainApiHttpClient: OkHttpClient by lazy { RainApiClient.defaultHttpClient() }
 
-    /** True once an Api-Key and userId are available (SDK built or not). */
-    val isRainApiConfigured: Boolean
-        get() = rain?.isRainApiConfigured ?: (rainApiKey.isNotBlank() && rainUserId.isNotBlank())
+    /** The demo's Rain API client, or null until an Api-Key and userId have been supplied. */
+    var rainApi: RainApiClient? = null
+        private set
 
-    /** Stores the Rain Api-Key + userId and forwards them to the SDK when it exists. */
+    val isRainApiConfigured: Boolean get() = rainApi != null
+
+    /** Builds (or replaces) the client from the typed pair; blank input clears it. */
     fun configureRainApi(apiKey: String, userId: String) {
-        rainApiKey = apiKey.trim()
-        rainUserId = userId.trim()
-        rain?.configureRainApi(rainApiKey, rainUserId)
+        val key = apiKey.trim()
+        val user = userId.trim()
+        rainApi = if (key.isEmpty() || user.isEmpty()) {
+            null
+        } else {
+            RainApiClient(
+                baseUrl = SampleEnvironment.rainApi.baseUrl,
+                apiKey = key,
+                userId = user,
+                httpClient = rainApiHttpClient,
+            )
+        }
     }
 
-    // Shared builder config: Rain API credentials plus naming for every chain's testnet token,
+    /** Drops the client. Clear session calls this; [reset] does not, so a failed init keeps the typed pair usable. */
+    fun clearRainApi() {
+        rainApi = null
+    }
+
+    fun requireRainApi(): RainApiClient = rainApi ?: error(RAIN_API_CREDENTIALS_REQUIRED)
+
+    /**
+     * The user's collateral contract for [chain], picked exact chain first (see
+     * [WalletChain.collateralContract]), with each token's name, symbol and decimals resolved by the
+     * SDK from its address. A token the SDK cannot resolve, or a contract on a chain this build has
+     * no RPC endpoint for, keeps null metadata; the withdraw screen then disables its money actions.
+     */
+    suspend fun fetchCollateralContract(chain: WalletChain): CollateralContract? {
+        val contract = chain.collateralContract(requireRainApi().fetchCollateralContracts())
+        val sdk = rain
+        if (contract == null || sdk == null) return contract
+        val tokens = tokensWithMetadata(
+            contract = contract,
+            lookup = sdk::tokenMetadata,
+            onUnavailable = { token, error ->
+                // A chain this build has no RPC endpoint for, or an address the SDK rejects: the token
+                // stays unnamed rather than the screen guessing its scale.
+                SampleLog.w(
+                    "RainApi",
+                    "token metadata unavailable for ${token.address} on chainId=${contract.chainId}: ${error.errorCode.code}"
+                )
+            },
+        )
+        return contract.copy(tokens = tokens)
+    }
+
+    // Shared builder config: naming for every chain's testnet token plus the Auth Pull targets,
     // applied identically whichever provider is registered (see WalletChain.defaultTokenInfo).
     private fun RainSdk.Builder.withSharedConfig(): RainSdk.Builder = apply {
         registerTokens(WalletChain.selectable.map { it.defaultTokenInfo })
-        // Selects the Rain API host and, with it, the chains Auth Pull approvals are allowed on.
-        rainApiEnvironment(SampleEnvironment.rainApi)
         authPullConfig(SampleEnvironment.authPullConfig)
-        if (rainApiKey.isNotBlank() && rainUserId.isNotBlank()) {
-            rainApiCredentials(rainApiKey, rainUserId)
-        }
     }
 
     // Captured during provider resolution so the sample can reach Portal-only APIs the Rain
@@ -371,5 +409,10 @@ class RainSession {
         // Closing the SDK closed a registered provider; a prepared-but-unbuilt one is closed here.
         rainWalletProvider?.close()
         rainWalletProvider = null
+    }
+
+    companion object {
+        /** Shown wherever a Rain API call needs the pair the Home card has not supplied yet. */
+        const val RAIN_API_CREDENTIALS_REQUIRED = "Rain Api-Key and user ID required"
     }
 }

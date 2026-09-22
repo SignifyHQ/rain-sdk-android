@@ -66,8 +66,8 @@ provider to shape.
 ## Entry points
 
 - **`RainSdk`** — the registry plus the wallet-agnostic surface: `provider(id)` / `first { }`,
-  the transaction-building methods, and the Rain issuing API (`configureRainApi`, `fetchCollateralContracts`,
-  `fetchCollateralContract`, `fetchAdminSignature`).
+  the transaction-building methods, `tokenMetadata(chainId, address)` and `registerTokens(tokens)`.
+  The Rain issuing API is the host's call; the SDK consumes its results.
 - **`RainClient`** — everything bound to one resolved wallet: addresses and QR, balances, transfers,
   `withdrawCollateral`, fee/gas estimation, history, `registerTokens`.
 - **`RainTransactionBuilder`** — for hosts signing with their own wallet: `getLatestNonce`,
@@ -98,6 +98,7 @@ RainSdk.builder()
     )
 ```
 
-`registerTokens(...)` names tokens the SDK cannot discover on chain — an SPL mint carries no
-on-chain symbol, and the built-in registry covers mainnet only. Available on the builder and on a
-resolved `RainClient`.
+`registerTokens(...)` names tokens the SDK cannot discover on chain: an SPL mint carries no
+on-chain symbol, and the built-in registry covers mainnet only. Available on the builder, on
+`RainSdk` after `build()`, and on a resolved `RainClient`; every entry is validated (address shape and
+checksum, `decimals` in `0..77`).

@@ -2,6 +2,7 @@ package com.rain.sdk.internal.solana
 
 import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.SolanaPrograms
+import com.rain.sdk.internal.utils.RainSignatureSalt
 import java.math.BigInteger
 
 /**
@@ -151,12 +152,14 @@ object SolanaInstructions {
      * back through the instructions sysvar.
      */
     fun ed25519Verify(signer: ByteArray, signature: ByteArray, message: ByteArray): Instruction {
-        require(signer.size == 32) { "ed25519 signer must be 32 bytes, got ${signer.size}" }
+        require(signer.size == SolanaAddresses.PUBLIC_KEY_LENGTH) {
+            "ed25519 signer must be ${SolanaAddresses.PUBLIC_KEY_LENGTH} bytes, got ${signer.size}"
+        }
         require(signature.size == 64) { "ed25519 signature must be 64 bytes, got ${signature.size}" }
         require(message.size == 32) { "ed25519 message must be 32 bytes, got ${message.size}" }
 
         val pubkeyOffset = 2 + 14 // count + padding + one offsets struct
-        val signatureOffset = pubkeyOffset + 32
+        val signatureOffset = pubkeyOffset + SolanaAddresses.PUBLIC_KEY_LENGTH
         val messageOffset = signatureOffset + 64
 
         val data = ByteArray(messageOffset + 32)
@@ -205,13 +208,13 @@ object SolanaInstructions {
         require(amountBaseUnits.signum() >= 0 && amountBaseUnits < U64_LIMIT) {
             "Withdrawal amount out of u64 range: $amountBaseUnits"
         }
-        require(coordinatorSignatureSalt.size == 32) {
-            "Coordinator signature salt must be 32 bytes, got ${coordinatorSignatureSalt.size}"
+        require(coordinatorSignatureSalt.size == RainSignatureSalt.LENGTH) {
+            "Coordinator signature salt must be ${RainSignatureSalt.LENGTH} bytes, got ${coordinatorSignatureSalt.size}"
         }
 
         // Borsh: discriminator ‖ WithdrawSingleSignerCollateralAssetRequest
         //   { amount_in_asset: u64, signature_expiration_time: i64, coordinator_signature_salt: [u8; 32] }
-        val data = ByteArray(8 + 8 + 8 + 32)
+        val data = ByteArray(8 + 8 + 8 + RainSignatureSalt.LENGTH)
         WITHDRAW_SINGLE_SIGNER_DISCRIMINATOR.copyInto(data, 0)
         writeU64LE(data, 8, amountBaseUnits)
         writeU64LE(data, 16, BigInteger.valueOf(expiresAtEpochSeconds))

@@ -1,23 +1,26 @@
 package com.rain.sdk.internal.error
 
 /**
- * Standardized Error Codes for Rain SDK.
+ * The `RAIN_*` codes every [RainError] carries. The values are a published contract hosts switch on, and
+ * `RainErrorCodeParityTest` pins them: changing one is a breaking change. The map was compacted once, when
+ * the Rain issuing API cases left the SDK: [CHAIN_NOT_SUPPORTED] moved from RAIN_105 to RAIN_104 and
+ * [TRANSACTION_PENDING] from RAIN_303 to RAIN_302, so the sequence has no gaps. RAIN_104 and RAIN_302
+ * belonged to the removed `ApiNotConfigured` and `ApiError` cases; RAIN_304 was retired with them, and
+ * RAIN_105 and RAIN_303 were vacated by the moves. None of the three is reused: a new 1xx code starts at
+ * RAIN_106 and a new 3xx code at RAIN_305.
  */
 enum class RainErrorCode(val code: String) {
     SDK_NOT_INITIALIZED("RAIN_101"),
     INVALID_CONFIG("RAIN_102"),
     INVALID_RPC_URL("RAIN_103"),
-    API_NOT_CONFIGURED("RAIN_104"),
-    CHAIN_NOT_SUPPORTED("RAIN_105"),
+    CHAIN_NOT_SUPPORTED("RAIN_104"),
 
     TOKEN_EXPIRED("RAIN_201"),
     UNAUTHORIZED("RAIN_202"),
     INVALID_LOGIN_CODE("RAIN_203"),
 
     NETWORK_ERROR("RAIN_301"),
-    API_ERROR("RAIN_302"),
-    SIGNATURE_NOT_READY("RAIN_303"),
-    NO_COLLATERAL_CONTRACTS("RAIN_304"),
+    TRANSACTION_PENDING("RAIN_302"),
 
     USER_REJECTED("RAIN_401"),
     INSUFFICIENT_FUNDS("RAIN_402"),
@@ -58,13 +61,6 @@ sealed class RainError(
     class InvalidRpcUrl(rpcUrl: String) :
         RainError(RainErrorCode.INVALID_RPC_URL, "Invalid RPC URL: $rpcUrl")
 
-    /** A Rain API method was called before an Api-Key and userId were supplied. */
-    class ApiNotConfigured :
-        RainError(
-            RainErrorCode.API_NOT_CONFIGURED,
-            "Rain API is not configured — call configureRainApi(apiKey, userId) first"
-        )
-
     /**
      * The active wallet provider cannot broadcast transactions on this chain, so the send was
      * refused up front instead of failing opaquely mid-flight (e.g. Turnkey-managed broadcast
@@ -95,40 +91,20 @@ sealed class RainError(
     class NetworkError(message: String? = null, cause: Throwable? = null) :
         RainError(RainErrorCode.NETWORK_ERROR, message, cause)
 
-    /** The Rain API returned a non-success HTTP status (other than 401/403 → [Unauthorized]). */
-    class ApiError(val statusCode: Int, details: String? = null) :
-        RainError(
-            RainErrorCode.API_ERROR,
-            "Rain API error $statusCode${details?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: ""}"
-        )
-
     /**
-     * The withdrawal admin signature is not ready yet. Retry the fetch after [retryAfter]
-     * seconds, when the API provides one.
-     */
-    class SignatureNotReady(val status: String, val retryAfter: Int? = null) :
-        RainError(
-            RainErrorCode.SIGNATURE_NOT_READY,
-            "Withdrawal signature not ready: status=$status${retryAfter?.let { " (retry after ${it}s)" } ?: ""}"
-        )
-
-    /**
-     * The transaction was accepted by the wallet provider but its hash was not yet visible when
-     * status polling stopped. NOT a failure: the transaction may still confirm, and resending it
-     * risks a duplicate transfer. Resume with [statusId] (getTransactions resolves it to the hash
-     * once available) rather than sending again. Reuses [RainErrorCode.SIGNATURE_NOT_READY]'s
-     * code, since the published code map is a contract (see RainErrorCodeParityTest).
+     * The transaction was handed to the wallet provider or broadcast, but the SDK stopped waiting
+     * before it could confirm it: the hash was not yet visible when status polling stopped, or the
+     * confirmation window lapsed. NOT a failure: the transaction may still confirm, and resending it
+     * risks a duplicate transfer. Resume from [statusId], the identifier the path had (a provider
+     * status id, which getTransactions resolves to the hash once available, or the transaction or
+     * user-operation hash itself), rather than sending again. Reported as `RAIN_302`.
      */
     class TransactionPending(val statusId: String) :
         RainError(
-            RainErrorCode.SIGNATURE_NOT_READY,
+            RainErrorCode.TRANSACTION_PENDING,
             "Transaction submitted but not yet confirmed (statusId=$statusId). " +
                 "Not a failure: resume polling with the status id; do not resend."
         )
-
-    /** The contracts endpoint returned no collateral contracts for the configured user. */
-    class NoCollateralContracts :
-        RainError(RainErrorCode.NO_COLLATERAL_CONTRACTS, "No collateral contracts returned for user")
 
     // --- 4xx User Action ---
     class UserRejected : RainError(RainErrorCode.USER_REJECTED)
@@ -221,3 +197,7 @@ sealed class RainError(
     class InternalError(details: String, cause: Throwable? = null) :
         RainError(RainErrorCode.INTERNAL_LOGIC_ERROR, details, cause)
 }
+
+/** The one message for a chain the SDK was not built with, shared by the RPC-backed paths. */
+internal fun noRpcEndpointConfigured(chainId: Int): RainError.InvalidConfig =
+    RainError.InvalidConfig("No RPC endpoint configured for chainId=$chainId")

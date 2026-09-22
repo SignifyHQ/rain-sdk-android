@@ -23,6 +23,10 @@ internal class MockChainReader(
     var name: String? = null,
     /** When set, every metadata read (decimals/symbol/name) throws it — drives failed-read paths. */
     var metadataError: Throwable? = null,
+    /** When set, only `symbol()` throws it — a token whose decimals resolve but whose symbol read fails. */
+    var symbolError: Throwable? = null,
+    /** When set, only `name()` throws it. */
+    var nameError: Throwable? = null,
     var allowance: BigInteger = BigInteger.ZERO,
     /** When set, the allowance read throws it. */
     var allowanceError: Throwable? = null,
@@ -140,12 +144,14 @@ internal class MockChainReader(
     override suspend fun getSymbol(chainId: Int, tokenAddress: String): String? {
         symbolCalls += SymbolCall(chainId, tokenAddress)
         metadataError?.let { throw it }
+        symbolError?.let { throw it }
         return symbol
     }
 
     override suspend fun getName(chainId: Int, tokenAddress: String): String? {
         nameCalls += NameCall(chainId, tokenAddress)
         metadataError?.let { throw it }
+        nameError?.let { throw it }
         return name
     }
 

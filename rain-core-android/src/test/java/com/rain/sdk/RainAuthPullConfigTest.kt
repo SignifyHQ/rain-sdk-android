@@ -4,7 +4,6 @@ import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.constants.TokenRegistry
 import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.models.RainApiEnvironment
 import io.mockk.every
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
@@ -18,7 +17,6 @@ class RainAuthPullConfigTest {
     private val operator = "0x5a6E6b0d5Ea051CfFF9b3dcC2Aa8Dac226458f29"
     private val zeroAddress = "0x0000000000000000000000000000000000000000"
     private val baseSepoliaUsdc = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
-    private val customGateway = RainApiEnvironment.Custom("https://rain.example")
 
     /** A real EVM chain that is not an Auth Pull chain in either environment. */
     private val ETHEREUM_MAINNET = 1
@@ -55,8 +53,7 @@ class RainAuthPullConfigTest {
 
         assertThat(rain.authPullChainIds).containsExactly(RainChain.BASE_SEPOLIA)
         // The environment's set is the wider answer, and the one a host must not gate UI on.
-        assertThat(RainAuthPullChains.supported(RainApiEnvironment.Dev))
-            .contains(RainChain.ARBITRUM_SEPOLIA)
+        assertThat(RainAuthPullChains.SANDBOX).contains(RainChain.ARBITRUM_SEPOLIA)
     }
 
     @Test
@@ -88,8 +85,8 @@ class RainAuthPullConfigTest {
     }
 
     /**
-     * The case the environment set cannot answer at all: `supported(Custom)` is empty by design,
-     * so a custom gateway's own chains are only discoverable through the resolved set.
+     * A custom configuration's chains are discoverable only through the resolved set: the static
+     * sets answer for an environment, and a custom deployment may draw on either.
      */
     @Test
     fun `a custom gateway can enumerate the chains it configured`() {
@@ -100,20 +97,17 @@ class RainAuthPullConfigTest {
                     RainChain.ARBITRUM_SEPOLIA to "https://rpc.example/arbitrum"
                 )
             )
-            .rainApiEnvironment(RainApiEnvironment.Custom("https://rain.example"))
             .authPullConfig(
                 RainAuthPullConfig.custom(
                     operatorAddress = operator,
                     tokenAddresses = mapOf(
-                        RainChain.ARBITRUM_SEPOLIA to "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"
+                        RainChain.ARBITRUM_SEPOLIA to RainAuthPullConfig.sandbox(operator).tokenAddresses.getValue(RainChain.ARBITRUM_SEPOLIA)
                     )
                 )
             )
             .build()
 
         assertThat(rain.authPullChainIds).containsExactly(RainChain.ARBITRUM_SEPOLIA)
-        assertThat(RainAuthPullChains.supported(RainApiEnvironment.Custom("https://rain.example")))
-            .isEmpty()
     }
 
     // ---- the canonical token maps ------------------------------------------------------------
@@ -157,7 +151,6 @@ class RainAuthPullConfigTest {
         assertThrows(RainError.InvalidConfig::class.java) {
             RainSdk.builder()
                 .rpcEndpoints(mapOf(RainChain.BASE_SEPOLIA to "https://rpc.example/base"))
-                .rainApiEnvironment(customGateway)
                 .authPullConfig(config)
                 .build()
         }
@@ -193,7 +186,7 @@ class RainAuthPullConfigTest {
         val error = buildCustom(
             customConfig(tokenAddresses = mapOf(ETHEREUM_MAINNET to baseSepoliaUsdc))
         )
-        assertThat(error.message).contains("do not match")
+        assertThat(error.message).contains("are not Auth Pull chains")
     }
 
     @Test
@@ -228,45 +221,43 @@ class RainAuthPullConfigTest {
         assertThat(error.message).contains("No RPC endpoint")
     }
 
+    /** No environment setting exists any more; the canonical configurations carry their own. */
     @Test
-    fun `a sandbox config is rejected in the production environment`() {
-        assertThrows(RainError.InvalidConfig::class.java) {
-            RainSdk.builder()
-                .rpcEndpoints(mapOf(RainChain.BASE_SEPOLIA to "https://rpc.example/base"))
-                .rainApiEnvironment(RainApiEnvironment.Production)
-                .authPullConfig(RainAuthPullConfig.sandbox(operator))
-                .build()
-        }
+    fun `a production config builds on its own`() {
+        val rain = RainSdk.builder()
+            .rpcEndpoints(
+                mapOf(
+                    RainChain.BASE_MAINNET to "https://rpc.example/base",
+                    RainChain.ARBITRUM_MAINNET to "https://rpc.example/arbitrum"
+                )
+            )
+            .authPullConfig(RainAuthPullConfig.production(operator))
+            .build()
+
+        assertThat(rain.authPullChainIds).containsExactly(RainChain.BASE_MAINNET, RainChain.ARBITRUM_MAINNET)
     }
 
+    /** A custom deployment cannot be placed in one environment, so its chains may come from either set. */
     @Test
-    fun `production config is rejected in the dev environment`() {
-        assertThrows(RainError.InvalidConfig::class.java) {
-            RainSdk.builder()
-                .rpcEndpoints(
-                    mapOf(
-                        RainChain.BASE_MAINNET to "https://rpc.example/base",
-                        RainChain.ARBITRUM_MAINNET to "https://rpc.example/arbitrum"
+    fun `a custom config may mix chains from both environments`() {
+        val rain = RainSdk.builder()
+            .rpcEndpoints(
+                mapOf(
+                    RainChain.BASE_SEPOLIA to "https://rpc.example/base-sepolia",
+                    RainChain.BASE_MAINNET to "https://rpc.example/base"
+                )
+            )
+            .authPullConfig(
+                RainAuthPullConfig.custom(
+                    operatorAddress = operator,
+                    tokenAddresses = mapOf(
+                        RainChain.BASE_SEPOLIA to baseSepoliaUsdc,
+                        RainChain.BASE_MAINNET to RainAuthPullConfig.production(operator).tokenAddresses.getValue(RainChain.BASE_MAINNET)
                     )
                 )
-                .authPullConfig(RainAuthPullConfig.production(operator))
-                .build()
-        }
-    }
+            )
+            .build()
 
-    @Test
-    fun `custom environment requires explicit custom targets`() {
-        assertThrows(RainError.InvalidConfig::class.java) {
-            RainSdk.builder()
-                .rpcEndpoints(
-                    mapOf(
-                        RainChain.BASE_SEPOLIA to "https://rpc.example/base",
-                        RainChain.ARBITRUM_SEPOLIA to "https://rpc.example/arbitrum"
-                    )
-                )
-                .rainApiEnvironment(RainApiEnvironment.Custom("https://rain.example"))
-                .authPullConfig(RainAuthPullConfig.sandbox(operator))
-                .build()
-        }
+        assertThat(rain.authPullChainIds).containsExactly(RainChain.BASE_SEPOLIA, RainChain.BASE_MAINNET)
     }
 }

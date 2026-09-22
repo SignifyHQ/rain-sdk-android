@@ -1,7 +1,7 @@
 package com.rain.sdk
 
 /**
- * Trusted Auth Pull targets for one Rain environment.
+ * Trusted Auth Pull targets: one operator and, per chain, the token contract approvals may name.
  *
  * Auth Pull approvals are intentionally disabled until a host supplies this configuration. The
  * SDK then requires every approval, allowance read, and fee estimate to use this exact operator
@@ -36,8 +36,10 @@ class RainAuthPullConfig private constructor(
         )
 
         /**
-         * Explicit targets for a custom Rain API gateway. There is no safe environment inference
-         * from an arbitrary URL, so custom gateways must opt in with an exact chain/token map.
+         * Explicit targets for a non-standard Rain deployment (staging, a self-hosted gateway). Its
+         * chains may come from either environment's Auth Pull set; the operator and token map must
+         * be exact. Calling it asserts that [operatorAddress] is Rain's operator on every listed
+         * chain: a wrong pairing grants a real allowance to an address Rain does not use there.
          */
         fun custom(
             operatorAddress: String,

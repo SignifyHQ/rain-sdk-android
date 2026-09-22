@@ -3,7 +3,6 @@ package com.rain.sdk
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.constants.TokenRegistry
 import com.rain.sdk.internal.network.chainreader.multicall3Address
-import com.rain.sdk.models.RainApiEnvironment
 import org.junit.Test
 
 /**
@@ -28,28 +27,14 @@ class RainAuthPullChainsTest {
     }
 
     @Test
-    fun `dev resolves to sandbox and production to production`() {
-        assertThat(RainAuthPullChains.supported(RainApiEnvironment.Dev))
+    fun `each configuration kind maps to its Auth Pull set`() {
+        assertThat(RainAuthPullChains.supported(RainAuthPullConfig.Kind.SANDBOX))
             .isEqualTo(RainAuthPullChains.SANDBOX)
-        assertThat(RainAuthPullChains.supported(RainApiEnvironment.Production))
+        assertThat(RainAuthPullChains.supported(RainAuthPullConfig.Kind.PRODUCTION))
             .isEqualTo(RainAuthPullChains.PRODUCTION)
-    }
-
-    @Test
-    fun `a custom base url fails closed`() {
-        val supported = RainAuthPullChains.supported(
-            RainApiEnvironment.Custom("https://gateway.example.com")
-        )
-
-        assertThat(supported).isEmpty()
-    }
-
-    @Test
-    fun `isSupported agrees with supported`() {
-        assertThat(RainAuthPullChains.isSupported(84532, RainApiEnvironment.Dev)).isTrue()
-        assertThat(RainAuthPullChains.isSupported(8453, RainApiEnvironment.Dev)).isFalse()
-        assertThat(RainAuthPullChains.isSupported(8453, RainApiEnvironment.Production)).isTrue()
-        assertThat(RainAuthPullChains.isSupported(1, RainApiEnvironment.Production)).isFalse()
+        // A custom deployment cannot be placed in one environment, so it may draw on either set.
+        assertThat(RainAuthPullChains.supported(RainAuthPullConfig.Kind.CUSTOM))
+            .isEqualTo(RainAuthPullChains.SANDBOX + RainAuthPullChains.PRODUCTION)
     }
 
     /**

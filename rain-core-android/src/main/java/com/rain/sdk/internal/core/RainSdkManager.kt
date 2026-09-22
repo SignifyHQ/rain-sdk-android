@@ -14,6 +14,7 @@ import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.solana.SolanaCollateralWithdrawComposer
 import com.rain.sdk.internal.solana.SolanaRpcClient
 import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
+import com.rain.sdk.internal.tokenstore.TokenInfoValidation
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.internal.transaction.TransactionCoordinator
 import com.rain.sdk.internal.transaction.TransactionExecutor
@@ -38,14 +39,11 @@ import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.utils.QRGenerator
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.math.BigDecimal
@@ -58,7 +56,7 @@ import java.math.BigInteger
  * Construction now happens through [com.rain.sdk.RainSdk] / a [com.rain.sdk.provider.ProviderDescriptor],
  * which materializes the provider (Portal, Turnkey, or a host-supplied one) and hands the
  * built `WalletProvider` here. The manager itself imports no provider SDK — it only orchestrates
- * Rain domain logic (Rain API calls, collateral flows, balances, tx) against the port.
+ * Rain domain logic (collateral flows, balances, tx) against the port.
  *
  * @param walletProvider The resolved provider this client routes every operation through.
  * @param rpcEndpoints The chains the SDK was configured with; used by [getAllBalances] to fan out.
@@ -86,12 +84,12 @@ internal class RainSdkManager(
     private val chainReader: ChainReader = EvmChainReader(rpcEndpoints = rpcEndpoints),
     /**
      * Chains an Auth Pull approval may target: the host's [com.rain.sdk.RainAuthPullConfig] narrowed
-     * to the chains that have an RPC endpoint. Held as a resolved set rather than the environment
-     * itself so the approval guard has one thing to check and no opinion about API hosts, and
-     * exposed on [RainClient] so host UI can gate on exactly what the guard enforces.
+     * to the chains that have an RPC endpoint. Held as a resolved set so the approval guard has one
+     * thing to check, and exposed on [RainClient] so host UI can gate on exactly what the guard
+     * enforces.
      */
     override val authPullChainIds: Set<Int> = emptySet(),
-    /** Rain's operator for the configured environment — the only spender an approval may name. */
+    /** Rain's operator for the configured Auth Pull targets: the only spender an approval may name. */
     private val authPullOperator: String? = null,
     /** The trusted token contract per Auth Pull chain — the only token an approval may target. */
     private val authPullTokenAddresses: Map<Int, String> = emptyMap(),
@@ -117,9 +115,6 @@ internal class RainSdkManager(
      * non-suspend public API callable from any thread.
      */
     private val registeredTokens = java.util.concurrent.CopyOnWriteArrayList<TokenInfo>()
-
-    /** Fire-and-forget scope for applying late `registerTokens` calls to a live store. */
-    private val tokenRegistrationScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val validator = TransactionValidator()
     private val signer = TransactionSigner({ walletProvider }, errorMapper)
@@ -346,20 +341,12 @@ internal class RainSdkManager(
 
     /**
      * The token's decimals from the registry or a strict on-chain read. Refuses to guess: a
-     * default 18 against a 6-decimal token would move 10^12 times the intended amount.
+     * default 18 against a 6-decimal token would move 10^12 times the intended amount. The store
+     * itself refuses a chain value outside `0..77` with `InvalidConfig`.
      */
-    private suspend fun requireDecimals(chainId: Int, contractAddress: String): Int {
-        val resolved = tokenStore?.decimalsOrNull(chainId, contractAddress)
+    private suspend fun requireDecimals(chainId: Int, contractAddress: String): Int =
+        tokenStore?.decimalsOrNull(chainId, contractAddress)
             ?: throw RainError.TokenNotFound(contractAddress, chainId)
-
-        // Scaling raises 10 to this power; uint256 max is ~1.16e77, so anything finer is unusable.
-        if (resolved !in 0..77) {
-            throw RainError.InvalidConfig(
-                "Token $contractAddress reports $resolved decimals, outside the supported range 0..77"
-            )
-        }
-        return resolved
-    }
 
     /** Validates and EIP-55 checksums an EVM recipient; a malformed address must never broadcast. */
     private fun checksummedRecipient(to: String): String {
@@ -713,9 +700,9 @@ internal class RainSdkManager(
         }
         if (chainId !in authPullChainIds) {
             throw RainError.InvalidConfig(
-                "chainId=$chainId is not an Auth Pull chain for the configured Rain API environment " +
-                    "(expected one of ${authPullChainIds.sorted().joinToString(", ")}). Set " +
-                    "RainSdk.Builder.rainApiEnvironment(...) to match the chain you are approving on."
+                "chainId=$chainId is not an Auth Pull chain for this client " +
+                    "(expected one of ${authPullChainIds.sorted().joinToString(", ")}). Check the " +
+                    "RainAuthPullConfig and the RPC endpoints the SDK was built with."
             )
         }
         if (!contractAddress.isValidEthereumAddress) {
@@ -743,21 +730,11 @@ internal class RainSdkManager(
 
     override fun registerTokens(tokens: List<TokenInfo>) {
         if (tokens.isEmpty()) return
-        // Reject malformed EVM addresses at the source: an entry that enters the store rides into
-        // every balance batch on its chain. Solana mints are base58 and validated by their own
-        // paths. Validate the whole list before adding anything, so a bad entry registers nothing.
-        tokens.forEach { token ->
-            if (!SolanaChains.isSolanaChain(token.chainId) && !RainHexUtils.isValidAddress(token.address)) {
-                throw RainError.InvalidConfig(
-                    "Invalid token address for chainId=${token.chainId}: ${token.address}"
-                )
-            }
-        }
+        // The whole list is checked before anything is added, so a bad entry registers nothing.
+        TokenInfoValidation.requireValid(tokens)
         registeredTokens.addAll(tokens)
-        // Apply to the live store too, fire-and-forget so registration stays synchronous.
-        tokenStore?.let { store ->
-            tokenRegistrationScope.launch { store.register(tokens) }
-        }
+        // Stored before this returns, so a lookup that follows sees the entries.
+        tokenStore?.registerNow(tokens)
     }
 
     override fun reset() {

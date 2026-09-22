@@ -4,10 +4,11 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.rain.sdk.RainSdk
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,7 +16,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class WalletInfoViewModel(
-    private val rainSdk: RainSdk,
+    private val session: RainSession,
     private val rainClient: RainClient
 ) : ViewModel() {
 
@@ -49,9 +50,9 @@ class WalletInfoViewModel(
                     )
                 }
 
-                // The contract on the active chain when Rain provisioned one there, else the
-                // first of the chain's family (see WalletChain.collateralContract).
-                val contract = chain.collateralContract(rainSdk.fetchCollateralContracts())
+                // From the demo's own Rain API client, exact chain first (see
+                // WalletChain.collateralContract); a host makes this call from its backend.
+                val contract = session.fetchCollateralContract(chain)
                 if (contract == null) {
                     SampleLog.w("WalletInfo", "no collateral contract for ${chain.displayName}")
                     _state.update {
@@ -77,6 +78,7 @@ class WalletInfoViewModel(
                     )
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 SampleLog.e("WalletInfo", "failed: ${e.message}", e)
                 _state.update {
                     it.copy(
@@ -106,13 +108,13 @@ data class WalletInfoUiState(
 }
 
 class WalletInfoViewModelFactory(
-    private val rainSdk: RainSdk,
+    private val session: RainSession,
     private val rainClient: RainClient
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(WalletInfoViewModel::class.java)) {
-            return WalletInfoViewModel(rainSdk, rainClient) as T
+            return WalletInfoViewModel(session, rainClient) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

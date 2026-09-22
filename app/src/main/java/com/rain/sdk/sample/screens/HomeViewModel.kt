@@ -1247,9 +1247,15 @@ class HomeViewModel(
         SampleLog.i("Home", "clearing session (provider logout + SDK reset + UI reset)")
         hideRainWalletSecret(clearClipboard = true)
         viewModelScope.launch {
-            // Managed Rain Wallet logout runs first, while the provider is still open: it clears the
-            // stored session without firing the re-auth hook. A refused logout keeps everything —
-            // the session is still on this device, so the app must not forget whose it is.
+            // The program key is independent of the wallet session, so it goes first, whatever the
+            // logout below decides: out of memory, out of the store, off the card.
+            session.clearRainApi()
+            store.rainApiKey = ""
+            store.rainUserId = ""
+            _state.update { it.copy(rainApiKey = "", userId = "") }
+            // Managed Rain Wallet logout runs next, while the provider is still open: it clears the
+            // stored session without firing the re-auth hook. A refused logout keeps the wallet
+            // session's identity: it is still on this device, so the app must not forget whose it is.
             if (!session.logoutRainWallet()) {
                 _state.update {
                     it.copy(statusText = "Rain Wallet logout failed — the session is still on this device; try again")

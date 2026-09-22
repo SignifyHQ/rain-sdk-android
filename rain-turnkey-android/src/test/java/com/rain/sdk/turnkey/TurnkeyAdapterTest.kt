@@ -2,6 +2,7 @@ package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.internal.error.RainErrorCode
 import com.rain.sdk.models.Token
 import com.rain.sdk.provider.Capability
 import kotlinx.coroutines.runBlocking
@@ -459,7 +460,7 @@ class TurnkeyAdapterTest {
             }
         }
         assertThat(error.chainId).isEqualTo(43114)
-        assertThat(error.errorCode.code).isEqualTo("RAIN_105")
+        assertThat(error.errorCode).isEqualTo(RainErrorCode.CHAIN_NOT_SUPPORTED)
         assertThat(client.ethSendTransactionCalls).isEmpty()
         assertThat(rpc.recordedMethods).isEmpty()
     }
@@ -481,7 +482,7 @@ class TurnkeyAdapterTest {
                 )
             }
         }
-        assertThat(error.errorCode.code).isEqualTo("RAIN_105")
+        assertThat(error.errorCode).isEqualTo(RainErrorCode.CHAIN_NOT_SUPPORTED)
         assertThat(client.ethSendTransactionCalls).isEmpty()
         assertThat(rpc.recordedMethods).isEmpty()
     }
@@ -543,7 +544,7 @@ class TurnkeyAdapterTest {
                 )
             }
         }
-        assertThat(error.errorCode.code).isEqualTo("RAIN_105")
+        assertThat(error.errorCode).isEqualTo(RainErrorCode.CHAIN_NOT_SUPPORTED)
         assertThat(client.ethSendTransactionCalls).isEmpty()
         assertThat(rpc.recordedMethods).isEmpty()
     }
