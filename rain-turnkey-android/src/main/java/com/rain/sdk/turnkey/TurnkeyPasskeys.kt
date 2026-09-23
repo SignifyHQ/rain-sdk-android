@@ -43,7 +43,8 @@ internal object TurnkeyPasskeys {
 
     const val NOT_CONFIGURED_MESSAGE =
         "Passkeys are not configured for this app: set passkeyDomain to a web domain you control and serve " +
-            "https://<domain>/.well-known/assetlinks.json listing this app's package name and " +
+            "https://<domain>/.well-known/assetlinks.json in the shape of Google's passkey example, with the " +
+            "site's own statement and the app statement listing this app's package name and " +
             "signing-certificate fingerprints"
 
     const val ALREADY_SIGNED_IN_MESSAGE =

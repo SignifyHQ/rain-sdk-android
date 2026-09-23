@@ -181,8 +181,9 @@ internal object TurnkeyErrorMapping {
      *    no passkey for the domain or consent declined (`NoCredentialException`), or a `NotAllowedError`
      *    DOM error whose message says the user cancelled → UserRejected
      *  - a `SecurityError` or `DataError` DOM error, the association file or the signing fingerprint not
-     *    vouching for this build (current Play services builds report that check as `DataError`, their
-     *    code 50152, older ones as `SecurityError`) → InvalidConfig, with [PASSKEY_ASSOCIATION_MESSAGE]
+     *    vouching for this build, or the file lacking the site's own statement (current Play services
+     *    builds report that check as `DataError`, their code 50152, older ones as `SecurityError`)
+     *    → InvalidConfig, with [PASSKEY_ASSOCIATION_MESSAGE]
      *  - no passkey provider on the device → ProviderError, with the dependency named in the log
      *  - a nested vendor error (`FailedToCreateSession(KeyAlreadyExists)`, `InvalidResponse`, ...) → its own rule
      *  - an HTTP failure, whatever the status → ProviderError: no session exists during a passkey
@@ -270,8 +271,9 @@ internal object TurnkeyErrorMapping {
      */
     const val PASSKEY_ASSOCIATION_MESSAGE =
         "The device refused the passkey request for this app: check that the configured passkeyDomain " +
-            "serves /.well-known/assetlinks.json listing this app's package name and this build's signing " +
-            "certificate fingerprint, and that passkeyDomain matches that host"
+            "serves /.well-known/assetlinks.json with a get_login_creds statement for the site itself and an " +
+            "app statement (handle_all_urls and get_login_creds) listing this app's package name and this " +
+            "build's signing certificate fingerprint, and that passkeyDomain matches that host"
 
     /** Auth-proxy statuses that mean the login code itself was refused (not 408/429/5xx). */
     @Suppress("MagicNumber") // HTTP status codes; naming each one would obscure the set

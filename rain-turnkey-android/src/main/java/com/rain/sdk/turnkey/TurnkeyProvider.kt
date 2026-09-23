@@ -134,8 +134,11 @@ class TurnkeyConfig internal constructor(
      * @param authProxyConfigId The auth-proxy configuration id from the Turnkey dashboard.
      * @param walletAddress Optional EVM address override, validated and stored in EIP-55 checksum form; null or blank means no override.
      * @param passkeyDomain The passkey relying-party domain: a registrable domain of at least two labels
-     *   the host controls, such as `passkeys.example.com`, whose `/.well-known/assetlinks.json` lists the app's package name and
-     *   signing-certificate fingerprints. Null or blank turns the passkey methods off; they then throw
+     *   the host controls, such as `passkeys.example.com`, whose `/.well-known/assetlinks.json` follows
+     *   Google's passkey example: a `get_login_creds` statement for the site itself and an app statement
+     *   with both `handle_all_urls` and `get_login_creds` listing the app's package name and
+     *   signing-certificate fingerprints (the app statement alone is refused at the sheet). Null or blank
+     *   turns the passkey methods off; they then throw
      *   `RainError.InvalidConfig`. The domain is permanent: every passkey created against it stops
      *   working when it changes. It is part of the one-shot configuration, so a second managed
      *   provider with a different domain in the same app launch makes every auth call throw

@@ -38,9 +38,12 @@ import com.rain.sdk.turnkey.TurnkeyConfig
  *                      [RainProvider.addPasskey] off; they then throw `RainError.InvalidConfig`
  *                      (`RAIN_102`). A scheme, port, path or a single label such as `localhost`
  *                      throws `RAIN_102` from the [RainProvider] constructor. The domain must serve
- *                      `https://<domain>/.well-known/assetlinks.json` listing the app's package name
- *                      and every signing-certificate fingerprint (debug, upload and Play App
- *                      Signing), or the device refuses every passkey request. The domain is
+ *                      `https://<domain>/.well-known/assetlinks.json` in the shape of Google's
+ *                      passkey example: a statement for the site itself with `get_login_creds`, and
+ *                      an app statement with both `handle_all_urls` and `get_login_creds` listing
+ *                      the app's package name and every signing-certificate fingerprint (debug,
+ *                      upload and Play App Signing). The device refuses every passkey request
+ *                      over a file that carries the app statement alone. The domain is
  *                      permanent, because every passkey created against it stops working when it
  *                      changes, and a passkey made for one domain does not work in an app on
  *                      another.

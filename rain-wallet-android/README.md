@@ -55,10 +55,14 @@ Passkeys. With `passkeyDomain` set, `signUpWithPasskey(activity)` creates a new 
 login is a passkey, with the same wallet a code sign-up gets, `loginWithPasskey(activity)` signs an
 existing one in, and `addPasskey(activity)` registers a passkey on a code-created account. The
 domain is one you control, at least two labels of letters, digits and hyphens, serving
-`https://<domain>/.well-known/assetlinks.json` with
-the app's package name and the SHA-256 fingerprint of every certificate that signs it (debug, upload
-and Play App Signing). It is permanent, because every passkey created against it stops working when
-it changes, and a passkey made for one domain does not work in an app on another. Partners host
+`https://<domain>/.well-known/assetlinks.json` in the shape of Google's passkey example: a
+statement for the site itself with `get_login_creds`, and an app statement with both
+`handle_all_urls` and `get_login_creds` that lists the package name and the SHA-256 fingerprint of
+every certificate that signs it (debug, upload and Play App Signing). The device refuses a file that
+carries the app statement alone; the sample's file at `passkeys.uptop.xyz` is a working copy, and
+[docs/TURNKEY_SUPPORT.md](../docs/TURNKEY_SUPPORT.md#passkeys) shows the shape. It is permanent,
+because every passkey created against it stops working when it changes, and a passkey made for one
+domain does not work in an app on another. Partners host
 their own file; Rain runs no shared domain. Every call to `signUpWithPasskey` creates a new account,
 so returning users sign in or add a passkey, and accounts are never merged. A passkey-only account
 gets an email or phone as a second login through `sendContactVerificationCode(contact)` and

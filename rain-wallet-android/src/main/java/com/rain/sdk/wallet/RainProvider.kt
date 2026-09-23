@@ -273,8 +273,8 @@ class RainProvider internal constructor(
      *   SDK uses it only to launch the sheet and retains it no longer than the call.
      * @throws RainError.InvalidConfig (`RAIN_102`) when [RainWalletConfig.passkeyDomain] is unset,
      *   when the domain's association file does not vouch for this build (its package name and
-     *   signing-certificate fingerprint), on a wallet backend configuration conflict for this
-     *   launch, or when this provider was closed.
+     *   signing-certificate fingerprint) or lacks the site's own statement, on a wallet backend
+     *   configuration conflict for this launch, or when this provider was closed.
      * @throws RainError.UserRejected (`RAIN_401`) when the sheet was dismissed or the device holds
      *   no passkey for the domain.
      * @throws RainError.ProviderError (`RAIN_501`) for an interrupted ceremony, a device without a
