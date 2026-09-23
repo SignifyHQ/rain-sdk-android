@@ -120,8 +120,8 @@ class RainSdk private constructor(
     /** Ids of every provider the host registered. */
     val providerIds: Set<ProviderId> get() = registered.keys
 
-    /** The capability-advertising descriptors the host registered, for capability resolution. */
-    val descriptors: Collection<ProviderDescriptor> get() = registered.values
+    /** The registered provider descriptors in registration order, for capability resolution. */
+    val providers: List<ProviderDescriptor> get() = registered.values.toList()
 
     /**
      * Wallet-agnostic transaction-building helpers (EIP-712 typed-data + withdraw calldata).

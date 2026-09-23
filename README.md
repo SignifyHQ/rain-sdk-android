@@ -66,7 +66,7 @@ Upgrading from a core-only dependency: the `com.rain.sdk.turnkey` package used t
 `TurnkeyProvider` swaps its core coordinate for the adapter's. Imports do not change. Take both
 artifacts from the first release that carries the split; the version printed above is the catalog
 version at the time of writing. In the same release the descriptor interface `RainProvider` became
-`ProviderDescriptor` and `RainSdk.providers` became `RainSdk.descriptors`; `RainProvider` now names
+`ProviderDescriptor` (`RainSdk.providers` keeps its name); `RainProvider` now names
 the Rain wallet's class in `com.rain.sdk.wallet`, so an auto-import that offers it after the upgrade
 is pointing at the wrong type. The Turnkey adapter and the Rain wallet no longer advertise
 `Capability.BIOMETRIC_GATE`, because nothing gates signing behind a biometric prompt; a lookup by

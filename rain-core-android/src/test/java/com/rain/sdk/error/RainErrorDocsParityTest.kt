@@ -63,6 +63,10 @@ class RainErrorDocsParityTest {
             "TRANSACTION_PENDING",
             "com.rain.sdk.internal.error",
             "com.rain.sdk.internal.solana.UnsignedSolanaTransfer",
+            "INTERNAL_LOGIC_ERROR",
+            "INTERNAL_ERROR",
+            "RainSdk.descriptors",
+            "RainSdk.providers",
         ).forEach { name ->
             assertWithMessage(name).that(removedSection).contains(name)
         }

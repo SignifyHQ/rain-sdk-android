@@ -36,7 +36,7 @@ module isn't on the classpath simply can't be registered.
 | Property | Type | Description |
 |----------|------|-------------|
 | `providerIds` | `Set<ProviderId>` | Ids of every provider the host registered. |
-| `descriptors` | `Collection<ProviderDescriptor>` | The registered provider descriptors, for capability resolution. |
+| `providers` | `List<ProviderDescriptor>` | The registered provider descriptors in registration order, for capability resolution. |
 | `transactionBuilder` | `RainTransactionBuilder` | **Deprecated** — the builder methods are now on `RainSdk` itself. |
 | `authPullChainIds` | `Set<Int>` | Chains Auth Pull is enabled on for this instance: the configured `RainAuthPullConfig`'s chains intersected with the chains that have an RPC endpoint. Empty when no `authPullConfig(...)` was supplied. Also exposed on `RainClient`; see [authPullChainIds](#authpullchainids). |
 
@@ -818,6 +818,8 @@ old shape. Slated for removal in the next major version.
 | `withdrawCollateral(chainId, addresses, amount, decimals, adminSignature, nonce, autoSend = false): RainWithdrawResult` | `withdrawCollateral(...)` to broadcast, `prepareWithdrawal(...)` to build only | The current method shares the leading parameters, so a shim with a defaulted `autoSend` would never be selected for calls that omit it — Kotlin prefers the overload using fewer defaults — and could not restore the old prepare-only default. See the migration note under [withdrawCollateral](#withdrawcollateralchainid-addresses-amount-decimals-adminsignature-nonce). |
 | `import com.rain.sdk.internal.error.RainError` / `RainErrorCode` | `import com.rain.sdk.error.RainError` / `RainErrorCode` | A public type under an `internal` package misstated its stability. The types are unchanged; only the package moved, with no typealias at the old path. |
 | `com.rain.sdk.internal.solana.UnsignedSolanaTransfer` | `com.rain.sdk.models.UnsignedSolanaTransfer` | The same: it reaches hosts through `RainPreparedWithdrawal.Solana.transfer`, so it is a model. |
+| `RainErrorCode.INTERNAL_LOGIC_ERROR` | `RainErrorCode.INTERNAL_ERROR`, still `RAIN_502` | The constant now matches the `InternalError` class; an enum constant cannot be renamed in place with a shim. |
+| `RainSdk.descriptors: Collection<ProviderDescriptor>` | `RainSdk.providers: List<ProviderDescriptor>`, in registration order | Pairs with `providerIds`; the earlier rename to `descriptors` is undone on purpose. |
 
 ---
 
@@ -976,7 +978,7 @@ pre-set to `"0x0"`. Hosts can hand the result to any provider for signing / broa
 
 ## Errors
 
-All methods can throw `RainError` (sealed class). Each error includes an `errorCode` property for programmatic handling.
+All methods can throw `RainError` (sealed class). Each error carries a `code` string (`RAIN_xxx`) for programmatic handling and a typed `errorCode`.
 
 Format: `"RainSDK Error [CODE]: message"`
 
@@ -1020,7 +1022,7 @@ try {
         is RainError.InvalidConfig -> { /* Bad config / unknown provider: ${e.message} */ }
         is RainError.InsufficientFunds -> { /* Not enough balance */ }
         is RainError.NetworkError -> { /* Network issue: ${e.cause} */ }
-        else -> { /* Other error: ${e.errorCode.code} — ${e.message} */ }
+        else -> { /* Other error: ${e.code} — ${e.message} */ }
     }
 }
 ```

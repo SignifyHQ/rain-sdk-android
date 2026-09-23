@@ -101,7 +101,7 @@ class RainSdkBuilderTest {
         val client = sdk.provider(ProviderId("fake"))
 
         assertThat(client.providerId.value).isEqualTo("fake")
-        assertThat(sdk.descriptors.map { it.id }).containsExactly(ProviderId("fake"))
+        assertThat(sdk.providers.map { it.id }).containsExactly(ProviderId("fake"))
         assertThat(client.getWalletAddress())
             .isEqualTo("0xb0b0000000000000000000000000000000000000")
     }
@@ -116,7 +116,7 @@ class RainSdkBuilderTest {
 
         assertThat(sdk.first { it.id == ProviderId("second") }.providerId).isEqualTo(ProviderId("second"))
         assertThat(sdk.first { true }.providerId).isEqualTo(ProviderId("fake"))
-        assertThat(sdk.descriptors.map { it.id })
+        assertThat(sdk.providers.map { it.id })
             .containsExactly(ProviderId("fake"), ProviderId("second"))
             .inOrder()
     }
@@ -144,7 +144,7 @@ class RainSdkBuilderTest {
             .register(second)
             .build()
 
-        assertThat(sdk.descriptors).containsExactly(second)
+        assertThat(sdk.providers).containsExactly(second)
         assertThat(first.closed).isTrue()
         assertThat(second.closed).isFalse()
     }
@@ -161,7 +161,7 @@ class RainSdkBuilderTest {
             .register(first)
             .build()
 
-        assertThat(sdk.descriptors).containsExactly(first)
+        assertThat(sdk.providers).containsExactly(first)
         assertThat(first.closed).isFalse()
         assertThat(second.closed).isTrue()
     }
@@ -189,7 +189,7 @@ class RainSdkBuilderTest {
             .register(only)
             .build()
 
-        assertThat(sdk.descriptors).containsExactly(only)
+        assertThat(sdk.providers).containsExactly(only)
         assertThat(only.closed).isFalse()
     }
 
@@ -234,7 +234,7 @@ class RainSdkBuilderTest {
             .register(FakeProvider(StubWalletProvider(), ProviderId.PRIVY))
             .build()
 
-        assertThat(sdk.descriptors.map { it.id })
+        assertThat(sdk.providers.map { it.id })
             .containsExactly(ProviderId.RAIN, ProviderId.PORTAL, ProviderId.PRIVY)
             .inOrder()
     }

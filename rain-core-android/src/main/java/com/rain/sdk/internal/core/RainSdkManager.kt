@@ -63,7 +63,7 @@ import java.math.BigInteger
  * @param tokenStore Shared metadata store used to resolve ERC-20 decimals when callers omit them.
  *                   May be null for providers that do their own metadata resolution.
  * @param providerId Identity the registered [com.rain.sdk.provider.ProviderDescriptor] advertises.
- *                   Sourced from the descriptor so `RainSdk.descriptors` and a resolved client can
+ *                   Sourced from the descriptor so `RainSdk.providers` and a resolved client can
  *                   never disagree; defaults to the wallet provider's own value.
  * @param capabilities Capabilities the descriptor advertises, for the same reason as [providerId].
  * @param transactionBuilder Withdrawal-building primitives bound to the same chain configuration.

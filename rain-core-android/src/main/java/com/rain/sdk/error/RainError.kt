@@ -31,7 +31,7 @@ enum class RainErrorCode(val code: String) {
     WALLET_NOT_AUTHORIZED("RAIN_407"),
 
     PROVIDER_ERROR("RAIN_501"),
-    INTERNAL_LOGIC_ERROR("RAIN_502")
+    INTERNAL_ERROR("RAIN_502")
 }
 
 /**
@@ -43,6 +43,9 @@ sealed class RainError(
     message: String? = null,
     cause: Throwable? = null
 ) : Exception("RainSDK Error [${errorCode.code}]: ${message ?: "See docs for details"}", cause) {
+
+    /** The published `RAIN_xxx` string, `errorCode.code`; a cross-platform contract shared by Rain's SDKs. */
+    val code: String get() = errorCode.code
 
     // --- 1xx Initialization ---
     class SdkNotInitialized : RainError(RainErrorCode.SDK_NOT_INITIALIZED)
@@ -195,7 +198,7 @@ sealed class RainError(
         RainError(RainErrorCode.PROVIDER_ERROR, "Provider Error: ${cause?.message}", cause)
 
     class InternalError(details: String, cause: Throwable? = null) :
-        RainError(RainErrorCode.INTERNAL_LOGIC_ERROR, details, cause)
+        RainError(RainErrorCode.INTERNAL_ERROR, details, cause)
 }
 
 /** The one message for a chain the SDK was not built with, shared by the RPC-backed paths. */

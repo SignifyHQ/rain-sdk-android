@@ -12,7 +12,7 @@ minCompileSdk = "36"
 rain-sdk = "1.0.1"
 
 # -- Plugins --
-android-gradle-plugin = "9.4.0"
+android-gradle-plugin = "9.4.1"
 # Consumers need Kotlin 2.1 or newer to read our metadata (one language release back), the same floor
 # Turnkey already sets. 2.3 would move partners to 2.2 and 2.4 to 2.3; revisit after launch.
 kotlin = "2.2.21"

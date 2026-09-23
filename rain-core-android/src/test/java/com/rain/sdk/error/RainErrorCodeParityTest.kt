@@ -29,7 +29,7 @@ class RainErrorCodeParityTest {
             RainErrorCode.INVALID_AMOUNT to "RAIN_406",
             RainErrorCode.WALLET_NOT_AUTHORIZED to "RAIN_407",
             RainErrorCode.PROVIDER_ERROR to "RAIN_501",
-            RainErrorCode.INTERNAL_LOGIC_ERROR to "RAIN_502",
+            RainErrorCode.INTERNAL_ERROR to "RAIN_502",
         )
         expected.forEach { (code, value) -> assertThat(code.code).isEqualTo(value) }
         assertThat(RainErrorCode.entries).hasSize(expected.size)
@@ -70,6 +70,7 @@ class RainErrorCodeParityTest {
 
         cases.forEach { (error, code) ->
             assertThat(error.errorCode.code).isEqualTo(code)
+            assertThat(error.code).isEqualTo(code)
         }
 
         // A case added to the sealed hierarchy but not listed above fails here.
