@@ -7,6 +7,7 @@ import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.GetCredentialProviderConfigurationException
 import androidx.credentials.exceptions.NoCredentialException
+import androidx.credentials.exceptions.domerrors.DataError
 import androidx.credentials.exceptions.domerrors.DomError
 import androidx.credentials.exceptions.domerrors.NotAllowedError
 import androidx.credentials.exceptions.domerrors.SecurityError
@@ -165,8 +166,8 @@ internal object TurnkeyErrorMapping {
             VendorErrorClassifier.fromVendorError(cause)?.let { return it }
         }
 
-        return RainError.ProviderError(e)
         // A wrapped HTTP failure with a status the rules above do not claim; its body goes at the exit.
+        return RainError.ProviderError(e)
     }
 
     /**
@@ -179,8 +180,9 @@ internal object TurnkeyErrorMapping {
      *  - a dismissed sheet (`GetCredentialCancellationException`, `CreateCredentialCancellationException`),
      *    no passkey for the domain or consent declined (`NoCredentialException`), or a `NotAllowedError`
      *    DOM error whose message says the user cancelled → UserRejected
-     *  - a `SecurityError` DOM error, the association file or the signing fingerprint not vouching
-     *    for this build → InvalidConfig, with [PASSKEY_ASSOCIATION_MESSAGE]
+     *  - a `SecurityError` or `DataError` DOM error, the association file or the signing fingerprint not
+     *    vouching for this build (current Play services builds report that check as `DataError`, their
+     *    code 50152, older ones as `SecurityError`) → InvalidConfig, with [PASSKEY_ASSOCIATION_MESSAGE]
      *  - no passkey provider on the device → ProviderError, with the dependency named in the log
      *  - a nested vendor error (`FailedToCreateSession(KeyAlreadyExists)`, `InvalidResponse`, ...) → its own rule
      *  - an HTTP failure, whatever the status → ProviderError: no session exists during a passkey
@@ -214,12 +216,13 @@ internal object TurnkeyErrorMapping {
             turnkeyHttpStatus(this) != null
 
     /**
-     * The two DOM errors that mean something to a host: `SecurityError` is the association file,
-     * and `NotAllowedError` covers both a dismissed dialog and a time-out, so only its message tells
-     * them apart. Every other DOM error is device or provider state.
+     * The DOM errors that mean something to a host. `SecurityError` and `DataError` are both the
+     * association check, which Play services moved from the first name to the second (its code
+     * 50152), so they map alike. `NotAllowedError` covers both a dismissed dialog and a time-out, so
+     * only its message tells them apart. Every other DOM error is device or provider state.
      */
     private fun mapDomError(domError: DomError, message: String?, outer: Throwable): RainError = when {
-        domError is SecurityError -> RainError.InvalidConfig(PASSKEY_ASSOCIATION_MESSAGE)
+        domError is SecurityError || domError is DataError -> RainError.InvalidConfig(PASSKEY_ASSOCIATION_MESSAGE)
         domError is NotAllowedError && message.orEmpty().contains("cancel", ignoreCase = true) -> RainError.UserRejected()
         else -> RainError.ProviderError(outer)
     }

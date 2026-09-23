@@ -8,6 +8,7 @@ import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialInterruptedException
 import androidx.credentials.exceptions.GetCredentialUnsupportedException
 import androidx.credentials.exceptions.NoCredentialException
+import androidx.credentials.exceptions.domerrors.DataError
 import androidx.credentials.exceptions.domerrors.NotAllowedError
 import androidx.credentials.exceptions.domerrors.SecurityError
 import androidx.credentials.exceptions.domerrors.TimeoutError
@@ -16,6 +17,7 @@ import androidx.credentials.exceptions.publickeycredential.GetPublicKeyCredentia
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.error.RainErrorCode
+import com.turnkey.core.models.errors.TurnkeyKotlinError
 import org.junit.Before
 import org.junit.Test
 
@@ -535,6 +537,22 @@ class TurnkeyErrorMappingTest {
     @Test
     fun `a SecurityError DOM error on login maps to InvalidConfig`() {
         val leaf = GetPublicKeyCredentialDomException(SecurityError(), "The incoming request cannot be validated")
+        assertThat(mapping.map(passkeyLoginFailure(leaf))).isInstanceOf(RainError.InvalidConfig::class.java)
+    }
+
+    @Test
+    fun `a DataError DOM error on sign-up maps to InvalidConfig like a SecurityError`() {
+        // Current Play services builds report the association check as DataError 50152, older ones as SecurityError.
+        val leaf = CreatePublicKeyCredentialDomException(DataError(), "[50152] RP ID cannot be validated.")
+        val mapped = mapping.map(passkeySignUpFailure(leaf))
+        assertThat(mapped).isInstanceOf(RainError.InvalidConfig::class.java)
+        assertThat(mapped.errorCode).isEqualTo(RainErrorCode.INVALID_CONFIG)
+        assertThat(mapped.message).contains("assetlinks.json")
+    }
+
+    @Test
+    fun `a DataError DOM error on login maps to InvalidConfig`() {
+        val leaf = GetPublicKeyCredentialDomException(DataError(), "[50152] RP ID cannot be validated.")
         assertThat(mapping.map(passkeyLoginFailure(leaf))).isInstanceOf(RainError.InvalidConfig::class.java)
     }
 
