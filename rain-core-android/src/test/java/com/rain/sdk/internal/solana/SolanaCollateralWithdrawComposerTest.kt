@@ -14,6 +14,7 @@ import org.junit.After
 import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
+import java.math.BigDecimal
 import java.math.BigInteger
 import java.util.Base64
 
@@ -115,7 +116,7 @@ class SolanaCollateralWithdrawComposerTest {
         rpc.stubObjectFor("getAccountInfo", SolanaWithdrawFixtures.destinationAta(), contextual(JSONObject.NULL))
         rpc.stubObject("getBalance", contextual(0L))
 
-        assertThrows(RainError.InsufficientFunds::class.java) {
+        val error = assertThrows(RainError.InsufficientFunds::class.java) {
             runBlocking {
                 composer().composeWithdraw(
                     chainId = devnet,
@@ -130,6 +131,10 @@ class SolanaCollateralWithdrawComposerTest {
             }
         }
         assertThat(rpc.recordedMethods).doesNotContain("simulateTransaction")
+        // The fee is sponsored, so the shortfall is the token-account rent alone, in SOL; the wallet holds nothing.
+        assertThat(error.required?.compareTo(BigDecimal("0.00203928"))).isEqualTo(0)
+        assertThat(error.available?.compareTo(BigDecimal.ZERO)).isEqualTo(0)
+        assertThat(error.message).contains("required 0.00203928")
     }
 
     @Test

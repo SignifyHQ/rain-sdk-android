@@ -49,7 +49,10 @@ object SolanaLamportPreflight {
                 lamports.toString(),
                 required
             )
-            throw RainError.InsufficientFunds()
+            throw RainError.InsufficientFunds(
+                required = SolanaConverter.lamportsToSol(BigInteger.valueOf(required)),
+                available = SolanaConverter.lamportsToSol(lamports)
+            )
         }
     }
 }

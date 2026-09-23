@@ -1,5 +1,7 @@
 package com.rain.sdk.error
 
+import java.math.BigDecimal
+
 /**
  * The `RAIN_*` codes every [RainError] carries. The values are a published contract hosts switch on, and
  * `RainErrorCodeParityTest` pins them: changing one is a breaking change. The map was compacted once, when
@@ -113,7 +115,17 @@ sealed class RainError(
     // --- 4xx User Action ---
     class UserRejected : RainError(RainErrorCode.USER_REJECTED)
 
-    class InsufficientFunds : RainError(RainErrorCode.INSUFFICIENT_FUNDS)
+    /**
+     * The wallet holds less of the chain's native currency than the amount or the network fee
+     * needs. [required] and [available] are in the currency's human units (ETH, SOL), null when the
+     * producer had no number: the vendor-prose classifiers report the shortfall without amounts.
+     */
+    class InsufficientFunds(val required: BigDecimal? = null, val available: BigDecimal? = null) :
+        RainError(
+            RainErrorCode.INSUFFICIENT_FUNDS,
+            "Insufficient funds for the amount or the network fee: " +
+                "required ${required?.toPlainString() ?: "unknown"}, available ${available?.toPlainString() ?: "unknown"}"
+        )
 
     class TransactionSimulationFailed(cause: Throwable?) :
         RainError(

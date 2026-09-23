@@ -70,6 +70,16 @@ class ErrorMapperTest {
     }
 
     @Test
+    fun `InsufficientFunds from vendor prose carries no amounts`() {
+        val mapped = mapper.mapTransactionError(RuntimeException("insufficient funds for gas * price + value"))
+
+        val error = mapped as RainError.InsufficientFunds
+        assertThat(error.required).isNull()
+        assertThat(error.available).isNull()
+        assertThat(error.message).contains("required unknown, available unknown")
+    }
+
+    @Test
     fun `mapSigningError returns InsufficientFunds for a two-word funds phrase`() {
         for (message in listOf(
             "insufficient funds for gas * price + value",
