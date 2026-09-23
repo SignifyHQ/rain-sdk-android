@@ -28,8 +28,8 @@ import java.math.BigDecimal
  * wraps as `ProviderError` after its shared prose heuristics, with two exceptions: on
  * `estimateGas`, `estimateWithdrawalFee` and the Solana `withdrawCollateral` and
  * `prepareWithdrawal` paths a raw exception floors at `InternalError`, and the hooks core calls
- * before it enters a wrapper (the EVM wallet-address read, [requireSendSupport] on
- * `withdrawCollateral`, and [sponsorsFees] on `estimateWithdrawalFee`)
+ * before it enters a wrapper (the EVM wallet-address read and [requireSendSupport] on
+ * `withdrawCollateral`)
  * are not wrapped at all, so a raw exception there reaches the host as thrown. Either way an
  * adapter that lets a vendor type escape loses the specific code a host branches on,
  * `TokenExpired` above all. Rain's adapters convert in their session coordinator, which every
@@ -65,8 +65,8 @@ interface WalletProvider {
 
     /**
      * True when this provider pays the network fee for sends on [chainId], so core skips the
-     * self-paid preflights that would charge the fee to the wallet: the Solana withdrawal dry run,
-     * and the withdrawal fee estimate that would sign only to quote a fee the user never pays.
+     * self-paid preflight that would charge the fee to the wallet: the Solana withdrawal dry run.
+     * Fee estimates are not affected; they quote the network cost whether or not the sponsor pays it.
      * The per-chain refinement of [Capability.GAS_SPONSORSHIP]: a provider may sponsor only where
      * it can broadcast. Defaults to advertising the capability.
      */

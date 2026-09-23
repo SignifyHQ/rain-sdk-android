@@ -587,9 +587,11 @@ class TurnkeyAdapterTest {
     }
 
     @Test
-    fun `sponsored fee estimate is zero and makes no RPC calls`(): Unit = runBlocking {
-        // No RPC stubs on purpose: estimating as if the sender paid would both misquote a
-        // sponsored transfer and fail for zero-balance wallets. Passing proves no RPCs ran.
+    fun `sponsored fee estimate quotes the chain cost through eth_estimateGas and eth_gasPrice`(): Unit = runBlocking {
+        // The estimate is what the send would cost on chain, so a host can show what sponsorship
+        // saves; the sponsored send itself never charges the wallet.
+        rpc.stub(method = "eth_estimateGas", result = "0x5208") // 21000
+        rpc.stub(method = "eth_gasPrice", result = "0x4a817c800") // 20 gwei
         val provider = makeProvider(sponsorGas = true)
 
         val fee = provider.estimateTransactionFee(
@@ -600,8 +602,8 @@ class TurnkeyAdapterTest {
             value = "0x0"
         )
 
-        assertThat(fee.compareTo(java.math.BigDecimal.ZERO)).isEqualTo(0)
-        assertThat(rpc.recordedMethods).isEmpty()
+        assertThat(fee.compareTo(java.math.BigDecimal("0.00042"))).isEqualTo(0) // 21000 * 20 gwei
+        assertThat(rpc.recordedMethods).containsAtLeast("eth_estimateGas", "eth_gasPrice")
     }
 
     @Test

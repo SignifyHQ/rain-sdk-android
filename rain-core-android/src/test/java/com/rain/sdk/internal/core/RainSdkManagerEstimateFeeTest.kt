@@ -343,12 +343,14 @@ class RainSdkManagerEstimateFeeTest {
         }
 
     @Test
-    fun `estimateWithdrawalFee is zero and signs nothing when the provider sponsors the fee`(): Unit =
+    fun `estimateWithdrawalFee quotes the network cost and signs once when the provider sponsors the fee`(): Unit =
         runBlocking {
-            // The user pays no fee, so zero is the honest quote; building the withdrawal just to
-            // price it would prompt for a signature the estimate then discards.
+            // The quote is what the network charges, which the sponsor pays: the withdrawal is built
+            // and signed once to price it, exactly as on a self-paid chain.
             val (manager, stub) = TestManagers.stubProviderManager(transactionBuilder = builder)
             stub.sponsorsFeesToReturn = true
+            stub.signTypedDataToReturn = TestFixtures.validSignatureHex
+            stub.estimateTransactionFeeToReturn = BigDecimal("0.001")
 
             val fee = manager.estimateWithdrawalFee(
                 chainId = 1,
@@ -358,9 +360,9 @@ class RainSdkManagerEstimateFeeTest {
                 adminSignature = TestFixtures.adminSignature()
             )
 
-            assertThat(fee.compareTo(BigDecimal.ZERO)).isEqualTo(0)
-            assertThat(stub.signTypedDataCalls).isEmpty()
-            assertThat(stub.estimateTransactionFeeCalls).isEmpty()
+            assertThat(fee).isEqualTo(BigDecimal("0.001"))
+            assertThat(stub.signTypedDataCalls).hasSize(1)
+            assertThat(stub.estimateTransactionFeeCalls).hasSize(1)
         }
 
     @Test

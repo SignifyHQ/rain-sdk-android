@@ -268,10 +268,6 @@ internal class RainSdkManager(
         if (SolanaChains.isSolanaChain(chainId)) {
             throw RainError.InternalError("Withdrawal fee estimation is not supported on Solana")
         }
-        // A provider that sponsors the fee on this chain charges the user nothing, so zero is the
-        // honest quote, and building the withdrawal just to price it would sign for nothing.
-        if (walletProvider.sponsorsFees(chainId)) return BigDecimal.ZERO
-
         return transactionCoordinator.estimateWithdrawalFee(
             withdrawRequest(chainId, addresses, amount, decimals, adminSignature, nonce)
         )

@@ -53,8 +53,8 @@ internal const val TURNKEY_PROVIDER_CLOSED_MESSAGE = "This provider was closed; 
  * @param sponsorGas When true, every EVM send on a Turnkey broadcast chain is sponsored —
  *                   transfers, collateral withdrawals, Auth Pull approvals, and raw
  *                   `sendTransaction` calls alike: Turnkey's Gas Station builds and pays the
- *                   fee (gasless for the end user) and fee estimates return zero. Sponsorship
- *                   cost passes through to the partner that turns this on. Solana sends are
+ *                   fee (gasless for the end user). Fee estimates still quote the network cost
+ *                   the sponsor pays. Sponsorship cost passes through to the partner that turns this on. Solana sends are
  *                   sponsored too (network fee only: rent for a first-time recipient's token
  *                   account is a separate Turnkey toggle, off by default, so the sender must
  *                   still hold it). Turnkey does not document its Solana payer model, so run

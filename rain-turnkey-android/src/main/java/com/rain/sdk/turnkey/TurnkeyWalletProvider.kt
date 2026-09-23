@@ -175,6 +175,11 @@ internal class TurnkeyWalletProvider(
         return manager.signTypedData(walletAddress, typedDataJson)
     }
 
+    /**
+     * Quotes what the network would charge for this transaction, sponsored or not: `eth_estimateGas`
+     * times `eth_gasPrice` over the chain's RPC. On a sponsored chain the sponsor pays it and the
+     * wallet is not charged; the number lets a host show what sponsorship saves.
+     */
     override suspend fun estimateTransactionFee(
         chainId: Int,
         from: String,
@@ -183,13 +188,6 @@ internal class TurnkeyWalletProvider(
         value: String
     ): BigDecimal {
         requireEvmChain(chainId, "estimateTransactionFee")
-        if (sponsorsFees(chainId)) {
-            // Every EVM send is sponsored under this flag, so zero is the honest quote for
-            // transfers, withdrawals, and approvals alike (product decision: pass through what
-            // Turnkey charges the sender, which is nothing). Estimating as if the sender paid
-            // would also reject the zero-balance wallets sponsorship serves.
-            return BigDecimal.ZERO
-        }
         return manager.estimateTransactionFee(chainId, from, to, data, value)
     }
 

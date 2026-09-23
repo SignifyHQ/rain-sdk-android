@@ -218,7 +218,7 @@ The embedded identity is Rain's sandbox wallet backend; this release has no host
 
 | Config | Description |
 |--------|-------------|
-| `RainWalletConfig(sessionPolicy: RainWalletSessionPolicy = RainWalletSessionPolicy(), onSessionExpired: (() -> Unit)? = null, sponsorGas: Boolean = true, passkeyDomain: String? = null)` | No address override: a Rain wallet holds one Ethereum account, the one the SDK provisions on first login, and the SDK signs with it and reads for it; `onSessionExpired` fires once per session death that cannot be refreshed, on any thread, and a deliberate `logout()` never fires it; `sponsorGas` makes every send on a supported chain fee-sponsored, with fee estimates of zero and `GAS_SPONSORSHIP` advertised; rent for a first-time recipient's Solana token account is a separate backend setting that stays with the sender, and a sponsored send runs no client-side revert preflight, so a failure surfaces as the backend's failed status after broadcast; `passkeyDomain` is a registrable domain of at least two labels the partner controls (`passkeys.example.com`) whose `/.well-known/assetlinks.json` carries both statements of Google's passkey example, one for the site itself and one for the app with its package name and every signing-certificate fingerprint (shape under [Passkeys](TURNKEY_SUPPORT.md#passkeys); the app statement alone is refused at the sheet); null or blank turns `loginWithPasskey`, `signUpWithPasskey` and `addPasskey` off (`RAIN_102` when called), a scheme, port, path or a single label such as `localhost` throws `RAIN_102` from the `RainProvider` constructor, and the domain is permanent, since every passkey created against it stops working when it changes; partners host their own file, Rain runs no shared domain. |
+| `RainWalletConfig(sessionPolicy: RainWalletSessionPolicy = RainWalletSessionPolicy(), onSessionExpired: (() -> Unit)? = null, sponsorGas: Boolean = true, passkeyDomain: String? = null)` | No address override: a Rain wallet holds one Ethereum account, the one the SDK provisions on first login, and the SDK signs with it and reads for it; `onSessionExpired` fires once per session death that cannot be refreshed, on any thread, and a deliberate `logout()` never fires it; `sponsorGas` makes every send on a supported chain fee-sponsored, with `GAS_SPONSORSHIP` advertised and fee estimates that quote the network cost the sponsor pays; rent for a first-time recipient's Solana token account is a separate backend setting that stays with the sender, and a sponsored send runs no client-side revert preflight, so a failure surfaces as the backend's failed status after broadcast; `passkeyDomain` is a registrable domain of at least two labels the partner controls (`passkeys.example.com`) whose `/.well-known/assetlinks.json` carries both statements of Google's passkey example, one for the site itself and one for the app with its package name and every signing-certificate fingerprint (shape under [Passkeys](TURNKEY_SUPPORT.md#passkeys); the app statement alone is refused at the sheet); null or blank turns `loginWithPasskey`, `signUpWithPasskey` and `addPasskey` off (`RAIN_102` when called), a scheme, port, path or a single label such as `localhost` throws `RAIN_102` from the `RainProvider` constructor, and the domain is permanent, since every passkey created against it stops working when it changes; partners host their own file, Rain runs no shared domain. |
 | `RainWalletSessionPolicy(refreshBufferSeconds: Long = 60, autoRefresh: Boolean = true, refreshExpirationSeconds: Long? = null, maxTransientRetries: Int = 2, initialRetryDelayMs: Long = 500, maxRetryDelayMs: Long = 4_000)` | Expiry, refresh and retry behaviour for the session guarding every wallet call; `refreshExpirationSeconds` is the lifetime requested for refreshed sessions, null for the backend default of 900. Out-of-range values throw `IllegalArgumentException` at construction: a programming error, not a runtime failure. |
 
 | Member | Signature | Notes |
@@ -407,8 +407,9 @@ distinction and return the hex address.
 
 Estimates the gas fee required for a transaction.
 
-On Turnkey with `sponsorGas` enabled, EVM estimates on broadcast-supported chains return `0`:
-every EVM send (transfers, withdrawals, approvals) is sponsored, so zero is the honest quote.
+On a provider that sponsors fees (Turnkey with `sponsorGas`, the Rain wallet) the estimate is still
+the network cost of the transaction: the sponsor pays it and the wallet is not charged, so a host
+can show what sponsorship saves.
 
 - **Returns:** `BigDecimal` — estimated gas fee in the chain's native token (e.g. AVAX).
 - **Throws:** `RainError` if estimation fails. A node revert arrives as `TransactionSimulationFailed` (RAIN_403) on every adapter. Anything else depends on the adapter: Portal maps through its session coordinator, prose rules included, so an unrecognized Portal failure is `ProviderError` (RAIN_501) and one whose text names a funds shortfall is `InsufficientFunds`; Privy's own RPC client also maps a funds shortfall to `InsufficientFunds` and floors at `InternalError` (RAIN_502); Turnkey's self-paid estimate runs through core's RPC client and floors at `InternalError`. A raw exception from the estimate call that nothing mapped floors at `InternalError` as well.
@@ -433,8 +434,8 @@ Internally builds the EIP-712 payload, signs it with the wallet, then runs `eth_
 against the withdrawal controller. Nothing is broadcast.
 
 On a provider that sponsors the fee on that chain (Turnkey with `sponsorGas`, the default, on its
-broadcast chains) the result is `0` and nothing is signed or estimated: the withdrawal will be
-sponsored, so zero is the honest quote.
+broadcast chains) the result is still the network cost: the withdrawal is built and signed once to
+price it, as on a self-paid chain, and the sponsor pays what the estimate shows.
 
 > **Signing side effect.** The estimated calldata embeds a wallet signature the controller
 > verifies (a placeholder would revert the estimate), so estimate-then-withdraw signs twice.
