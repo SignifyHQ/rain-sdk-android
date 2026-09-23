@@ -273,6 +273,16 @@ internal class RainSdkManager(
         )
     }
 
+    override suspend fun estimateWithdrawalFee(chainId: Int, prepared: RainPreparedWithdrawal): BigDecimal {
+        // The same refusal as the building overload: a Solana chain id, or a Solana preparation on
+        // any chain id, has no fee estimate yet.
+        val parameters = prepared.evmParameters
+        if (SolanaChains.isSolanaChain(chainId) || parameters == null) {
+            throw RainError.InternalError("Withdrawal fee estimation is not supported on Solana")
+        }
+        return transactionCoordinator.estimatePreparedWithdrawalFee(chainId, parameters)
+    }
+
     /**
      * Runs one wallet operation and keeps its failures on the Rain error contract: a cancellation
      * and a [RainError] pass through, anything else is logged under [failureLog] and mapped.

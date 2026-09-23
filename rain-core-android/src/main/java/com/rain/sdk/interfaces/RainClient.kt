@@ -144,7 +144,9 @@ interface RainClient {
      * Builds the EIP-712 payload, signs it with the wallet, then runs `eth_estimateGas`
      * against the controller. Nothing is broadcast. Note: the calldata also embeds a wallet
      * signature the controller verifies, so the estimate signs once with the wallet (a
-     * placeholder signature would revert the estimate).
+     * placeholder signature would revert the estimate). To quote without a second signature,
+     * prepare once with [prepareWithdrawal] and call `estimateWithdrawalFee(chainId, prepared)`
+     * on the result.
      *
      * @param chainId The chain ID for the transaction. EVM only.
      * @param addresses All required addresses for the withdrawal.
@@ -164,6 +166,20 @@ interface RainClient {
         adminSignature: RainAdminSignature,
         nonce: BigInteger? = null
     ): BigDecimal
+
+    /**
+     * Estimates the fee of a withdrawal already built by [prepareWithdrawal], in the chain's native
+     * token, without building or signing anything: prepare once, estimate on the result, then
+     * submit. EVM only.
+     *
+     * @param chainId The chain the withdrawal was prepared for.
+     * @param prepared The result of [prepareWithdrawal].
+     * @return Estimated withdrawal fee in the chain's native token, as an exact [BigDecimal].
+     * @throws RainError if estimation fails; a node revert arrives as [RainError.WithdrawalRevertedByNetwork].
+     *   A Solana preparation or chain id throws [RainError.InternalError].
+     */
+    @Throws(RainError::class)
+    suspend fun estimateWithdrawalFee(chainId: Int, prepared: RainPreparedWithdrawal): BigDecimal
 
     /**
      * Composes wallet-agnostic transaction parameters for a contract call.

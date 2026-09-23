@@ -190,4 +190,22 @@ internal class TransactionCoordinator(
             value = parameters.value
         )
     }
+
+    /**
+     * Estimates the fee of an already-prepared EVM withdrawal: the provider quotes [parameters] as
+     * they are, so nothing is rebuilt or signed. Same error contract as [estimateWithdrawalFee].
+     */
+    suspend fun estimatePreparedWithdrawalFee(
+        chainId: Int,
+        parameters: RainTransactionParameters
+    ): BigDecimal = withWithdrawalErrors("Estimate prepared withdrawal fee") {
+        val provider = walletProvider() ?: throw RainError.SdkNotInitialized()
+        provider.estimateTransactionFee(
+            chainId = chainId,
+            from = parameters.from,
+            to = parameters.to,
+            data = parameters.data,
+            value = parameters.value
+        )
+    }
 }

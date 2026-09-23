@@ -10,6 +10,7 @@ import com.rain.sdk.internal.helpers.TestManagers
 import com.rain.sdk.internal.network.Web3jProvider
 import com.rain.sdk.models.RainPreparedWithdrawal
 import com.rain.sdk.models.RainWithdrawAddresses
+import com.rain.sdk.models.UnsignedSolanaTransfer
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -384,5 +385,99 @@ class RainSdkManagerEstimateFeeTest {
             // The guard fires before any signing or estimation.
             assertThat(stub.signTypedDataCalls).isEmpty()
             assertThat(stub.estimateTransactionFeeCalls).isEmpty()
+        }
+
+    @Test
+    fun `estimateWithdrawalFee on a prepared withdrawal quotes the prepared parameters without signing again`(): Unit =
+        runBlocking {
+            val (manager, stub) = TestManagers.stubProviderManager(transactionBuilder = builder)
+            stub.signTypedDataToReturn = TestFixtures.validSignatureHex
+            stub.estimateTransactionFeeToReturn = BigDecimal("0.002")
+            val prepared = manager.prepareWithdrawal(
+                chainId = 1,
+                addresses = addresses,
+                amount = BigDecimal("100.0"),
+                decimals = 6,
+                adminSignature = TestFixtures.adminSignature(),
+                nonce = BigInteger.valueOf(7)
+            )
+            val parameters = (prepared as RainPreparedWithdrawal.Evm).parameters
+
+            val fee = manager.estimateWithdrawalFee(chainId = 1, prepared = prepared)
+
+            assertThat(fee).isEqualTo(BigDecimal("0.002"))
+            // The prepare signed once; the estimate on its result did not sign again.
+            assertThat(stub.signTypedDataCalls).hasSize(1)
+            val call = stub.estimateTransactionFeeCalls.single()
+            assertThat(call.chainId).isEqualTo(1)
+            assertThat(call.from).isEqualTo(parameters.from)
+            assertThat(call.to).isEqualTo(parameters.to)
+            assertThat(call.data).isEqualTo(parameters.data)
+            assertThat(call.value).isEqualTo(parameters.value)
+        }
+
+    @Test
+    fun `estimateWithdrawalFee on a Solana preparation throws InternalError before asking the provider`(): Unit =
+        runBlocking {
+            val (manager, stub) = TestManagers.stubProviderManager(transactionBuilder = builder)
+            val prepared = RainPreparedWithdrawal.Solana(UnsignedSolanaTransfer(ByteArray(1), recentBlockhash = "hash"))
+
+            assertThrows(RainError.InternalError::class.java) {
+                runBlocking { manager.estimateWithdrawalFee(chainId = RainChain.SOLANA_DEVNET, prepared = prepared) }
+            }
+
+            assertThat(stub.estimateTransactionFeeCalls).isEmpty()
+        }
+
+    @Test
+    fun `estimateWithdrawalFee on a prepared withdrawal rejects a Solana chain id before asking the provider`(): Unit =
+        runBlocking {
+            val (manager, stub) = TestManagers.stubProviderManager(transactionBuilder = builder)
+            stub.signTypedDataToReturn = TestFixtures.validSignatureHex
+            val prepared = manager.prepareWithdrawal(
+                chainId = 1,
+                addresses = addresses,
+                amount = BigDecimal("100.0"),
+                decimals = 6,
+                adminSignature = TestFixtures.adminSignature(),
+                nonce = BigInteger.valueOf(7)
+            )
+
+            assertThrows(RainError.InternalError::class.java) {
+                runBlocking { manager.estimateWithdrawalFee(chainId = RainChain.SOLANA_DEVNET, prepared = prepared) }
+            }
+
+            assertThat(stub.estimateTransactionFeeCalls).isEmpty()
+        }
+
+    @Test
+    fun `estimateWithdrawalFee on a prepared withdrawal translates a simulation failure to WithdrawalRevertedByNetwork`(): Unit =
+        runBlocking {
+            val simulationFailure = RainError.TransactionSimulationFailed(RuntimeException("execution reverted"))
+            val stub = object : StubWalletProvider() {
+                override suspend fun estimateTransactionFee(
+                    chainId: Int,
+                    from: String,
+                    to: String,
+                    data: String,
+                    value: String
+                ): BigDecimal = throw simulationFailure
+            }
+            val (manager, _) = TestManagers.stubProviderManager(stub, transactionBuilder = builder)
+            stub.signTypedDataToReturn = TestFixtures.validSignatureHex
+            val prepared = manager.prepareWithdrawal(
+                chainId = 1,
+                addresses = addresses,
+                amount = BigDecimal("100.0"),
+                decimals = 6,
+                adminSignature = TestFixtures.adminSignature(),
+                nonce = BigInteger.valueOf(7)
+            )
+
+            val error = assertThrows(RainError.WithdrawalRevertedByNetwork::class.java) {
+                runBlocking { manager.estimateWithdrawalFee(chainId = 1, prepared = prepared) }
+            }
+
+            assertThat(error.cause).isSameInstanceAs(simulationFailure)
         }
 }

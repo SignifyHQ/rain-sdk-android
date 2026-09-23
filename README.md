@@ -442,6 +442,9 @@ val prepared = client.prepareWithdrawal(
     adminSignature = adminSignature
 )
 println("Tx: ${prepared.evmParameters}")   // solanaTransfer on a Solana chain
+
+// Quote the fee of the prepared withdrawal, with no second signature
+val fee = client.estimateWithdrawalFee(chainId = 8453, prepared = prepared)
 ```
 
 ### 9. Solana

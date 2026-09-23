@@ -439,6 +439,8 @@ price it, as on a self-paid chain, and the sponsor pays what the estimate shows.
 
 > **Signing side effect.** The estimated calldata embeds a wallet signature the controller
 > verifies (a placeholder would revert the estimate), so estimate-then-withdraw signs twice.
+> To quote without a second signature, call `prepareWithdrawal` once and pass the result to
+> `estimateWithdrawalFee(chainId, prepared)` below.
 
 - **Returns:** `BigDecimal`, the estimated withdrawal fee in the chain's native token.
 - **Throws:** `RainError` if estimation fails. A node revert arrives as `WithdrawalRevertedByNetwork` (RAIN_405) on every adapter, the withdrawal flow's rewrap of a simulation failure. Anything else depends on the adapter: Portal maps through its session coordinator, prose rules included, so an unrecognized Portal failure is `ProviderError` (RAIN_501) and one whose text names a funds shortfall is `InsufficientFunds`; Privy's own RPC client also maps a funds shortfall to `InsufficientFunds` and floors at `InternalError` (RAIN_502); Turnkey's self-paid estimate runs through core's RPC client and floors at `InternalError`. A raw exception from the estimate call that nothing mapped floors at `InternalError` as well.
@@ -454,6 +456,23 @@ price it, as on a self-paid chain, and the sponsor pays what the estimate shows.
 | `nonce` | `BigInteger?` | Optional; pin the estimate to the nonce the withdrawal will sign. |
 
 EVM only — throws on a Solana chain id.
+
+---
+
+### estimateWithdrawalFee(chainId, prepared)
+
+Estimates the fee of a withdrawal already built by `prepareWithdrawal`, running `eth_estimateGas` on
+the prepared parameters. Builds and signs nothing, so the flow is: prepare once (one signature),
+quote the fee on the preparation, then submit.
+
+- **Returns:** `BigDecimal`, the estimated withdrawal fee in the chain's native token.
+- **Throws:** `RainError` if estimation fails; `InternalError` (`RAIN_502`) for a Solana preparation or chain id, since Solana fee estimation is not implemented; a node revert arrives as `WithdrawalRevertedByNetwork` (`RAIN_405`), as for the building overload.
+- **Suspend:** Yes
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `chainId` | `Int` | Target network chain ID. EVM only. |
+| `prepared` | `RainPreparedWithdrawal` | The withdrawal built by `prepareWithdrawal`. |
 
 ---
 

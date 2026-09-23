@@ -34,7 +34,7 @@ screens otherwise need a real provider login to reach.
 | **Wallet & QR** | `getWalletAddress(chainId)` and the collateral deposit address from the demo's own `RainApiClient` (a call a shipped app makes from its backend), each with a QR bitmap from `generateAddressQRCode(address)` |
 | **Balances** | Collateral balances from the demo's `RainApiClient`, with token names and decimals from `RainSdk.tokenMetadata`, plus the wallet's own native and token balances (`getBalance`, `getTokenBalances`) |
 | **Send tokens** | `sendNative` and `sendToken` (ERC-20 on EVM, SPL on Solana) |
-| **Withdraw collateral** | The withdrawal signature from the demo's `RainApiClient` + `withdrawCollateral`, with `estimateWithdrawalFee` and `prepareWithdrawal` dry runs, on both EVM and Solana collateral; a token whose decimals the SDK cannot resolve stays listed with its money actions disabled |
+| **Withdraw collateral** | The withdrawal signature from the demo's `RainApiClient` + `withdrawCollateral`, with `estimateWithdrawalFee` (built, and on the prepared withdrawal) and `prepareWithdrawal` dry runs, on both EVM and Solana collateral; a token whose decimals the SDK cannot resolve stays listed with its money actions disabled |
 | **Auth pull** | `getTokenAllowance`, `estimateApprovalFee`, `approveTokenAllowance` + `confirmTokenAllowance`, and revocation |
 | **History** | `getTransactions(chainId, limit, offset, order)`, newest-first |
 
