@@ -306,7 +306,7 @@ the vendor configuration itself is one-shot per launch.
 
 ## Error handling
 
-Turnkey-specific errors are mapped into the standard `RainError` hierarchy:
+Turnkey-specific errors are mapped into the standard `RainError` hierarchy. Whichever vendor wrapper carries a Turnkey HTTP failure and whichever row below produces the error, a `ProviderError` or `InternalError` reaches the host with the call and the status only, as `HTTP error from <path or activity>: <status>`; the response body never does.
 
 | Turnkey error | Mapped to |
 |---------------|-----------|

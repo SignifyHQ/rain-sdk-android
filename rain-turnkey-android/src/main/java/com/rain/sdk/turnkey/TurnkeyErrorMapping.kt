@@ -43,13 +43,17 @@ internal object TurnkeyErrorMapping {
     /**
      * Every failure that leaves the adapter passes through here. A [RainError] is already the
      * contract and passes through; a Turnkey failure is classified by type, then by HTTP status;
-     * anything else is read by the shared prose rules and floors at [RainError.ProviderError].
+     * anything else is read by the shared prose rules and floors at [RainError.ProviderError]. The
+     * result leaves through [withoutResponseBody], the one place a vendor HTTP failure loses its
+     * response body, so no branch below has to remember to.
      */
-    fun map(e: Throwable): RainError =
-        e as? RainError
+    fun map(e: Throwable): RainError {
+        val mapped = e as? RainError
             ?: classify(e)
             ?: VendorErrorClassifier.fromVendorError(e)
-            ?: RainError.ProviderError(e.sanitizedForHost())
+            ?: RainError.ProviderError(e)
+        return mapped.withoutResponseBody()
+    }
 
     /**
      * A [RainError] for a Turnkey failure, null when the throwable is not one. The typed check
@@ -146,7 +150,7 @@ internal object TurnkeyErrorMapping {
             is TurnkeyKotlinError.FailedToInitOtp -> {
                 val wrapped = e.cause
                 if (wrapped is TurnkeyKotlinError) return mapTurnkeyError(wrapped)
-                return RainError.ProviderError(wrapped.sanitizedForHost(fallback = e))
+                return RainError.ProviderError(e)
             }
 
             else -> Unit // fall through to cause inspection
@@ -162,6 +166,7 @@ internal object TurnkeyErrorMapping {
         }
 
         return RainError.ProviderError(e)
+        // A wrapped HTTP failure with a status the rules above do not claim; its body goes at the exit.
     }
 
     /**
@@ -197,7 +202,7 @@ internal object TurnkeyErrorMapping {
             is CreateCredentialProviderConfigurationException -> noPasskeyProvider(leaf, e)
             is TurnkeyKotlinError -> mapTurnkeyError(leaf)
             null -> VendorErrorClassifier.fromVendorError(e) ?: RainError.ProviderError(e)
-            else -> RainError.ProviderError(leaf.sanitizedForHost(fallback = e))
+            else -> RainError.ProviderError(e)
         }
     }
 
