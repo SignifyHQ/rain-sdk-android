@@ -1,11 +1,11 @@
 package com.rain.sdk.internal.provider
 
-import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
+import com.rain.sdk.error.RainError
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
+import com.rain.sdk.models.UnsignedSolanaTransfer
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderId
 import java.math.BigDecimal
@@ -22,7 +22,7 @@ import java.math.BigDecimal
  * [com.rain.sdk.provider.ProviderDescriptor]. The interface lives in the `internal.provider`
  * package for historical reasons but is part of the public API surface.
  *
- * Error contract: a failure leaves an implementation as a [com.rain.sdk.internal.error.RainError],
+ * Error contract: a failure leaves an implementation as a [com.rain.sdk.error.RainError],
  * never as a vendor exception. Core passes a `RainError` through with its code, the withdrawal
  * paths' rewrap of a simulation failure as `WithdrawalRevertedByNetwork` aside. Anything else it
  * wraps as `ProviderError` after its shared prose heuristics, with two exceptions: on

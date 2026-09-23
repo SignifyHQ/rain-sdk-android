@@ -2,9 +2,9 @@ package com.rain.sdk.internal.solana
 
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
+import com.rain.sdk.error.RainError
+import com.rain.sdk.error.RainErrorCode
 import com.rain.sdk.internal.constants.SolanaPrograms
-import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.internal.error.RainErrorCode
 import com.rain.sdk.internal.helpers.MockRpcServer
 import com.rain.sdk.internal.helpers.SolanaWithdrawFixtures
 import kotlinx.coroutines.runBlocking

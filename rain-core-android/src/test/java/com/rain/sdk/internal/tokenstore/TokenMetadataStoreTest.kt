@@ -1,8 +1,8 @@
 package com.rain.sdk.internal.tokenstore
 
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.error.RainError
 import com.rain.sdk.interfaces.RainClient
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.MockChainReader
 import com.rain.sdk.models.TokenInfo
 import kotlinx.coroutines.CancellationException

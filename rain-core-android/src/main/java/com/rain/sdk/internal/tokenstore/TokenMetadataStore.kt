@@ -1,10 +1,10 @@
 package com.rain.sdk.internal.tokenstore
 
+import com.rain.sdk.error.RainError
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.SolanaChains
 import com.rain.sdk.internal.constants.TokenRegistry
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.chainreader.ChainReader
 import com.rain.sdk.internal.utils.RainAmountUtils
 import com.rain.sdk.models.NativeCurrency

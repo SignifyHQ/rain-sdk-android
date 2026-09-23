@@ -1,7 +1,7 @@
 package com.rain.sdk.portal
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every

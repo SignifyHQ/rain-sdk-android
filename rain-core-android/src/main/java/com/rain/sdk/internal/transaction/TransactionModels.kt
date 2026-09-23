@@ -1,6 +1,6 @@
 package com.rain.sdk.internal.transaction
 
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainWithdrawAddresses
 import java.math.BigDecimal

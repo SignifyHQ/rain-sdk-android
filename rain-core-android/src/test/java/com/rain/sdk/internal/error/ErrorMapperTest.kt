@@ -1,6 +1,7 @@
 package com.rain.sdk.internal.error
 
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.error.RainError
 import org.junit.Test
 import java.io.IOException
 import java.util.concurrent.CancellationException

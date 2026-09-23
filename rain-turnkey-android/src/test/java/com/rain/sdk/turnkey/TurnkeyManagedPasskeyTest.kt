@@ -2,7 +2,7 @@ package com.rain.sdk.turnkey
 
 import android.app.Activity
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.turnkey.types.V1AddressFormat
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException

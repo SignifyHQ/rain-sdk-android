@@ -1,29 +1,13 @@
 package com.rain.sdk.internal.solana
 
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.SolanaPrograms
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.models.UnsignedSolanaTransfer
 import timber.log.Timber
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.util.Base64
-
-/**
- * An unsigned Solana transfer ready for a wallet provider to sign. Public so out-of-module
- * adapters can receive it through [SolanaSupport]; see that class for the visibility rationale.
- */
-class UnsignedSolanaTransfer @RainAdapterApi constructor(
-    transaction: ByteArray,
-    val recentBlockhash: String,
-    val createsRecipientAccount: Boolean = false
-) {
-    private val transactionBytes = transaction
-
-    /** Defensive copy — the bytes were already simulated, so callers must not mutate them. */
-    val transaction: ByteArray get() = transactionBytes.copyOf()
-
-    val transactionHex: String get() = SolanaTransactionBuilder.hexEncode(transactionBytes)
-}
 
 /**
  * Composes unsigned Solana transfers, running every preflight the SDK requires before a wallet

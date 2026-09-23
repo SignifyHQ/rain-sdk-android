@@ -2,7 +2,7 @@ package com.rain.sdk.turnkey
 
 import android.app.Activity
 import android.app.Application
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.utils.validateAndChecksumAddress
 import com.rain.sdk.provider.Capability

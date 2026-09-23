@@ -3,8 +3,8 @@ package com.rain.sdk.sample.screens
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.rain.sdk.error.RainError
 import com.rain.sdk.interfaces.RainClient
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.sample.SampleEnvironment
 import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain

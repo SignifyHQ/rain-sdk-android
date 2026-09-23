@@ -1,4 +1,4 @@
-package com.rain.sdk.internal.error
+package com.rain.sdk.error
 
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test

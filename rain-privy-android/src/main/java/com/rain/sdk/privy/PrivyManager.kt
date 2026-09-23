@@ -1,6 +1,6 @@
 package com.rain.sdk.privy
 
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import io.privy.sdk.Privy
 import io.privy.wallet.ethereum.EmbeddedEthereumWallet
 import io.privy.wallet.ethereum.EthereumChain

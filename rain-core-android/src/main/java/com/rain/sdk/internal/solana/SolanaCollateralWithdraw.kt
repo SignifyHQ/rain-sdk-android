@@ -1,9 +1,10 @@
 package com.rain.sdk.internal.solana
 
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.utils.RainSignatureExpiry
 import com.rain.sdk.internal.utils.RainSignatureSalt
 import com.rain.sdk.models.RainAdminSignature
+import com.rain.sdk.models.UnsignedSolanaTransfer
 import org.web3j.crypto.Hash
 import timber.log.Timber
 import java.io.ByteArrayOutputStream

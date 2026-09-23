@@ -1,7 +1,7 @@
 package com.rain.sdk.internal.tokenstore
 
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.constants.SolanaChains
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.solana.Base58
 import com.rain.sdk.internal.solana.SolanaAddresses
 import com.rain.sdk.internal.utils.RainAmountUtils

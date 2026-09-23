@@ -1,8 +1,8 @@
 package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.internal.error.RainErrorCode
+import com.rain.sdk.error.RainError
+import com.rain.sdk.error.RainErrorCode
 import com.rain.sdk.models.Token
 import com.rain.sdk.provider.Capability
 import kotlinx.coroutines.runBlocking

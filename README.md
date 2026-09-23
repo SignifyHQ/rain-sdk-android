@@ -194,7 +194,7 @@ EVM-only wallet keeps the default `sendSolanaTransaction`, which refuses with `R
 
 ```kotlin
 import com.rain.sdk.RainSdk
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransaction

@@ -1,6 +1,6 @@
 package com.rain.sdk.portal
 
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow

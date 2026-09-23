@@ -3,9 +3,9 @@ package com.rain.sdk.turnkey
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
 import com.rain.sdk.RainChain
+import com.rain.sdk.error.RainError
+import com.rain.sdk.error.RainErrorCode
 import com.rain.sdk.internal.constants.TokenRegistry
-import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.internal.error.RainErrorCode
 import org.junit.Assert.assertThrows
 import org.junit.Test
 

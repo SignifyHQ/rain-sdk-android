@@ -2,7 +2,7 @@ package com.rain.sdk.turnkey
 
 import android.app.Activity
 import android.app.Application
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.turnkey.core.TurnkeyContext
 import com.turnkey.core.models.AuthConfig
 import com.turnkey.core.models.AuthState

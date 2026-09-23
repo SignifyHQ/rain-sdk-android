@@ -1,7 +1,7 @@
 package com.rain.sdk.internal.network.chainreader
 
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.RainAdapterApi
-import com.rain.sdk.internal.error.RainError
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull

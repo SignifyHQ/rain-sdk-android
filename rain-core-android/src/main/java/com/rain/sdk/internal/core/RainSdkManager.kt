@@ -1,19 +1,18 @@
 package com.rain.sdk.internal.core
 
 import android.graphics.Bitmap
+import com.rain.sdk.error.RainError
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.interfaces.RainTransactionBuilder
 import com.rain.sdk.internal.abi.Erc20Abi
 import com.rain.sdk.internal.constants.SolanaChains
 import com.rain.sdk.internal.error.ErrorMapper
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.chainreader.ChainReader
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.network.chainreader.MinedReceipt
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.solana.SolanaCollateralWithdrawComposer
 import com.rain.sdk.internal.solana.SolanaRpcClient
-import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
 import com.rain.sdk.internal.tokenstore.TokenInfoValidation
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.internal.transaction.TransactionCoordinator
@@ -35,6 +34,7 @@ import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
+import com.rain.sdk.models.UnsignedSolanaTransfer
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.utils.QRGenerator

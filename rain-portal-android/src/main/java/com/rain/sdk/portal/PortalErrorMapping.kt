@@ -1,6 +1,6 @@
 package com.rain.sdk.portal
 
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.error.VendorErrorClassifier
 import io.portalhq.android.exceptions.PortalException
 import io.portalhq.android.utils.errors.PortalErrorCodes

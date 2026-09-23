@@ -1,7 +1,7 @@
 package com.rain.sdk.internal.core
 
 import android.webkit.URLUtil
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import kotlin.collections.iterator
 
 /**

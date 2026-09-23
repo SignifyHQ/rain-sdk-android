@@ -1,8 +1,8 @@
 package com.rain.sdk.turnkey
 
 import com.rain.sdk.RainChain
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.constants.SolanaChains
-import com.rain.sdk.internal.error.RainError
 
 /**
  * The chains Turnkey's managed transaction path can broadcast (and gas-sponsor) on.

@@ -2,8 +2,8 @@ package com.rain.sdk.internal.network.chainreader
 
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.constants.TokenRegistry
-import com.rain.sdk.internal.error.RainError
 import org.junit.Assert.assertThrows
 import org.junit.Test
 

@@ -1,6 +1,6 @@
 package com.rain.sdk.privy
 
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull

@@ -1,4 +1,4 @@
-package com.rain.sdk.internal.error
+package com.rain.sdk.error
 
 /**
  * The `RAIN_*` codes every [RainError] carries. The values are a published contract hosts switch on, and

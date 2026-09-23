@@ -1,7 +1,7 @@
 package com.rain.sdk.interfaces
 
 import android.graphics.Bitmap
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainPreparedWithdrawal

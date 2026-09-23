@@ -1,13 +1,13 @@
 package com.rain.sdk
 
+import com.rain.sdk.error.RainError
+import com.rain.sdk.error.noRpcEndpointConfigured
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.interfaces.RainTransactionBuilder
 import com.rain.sdk.internal.core.ConfigManager
 import com.rain.sdk.internal.core.RainSdkManager
 import com.rain.sdk.internal.core.RainTransactionBuilderImpl
 import com.rain.sdk.internal.error.ErrorMapper
-import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.internal.error.noRpcEndpointConfigured
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.solana.SolanaSupport
 import com.rain.sdk.internal.tokenstore.TokenInfoValidation

@@ -1,7 +1,7 @@
 package com.rain.sdk.sample
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.models.TokenInfo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking

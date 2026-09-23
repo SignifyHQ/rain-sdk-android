@@ -1,7 +1,7 @@
 package com.rain.sdk.internal.solana
 
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.RainAdapterApi
-import com.rain.sdk.internal.error.RainError
 import timber.log.Timber
 import java.math.BigInteger
 

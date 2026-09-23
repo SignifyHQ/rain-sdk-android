@@ -1,6 +1,6 @@
 package com.rain.sdk.turnkey
 
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import kotlinx.coroutines.CancellationException
 import timber.log.Timber
 

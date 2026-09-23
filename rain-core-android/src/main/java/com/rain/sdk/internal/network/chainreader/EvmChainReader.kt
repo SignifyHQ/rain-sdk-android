@@ -1,10 +1,10 @@
 package com.rain.sdk.internal.network.chainreader
 
+import com.rain.sdk.error.RainError
+import com.rain.sdk.error.noRpcEndpointConfigured
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.TokenRegistry
-import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.internal.error.noRpcEndpointConfigured
 import com.rain.sdk.internal.utils.isValidEthereumAddress
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token

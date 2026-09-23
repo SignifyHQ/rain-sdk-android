@@ -1,4 +1,4 @@
-package com.rain.sdk.internal.error
+package com.rain.sdk.error
 
 import com.google.common.truth.Truth.assertWithMessage
 import org.junit.Test
@@ -61,6 +61,8 @@ class RainErrorDocsParityTest {
             "NO_COLLATERAL_CONTRACTS",
             "RainErrorCode.SIGNATURE_NOT_READY",
             "TRANSACTION_PENDING",
+            "com.rain.sdk.internal.error",
+            "com.rain.sdk.internal.solana.UnsignedSolanaTransfer",
         ).forEach { name ->
             assertWithMessage(name).that(removedSection).contains(name)
         }

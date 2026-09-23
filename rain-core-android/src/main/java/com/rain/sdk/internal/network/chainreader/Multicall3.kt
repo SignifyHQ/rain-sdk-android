@@ -1,6 +1,6 @@
 package com.rain.sdk.internal.network.chainreader
 
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.utils.strippingHexPrefix
 import java.util.Locale
 

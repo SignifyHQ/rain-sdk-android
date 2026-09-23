@@ -1,7 +1,7 @@
 package com.rain.sdk.internal.transaction
 
+import com.rain.sdk.error.RainError
 import com.rain.sdk.interfaces.RainTransactionBuilder
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.models.RainTransactionParameters
 import kotlinx.coroutines.CancellationException

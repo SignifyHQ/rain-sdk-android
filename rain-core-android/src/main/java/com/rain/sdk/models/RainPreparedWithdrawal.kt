@@ -1,6 +1,6 @@
 package com.rain.sdk.models
 
-import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
+import com.rain.sdk.models.UnsignedSolanaTransfer
 
 /**
  * A collateral withdrawal built but not broadcast, in the shape the target chain requires.

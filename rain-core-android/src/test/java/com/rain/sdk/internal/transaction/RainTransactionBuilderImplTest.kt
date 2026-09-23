@@ -1,8 +1,8 @@
 package com.rain.sdk.internal.transaction
 
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.core.RainTransactionBuilderImpl
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.Web3jProvider
 import com.rain.sdk.models.RainWithdrawAddresses
 import io.mockk.every

@@ -6,6 +6,7 @@ import com.rain.sdk.internal.network.chainreader.SolanaChainReader
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
+import com.rain.sdk.models.UnsignedSolanaTransfer
 import java.math.BigDecimal
 
 /**

@@ -1,7 +1,7 @@
 package com.rain.sdk.internal.utils
 
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.RainAdapterApi
-import com.rain.sdk.internal.error.RainError
 import org.web3j.crypto.Keys
 import org.web3j.utils.Numeric
 

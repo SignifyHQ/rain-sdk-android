@@ -1,6 +1,6 @@
 package com.rain.sdk.internal.abi
 
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.utils.RainAmountUtils
 import com.rain.sdk.internal.utils.RainHexUtils
 import org.web3j.abi.FunctionEncoder

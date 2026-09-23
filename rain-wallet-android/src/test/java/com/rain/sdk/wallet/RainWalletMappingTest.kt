@@ -2,7 +2,7 @@ package com.rain.sdk.wallet
 
 import android.app.Application
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.turnkey.LoginContact
 import com.rain.sdk.turnkey.TurnkeyAuthState
 import com.rain.sdk.turnkey.TurnkeySessionPolicy
