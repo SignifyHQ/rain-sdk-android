@@ -67,6 +67,10 @@ class RainErrorDocsParityTest {
             "INTERNAL_ERROR",
             "RainSdk.descriptors",
             "RainSdk.providers",
+            "RainWalletContact.Phone",
+            "RainWalletContact.Phone",
+            "LoginContact.Phone",
+            "LoginContact.Phone",
         ).forEach { name ->
             assertWithMessage(name).that(removedSection).contains(name)
         }

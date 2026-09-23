@@ -1729,7 +1729,7 @@ data class ContactInput(val channel: ContactChannel, val email: String, val phon
 /** The typed contact for the SDK, on this channel. */
 private fun ContactChannel.toRainWalletContact(contact: String): RainWalletContact = when (this) {
     ContactChannel.Email -> RainWalletContact.Email(contact)
-    ContactChannel.Phone -> RainWalletContact.Sms(contact)
+    ContactChannel.Phone -> RainWalletContact.Phone(contact)
 }
 
 private fun SessionStore.Provider.toMode(): WalletMode = when (this) {

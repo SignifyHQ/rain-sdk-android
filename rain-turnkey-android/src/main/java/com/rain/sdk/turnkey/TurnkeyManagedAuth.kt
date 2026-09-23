@@ -579,7 +579,7 @@ internal class TurnkeyManagedAuthController(
             val email = contact.value.trim().ifEmpty { throw RainError.InvalidConfig("email must not be blank") }
             email to OtpChannel.EMAIL
         }
-        is LoginContact.Sms -> requirePhoneNumber(contact.value) to OtpChannel.SMS
+        is LoginContact.Phone -> requirePhoneNumber(contact.value) to OtpChannel.SMS
     }
 
     /**

@@ -60,14 +60,14 @@ class TurnkeyManagedContactAttachTest {
         val controller = controller(turnkey)
 
         controller.sendContactVerificationCode(LoginContact.Email("  User@Example.com "))
-        controller.sendContactVerificationCode(LoginContact.Sms("+1 (321) 456-7890"))
+        controller.sendContactVerificationCode(LoginContact.Phone("+1 (321) 456-7890"))
 
         assertThat(turnkey.sendOtpCalls.map { it.contact }).containsExactly("User@Example.com", "+13214567890").inOrder()
         assertThat(turnkey.sendOtpCalls.map { it.channel }).containsExactly(OtpChannel.EMAIL, OtpChannel.SMS).inOrder()
 
         expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Email("   ")) }
-        expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Sms("+44 (0) 20 1234 5678")) }
-        expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Sms("1234")) }
+        expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Phone("+44 (0) 20 1234 5678")) }
+        expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Phone("1234")) }
         assertThat(turnkey.sendOtpCalls).hasSize(2)
     }
 
@@ -219,7 +219,7 @@ class TurnkeyManagedContactAttachTest {
     fun `confirming a phone number sets the phone number`() = runTest {
         val turnkey = MockTurnkey()
         val controller = controller(turnkey)
-        controller.sendContactVerificationCode(LoginContact.Sms("+1 999 999 9999"))
+        controller.sendContactVerificationCode(LoginContact.Phone("+1 999 999 9999"))
 
         controller.confirmContactVerification("000000")
 

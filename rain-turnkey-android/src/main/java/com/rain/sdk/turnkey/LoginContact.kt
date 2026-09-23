@@ -3,7 +3,7 @@ package com.rain.sdk.turnkey
 /**
  * Where a managed-mode login code is delivered, and the identity the account is keyed on. A first
  * login signs the user up under this contact; a later login finds the account by email for [Email]
- * and by phone number for [Sms]. The same person arriving through the other channel is a new
+ * and by phone number for [Phone]. The same person arriving through the other channel is a new
  * account unless the second contact was attached to the first account while signed in
  * (`sendContactVerificationCode` / `confirmContactVerification`). `sendLoginCode` and
  * `sendContactVerificationCode` canonicalize the value once (trim for an email; trim, separator
@@ -28,7 +28,7 @@ sealed interface LoginContact {
      * and so does a parenthesised trunk zero (`+44 (0) 20 ...`), which stripping would fold into a
      * different number. A national number without its country code is not converted.
      */
-    data class Sms(override val value: String) : LoginContact {
-        override fun toString(): String = "LoginContact.Sms(…)"
+    data class Phone(override val value: String) : LoginContact {
+        override fun toString(): String = "LoginContact.Phone(…)"
     }
 }

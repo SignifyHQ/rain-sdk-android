@@ -200,7 +200,7 @@ class RainProvider internal constructor(
 
     /**
      * The email channel: `sendLoginCode(RainWalletContact.Email(email))`. Pass a phone number
-     * through [RainWalletContact.Sms] instead; this overload sends any string as an email address.
+     * through [RainWalletContact.Phone] instead; this overload sends any string as an email address.
      *
      * @throws RainError.InvalidConfig (`RAIN_102`) for a blank email, on a wallet backend
      *   configuration conflict for this launch, or when this provider was closed.

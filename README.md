@@ -159,7 +159,7 @@ val provider = TurnkeyProvider(
 provider.awaitSessionRestore()
 if (!provider.hasActiveSession()) {
     provider.sendLoginCode("user@example.com")
-    // or provider.sendLoginCode(LoginContact.Sms("+15551234567")) for a code by SMS
+    // or provider.sendLoginCode(LoginContact.Phone("+15551234567")) for a code by SMS
     provider.confirmLoginCode(code)          // sign-up or login
 }
 

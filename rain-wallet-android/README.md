@@ -27,7 +27,7 @@ val wallet = RainProvider(application, RainWalletConfig(passkeyDomain = "passkey
 wallet.awaitSessionRestore()
 if (!wallet.hasActiveSession()) {
     wallet.sendLoginCode(RainWalletContact.Email("user@example.com"))
-    // or RainWalletContact.Sms("+15551234567") for a code by SMS
+    // or RainWalletContact.Phone("+15551234567") for a code by SMS
     wallet.confirmLoginCode(code) // sign-up or login, plus wallet provisioning
     // or a passkey through the system sheet, presented from the foreground Activity:
     // wallet.loginWithPasskey(activity), or wallet.signUpWithPasskey(activity) for a new account

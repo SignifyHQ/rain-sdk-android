@@ -95,7 +95,7 @@ class TurnkeyManagedProviderTest {
         provider.awaitSessionRestore(timeoutMs = 10) // no-op, must not throw
         val thrown = expectThrows<RainError.InvalidConfig> { provider.sendLoginCode("user@example.com") }
         assertThat(thrown).hasMessageThat().contains("managed mode")
-        expectThrows<RainError.InvalidConfig> { provider.sendLoginCode(LoginContact.Sms("+19999999999")) }
+        expectThrows<RainError.InvalidConfig> { provider.sendLoginCode(LoginContact.Phone("+19999999999")) }
         expectThrows<RainError.InvalidConfig> { provider.confirmLoginCode("123456") }
         expectThrows<RainError.InvalidConfig> { provider.logout() }
         assertThat(turnkey.sendOtpCalls).isEmpty()
@@ -155,7 +155,7 @@ class TurnkeyManagedProviderTest {
         val turnkey = MockTurnkey(session = null)
         val provider = TurnkeyProvider(managedConfig(), contextOverride = turnkey)
 
-        provider.sendLoginCode(LoginContact.Sms("+1 999 999 9999"))
+        provider.sendLoginCode(LoginContact.Phone("+1 999 999 9999"))
 
         assertThat(turnkey.sendOtpCalls).containsExactly(MockTurnkey.SendOtpCall("+19999999999", OtpChannel.SMS))
     }
@@ -249,7 +249,7 @@ class TurnkeyManagedProviderTest {
         provider.close()
 
         expectThrows<RainError.InvalidConfig> { provider.sendLoginCode("user@example.com") }
-        expectThrows<RainError.InvalidConfig> { provider.sendLoginCode(LoginContact.Sms("+19999999999")) }
+        expectThrows<RainError.InvalidConfig> { provider.sendLoginCode(LoginContact.Phone("+19999999999")) }
         expectThrows<RainError.InvalidConfig> { provider.logout() }
         assertThat(provider.hasActiveSession()).isFalse()
         assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
@@ -374,7 +374,7 @@ class TurnkeyManagedProviderTest {
         val turnkey = MockTurnkey()
         val provider = TurnkeyProvider(managedConfig(), contextOverride = turnkey)
 
-        provider.sendContactVerificationCode(LoginContact.Sms("+1 999-999-9999"))
+        provider.sendContactVerificationCode(LoginContact.Phone("+1 999-999-9999"))
         provider.confirmContactVerification("000000")
 
         assertThat(turnkey.sendOtpCalls.single().contact).isEqualTo("+19999999999")

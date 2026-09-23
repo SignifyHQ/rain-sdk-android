@@ -201,11 +201,11 @@ class RainProviderTest {
         coEvery { backing.sendLoginCode(any<LoginContact>()) } just Runs
 
         provider.sendLoginCode(RainWalletContact.Email("user@example.com"))
-        provider.sendLoginCode(RainWalletContact.Sms("+15551234567"))
+        provider.sendLoginCode(RainWalletContact.Phone("+15551234567"))
         provider.sendLoginCode("overload@example.com")
 
         coVerify(exactly = 1) { backing.sendLoginCode(LoginContact.Email("user@example.com")) }
-        coVerify(exactly = 1) { backing.sendLoginCode(LoginContact.Sms("+15551234567")) }
+        coVerify(exactly = 1) { backing.sendLoginCode(LoginContact.Phone("+15551234567")) }
         coVerify(exactly = 1) { backing.sendLoginCode(LoginContact.Email("overload@example.com")) }
     }
 
@@ -259,10 +259,10 @@ class RainProviderTest {
         coEvery { backing.sendContactVerificationCode(any<LoginContact>()) } just Runs
 
         provider.sendContactVerificationCode(RainWalletContact.Email("user@example.com"))
-        provider.sendContactVerificationCode(RainWalletContact.Sms("+15551234567"))
+        provider.sendContactVerificationCode(RainWalletContact.Phone("+15551234567"))
 
         coVerify(exactly = 1) { backing.sendContactVerificationCode(LoginContact.Email("user@example.com")) }
-        coVerify(exactly = 1) { backing.sendContactVerificationCode(LoginContact.Sms("+15551234567")) }
+        coVerify(exactly = 1) { backing.sendContactVerificationCode(LoginContact.Phone("+15551234567")) }
     }
 
     @Test

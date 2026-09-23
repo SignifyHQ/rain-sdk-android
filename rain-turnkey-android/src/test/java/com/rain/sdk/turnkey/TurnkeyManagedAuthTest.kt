@@ -65,7 +65,7 @@ class TurnkeyManagedAuthTest {
     )
 
     /** Turnkey's documented sandbox number, never a real person's. SMS-specific tests live in [TurnkeyManagedAuthSmsTest]. */
-    private val smsContact = LoginContact.Sms("+19999999999")
+    private val smsContact = LoginContact.Phone("+19999999999")
 
     // ---------- one-time-code channel ----------
 
