@@ -1,7 +1,6 @@
 package com.rain.sdk.turnkey
 
 import android.app.Activity
-import android.app.Application
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
 import com.turnkey.core.models.AuthState
@@ -24,9 +23,10 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Managed-auth tests for [TurnkeyManagedConfigurator] and [TurnkeyManagedAuthController], run
- * against [MockTurnkey] — no vendor singleton is ever touched. Gated on JDK 24 like every
- * Turnkey suite. The configurator is process-global state, so it is reset around every test.
+ * Managed-auth tests for [TurnkeyManagedAuthController], run against [MockTurnkey] — no vendor
+ * singleton is ever touched. Gated on JDK 24 like every Turnkey suite. The configurator is
+ * process-global state, so it is reset around every test; its own rules live in
+ * [TurnkeyManagedConfiguratorTest].
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class TurnkeyManagedAuthTest {
@@ -66,87 +66,6 @@ class TurnkeyManagedAuthTest {
 
     /** Turnkey's documented sandbox number, never a real person's. SMS-specific tests live in [TurnkeyManagedAuthSmsTest]. */
     private val smsContact = LoginContact.Sms("+19999999999")
-
-    // ---------- configurator (process-wide, one-shot) ----------
-
-    @Test
-    fun `configure is idempotent for identical ids and initializes the vendor once`() = runTest {
-        var initCalls = 0
-        TurnkeyManagedConfigurator.initImpl = { _, _, _ -> initCalls++ }
-        TurnkeyManagedConfigurator.vendorInitializedProbe = { false }
-        val app = mockk<Application>()
-
-        assertThat(TurnkeyManagedConfigurator.configure(app, "org-a", "proxy-a")).isNull()
-        assertThat(TurnkeyManagedConfigurator.configure(app, "org-a", "proxy-a")).isNull()
-
-        assertThat(initCalls).isEqualTo(1)
-    }
-
-    @Test
-    fun `configure with different ids returns InvalidConfig and leaves the first configuration in place`() = runTest {
-        var initCalls = 0
-        TurnkeyManagedConfigurator.initImpl = { _, _, _ -> initCalls++ }
-        TurnkeyManagedConfigurator.vendorInitializedProbe = { false }
-        val app = mockk<Application>()
-
-        assertThat(TurnkeyManagedConfigurator.configure(app, "org-a", "proxy-a")).isNull()
-        val mismatch = TurnkeyManagedConfigurator.configure(app, "org-b", "proxy-a")
-
-        assertThat(mismatch).isInstanceOf(RainError.InvalidConfig::class.java)
-        assertThat(initCalls).isEqualTo(1)
-        // The original ids still work.
-        assertThat(TurnkeyManagedConfigurator.configure(app, "org-a", "proxy-a")).isNull()
-    }
-
-    @Test
-    fun `configure rejects blank ids without recording them`() = runTest {
-        var initCalls = 0
-        TurnkeyManagedConfigurator.initImpl = { _, _, _ -> initCalls++ }
-        TurnkeyManagedConfigurator.vendorInitializedProbe = { false }
-        val app = mockk<Application>()
-
-        assertThat(
-            TurnkeyManagedConfigurator.configure(app, "", "proxy-a")
-        ).isInstanceOf(RainError.InvalidConfig::class.java)
-        assertThat(
-            TurnkeyManagedConfigurator.configure(app, "org-a", "  ")
-        ).isInstanceOf(RainError.InvalidConfig::class.java)
-        assertThat(initCalls).isEqualTo(0)
-        // A blank attempt must not burn the process slot.
-        assertThat(TurnkeyManagedConfigurator.configure(app, "org-a", "proxy-a")).isNull()
-        assertThat(initCalls).isEqualTo(1)
-    }
-
-    @Test
-    fun `configure refuses a vendor context that was initialized outside the SDK`() = runTest {
-        var initCalls = 0
-        TurnkeyManagedConfigurator.initImpl = { _, _, _ -> initCalls++ }
-        TurnkeyManagedConfigurator.vendorInitializedProbe = { true }
-
-        val result = TurnkeyManagedConfigurator.configure(mockk<Application>(), "org-a", "proxy-a")
-
-        assertThat(result).isInstanceOf(RainError.InvalidConfig::class.java)
-        assertThat(initCalls).isEqualTo(0)
-    }
-
-    @Test
-    fun `a failing vendor initialization returns InternalError, records nothing, and can be retried`() = runTest {
-        var attempts = 0
-        TurnkeyManagedConfigurator.initImpl = { _, _, _ ->
-            attempts++
-            if (attempts == 1) error("keystore unavailable")
-        }
-        // Like the vendor: it reads as initialized from the first attempt on, even a failed one.
-        TurnkeyManagedConfigurator.vendorInitializedProbe = { attempts > 0 }
-        val app = mockk<Application>()
-
-        val first = TurnkeyManagedConfigurator.configure(app, "org-a", "proxy-a")
-        assertThat(first).isInstanceOf(RainError.InternalError::class.java)
-        // Nothing was recorded, so the same ids try again — and the SDK's own attempt must not be
-        // mistaken for a context configured outside the SDK.
-        assertThat(TurnkeyManagedConfigurator.configure(app, "org-a", "proxy-a")).isNull()
-        assertThat(attempts).isEqualTo(2)
-    }
 
     // ---------- one-time-code channel ----------
 

@@ -119,8 +119,9 @@ class TurnkeyConfig internal constructor(
      * Managed mode — internal API reserved for the Rain wallet provider (`RainProvider` in `rain-wallet-android`), see [InternalRainTurnkeyApi].
      *
      * The Turnkey configuration is one-shot per app launch: the SDK applies it on the first
-     * authentication call (or at provider resolution). Blank ids, a second managed provider with
-     * *different* ids, or a `TurnkeyContext` the app initialized itself make every auth call throw
+     * authentication call (or at provider resolution), `passkeyDomain` included. Blank ids, a second
+     * managed provider with *different* ids or a different domain, or a `TurnkeyContext` the app
+     * initialized itself make every auth call throw
      * `RainError.InvalidConfig` — relaunch the app to change them; a failed Turnkey initialization
      * makes them throw `RainError.InternalError` until relaunch.
      *
@@ -136,7 +137,9 @@ class TurnkeyConfig internal constructor(
      *   the host controls, such as `passkeys.example.com`, whose `/.well-known/assetlinks.json` lists the app's package name and
      *   signing-certificate fingerprints. Null or blank turns the passkey methods off; they then throw
      *   `RainError.InvalidConfig`. The domain is permanent: every passkey created against it stops
-     *   working when it changes.
+     *   working when it changes. It is part of the one-shot configuration, so a second managed
+     *   provider with a different domain in the same app launch makes every auth call throw
+     *   `RainError.InvalidConfig` until relaunch.
      * @throws RainError.InvalidConfig (`RAIN_102`) when [walletAddress] is malformed or carries a
      *   wrong mixed-case checksum, or when [passkeyDomain] is not a domain of at least two labels made
      *   of letters, digits and hyphens (a scheme, port, path or a single label such as `localhost`
@@ -229,7 +232,12 @@ class TurnkeyProvider internal constructor(
                 context = turnkeyContext,
                 coordinator = coordinator,
                 configure = {
-                    TurnkeyManagedConfigurator.configure(ids.application, ids.organizationId, ids.authProxyConfigId)
+                    TurnkeyManagedConfigurator.configure(
+                        ids.application,
+                        ids.organizationId,
+                        ids.authProxyConfigId,
+                        ids.passkeyDomain,
+                    )
                 },
                 passkeyDomain = ids.passkeyDomain,
             )
@@ -416,8 +424,8 @@ class TurnkeyProvider internal constructor(
      * session can be reused without a new code. A timeout returns normally and leaves [authState]
      * at [TurnkeyAuthState.Loading]. As the first auth call of a launch it also runs Turnkey's
      * one-shot initialization first, which [timeoutMs] does not bound. A no-op in bring-your-own
-     * mode. Throws `RainError.InvalidConfig` when the ids are blank, conflict with the ones the
-     * process was configured with, or Turnkey was configured outside the SDK, and
+     * mode. Throws `RainError.InvalidConfig` when the ids are blank, the ids or the passkey domain
+     * conflict with the ones the process was configured with, or Turnkey was configured outside the SDK, and
      * `RainError.InternalError` when Turnkey's initialization failed.
      */
     @InternalRainTurnkeyApi

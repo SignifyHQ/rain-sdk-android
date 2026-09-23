@@ -43,7 +43,7 @@ class TurnkeyManagedProviderTest {
         Dispatchers.setMain(StandardTestDispatcher())
         mainSet = true
         TurnkeyManagedConfigurator.resetForTest()
-        TurnkeyManagedConfigurator.initImpl = { _, _, _ -> }
+        TurnkeyManagedConfigurator.initImpl = { _, _, _, _ -> }
         TurnkeyManagedConfigurator.vendorInitializedProbe = { false }
     }
 
@@ -114,7 +114,7 @@ class TurnkeyManagedProviderTest {
     @Test
     fun `managed mode exports after running the one-shot configuration`() = runTest {
         val configured = mutableListOf<Pair<String, String>>()
-        TurnkeyManagedConfigurator.initImpl = { _, organizationId, authProxyConfigId ->
+        TurnkeyManagedConfigurator.initImpl = { _, organizationId, authProxyConfigId, _ ->
             configured += organizationId to authProxyConfigId
         }
         val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithVectorAccounts())) // restored live session
@@ -137,7 +137,7 @@ class TurnkeyManagedProviderTest {
     @Test
     fun `managed mode configures the vendor with the config's ids on the first auth call, not at construction`() = runTest {
         val configured = mutableListOf<Pair<String, String>>()
-        TurnkeyManagedConfigurator.initImpl = { _, organizationId, authProxyConfigId ->
+        TurnkeyManagedConfigurator.initImpl = { _, organizationId, authProxyConfigId, _ ->
             configured += organizationId to authProxyConfigId
         }
         val turnkey = MockTurnkey(session = null)
@@ -314,14 +314,20 @@ class TurnkeyManagedProviderTest {
     @Test
     fun `managed mode forwards both passkey flows with the domain and configures once`() = runTest {
         var initCalls = 0
-        TurnkeyManagedConfigurator.initImpl = { _, _, _ -> initCalls++ }
+        val configuredDomains = mutableListOf<String?>()
+        TurnkeyManagedConfigurator.initImpl = { _, _, _, domain ->
+            initCalls++
+            configuredDomains += domain
+        }
         val login = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), session = null)
         login.onPasskeyLogin = { login.authenticate() }
         val loginProvider = TurnkeyProvider(managedConfig(passkeyDomain = "passkeys.example.com"), contextOverride = login)
 
         loginProvider.loginWithPasskey(activity)
 
-        assertThat(login.passkeyLoginCalls.single().rpId).isEqualTo("passkeys.example.com")
+        // The domain travels in the one-shot configuration, not on the call.
+        assertThat(login.passkeyLoginCalls.single().sessionKey).startsWith("rain-turnkey-")
+        assertThat(configuredDomains).containsExactly("passkeys.example.com")
         // The flow and the backfill each run the readiness guard; the vendor init ran once.
         assertThat(login.awaitReadyCallCount).isAtLeast(1)
         assertThat(initCalls).isEqualTo(1)
@@ -334,7 +340,6 @@ class TurnkeyManagedProviderTest {
         signUpProvider.signUpWithPasskey(activity)
 
         val call = signUp.passkeySignUpCalls.single()
-        assertThat(call.rpId).isEqualTo("passkeys.example.com")
         assertThat(call.passkeyName).startsWith("passkey-")
         assertThat(call.signupWallet.name).isEqualTo("Wallet")
         assertThat(signUp.awaitReadyCallCount).isAtLeast(1)

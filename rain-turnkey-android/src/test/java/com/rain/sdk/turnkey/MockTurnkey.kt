@@ -317,10 +317,9 @@ internal class MockTurnkey(
 
     // ---- passkey seams ----
 
-    data class PasskeyLoginCall(val rpId: String, val sessionKey: String)
+    data class PasskeyLoginCall(val sessionKey: String)
 
     data class PasskeySignUpCall(
-        val rpId: String,
         val sessionKey: String,
         val passkeyName: String,
         val signupWallet: TurnkeyWalletSpec,
@@ -455,19 +454,18 @@ internal class MockTurnkey(
         if (sessionKey == selectedSessionKey) resetToUnauthenticated()
     }
 
-    override suspend fun completePasskeyLogin(activity: android.app.Activity, rpId: String, sessionKey: String) {
-        passkeyLoginCalls += PasskeyLoginCall(rpId, sessionKey)
+    override suspend fun completePasskeyLogin(activity: android.app.Activity, sessionKey: String) {
+        passkeyLoginCalls += PasskeyLoginCall(sessionKey)
         storePasskeySession(sessionKey, passkeyLoginError, onPasskeyLogin)
     }
 
     override suspend fun completePasskeySignUp(
         activity: android.app.Activity,
-        rpId: String,
         sessionKey: String,
         passkeyName: String,
         signupWallet: TurnkeyWalletSpec,
     ) {
-        passkeySignUpCalls += PasskeySignUpCall(rpId, sessionKey, passkeyName, signupWallet)
+        passkeySignUpCalls += PasskeySignUpCall(sessionKey, passkeyName, signupWallet)
         storePasskeySession(sessionKey, passkeySignUpError, onPasskeySignUp)
     }
 

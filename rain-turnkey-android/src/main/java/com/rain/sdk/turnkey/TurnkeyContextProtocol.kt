@@ -194,16 +194,18 @@ internal interface TurnkeyContextProtocol {
     // ---- Passkeys (managed mode) ----
 
     /**
-     * Signs an existing user in with a passkey bound to [rpId], through the system passkey sheet
+     * Signs an existing user in with a passkey bound to the relying-party domain of the one-shot
+     * configuration, through the system passkey sheet
      * presented from [activity], and stores the session under [sessionKey]. Revokes the user's
      * other sessions server-side. The vendor selects the new session itself only when none is
      * selected; over a live session the caller switches. On return, success or failure, the vendor
      * deletes every stored device key no session references. Suspends for the whole ceremony.
      */
-    suspend fun completePasskeyLogin(activity: Activity, rpId: String, sessionKey: String)
+    suspend fun completePasskeyLogin(activity: Activity, sessionKey: String)
 
     /**
-     * Creates a new organization whose root user holds a passkey bound to [rpId], named
+     * Creates a new organization whose root user holds a passkey bound to the relying-party domain
+     * of the one-shot configuration, named
      * [passkeyName], with [signupWallet] created inside the same request, then logs in and stores
      * the session under [sessionKey]. The vendor swaps its process-wide client for a temporary-key
      * client for the whole call and restores it only by selecting the new session, which it does
@@ -212,7 +214,6 @@ internal interface TurnkeyContextProtocol {
      */
     suspend fun completePasskeySignUp(
         activity: Activity,
-        rpId: String,
         sessionKey: String,
         passkeyName: String,
         signupWallet: TurnkeyWalletSpec,
@@ -220,7 +221,9 @@ internal interface TurnkeyContextProtocol {
 
     /**
      * Runs the passkey creation ceremony for [rpId] on [activity], naming the passkey [name] in the
-     * credential provider. Touches no session and no backend: the result is registered on the
+     * credential provider. The domain is explicit here because the vendor's ceremony takes it as a
+     * parameter with no configured default; callers pass the one-shot configuration's value. Touches
+     * no session and no backend: the result is registered on the
      * account through [registerAuthenticator], so a retry of the registration never re-runs the sheet.
      */
     suspend fun createPasskeyCredential(activity: Activity, rpId: String, name: String): PasskeyRegistration
@@ -411,22 +414,21 @@ internal class TurnkeyContextAdapter(
     // and rewrite its stores on the calling thread, as refreshSession's vendor call does, and hosts
     // call from the main thread. The credential sheet is launched through the Activity and needs no
     // main-thread caller.
-    override suspend fun completePasskeyLogin(activity: Activity, rpId: String, sessionKey: String) {
+    override suspend fun completePasskeyLogin(activity: Activity, sessionKey: String) {
         withContext(ioDispatcher) {
             context.loginWithPasskey(
                 activity = activity,
                 sessionKey = sessionKey,
                 // Revokes this user's other Turnkey sessions server-side on a successful login, the
-                // same rule as the code login; a refused passkey never reaches this point.
+                // same rule as the code login; a refused passkey never reaches this point. The
+                // relying party comes from the one-shot configuration's authConfig.
                 invalidateExisting = true,
-                rpId = rpId,
             )
         }
     }
 
     override suspend fun completePasskeySignUp(
         activity: Activity,
-        rpId: String,
         sessionKey: String,
         passkeyName: String,
         signupWallet: TurnkeyWalletSpec,
@@ -437,10 +439,10 @@ internal class TurnkeyContextAdapter(
                 sessionKey = sessionKey,
                 passkeyDisplayName = passkeyName,
                 // The vendor replaces the authenticators and API keys of these params with the
-                // passkey and its temporary key and keeps the wallet.
+                // passkey and its temporary key and keeps the wallet. The relying party comes from
+                // the one-shot configuration's authConfig.
                 createSubOrgParams = signupWallet.toSignupParams(),
                 invalidateExisting = true,
-                rpId = rpId,
             )
         }
     }

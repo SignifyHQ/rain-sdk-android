@@ -45,8 +45,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * gives a passkey-created account an email or phone to sign in with.
  *
  * The wallet backend's configuration is one-shot per app launch and the first authentication call
- * applies it. A backend the app configured itself, or another provider in this process configured
- * with a different backend identity, makes every authentication call throw `RainError.InvalidConfig`
+ * applies it, `passkeyDomain` included. A backend the app configured itself, or another provider
+ * in this process configured with a different backend identity or passkey domain, makes every
+ * authentication call throw `RainError.InvalidConfig`
  * (`RAIN_102`) until the app relaunches; a failed backend initialization makes them throw
  * `RainError.InternalError` (`RAIN_502`) until then.
  *

@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Application
 import com.rain.sdk.internal.error.RainError
 import com.turnkey.core.TurnkeyContext
+import com.turnkey.core.models.AuthConfig
 import com.turnkey.core.models.AuthState
 import com.turnkey.types.V1AddressFormat
 import com.turnkey.types.V1Curve
@@ -36,8 +37,11 @@ import kotlin.concurrent.withLock as withJavaLock
  * `TurnkeyContext` is a Kotlin `object` whose `initSuspend` silently returns when it has already
  * run, so without this guard a host that changed ids — or a context configured outside the SDK —
  * would keep transacting against the first organization with no signal. Configuring again with
- * the same ids is a no-op; with different ids, or over a foreign configuration, it is an error
- * the provider surfaces on every auth call (the app has to relaunch to change them).
+ * the same ids and passkey domain is a no-op; with different ones, or over a foreign
+ * configuration, it is an error the provider surfaces on every auth call (the app has to
+ * relaunch to change them). The passkey domain is part of the configuration because the vendor
+ * reads the relying party for its passkey login and sign-up from there, the cross-platform
+ * contract shared by Rain's SDKs; the add-passkey ceremony takes it explicitly.
  *
  * Known limit: the foreign-configuration probe reads a field the vendor assigns asynchronously,
  * so a host `TurnkeyContext.init` still in flight from `Application.onCreate` can slip past it.
@@ -46,7 +50,7 @@ internal object TurnkeyManagedConfigurator {
     private val mutex = Mutex()
 
     @Volatile
-    private var configuredWith: Pair<String, String>? = null
+    private var configuredWith: Triple<String, String, String?>? = null
 
     /**
      * Whether this SDK ran the vendor's initialization itself. The vendor assigns its context and
@@ -57,7 +61,7 @@ internal object TurnkeyManagedConfigurator {
     @Volatile
     private var initAttempted = false
 
-    private val defaultInit: suspend (Application, String, String) -> Unit = { app, organizationId, authProxyConfigId ->
+    private val defaultInit: suspend (Application, String, String, String?) -> Unit = { app, organizationId, authProxyConfigId, passkeyDomain ->
         // The vendor's own `init` launches `initSuspend` on Dispatchers.Main.immediate. Running it
         // there ourselves keeps its lifecycle-observer registration on the main thread while
         // surfacing a failure to this coroutine instead of an uncaught crash on the vendor's scope.
@@ -68,7 +72,12 @@ internal object TurnkeyManagedConfigurator {
         withContext(NonCancellable + Dispatchers.Main.immediate) {
             TurnkeyContext.initSuspend(
                 app,
-                VendorTurnkeyConfig(organizationId = organizationId, authProxyConfigId = authProxyConfigId)
+                VendorTurnkeyConfig(
+                    organizationId = organizationId,
+                    authProxyConfigId = authProxyConfigId,
+                    // Null when passkeys are off: the code-only configuration the vendor got before.
+                    authConfig = passkeyDomain?.let { AuthConfig(rpId = it) },
+                ),
             )
         }
     }
@@ -78,7 +87,7 @@ internal object TurnkeyManagedConfigurator {
 
     /** Test seam: replaces the vendor configure call. */
     @Volatile
-    internal var initImpl: suspend (Application, String, String) -> Unit = defaultInit
+    internal var initImpl: suspend (Application, String, String, String?) -> Unit = defaultInit
 
     /** Test seam: whether the vendor singleton was already initialized, by anyone. */
     @Volatile
@@ -86,18 +95,29 @@ internal object TurnkeyManagedConfigurator {
 
     /**
      * Configures the vendor once per process. Returns the error to surface on every auth call
-     * when the ids are blank, differ from the ones the process was configured with, the vendor
+     * when the ids are blank, the ids or the passkey domain differ from the ones the process was
+     * configured with, the vendor
      * was configured outside the SDK, or its initialization failed; null when this provider may
      * proceed.
      */
-    suspend fun configure(application: Application, organizationId: String, authProxyConfigId: String): RainError? {
+    suspend fun configure(
+        application: Application,
+        organizationId: String,
+        authProxyConfigId: String,
+        passkeyDomain: String?,
+    ): RainError? {
         // Steady state — every auth call re-checks — needs no lock: a stale read only falls through.
-        if (configuredWith == (organizationId to authProxyConfigId)) return null
-        return mutex.withLock { configureLocked(application, organizationId, authProxyConfigId) }
+        if (configuredWith == Triple(organizationId, authProxyConfigId, passkeyDomain)) return null
+        return mutex.withLock { configureLocked(application, organizationId, authProxyConfigId, passkeyDomain) }
     }
 
-    private suspend fun configureLocked(application: Application, organizationId: String, authProxyConfigId: String): RainError? {
-        val requested = organizationId to authProxyConfigId
+    private suspend fun configureLocked(
+        application: Application,
+        organizationId: String,
+        authProxyConfigId: String,
+        passkeyDomain: String?,
+    ): RainError? {
+        val requested = Triple(organizationId, authProxyConfigId, passkeyDomain)
         val existing = configuredWith
         return when {
             organizationId.isBlank() || authProxyConfigId.isBlank() ->
@@ -121,10 +141,10 @@ internal object TurnkeyManagedConfigurator {
 
     /** Runs the vendor's one-shot initialization and records the ids only once it succeeded. */
     @Suppress("TooGenericExceptionCaught") // the vendor's init failure is untyped; every one becomes InternalError
-    private suspend fun initializeVendor(application: Application, requested: Pair<String, String>): RainError? {
+    private suspend fun initializeVendor(application: Application, requested: Triple<String, String, String?>): RainError? {
         initAttempted = true
         try {
-            initImpl(application, requested.first, requested.second)
+            initImpl(application, requested.first, requested.second, requested.third)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -307,11 +327,11 @@ internal class TurnkeyManagedAuthController(
      */
     suspend fun loginWithPasskey(activity: Activity) {
         flowMutex.withLock {
-            val rpId = requirePasskeysConfigured()
+            requirePasskeysConfigured()
             prepare()
             val previousKey = context.selectedSessionKey
             val sessionKey = SESSION_KEY_PREFIX + UUID.randomUUID()
-            ceremony(sessionKey) { context.completePasskeyLogin(activity, rpId, sessionKey) }
+            ceremony(sessionKey) { context.completePasskeyLogin(activity, sessionKey) }
             switchToSession(sessionKey, previousKey)
             ensureAccountsLocked()
         }
@@ -337,14 +357,14 @@ internal class TurnkeyManagedAuthController(
      */
     suspend fun signUpWithPasskey(activity: Activity) {
         flowMutex.withLock {
-            val rpId = requirePasskeysConfigured()
+            requirePasskeysConfigured()
             prepare()
             awaitRestoreSettled(TurnkeySessionCoordinator.AUTH_RESTORE_TIMEOUT_MS)
             clearDeadSessionOrRefuse()
             val sessionKey = SESSION_KEY_PREFIX + UUID.randomUUID()
             val passkeyName = TurnkeyPasskeys.authenticatorName(nowEpochSeconds())
             ceremony(sessionKey) {
-                context.completePasskeySignUp(activity, rpId, sessionKey, passkeyName, MANAGED_WALLET)
+                context.completePasskeySignUp(activity, sessionKey, passkeyName, MANAGED_WALLET)
             }
             switchToSession(sessionKey, previousKey = null)
             ensureAccountsLocked()
@@ -460,7 +480,11 @@ internal class TurnkeyManagedAuthController(
         coordinator.executeRead { _, _ -> Unit }
     }
 
-    /** The relying-party domain, or [RainError.InvalidConfig] before the vendor is touched. */
+    /**
+     * The relying-party domain, or [RainError.InvalidConfig] before the vendor is touched. The
+     * vendor holds the same value from the one-shot configuration for its login and sign-up; the
+     * add-passkey ceremony is handed it explicitly.
+     */
     private fun requirePasskeysConfigured(): String =
         passkeyDomain ?: throw RainError.InvalidConfig(TurnkeyPasskeys.NOT_CONFIGURED_MESSAGE)
 

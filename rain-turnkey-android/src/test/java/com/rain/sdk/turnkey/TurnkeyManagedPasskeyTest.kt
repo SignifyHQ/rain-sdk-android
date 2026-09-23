@@ -61,7 +61,6 @@ class TurnkeyManagedPasskeyTest {
         controller.loginWithPasskey(activity)
 
         val call = turnkey.passkeyLoginCalls.single()
-        assertThat(call.rpId).isEqualTo(domain)
         assertThat(call.sessionKey).startsWith("rain-turnkey-")
         // The vendor auto-selected the first session, so no redundant re-select and nothing cleared.
         assertThat(turnkey.selectSessionCalls).isEmpty()
@@ -263,7 +262,6 @@ class TurnkeyManagedPasskeyTest {
         controller.signUpWithPasskey(activity)
 
         val call = turnkey.passkeySignUpCalls.single()
-        assertThat(call.rpId).isEqualTo(domain)
         assertThat(call.sessionKey).startsWith("rain-turnkey-")
         assertThat(call.passkeyName).isEqualTo("passkey-1700000000")
         // One seed holding both accounts, created inside the signup request: the cross-platform contract.
@@ -350,7 +348,6 @@ class TurnkeyManagedPasskeyTest {
         assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(1)
         assertThat(hookCalls).isEqualTo(0)
         val call = turnkey.passkeySignUpCalls.single()
-        assertThat(call.rpId).isEqualTo(domain)
         // Nothing was selected when the vendor stored the new session, so it selected it itself.
         assertThat(turnkey.selectedSessionKey).isEqualTo(call.sessionKey)
         assertThat(turnkey.selectSessionCalls).isEmpty()

@@ -44,7 +44,10 @@ import com.rain.sdk.turnkey.TurnkeyConfig
  *                      permanent, because every passkey created against it stops working when it
  *                      changes, and a passkey made for one domain does not work in an app on
  *                      another.
- *                      Partners host their own file; Rain runs no shared domain. Defaults to null.
+ *                      Partners host their own file; Rain runs no shared domain. Part of the
+ *                      backend's one-shot configuration: a second provider with a different domain in
+ *                      the same app launch makes every authentication call throw `RainError.InvalidConfig`.
+ *                      Defaults to null.
  */
 class RainWalletConfig(
     val sessionPolicy: RainWalletSessionPolicy = RainWalletSessionPolicy(),

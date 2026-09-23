@@ -68,7 +68,8 @@ move wallets; `exportRecoveryPhrase()` is its backup path either way.
 Notes:
 
 - The wallet backend's configuration is one-shot per app launch; the first authentication call
-  applies it.
+  applies it, `passkeyDomain` included, so a second provider with a different domain in the same
+  launch makes every authentication call throw `RainError.InvalidConfig` until the app relaunches.
 - The embedded backend identity is Rain's sandbox wallet backend; this release has no host-facing
   environment switch.
 - What leaves the device: the email address or phone number passed to `sendLoginCode` or
