@@ -169,8 +169,9 @@ internal class RainSdkManager(
         adminSignature: RainAdminSignature,
         nonce: BigInteger?
     ): RainPreparedWithdrawal {
-        // Preparing signs too, so it is gated like the broadcast.
-        walletProvider.requireSendSupport(chainId)
+        // Not gated on requireSendSupport: preparing signs (EVM) or composes (Solana) and never
+        // broadcasts, the provider signs on every chain, and the prepared transaction is the host's
+        // own-RPC path on a chain the provider cannot broadcast on.
         if (SolanaChains.isSolanaChain(chainId)) {
             return transactionCoordinator.withWithdrawalErrors("Prepare withdrawal") {
                 RainPreparedWithdrawal.Solana(

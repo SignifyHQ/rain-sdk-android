@@ -67,7 +67,8 @@ sealed class RainError(
     /**
      * The active wallet provider cannot broadcast transactions on this chain, so the send was
      * refused up front instead of failing opaquely mid-flight (e.g. Turnkey-managed broadcast
-     * does not cover Avalanche). Reads — balances, history, fee estimates — are not gated.
+     * does not cover Avalanche). Reads (balances, history, fee estimates) and `prepareWithdrawal`
+     * are not gated.
      */
     class ChainNotSupported(val chainId: Int, details: String) :
         RainError(RainErrorCode.CHAIN_NOT_SUPPORTED, "Sends not supported on chain $chainId: $details")

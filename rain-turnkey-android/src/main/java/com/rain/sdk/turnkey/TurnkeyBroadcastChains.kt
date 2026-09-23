@@ -13,7 +13,8 @@ import com.rain.sdk.internal.constants.SolanaChains
  * call, so [requireSendSupport] refuses it up front with [RainError.ChainNotSupported].
  *
  * Reads (balances, history, fee estimation) are deliberately NOT gated here; they need an RPC
- * endpoint registered for the chain (some balances also come from Turnkey's own indexer).
+ * endpoint registered for the chain (some balances also come from Turnkey's own indexer). Nor is
+ * `prepareWithdrawal`, which signs but never broadcasts: its result is what a host submits itself.
  * Avalanche, for example, is read-only but fully readable.
  *
  * Source of truth: Turnkey's transaction-management broadcasting documentation

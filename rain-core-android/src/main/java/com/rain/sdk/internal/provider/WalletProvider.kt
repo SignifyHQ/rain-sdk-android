@@ -29,7 +29,7 @@ import java.math.BigDecimal
  * `estimateGas`, `estimateWithdrawalFee` and the Solana `withdrawCollateral` and
  * `prepareWithdrawal` paths a raw exception floors at `InternalError`, and the hooks core calls
  * before it enters a wrapper (the EVM wallet-address read, [requireSendSupport] on
- * `withdrawCollateral` and `prepareWithdrawal`, and [sponsorsFees] on `estimateWithdrawalFee`)
+ * `withdrawCollateral`, and [sponsorsFees] on `estimateWithdrawalFee`)
  * are not wrapped at all, so a raw exception there reaches the host as thrown. Either way an
  * adapter that lets a vendor type escape loses the specific code a host branches on,
  * `TokenExpired` above all. Rain's adapters convert in their session coordinator, which every
@@ -57,6 +57,7 @@ interface WalletProvider {
      * cannot broadcast on fails closed before the contract reads and the signing prompt rather
      * than after them. A provider that can broadcast on every configured chain keeps the no-op
      * default; an adapter whose vendor broadcasts on a fixed set consults its own chain registry.
+     * Preparing a withdrawal is not gated: it never broadcasts.
      *
      * @throws RainError.ChainNotSupported when this provider cannot broadcast on [chainId].
      */

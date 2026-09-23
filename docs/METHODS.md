@@ -202,7 +202,7 @@ as `WithdrawalRevertedByNetwork`); anything else it wraps as `ProviderError` aft
 heuristics, with two exceptions. On `estimateGas`, `estimateWithdrawalFee` and the Solana
 `withdrawCollateral` / `prepareWithdrawal` paths a raw exception floors at `InternalError`, and the
 hooks core calls before it enters a wrapper (the EVM wallet-address read, `requireSendSupport` on
-`withdrawCollateral` and `prepareWithdrawal`, and `sponsorsFees` on `estimateWithdrawalFee`) are
+`withdrawCollateral`, and `sponsorsFees` on `estimateWithdrawalFee`) are
 not wrapped at all, so a raw exception there reaches the host as thrown. A vendor exception that
 escapes therefore loses the specific code a host branches on, and an expired session arrives as a
 generic error with no re-authentication hook. Core needs no change: the transaction-building
@@ -356,6 +356,11 @@ Builds a collateral withdrawal without broadcasting it. Takes the same parameter
 This is **not** an offline build: it still prompts the wallet to sign EIP-712 (EVM) and reads the
 collateral's admin set on chain. On Solana it additionally fetches a recent blockhash and simulates
 the transaction (the simulation is skipped when the provider sponsors fees).
+
+Not gated on the provider's broadcast chains: preparing signs and composes but never broadcasts, so
+it works on a chain the provider cannot send on (Avalanche with the Turnkey and Rain wallet
+providers), and the prepared transaction is what a host submits through its own RPC there.
+`withdrawCollateral` on the same chain still throws `RAIN_104`.
 
 - **Returns:** `RainPreparedWithdrawal` — `Evm(RainTransactionParameters)` carrying a complete,
   submittable transaction (`from` / `to` / `value` / `data`), or `Solana(UnsignedSolanaTransfer)`
@@ -989,7 +994,7 @@ Format: `"RainSDK Error [CODE]: message"`
 | `RAIN_101` | `RainError.SdkNotInitialized` | Operation called before the SDK's chain configuration was set up (i.e. before `build()`), or on a `RainSdk` after `close()`. |
 | `RAIN_102` | `RainError.InvalidConfig` / `RainError.ProviderNotRegistered` / `RainError.TokenNotFound` / `RainError.InvalidRecipient` | Invalid RPC URL, chain ID, or address format; a token whose decimals could not be established when a money path needed them (`TokenNotFound`); a recipient that cannot receive the transfer (`InvalidRecipient`); a malformed withdrawal salt, signature or expiry handed to a withdrawal method; a token registration with a malformed address or mint or `decimals` outside `0..77`; a `tokenMetadata` lookup with a malformed address or a chain the SDK has no RPC endpoint for; a blank email or a phone number outside E.164 handed to `sendLoginCode` or `sendContactVerificationCode`; a passkey method called without a `passkeyDomain`, or a `passkeyDomain` with a scheme, port or path at construction; a passkey request the device refused because the domain's association file does not list this build's package name and signing certificate, or carries the app statement without the site's own statement; `signUpWithPasskey` while a live session is selected on the device; `confirmContactVerification` before a code was requested; for a Turnkey key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors); a closed `TurnkeyProvider` or `RainProvider` asked to authenticate or export; the Rain wallet provider and the Turnkey provider registered on one `RainSdk` (`build()` refuses the pair); no provider registered for the requested id; or no provider matched a capability. |
 | `RAIN_103` | `RainError.InvalidRpcUrl` | RPC URL could not be parsed as a valid URL. |
-| `RAIN_104` | `RainError.ChainNotSupported` | The active wallet provider cannot broadcast transactions on this chain (e.g. Turnkey-managed sends do not cover Avalanche); carries `chainId`. Thrown before any network or wallet work on every send, withdrawals and approvals included (core asks the provider first, and the provider's broadcast funnel checks again). Reads — balances, history, estimates — are never gated. |
+| `RAIN_104` | `RainError.ChainNotSupported` | The active wallet provider cannot broadcast transactions on this chain (e.g. Turnkey-managed sends do not cover Avalanche); carries `chainId`. Thrown before any network or wallet work on every send, withdrawals and approvals included (core asks the provider first, and the provider's broadcast funnel checks again). Reads (balances, history, estimates) and `prepareWithdrawal` are never gated. |
 | `RAIN_201` | `RainError.TokenExpired` | Provider session token expired or invalid; `addPasskey`, `sendContactVerificationCode` or `confirmContactVerification` without a live session. |
 | `RAIN_202` | `RainError.Unauthorized` | Wallet backends: a request refused with HTTP 403, such as a feature the organization lacks, the registration behind `addPasskey` or the contact update behind `confirmContactVerification` included, or an empty Portal session token. |
 | `RAIN_203` | `RainError.InvalidLoginCode` | The one-time login code was refused (mistyped, expired, or already used) — the Rain wallet's and Turnkey's managed login only. Ask the user to re-enter it or request a new one; the existing session, if any, is untouched. A wrong code on `confirmContactVerification` arrives the same way, with the challenge kept. **Differs from iOS.** A rejection the auth proxy wraps in an HTTP 500 cannot be classified on Android, because Turnkey's Kotlin SDK drops the response body that carries the real status. The same wrong code is `RAIN_501` here and `RAIN_203` on iOS. A host that shares login logic across platforms must treat `RAIN_501` from `confirmLoginCode` as retryable on Android. The challenge is kept, so the same remedies apply. This note stays until Turnkey's Kotlin SDK forwards the body. An expired code (5 minutes by default) or one locked after 3 wrong attempts arrives the same way; only `sendLoginCode` again gets the user past those. |
