@@ -453,10 +453,6 @@ class TurnkeyProvider internal constructor(
     @InternalRainTurnkeyApi
     suspend fun sendLoginCode(contact: LoginContact) = requireManagedAuth().sendLoginCode(contact)
 
-    /** The email channel: `sendLoginCode(LoginContact.Email(email))`. */
-    @InternalRainTurnkeyApi
-    suspend fun sendLoginCode(email: String) = sendLoginCode(LoginContact.Email(email))
-
     /**
      * Confirms the code from [sendLoginCode]. A first login signs the user up and creates one
      * wallet holding an Ethereum and a Solana account inside the same request; a returning login

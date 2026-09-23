@@ -76,7 +76,7 @@ class TurnkeyManagedContactAttachTest {
         val turnkey = MockTurnkey()
         val controller = controller(turnkey)
         turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-login", encryptionTargetBundle = "b1", channel = OtpChannel.EMAIL)
-        controller.sendLoginCode("login@example.com")
+        controller.sendLoginCode(LoginContact.Email("login@example.com"))
         turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-attach", encryptionTargetBundle = "b2", channel = OtpChannel.EMAIL)
         controller.sendContactVerificationCode(LoginContact.Email("attach@example.com"))
 
@@ -326,7 +326,7 @@ class TurnkeyManagedContactAttachTest {
         val code = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()))
         val codeController = controller(code)
         codeController.sendContactVerificationCode(LoginContact.Email("user@example.com"))
-        codeController.sendLoginCode("other@example.com")
+        codeController.sendLoginCode(LoginContact.Email("other@example.com"))
 
         codeController.confirmLoginCode("123456")
 

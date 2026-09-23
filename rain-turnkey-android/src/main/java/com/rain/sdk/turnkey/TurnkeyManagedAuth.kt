@@ -248,9 +248,6 @@ internal class TurnkeyManagedAuthController(
         }
     }
 
-    /** The email channel: `sendLoginCode(LoginContact.Email(email))`. */
-    suspend fun sendLoginCode(email: String) = sendLoginCode(LoginContact.Email(email))
-
     /**
      * Sends a one-time code to [contact] on its channel. Touches no session. A second call for the
      * same contact replaces the pending challenge on success and keeps it on failure, so a failed

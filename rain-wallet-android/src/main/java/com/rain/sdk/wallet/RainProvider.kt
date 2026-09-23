@@ -199,19 +199,6 @@ class RainProvider internal constructor(
     }
 
     /**
-     * The email channel: `sendLoginCode(RainWalletContact.Email(email))`. Pass a phone number
-     * through [RainWalletContact.Phone] instead; this overload sends any string as an email address.
-     *
-     * @throws RainError.InvalidConfig (`RAIN_102`) for a blank email, on a wallet backend
-     *   configuration conflict for this launch, or when this provider was closed.
-     * @throws RainError.InternalError (`RAIN_502`) when the backend's initialization failed for
-     *   this launch; relaunch the app.
-     */
-    suspend fun sendLoginCode(email: String) {
-        sendLoginCode(RainWalletContact.Email(email))
-    }
-
-    /**
      * Confirms the code from [sendLoginCode]. A first login signs the user up and creates one wallet
      * holding an Ethereum and a Solana account inside the same request; a returning login backfills
      * a missing account onto the existing wallet. A failure after the code was accepted drops the

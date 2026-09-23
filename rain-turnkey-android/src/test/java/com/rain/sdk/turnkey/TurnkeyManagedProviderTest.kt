@@ -93,7 +93,7 @@ class TurnkeyManagedProviderTest {
         assertThat(provider.currentAuthState()).isEqualTo(TurnkeyAuthState.Unauthenticated)
         assertThat(provider.authState.first()).isEqualTo(TurnkeyAuthState.Unauthenticated)
         provider.awaitSessionRestore(timeoutMs = 10) // no-op, must not throw
-        val thrown = expectThrows<RainError.InvalidConfig> { provider.sendLoginCode("user@example.com") }
+        val thrown = expectThrows<RainError.InvalidConfig> { provider.sendLoginCode(LoginContact.Email("user@example.com")) }
         assertThat(thrown).hasMessageThat().contains("managed mode")
         expectThrows<RainError.InvalidConfig> { provider.sendLoginCode(LoginContact.Phone("+19999999999")) }
         expectThrows<RainError.InvalidConfig> { provider.confirmLoginCode("123456") }
@@ -144,7 +144,7 @@ class TurnkeyManagedProviderTest {
         val provider = TurnkeyProvider(managedConfig("org-a", "proxy-a"), contextOverride = turnkey)
         assertThat(configured).isEmpty()
 
-        provider.sendLoginCode("user@example.com")
+        provider.sendLoginCode(LoginContact.Email("user@example.com"))
 
         assertThat(configured).containsExactly("org-a" to "proxy-a")
         assertThat(turnkey.sendOtpCalls).containsExactly(MockTurnkey.SendOtpCall("user@example.com", OtpChannel.EMAIL))
@@ -167,7 +167,7 @@ class TurnkeyManagedProviderTest {
         val provider = TurnkeyProvider(managedConfig(), contextOverride = turnkey)
         assertThat(provider.hasActiveSession()).isFalse()
 
-        provider.sendLoginCode("user@example.com")
+        provider.sendLoginCode(LoginContact.Email("user@example.com"))
         provider.confirmLoginCode("123456")
 
         assertThat(turnkey.completeOtpCalls).hasSize(1)
@@ -209,7 +209,7 @@ class TurnkeyManagedProviderTest {
                 val reAddressed = MockTurnkey.walletWithEthereumAddress(other)
                 turnkey.wallets = listOf(reAddressed.copy(accounts = reAddressed.accounts + MockTurnkey.solanaAccount()))
             }
-            provider.sendLoginCode("other@example.com")
+            provider.sendLoginCode(LoginContact.Email("other@example.com"))
             provider.confirmLoginCode("123456")
 
             // The replacement advanced the coordinator the manager shares with the descriptor, so the
@@ -237,7 +237,7 @@ class TurnkeyManagedProviderTest {
         val turnkey = MockTurnkey(session = null)
         val provider = TurnkeyProvider(managedConfig(organizationId = "  "), contextOverride = turnkey)
 
-        expectThrows<RainError.InvalidConfig> { provider.sendLoginCode("user@example.com") }
+        expectThrows<RainError.InvalidConfig> { provider.sendLoginCode(LoginContact.Email("user@example.com")) }
         assertThat(turnkey.sendOtpCalls).isEmpty()
     }
 
@@ -248,7 +248,7 @@ class TurnkeyManagedProviderTest {
 
         provider.close()
 
-        expectThrows<RainError.InvalidConfig> { provider.sendLoginCode("user@example.com") }
+        expectThrows<RainError.InvalidConfig> { provider.sendLoginCode(LoginContact.Email("user@example.com")) }
         expectThrows<RainError.InvalidConfig> { provider.sendLoginCode(LoginContact.Phone("+19999999999")) }
         expectThrows<RainError.InvalidConfig> { provider.logout() }
         assertThat(provider.hasActiveSession()).isFalse()

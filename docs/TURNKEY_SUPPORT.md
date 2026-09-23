@@ -153,7 +153,7 @@ val provider = TurnkeyProvider(
 // Reuse a restored session, or run the code flow:
 provider.awaitSessionRestore()
 if (!provider.hasActiveSession()) {
-    provider.sendLoginCode("user@example.com")
+    provider.sendLoginCode(LoginContact.Email("user@example.com"))
     // or by SMS, with the phone number in E.164 form:
     // provider.sendLoginCode(LoginContact.Phone("+15551234567"))
     provider.confirmLoginCode(code) // sign-up or login + Ethereum/Solana account provisioning

@@ -202,7 +202,7 @@ class RainProviderTest {
 
         provider.sendLoginCode(RainWalletContact.Email("user@example.com"))
         provider.sendLoginCode(RainWalletContact.Phone("+15551234567"))
-        provider.sendLoginCode("overload@example.com")
+        provider.sendLoginCode(RainWalletContact.Email("overload@example.com"))
 
         coVerify(exactly = 1) { backing.sendLoginCode(LoginContact.Email("user@example.com")) }
         coVerify(exactly = 1) { backing.sendLoginCode(LoginContact.Phone("+15551234567")) }

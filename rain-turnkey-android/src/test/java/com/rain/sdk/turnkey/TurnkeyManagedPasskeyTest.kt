@@ -226,7 +226,7 @@ class TurnkeyManagedPasskeyTest {
         val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), session = null)
         turnkey.onPasskeyLogin = { turnkey.authenticate() }
         val controller = controller(turnkey)
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
 
         controller.loginWithPasskey(activity)
         controller.confirmLoginCode("123456")

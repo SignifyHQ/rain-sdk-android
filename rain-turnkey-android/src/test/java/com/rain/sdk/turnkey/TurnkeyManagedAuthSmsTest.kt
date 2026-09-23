@@ -147,7 +147,7 @@ class TurnkeyManagedAuthSmsTest {
         turnkey.onCompleteOtp = { turnkey.authenticate() }
         val controller = controller(turnkey)
 
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
         turnkey.stubbedOtpChallenge = OtpChallenge(
             otpId = "otp-2",
             encryptionTargetBundle = "bundle-2",
@@ -166,7 +166,7 @@ class TurnkeyManagedAuthSmsTest {
     fun `a failed send for another contact retires the pending challenge`() = runTest {
         val turnkey = MockTurnkey(session = null)
         val controller = controller(turnkey)
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
 
         turnkey.sendOtpError = RuntimeException("HTTP error from /v1/otp_init_v2: 400")
         expectThrows<RainError> { controller.sendLoginCode(smsContact) }

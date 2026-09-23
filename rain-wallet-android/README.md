@@ -99,9 +99,8 @@ Notes:
   It lands in your whole R8 configuration, so a reference of your own to that class stops warning.
 - Sends work on the chains the wallet backend broadcasts to; other configured chains are read-only,
   and a send there throws `RainError.ChainNotSupported` (`RAIN_104`) before any network work.
-- `RainWalletSessionState` and `RainWalletAuthState` are open by design: each carries one internal
-  case, so a `when` over them needs an `else` branch and a state can be added later without a
-  source break.
+- `RainWalletSessionState` and `RainWalletAuthState` are exhaustive: a `when` over them needs no
+  `else` branch, and a new state is a breaking change shipped in a major version.
 - Every public signature of this module stays free of wallet-backend types, and the backend adapter
   is an `implementation` dependency, so your compile classpath never sees it.
 - The module embeds Rain's sandbox identity, so `checkNotSandboxIdentity` refuses every publish task

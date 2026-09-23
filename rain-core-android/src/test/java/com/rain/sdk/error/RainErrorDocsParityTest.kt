@@ -71,6 +71,8 @@ class RainErrorDocsParityTest {
             "RainWalletContact.Phone",
             "LoginContact.Phone",
             "LoginContact.Phone",
+            "sendLoginCode(email",
+            "Reserved",
         ).forEach { name ->
             assertWithMessage(name).that(removedSection).contains(name)
         }
