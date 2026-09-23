@@ -17,7 +17,7 @@ import org.junit.Test
 /**
  * The passkey flows of [TurnkeyManagedAuthController], sign-in and sign-up, over the seam: the
  * same session handling the code login pins in [TurnkeyManagedAuthTest], plus what a passkey
- * ceremony adds (the domain, the sign-up refusal over a selected session, the fresh key cleared
+ * ceremony adds (the domain, the sign-up refusal over a live session, the fresh key cleared
  * after a failed ceremony). Vendor types stay inside method bodies (see [TurnkeyErrorMappingTest]
  * for why); the Activity is a MockK stand-in the mock never touches.
  */
@@ -308,7 +308,7 @@ class TurnkeyManagedPasskeyTest {
     }
 
     @Test
-    fun `passkey sign-up with a session selected is refused up front with no vendor call`() = runTest {
+    fun `passkey sign-up with a live session selected is refused up front with no vendor call`() = runTest {
         val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()))
         val controller = controller(turnkey)
 
@@ -319,6 +319,75 @@ class TurnkeyManagedPasskeyTest {
         assertThat(turnkey.selectedSessionKey).isEqualTo(MockTurnkey.DEFAULT_SESSION_KEY)
         assertThat(turnkey.clearSessionCalls).isEmpty()
         assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `passkey sign-up over a live session inside the refresh buffer is still refused`() = runTest {
+        // hasActiveSession() reads false inside the buffer, but the session is live and the vendor's
+        // client swap would still break a wallet call made while the sheet is open.
+        val session = MockTurnkey.nearExpirySession()
+        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), session = session)
+        // The controller's clock sits ten seconds before the expiry the fixture set on the real clock.
+        val controller = controller(turnkey, nowEpochSeconds = { session.expiry - 10 })
+        assertThat(controller.hasActiveSession()).isFalse()
+
+        expectThrows<RainError.InvalidConfig> { controller.signUpWithPasskey(activity) }
+
+        assertThat(turnkey.passkeySignUpCalls).isEmpty()
+        assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `passkey sign-up over a dead selected session clears it silently and proceeds`() = runTest {
+        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), session = MockTurnkey.expiredSession())
+        turnkey.onPasskeySignUp = { turnkey.authenticate() }
+        val controller = controller(turnkey)
+        assertThat(controller.currentAuthState()).isEqualTo(TurnkeyAuthState.Unauthenticated)
+
+        controller.signUpWithPasskey(activity)
+
+        // The dead session went the way a logout takes it, before the sheet, without the host hook.
+        assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(1)
+        assertThat(hookCalls).isEqualTo(0)
+        val call = turnkey.passkeySignUpCalls.single()
+        assertThat(call.rpId).isEqualTo(domain)
+        // Nothing was selected when the vendor stored the new session, so it selected it itself.
+        assertThat(turnkey.selectedSessionKey).isEqualTo(call.sessionKey)
+        assertThat(turnkey.selectSessionCalls).isEmpty()
+        assertThat(turnkey.clearSessionCalls).isEmpty()
+        assertThat(controller.currentAuthState()).isEqualTo(TurnkeyAuthState.Authenticated)
+    }
+
+    @Test
+    fun `a dismissed passkey sign-up over a dead selected session leaves the device signed out`() = runTest {
+        val turnkey = MockTurnkey(session = MockTurnkey.expiredSession())
+        turnkey.passkeySignUpError = com.turnkey.core.models.errors.TurnkeyKotlinError.FailedToSignUpWithPasskey(
+            com.turnkey.passkey.utils.TurnkeyPasskeyError.RegistrationFailed(
+                androidx.credentials.exceptions.CreateCredentialCancellationException("dismissed")
+            )
+        )
+        val controller = controller(turnkey)
+
+        expectThrows<RainError.UserRejected> { controller.signUpWithPasskey(activity) }
+
+        assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(1)
+        val fresh = turnkey.passkeySignUpCalls.single().sessionKey
+        assertThat(turnkey.clearSessionCalls).containsExactly(fresh)
+        assertThat(turnkey.selectedSessionKey).isNull()
+        assertThat(controller.currentAuthState()).isEqualTo(TurnkeyAuthState.Unauthenticated)
+        assertThat(hookCalls).isEqualTo(0)
+    }
+
+    @Test
+    fun `a dead session that will not clear aborts the sign-up before the sheet`() = runTest {
+        val turnkey = MockTurnkey(session = MockTurnkey.expiredSession())
+        turnkey.clearSelectedSessionError = RuntimeException("storage locked")
+        val controller = controller(turnkey)
+
+        expectThrows<RainError.ProviderError> { controller.signUpWithPasskey(activity) }
+
+        assertThat(turnkey.passkeySignUpCalls).isEmpty()
+        assertThat(turnkey.selectedSessionKey).isEqualTo(MockTurnkey.DEFAULT_SESSION_KEY)
     }
 
     @Test

@@ -501,11 +501,11 @@ class TurnkeyProvider internal constructor(
      * Ethereum and a Solana account inside the same request, then signs it in as
      * [loginWithPasskey] does. Every call mints a fresh account, so a returning user signs in with
      * [loginWithPasskey] or a login code, or ends up with a second, empty wallet; accounts are
-     * never merged. Refused with `RainError.InvalidConfig` while any session is stored as this
-     * device's current one, live or dead (an expired session the vendor has not cleared yet
-     * included), so call [logout] first even when [hasActiveSession] is false: the vendor swaps its
-     * process-wide client for the whole ceremony and a wallet call made meanwhile would read the
-     * live session as dead. If the sign-up request
+     * never merged. Refused with `RainError.InvalidConfig` while a live session is stored as this
+     * device's current one, so call [logout] first when [hasActiveSession] is true: the vendor
+     * swaps its process-wide client for the whole ceremony and a wallet call made meanwhile would
+     * read the live session as dead. A stored session that has already expired is cleared first,
+     * with the `onSessionExpired` hook silent, and the sign-up proceeds. If the sign-up request
      * succeeded but the login that followed failed, the account exists and [loginWithPasskey]
      * reaches it; if the sign-up request itself failed, no account exists and the passkey the sheet
      * created signs into nothing. Both arrive as `RainError.ProviderError`.

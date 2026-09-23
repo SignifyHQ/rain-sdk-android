@@ -295,9 +295,9 @@ class RainProvider internal constructor(
      * Ethereum and a Solana account created inside the same request, then signs it in as
      * [loginWithPasskey] does. Every call mints a fresh account, so a returning user must use
      * [loginWithPasskey] or a login code, or they end up with a second, empty wallet; accounts are
-     * never merged. Call [logout] first even when [hasActiveSession] is false, because any session
-     * stored as this device's current one, live or dead (an expired one the backend has not cleared
-     * yet included), is refused. If the sign-up
+     * never merged. Call [logout] first when [hasActiveSession] is true, because a live session
+     * stored as this device's current one is refused with `RainError.InvalidConfig`; one that has
+     * already expired is cleared first, with the `onSessionExpired` hook silent. If the sign-up
      * request succeeded but the login that followed failed, the account exists and
      * [loginWithPasskey] reaches it; if the sign-up request itself failed, no account exists and
      * the passkey the sheet created signs into nothing. Both arrive as `RainError.ProviderError`.

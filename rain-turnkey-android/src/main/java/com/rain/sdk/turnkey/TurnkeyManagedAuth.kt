@@ -322,12 +322,16 @@ internal class TurnkeyManagedAuthController(
      * with [MANAGED_WALLET] created inside the same request, then signs it in as [loginWithPasskey]
      * does. Every call mints a fresh account; returning users sign in or add a passkey instead.
      *
-     * Refused with [RainError.InvalidConfig] while any session is selected on this device: the
+     * Refused with [RainError.InvalidConfig] while a live session is selected on this device: the
      * vendor swaps its process-wide client for a temporary-key client for the whole ceremony and
      * restores it only by selecting the new session, which it does only when none is selected, so
      * a wallet call made while the sheet is open would stamp with a key registered on nobody's
-     * organization and read the live session as dead. Waiting out a restore in flight first keeps
-     * a session that is still loading from being read as "nothing selected". A failure after the
+     * organization and read the live session as dead. A selected session that is already dead
+     * carries no such risk and is cleared first, the way [logout] clears one, with the host's
+     * re-auth hook silent; the ceremony then runs and the vendor selects what it creates, and a
+     * ceremony that fails leaves the device signed out, as a logout would. Waiting out a restore in
+     * flight first keeps a session that is still loading from being read as "nothing selected"; one
+     * still loading after the bounded wait is refused like a live one. A failure after the
      * account exists (the login or the session store) leaves an account the passkey can still sign
      * into.
      */
@@ -336,9 +340,7 @@ internal class TurnkeyManagedAuthController(
             val rpId = requirePasskeysConfigured()
             prepare()
             awaitRestoreSettled(TurnkeySessionCoordinator.AUTH_RESTORE_TIMEOUT_MS)
-            if (context.selectedSessionKey != null) {
-                throw RainError.InvalidConfig(TurnkeyPasskeys.ALREADY_SIGNED_IN_MESSAGE)
-            }
+            clearDeadSessionOrRefuse()
             val sessionKey = SESSION_KEY_PREFIX + UUID.randomUUID()
             val passkeyName = TurnkeyPasskeys.authenticatorName(nowEpochSeconds())
             ceremony(sessionKey) {
@@ -463,6 +465,44 @@ internal class TurnkeyManagedAuthController(
         passkeyDomain ?: throw RainError.InvalidConfig(TurnkeyPasskeys.NOT_CONFIGURED_MESSAGE)
 
     /**
+     * Makes room for a passkey sign-up. A selected session that is live, or still restoring after
+     * the bounded wait, refuses the call, because the vendor's client swap during the ceremony would
+     * break wallet calls made against it. A selected session that is dead is cleared the way
+     * [logout] clears one, host hook silent, so the ceremony can run and the vendor selects what it
+     * creates; the sample offers the sign-up button in exactly that state, and refusing would tell
+     * the user to log out of an account the screen says they are not in. The pending contact
+     * verification goes with the dead session, since it named that account; a pending login code
+     * binds no device key and survives, as it does across a login.
+     */
+    private suspend fun clearDeadSessionOrRefuse() {
+        if (context.selectedSessionKey == null) return
+        when (coordinator.currentState()) {
+            is TurnkeySessionState.Expired, is TurnkeySessionState.Unauthenticated -> {
+                clearSelectedSessionSilently()
+                clearPendingContactOtp()
+            }
+            is TurnkeySessionState.Active, is TurnkeySessionState.Loading ->
+                throw RainError.InvalidConfig(TurnkeyPasskeys.ALREADY_SIGNED_IN_MESSAGE)
+        }
+    }
+
+    /**
+     * Clears the selected session with the host's re-auth hook held silent for the death this
+     * causes. The suppression is released when the clear did not happen, so the host still hears
+     * about a later, genuine one.
+     */
+    private suspend fun clearSelectedSessionSilently() {
+        coordinator.suppressNextHostHook()
+        var cleared = false
+        try {
+            guarded { context.clearSelectedSession() }
+            cleared = true
+        } finally {
+            if (!cleared) coordinator.releaseHostHookSuppression()
+        }
+    }
+
+    /**
      * Runs a passkey ceremony that stores its session under [sessionKey] on success. On a mapped
      * failure or the caller's cancellation, the fresh key is cleared unless the vendor already
      * selected it: the vendor's key cleanup can throw after its session store, and a cancellation
@@ -573,15 +613,9 @@ internal class TurnkeyManagedAuthController(
                 clearPendingContactOtp()
                 return
             }
-            coordinator.suppressNextHostHook()
-            var cleared = false
             try {
-                guarded { context.clearSelectedSession() }
-                cleared = true
+                clearSelectedSessionSilently()
             } finally {
-                // Not cleared: the death did not happen (or may not), so the host must still hear
-                // about a later one.
-                if (!cleared) coordinator.releaseHostHookSuppression()
                 clearPendingOtp()
                 clearPendingContactOtp()
             }
