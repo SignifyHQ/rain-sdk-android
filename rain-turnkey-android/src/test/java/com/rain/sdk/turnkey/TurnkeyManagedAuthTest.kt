@@ -1,6 +1,6 @@
 package com.rain.sdk.turnkey
 
-import android.app.Application
+import android.app.Activity
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
 import com.turnkey.core.models.AuthState
@@ -23,9 +23,10 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Managed-auth tests for [TurnkeyManagedConfigurator] and [TurnkeyManagedAuthController], run
- * against [MockTurnkey] — no vendor singleton is ever touched. Gated on JDK 24 like every
- * Turnkey suite. The configurator is process-global state, so it is reset around every test.
+ * Managed-auth tests for [TurnkeyManagedAuthController], run against [MockTurnkey] — no vendor
+ * singleton is ever touched. Gated on JDK 24 like every Turnkey suite. The configurator is
+ * process-global state, so it is reset around every test; its own rules live in
+ * [TurnkeyManagedConfiguratorTest].
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class TurnkeyManagedAuthTest {
@@ -51,10 +52,12 @@ class TurnkeyManagedAuthTest {
         turnkey: MockTurnkey,
         configurationError: RainError? = null,
         coordinator: TurnkeySessionCoordinator = coordinator(turnkey),
+        passkeyDomain: String? = null,
     ) = TurnkeyManagedAuthController(
         context = turnkey,
         coordinator = coordinator,
         configure = { configurationError },
+        passkeyDomain = passkeyDomain,
     )
 
     private fun rejectedCode(): Exception = TurnkeyKotlinError.FailedToLoginOrSignUpWithOtp(
@@ -63,87 +66,6 @@ class TurnkeyManagedAuthTest {
 
     /** Turnkey's documented sandbox number, never a real person's. SMS-specific tests live in [TurnkeyManagedAuthSmsTest]. */
     private val smsContact = LoginContact.Sms("+19999999999")
-
-    // ---------- configurator (process-wide, one-shot) ----------
-
-    @Test
-    fun `configure is idempotent for identical ids and initializes the vendor once`() = runTest {
-        var initCalls = 0
-        TurnkeyManagedConfigurator.initImpl = { _, _, _ -> initCalls++ }
-        TurnkeyManagedConfigurator.vendorInitializedProbe = { false }
-        val app = mockk<Application>()
-
-        assertThat(TurnkeyManagedConfigurator.configure(app, "org-a", "proxy-a")).isNull()
-        assertThat(TurnkeyManagedConfigurator.configure(app, "org-a", "proxy-a")).isNull()
-
-        assertThat(initCalls).isEqualTo(1)
-    }
-
-    @Test
-    fun `configure with different ids returns InvalidConfig and leaves the first configuration in place`() = runTest {
-        var initCalls = 0
-        TurnkeyManagedConfigurator.initImpl = { _, _, _ -> initCalls++ }
-        TurnkeyManagedConfigurator.vendorInitializedProbe = { false }
-        val app = mockk<Application>()
-
-        assertThat(TurnkeyManagedConfigurator.configure(app, "org-a", "proxy-a")).isNull()
-        val mismatch = TurnkeyManagedConfigurator.configure(app, "org-b", "proxy-a")
-
-        assertThat(mismatch).isInstanceOf(RainError.InvalidConfig::class.java)
-        assertThat(initCalls).isEqualTo(1)
-        // The original ids still work.
-        assertThat(TurnkeyManagedConfigurator.configure(app, "org-a", "proxy-a")).isNull()
-    }
-
-    @Test
-    fun `configure rejects blank ids without recording them`() = runTest {
-        var initCalls = 0
-        TurnkeyManagedConfigurator.initImpl = { _, _, _ -> initCalls++ }
-        TurnkeyManagedConfigurator.vendorInitializedProbe = { false }
-        val app = mockk<Application>()
-
-        assertThat(
-            TurnkeyManagedConfigurator.configure(app, "", "proxy-a")
-        ).isInstanceOf(RainError.InvalidConfig::class.java)
-        assertThat(
-            TurnkeyManagedConfigurator.configure(app, "org-a", "  ")
-        ).isInstanceOf(RainError.InvalidConfig::class.java)
-        assertThat(initCalls).isEqualTo(0)
-        // A blank attempt must not burn the process slot.
-        assertThat(TurnkeyManagedConfigurator.configure(app, "org-a", "proxy-a")).isNull()
-        assertThat(initCalls).isEqualTo(1)
-    }
-
-    @Test
-    fun `configure refuses a vendor context that was initialized outside the SDK`() = runTest {
-        var initCalls = 0
-        TurnkeyManagedConfigurator.initImpl = { _, _, _ -> initCalls++ }
-        TurnkeyManagedConfigurator.vendorInitializedProbe = { true }
-
-        val result = TurnkeyManagedConfigurator.configure(mockk<Application>(), "org-a", "proxy-a")
-
-        assertThat(result).isInstanceOf(RainError.InvalidConfig::class.java)
-        assertThat(initCalls).isEqualTo(0)
-    }
-
-    @Test
-    fun `a failing vendor initialization returns InternalError, records nothing, and can be retried`() = runTest {
-        var attempts = 0
-        TurnkeyManagedConfigurator.initImpl = { _, _, _ ->
-            attempts++
-            if (attempts == 1) error("keystore unavailable")
-        }
-        // Like the vendor: it reads as initialized from the first attempt on, even a failed one.
-        TurnkeyManagedConfigurator.vendorInitializedProbe = { attempts > 0 }
-        val app = mockk<Application>()
-
-        val first = TurnkeyManagedConfigurator.configure(app, "org-a", "proxy-a")
-        assertThat(first).isInstanceOf(RainError.InternalError::class.java)
-        // Nothing was recorded, so the same ids try again — and the SDK's own attempt must not be
-        // mistaken for a context configured outside the SDK.
-        assertThat(TurnkeyManagedConfigurator.configure(app, "org-a", "proxy-a")).isNull()
-        assertThat(attempts).isEqualTo(2)
-    }
 
     // ---------- one-time-code channel ----------
 
@@ -488,16 +410,28 @@ class TurnkeyManagedAuthTest {
     @Test
     fun `a configuration error makes every auth call throw InvalidConfig before touching the vendor`() = runTest {
         val turnkey = MockTurnkey(session = null)
-        val controller = controller(turnkey, configurationError = RainError.InvalidConfig("mismatch"))
+        val controller = controller(
+            turnkey,
+            configurationError = RainError.InvalidConfig("mismatch"),
+            passkeyDomain = "passkeys.example.com",
+        )
+        val activity = mockk<Activity>(relaxed = true)
 
         expectThrows<RainError.InvalidConfig> { controller.sendLoginCode("user@example.com") }
         expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(smsContact) }
         expectThrows<RainError.InvalidConfig> { controller.confirmLoginCode("123456") }
+        expectThrows<RainError.InvalidConfig> { controller.loginWithPasskey(activity) }
+        expectThrows<RainError.InvalidConfig> { controller.signUpWithPasskey(activity) }
+        expectThrows<RainError.InvalidConfig> { controller.addPasskey(activity) }
+        expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Email("user@example.com")) }
+        expectThrows<RainError.InvalidConfig> { controller.confirmContactVerification("123456") }
         expectThrows<RainError.InvalidConfig> { controller.awaitSessionRestore(timeoutMs = 100) }
         expectThrows<RainError.InvalidConfig> { controller.logout() }
 
         assertThat(turnkey.awaitReadyCallCount).isEqualTo(0)
         assertThat(turnkey.sendOtpCalls).isEmpty()
+        assertThat(turnkey.createPasskeyCalls).isEmpty()
+        assertThat(turnkey.verifyOtpTokenCalls).isEmpty()
         assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
     }
 
@@ -743,13 +677,16 @@ class TurnkeyManagedAuthTest {
     @Test
     fun `every auth method on a closed controller throws InvalidConfig and its state reads inert`() = runTest {
         val turnkey = MockTurnkey()
-        val controller = controller(turnkey)
+        val controller = controller(turnkey, passkeyDomain = "passkeys.example.com")
+        val activity = mockk<Activity>(relaxed = true)
 
         controller.close()
 
         expectThrows<RainError.InvalidConfig> { controller.sendLoginCode("user@example.com") }
         expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(smsContact) }
         expectThrows<RainError.InvalidConfig> { controller.confirmLoginCode("123456") }
+        expectThrows<RainError.InvalidConfig> { controller.loginWithPasskey(activity) }
+        expectThrows<RainError.InvalidConfig> { controller.signUpWithPasskey(activity) }
         expectThrows<RainError.InvalidConfig> { controller.logout() }
         expectThrows<RainError.InvalidConfig> { controller.awaitSessionRestore(timeoutMs = 100) }
         assertThat(controller.hasActiveSession()).isFalse()

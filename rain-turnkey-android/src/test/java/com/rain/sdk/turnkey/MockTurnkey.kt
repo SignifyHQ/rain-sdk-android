@@ -312,6 +312,80 @@ internal class MockTurnkey(
 
     val clearSessionCalls = mutableListOf<String>()
 
+    /** When set, [clearSession] throws this after recording the call — a stale key that will not clear. */
+    var clearSessionError: Exception? = null
+
+    // ---- passkey seams ----
+
+    data class PasskeyLoginCall(val sessionKey: String)
+
+    data class PasskeySignUpCall(
+        val sessionKey: String,
+        val passkeyName: String,
+        val signupWallet: TurnkeyWalletSpec,
+    )
+
+    val passkeyLoginCalls = mutableListOf<PasskeyLoginCall>()
+    var passkeyLoginError: Exception? = null
+
+    /** Runs after a recorded [completePasskeyLogin] with the new session key — install the session here. */
+    var onPasskeyLogin: (suspend (sessionKey: String) -> Unit)? = null
+
+    val passkeySignUpCalls = mutableListOf<PasskeySignUpCall>()
+    var passkeySignUpError: Exception? = null
+
+    /** Runs after a recorded [completePasskeySignUp] with the new session key — install the session here. */
+    var onPasskeySignUp: (suspend (sessionKey: String) -> Unit)? = null
+
+    /**
+     * When true, a failing passkey ceremony stores (and, with nothing selected, selects) its session
+     * *before* throwing — the vendor's shape when its key cleanup fails after `createSession`, or when
+     * the caller's cancellation lands after the store.
+     */
+    var passkeyStoresBeforeThrowing = false
+
+    data class CreatePasskeyCall(val rpId: String, val name: String)
+
+    data class RegisterAuthenticatorCall(
+        val organizationId: String,
+        val userId: String,
+        val name: String,
+        val registration: PasskeyRegistration,
+    )
+
+    val createPasskeyCalls = mutableListOf<CreatePasskeyCall>()
+    var createPasskeyError: Exception? = null
+
+    /** What the ceremony hands back: synthetic strings that decode to nothing. */
+    var stubbedPasskeyRegistration = PasskeyRegistration(
+        challenge = "stub-challenge",
+        attestation = com.turnkey.types.V1Attestation(
+            attestationObject = "stub-attestation",
+            clientDataJson = "stub-client-data",
+            credentialId = "stub-credential",
+            transports = listOf(com.turnkey.types.V1AuthenticatorTransport.AUTHENTICATOR_TRANSPORT_INTERNAL),
+        ),
+    )
+
+    val registerAuthenticatorCalls = mutableListOf<RegisterAuthenticatorCall>()
+    var registerAuthenticatorError: Exception? = null
+
+    // ---- contact attach seams ----
+
+    data class VerifyOtpTokenCall(val otpId: String, val otpCode: String, val encryptionTargetBundle: String)
+
+    data class SetContactCall(val organizationId: String, val userId: String, val contact: String, val verificationToken: String)
+
+    val verifyOtpTokenCalls = mutableListOf<VerifyOtpTokenCall>()
+    var verifyOtpTokenError: Exception? = null
+    var stubbedVerificationToken = "stub-verification-token"
+
+    val setUserEmailCalls = mutableListOf<SetContactCall>()
+    val setUserPhoneNumberCalls = mutableListOf<SetContactCall>()
+
+    /** When set, both contact setters throw this after recording the call. */
+    var setUserContactError: Exception? = null
+
     val createWalletCalls = mutableListOf<CreateWalletCall>()
     var createWalletError: Exception? = null
 
@@ -376,7 +450,76 @@ internal class MockTurnkey(
 
     override suspend fun clearSession(sessionKey: String) {
         clearSessionCalls += sessionKey
+        clearSessionError?.let { throw it }
         if (sessionKey == selectedSessionKey) resetToUnauthenticated()
+    }
+
+    override suspend fun completePasskeyLogin(activity: android.app.Activity, sessionKey: String) {
+        passkeyLoginCalls += PasskeyLoginCall(sessionKey)
+        storePasskeySession(sessionKey, passkeyLoginError, onPasskeyLogin)
+    }
+
+    override suspend fun completePasskeySignUp(
+        activity: android.app.Activity,
+        sessionKey: String,
+        passkeyName: String,
+        signupWallet: TurnkeyWalletSpec,
+    ) {
+        passkeySignUpCalls += PasskeySignUpCall(sessionKey, passkeyName, signupWallet)
+        storePasskeySession(sessionKey, passkeySignUpError, onPasskeySignUp)
+    }
+
+    /** Runs inside the add-passkey ceremony, after the call is recorded; a gate here holds the sheet open. */
+    var onCreatePasskey: (suspend () -> Unit)? = null
+
+    override suspend fun createPasskeyCredential(activity: android.app.Activity, rpId: String, name: String): PasskeyRegistration {
+        createPasskeyCalls += CreatePasskeyCall(rpId, name)
+        createPasskeyError?.let { throw it }
+        onCreatePasskey?.invoke()
+        return stubbedPasskeyRegistration
+    }
+
+    override suspend fun registerAuthenticator(
+        organizationId: String,
+        userId: String,
+        name: String,
+        registration: PasskeyRegistration,
+    ) {
+        registerAuthenticatorCalls += RegisterAuthenticatorCall(organizationId, userId, name, registration)
+        registerAuthenticatorError?.let { throw it }
+    }
+
+    override suspend fun verifyOtpToken(challenge: OtpChallenge, otpCode: String): String {
+        verifyOtpTokenCalls += VerifyOtpTokenCall(challenge.otpId, otpCode, challenge.encryptionTargetBundle)
+        verifyOtpTokenError?.let { throw it }
+        return stubbedVerificationToken
+    }
+
+    override suspend fun setUserEmail(organizationId: String, userId: String, email: String, verificationToken: String) {
+        setUserEmailCalls += SetContactCall(organizationId, userId, email, verificationToken)
+        setUserContactError?.let { throw it }
+    }
+
+    override suspend fun setUserPhoneNumber(
+        organizationId: String,
+        userId: String,
+        phoneNumber: String,
+        verificationToken: String,
+    ) {
+        setUserPhoneNumberCalls += SetContactCall(organizationId, userId, phoneNumber, verificationToken)
+        setUserContactError?.let { throw it }
+    }
+
+    /** Like the vendor's createSession: a first login auto-selects; over a live session it only stores. */
+    private suspend fun storePasskeySession(
+        sessionKey: String,
+        error: Exception?,
+        onStored: (suspend (sessionKey: String) -> Unit)?,
+    ) {
+        if (error != null && !passkeyStoresBeforeThrowing) throw error
+        if (selectedSessionKey == null) selectedSessionKey = sessionKey
+        onStored?.invoke(sessionKey)
+        error?.let { throw it }
     }
 
     override suspend fun createWallet(walletName: String, accounts: List<TurnkeyAccountSpec>) {

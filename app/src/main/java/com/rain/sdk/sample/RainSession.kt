@@ -268,8 +268,8 @@ class RainSession {
         }
 
     /**
-     * Creates the Rain wallet provider. The SDK owns the wallet backend's configuration and the
-     * one-time-code flow, email or SMS, from here on. The previous provider is retired first,
+     * Creates the Rain wallet provider. The SDK owns the wallet backend's configuration, the
+     * one-time-code flow, email or SMS, and the passkey flows from here on. The previous provider is retired first,
      * whether or not it was built into an SDK: two providers must never share the process-wide
      * wallet backend. Session expiry is reported through [expiredProvider].
      */
@@ -290,6 +290,11 @@ class RainSession {
                 sessionPolicy = RainWalletSessionPolicy(),
                 onSessionExpired = { expiredProvider.tryEmit(SessionStore.Provider.RainWallet) },
                 sponsorGas = true,
+                // The demo's relying-party domain. Its association file, which lists this sample's
+                // package name and the committed demo keystore's fingerprint, lives in
+                // SignifyHQ/passkeys-demo. The domain is permanent, because every passkey created
+                // against it stops working if it changes.
+                passkeyDomain = "passkeys.uptop.xyz",
             ),
         )
         SampleLog.d("RainWallet.session", "prepared; session state now ${provider.currentSessionState()}")

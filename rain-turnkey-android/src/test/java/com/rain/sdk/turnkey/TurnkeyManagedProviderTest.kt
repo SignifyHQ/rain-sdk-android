@@ -1,5 +1,6 @@
 package com.rain.sdk.turnkey
 
+import android.app.Activity
 import android.app.Application
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.internal.error.RainError
@@ -42,7 +43,7 @@ class TurnkeyManagedProviderTest {
         Dispatchers.setMain(StandardTestDispatcher())
         mainSet = true
         TurnkeyManagedConfigurator.resetForTest()
-        TurnkeyManagedConfigurator.initImpl = { _, _, _ -> }
+        TurnkeyManagedConfigurator.initImpl = { _, _, _, _ -> }
         TurnkeyManagedConfigurator.vendorInitializedProbe = { false }
     }
 
@@ -55,11 +56,16 @@ class TurnkeyManagedProviderTest {
     private fun managedConfig(
         organizationId: String = "org-a",
         authProxyConfigId: String = "proxy-a",
+        passkeyDomain: String? = null,
     ) = TurnkeyConfig(
         application = mockk<Application>(),
         organizationId = organizationId,
         authProxyConfigId = authProxyConfigId,
+        passkeyDomain = passkeyDomain,
     )
+
+    /** The system sheet's anchor; the mock never touches it. */
+    private val activity: Activity = mockk(relaxed = true)
 
     /** The vendor-free context core hands every descriptor; nothing here hits the network. */
     private fun providerContext(): ProviderContext {
@@ -108,7 +114,7 @@ class TurnkeyManagedProviderTest {
     @Test
     fun `managed mode exports after running the one-shot configuration`() = runTest {
         val configured = mutableListOf<Pair<String, String>>()
-        TurnkeyManagedConfigurator.initImpl = { _, organizationId, authProxyConfigId ->
+        TurnkeyManagedConfigurator.initImpl = { _, organizationId, authProxyConfigId, _ ->
             configured += organizationId to authProxyConfigId
         }
         val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithVectorAccounts())) // restored live session
@@ -131,7 +137,7 @@ class TurnkeyManagedProviderTest {
     @Test
     fun `managed mode configures the vendor with the config's ids on the first auth call, not at construction`() = runTest {
         val configured = mutableListOf<Pair<String, String>>()
-        TurnkeyManagedConfigurator.initImpl = { _, organizationId, authProxyConfigId ->
+        TurnkeyManagedConfigurator.initImpl = { _, organizationId, authProxyConfigId, _ ->
             configured += organizationId to authProxyConfigId
         }
         val turnkey = MockTurnkey(session = null)
@@ -262,5 +268,153 @@ class TurnkeyManagedProviderTest {
         expectThrows<RainError.InvalidConfig> { byo.exportPrivateKey(TurnkeyKeyFamily.SOLANA) }
         assertThat(turnkey.exportMnemonicCalls).isEmpty()
         assertThat(turnkey.exportAccountKeyCalls).isEmpty()
+    }
+
+    // ---------- passkeys ----------
+
+    @Test
+    fun `a blank passkeyDomain reads as none and a padded one is trimmed`() {
+        assertThat(managedConfig().managedPasskeyDomain).isNull()
+        assertThat(managedConfig(passkeyDomain = "   ").managedPasskeyDomain).isNull()
+        assertThat(managedConfig(passkeyDomain = " passkeys.example.com ").managedPasskeyDomain)
+            .isEqualTo("passkeys.example.com")
+        assertThat(TurnkeyConfig(turnkey = TurnkeyContext).managedPasskeyDomain).isNull()
+    }
+
+    @Test
+    fun `a passkeyDomain with a scheme, port, path or quote is refused when the config is built`() = runTest {
+        val malformed = listOf(
+            "https://passkeys.example.com",
+            "passkeys.example.com:443",
+            "passkeys.example.com/path",
+            "pass\"keys.example.com",
+            "passkeys example.com",
+            "localhost",
+        )
+        malformed.forEach { bad ->
+            val refused = expectThrows<RainError.InvalidConfig> { managedConfig(passkeyDomain = bad) }
+            assertThat(refused).hasMessageThat().contains("two labels")
+        }
+    }
+
+    @Test
+    fun `BYO mode refuses the passkey flows with the managed-mode message`() = runTest {
+        val turnkey = MockTurnkey(session = null)
+        val byo = TurnkeyProvider(TurnkeyConfig(turnkey = TurnkeyContext), contextOverride = turnkey)
+
+        val login = expectThrows<RainError.InvalidConfig> { byo.loginWithPasskey(activity) }
+        val signUp = expectThrows<RainError.InvalidConfig> { byo.signUpWithPasskey(activity) }
+
+        assertThat(login).hasMessageThat().contains("managed mode")
+        assertThat(signUp).hasMessageThat().contains("managed mode")
+        assertThat(turnkey.passkeyLoginCalls).isEmpty()
+        assertThat(turnkey.passkeySignUpCalls).isEmpty()
+    }
+
+    @Test
+    fun `managed mode forwards both passkey flows with the domain and configures once`() = runTest {
+        var initCalls = 0
+        val configuredDomains = mutableListOf<String?>()
+        TurnkeyManagedConfigurator.initImpl = { _, _, _, domain ->
+            initCalls++
+            configuredDomains += domain
+        }
+        val login = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), session = null)
+        login.onPasskeyLogin = { login.authenticate() }
+        val loginProvider = TurnkeyProvider(managedConfig(passkeyDomain = "passkeys.example.com"), contextOverride = login)
+
+        loginProvider.loginWithPasskey(activity)
+
+        // The domain travels in the one-shot configuration, not on the call.
+        assertThat(login.passkeyLoginCalls.single().sessionKey).startsWith("rain-turnkey-")
+        assertThat(configuredDomains).containsExactly("passkeys.example.com")
+        // The flow and the backfill each run the readiness guard; the vendor init ran once.
+        assertThat(login.awaitReadyCallCount).isAtLeast(1)
+        assertThat(initCalls).isEqualTo(1)
+        assertThat(loginProvider.currentAuthState()).isEqualTo(TurnkeyAuthState.Authenticated)
+
+        val signUp = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), session = null)
+        signUp.onPasskeySignUp = { signUp.authenticate() }
+        val signUpProvider = TurnkeyProvider(managedConfig(passkeyDomain = "passkeys.example.com"), contextOverride = signUp)
+
+        signUpProvider.signUpWithPasskey(activity)
+
+        val call = signUp.passkeySignUpCalls.single()
+        assertThat(call.passkeyName).startsWith("passkey-")
+        assertThat(call.signupWallet.name).isEqualTo("Wallet")
+        assertThat(signUp.awaitReadyCallCount).isAtLeast(1)
+        // Same ids as the first provider: the one-shot configuration is not repeated.
+        assertThat(initCalls).isEqualTo(1)
+        assertThat(signUpProvider.currentAuthState()).isEqualTo(TurnkeyAuthState.Authenticated)
+    }
+
+    @Test
+    fun `managed mode forwards addPasskey and a BYO or closed provider refuses it`() = runTest {
+        val turnkey = MockTurnkey()
+        val provider = TurnkeyProvider(managedConfig(passkeyDomain = "passkeys.example.com"), contextOverride = turnkey)
+
+        provider.addPasskey(activity)
+
+        assertThat(turnkey.createPasskeyCalls.single().rpId).isEqualTo("passkeys.example.com")
+        assertThat(turnkey.registerAuthenticatorCalls.single().organizationId).isEqualTo(MockTurnkey.DEFAULT_ORG_ID)
+
+        val byoContext = MockTurnkey()
+        val byo = TurnkeyProvider(TurnkeyConfig(turnkey = TurnkeyContext), contextOverride = byoContext)
+        val refused = expectThrows<RainError.InvalidConfig> { byo.addPasskey(activity) }
+        assertThat(refused).hasMessageThat().contains("managed mode")
+        assertThat(byoContext.createPasskeyCalls).isEmpty()
+
+        provider.close()
+        expectThrows<RainError.InvalidConfig> { provider.addPasskey(activity) }
+        assertThat(turnkey.createPasskeyCalls).hasSize(1)
+    }
+
+    @Test
+    fun `managed mode forwards the contact-attach calls with the canonical contact`() = runTest {
+        val turnkey = MockTurnkey()
+        val provider = TurnkeyProvider(managedConfig(), contextOverride = turnkey)
+
+        provider.sendContactVerificationCode(LoginContact.Sms("+1 999-999-9999"))
+        provider.confirmContactVerification("000000")
+
+        assertThat(turnkey.sendOtpCalls.single().contact).isEqualTo("+19999999999")
+        assertThat(turnkey.sendOtpCalls.single().channel).isEqualTo(OtpChannel.SMS)
+        assertThat(turnkey.verifyOtpTokenCalls.single().otpCode).isEqualTo("000000")
+        assertThat(turnkey.setUserPhoneNumberCalls.single().contact).isEqualTo("+19999999999")
+        assertThat(turnkey.setUserEmailCalls).isEmpty()
+    }
+
+    @Test
+    fun `a BYO or closed provider refuses the contact-attach calls with no vendor call`() = runTest {
+        val byoContext = MockTurnkey()
+        val byo = TurnkeyProvider(TurnkeyConfig(turnkey = TurnkeyContext), contextOverride = byoContext)
+        val refused = expectThrows<RainError.InvalidConfig> {
+            byo.sendContactVerificationCode(LoginContact.Email("user@example.com"))
+        }
+        assertThat(refused).hasMessageThat().contains("managed mode")
+        expectThrows<RainError.InvalidConfig> { byo.confirmContactVerification("123456") }
+        assertThat(byoContext.sendOtpCalls).isEmpty()
+
+        val turnkey = MockTurnkey()
+        val provider = TurnkeyProvider(managedConfig(), contextOverride = turnkey)
+        provider.close()
+        expectThrows<RainError.InvalidConfig> { provider.sendContactVerificationCode(LoginContact.Email("user@example.com")) }
+        expectThrows<RainError.InvalidConfig> { provider.confirmContactVerification("123456") }
+        assertThat(turnkey.sendOtpCalls).isEmpty()
+        assertThat(turnkey.verifyOtpTokenCalls).isEmpty()
+    }
+
+    @Test
+    fun `a closed managed provider refuses both passkey flows with no vendor call`() = runTest {
+        val turnkey = MockTurnkey()
+        val provider = TurnkeyProvider(managedConfig(passkeyDomain = "passkeys.example.com"), contextOverride = turnkey)
+
+        provider.close()
+
+        expectThrows<RainError.InvalidConfig> { provider.loginWithPasskey(activity) }
+        expectThrows<RainError.InvalidConfig> { provider.signUpWithPasskey(activity) }
+        assertThat(turnkey.passkeyLoginCalls).isEmpty()
+        assertThat(turnkey.passkeySignUpCalls).isEmpty()
+        assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
     }
 }

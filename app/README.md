@@ -7,8 +7,10 @@ connect a wallet, read balances, send tokens, withdraw collateral, and list tran
 
 ## Requirements
 
-- Android Studio with its bundled JBR (JDK 21)
-- An emulator or device on API 28+
+- Android Studio with its bundled JBR
+- An emulator or device on API 28+. The passkey buttons on the Rain Wallet card also need Google
+  Play services with a Google account signed in and a screen lock set; the `medium_phone` AVD is a
+  Play image and ships with neither.
 - The SDK modules this sample uses (`:rain-core-android`, `:rain-wallet-android`, `:rain-turnkey-android`,
   `:rain-portal-android`, `:rain-privy-android`)
 
@@ -68,7 +70,16 @@ methods:
   finishes the wallet setup); any other failure restarts from *Send code*. An email login and a phone
   login by the same person are two different accounts. SMS needs SMS one-time codes enabled on the
   backend configuration; in the sandbox the test number `+1 999-999-9999` with the code `000000`
-  works once the code format is numeric and 6 characters.
+  works once the code format is numeric and 6 characters. Two more buttons sit under the code step
+  while signed out: *Sign in with passkey* opens the system passkey sheet for an existing account,
+  and *Create wallet with passkey* makes a new account whose only login is the passkey, with the
+  same wallet setup as a code sign-up; a returning user who taps it ends up with a second, empty
+  wallet, and accounts are never merged. Both need the domain in `RainSession.prepareRainWallet`
+  (`passkeys.uptop.xyz`) to vouch for this build's signing key, see *Demo keystore* under Notes.
+  Signed in, *Add a passkey to this account* registers a passkey for a code-created account, and
+  the *Add a login contact* step sends a verification code to an email or phone and attaches it on
+  *Verify and attach*, after which that contact signs in to this account by code. A closed passkey
+  sheet shows `RAIN_401`; every other failure shows its error code only.
 - **Export keys** — once the Rain Wallet session is active, an *Export keys* card under the Rain Wallet card reveals the recovery phrase,
   the Ethereum private key or the Solana private key, one at a time, through `exportRecoveryPhrase`
   and `exportPrivateKey`, on a restored or reused session before *Initialize Rain*, and after it. While a value shows, the window
@@ -104,8 +115,9 @@ feed the demo's own `RainApiClient` (contracts and withdrawal signatures) and ar
 card on Home. The on-device Api-Key is a demo shortcut. A shipped app fetches contracts and signatures
 from its own backend, and the program key never leaves it.
 The last working values — provider choice, Rain API credentials, and each provider's ids and contact
-(email, or phone and channel for the Rain wallet) — are kept in an encrypted store (`SessionStore`) so the
-next launch pre-fills them and resumes the session; *Clear session* wipes them.
+(email, or phone and channel for the Rain wallet, or a passkey-owner flag when the Rain wallet session
+was established with a passkey) — are kept in an encrypted store (`SessionStore`) so the next launch
+pre-fills them and resumes the session; *Clear session* wipes them.
 
 `RainSession` also registers each demo chain's testnet token (`WalletChain.defaultTokenInfo`) via
 `registerTokens` on the builder, identically for all three providers. That is not a workaround the
@@ -119,6 +131,21 @@ mainnet-only, so naming the testnet tokens keeps the balance screen readable.
   slated to move behind `POST /v1/issuing/users/{userId}/wallet`), so the app has no recovery UI.
 - **Solana history** rows carry the wallet backend's activity id rather than a resolvable signature, so those
   rows are not linked to an explorer.
+- **Demo keystore.** `app/demo-debug.keystore` is committed on purpose and signs both the debug and
+  the release build. The Rain Wallet card's passkeys are bound to this certificate's SHA-256
+  fingerprint through `https://passkeys.uptop.xyz/.well-known/assetlinks.json`, served from the
+  `SignifyHQ/passkeys-demo` repository in the two-statement shape of Google's passkey example (the
+  reference copy the wallet README points partners at), so a build signed with any other key
+  (Android Studio's own debug key included) gets `RAIN_102` at the passkey sheet. The alias and both
+  passwords are the standard debug ones, `androiddebugkey` and `android`; nothing else may live in
+  this file. Because the private key is public, an APK anyone signs with it installs over this
+  sample as an update and inherits its data, and the association file trusts it at the passkey
+  sheet; the demo domain and the sandbox organization hold nothing of value, and this fingerprint
+  must never be listed on a domain that does. To print the fingerprint:
+
+  ```bash
+  /usr/bin/keytool -list -v -keystore app/demo-debug.keystore -alias androiddebugkey -storepass android -keypass android | grep 'SHA256:'
+  ```
 
 ## Project structure
 
@@ -130,6 +157,7 @@ app/src/main/java/com/rain/sdk/sample/
 ├── RainSession.kt           # Holds the built RainSdk + resolved RainClient; prepares the Rain wallet provider, builds Turnkey
 ├── RainApiClient.kt         # The demo's own Rain API client (contracts, withdrawal signature): host reference code
 ├── SessionStore.kt          # Encrypted store of the last working ids and credentials
+├── ContactChannel.kt        # Email or phone: the per-channel copy for the tabs that offer both
 ├── WalletSessionStatus.kt   # Provider session state as the Home screen shows it
 ├── WalletChain.kt           # Demo networks, explorer links, address validation
 ├── SampleEnvironment.kt     # Sandbox vs production: Rain API host, Auth pull operator
@@ -142,7 +170,8 @@ app/src/main/java/com/rain/sdk/sample/
 └── screens/                 # One Screen + ViewModel pair per feature, plus shared helpers
     ├── Common.kt            # Address/hash/money formatting, TransactionResultCard
     ├── SecretHandling.kt    # Sensitive clipboard copy with a timed clear, FLAG_SECURE while a secret shows
-    ├── HomeProviderCards.kt # Rain Wallet / Turnkey / Portal / Privy connection cards
+    ├── HomeProviderCards.kt # Turnkey / Portal / Privy connection cards and the shared contact and code steps
+    ├── HomeRainWalletCard.kt # Rain Wallet card: code or passkey sign-in, add a passkey, attach a login contact
     ├── HomeExportKeysCard.kt # Export keys card for a signed-in Rain Wallet session
     ├── HomeScreen / HomeViewModel
     ├── WalletInfoScreen / WalletInfoViewModel

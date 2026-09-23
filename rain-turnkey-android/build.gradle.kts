@@ -91,11 +91,20 @@ dependencies {
     // `crypto` reaches the compile classpath through sdk-kotlin as well. The adapter's key export
     // imports it directly, so it is named here for the same bookkeeping reason.
     implementation(libs.turnkey.crypto)
+    // `passkey` and `stamper` reach the compile classpath through sdk-kotlin too. The adapter runs
+    // the passkey ceremony and matches their error types directly, so both are named here.
+    implementation(libs.turnkey.passkey)
+    implementation(libs.turnkey.stamper)
 
     // ed25519 public-key derivation for the exported Solana keypair, the vendor's own method. The
     // same bcprov-jdk15to18 build and 1.84 floor are already on every consumer's runtime classpath
     // through core and the vendor; the bcprov-jdk18on exclusion above is unchanged.
     implementation(libs.bouncycastle.bcprov)
+
+    // Referenced only by the error mapping, for typed checks on the Credential Manager exceptions a
+    // failed passkey ceremony carries. The vendor's passkey package already puts this same version on
+    // every consumer's runtime classpath; declaring it here only brings the types to compile time.
+    implementation(libs.androidx.credentials)
 
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
@@ -111,7 +120,7 @@ dependencies {
     testImplementation(libs.json)
     testImplementation(libs.kotlinx.coroutines.test)
     // Already on the test runtime classpath via mockk; declared so reflection compiles cleanly.
-    testImplementation(kotlin("reflect"))
+    testImplementation(libs.kotlin.reflect)
 }
 
 mavenPublishing {

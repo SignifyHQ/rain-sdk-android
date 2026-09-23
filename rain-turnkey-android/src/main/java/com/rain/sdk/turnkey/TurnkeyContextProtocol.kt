@@ -1,5 +1,6 @@
 package com.rain.sdk.turnkey
 
+import android.app.Activity
 import com.turnkey.core.TurnkeyContext
 import com.turnkey.core.models.AuthState
 import com.turnkey.core.models.CreateSubOrgParams
@@ -12,6 +13,9 @@ import com.turnkey.crypto.decryptExportBundle
 import com.turnkey.crypto.generateP256KeyPair
 import com.turnkey.crypto.models.KeyFormat
 import com.turnkey.http.TurnkeyClient
+import com.turnkey.passkey.PasskeyUser
+import com.turnkey.passkey.createPasskey
+import com.turnkey.types.TCreateAuthenticatorsBody
 import com.turnkey.types.TCreateWalletAccountsBody
 import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TEthSendTransactionResponse
@@ -30,7 +34,11 @@ import com.turnkey.types.TListSolTransactionHistoryBody
 import com.turnkey.types.TListSolTransactionHistoryResponse
 import com.turnkey.types.TSolSendTransactionBody
 import com.turnkey.types.TSolSendTransactionResponse
+import com.turnkey.types.TUpdateUserEmailBody
+import com.turnkey.types.TUpdateUserPhoneNumberBody
 import com.turnkey.types.V1AddressFormat
+import com.turnkey.types.V1Attestation
+import com.turnkey.types.V1AuthenticatorParamsV2
 import com.turnkey.types.V1Curve
 import com.turnkey.types.V1HashFunction
 import com.turnkey.types.V1PathFormat
@@ -43,6 +51,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import java.util.UUID
 
 /**
  * Narrow internal abstractions over the Turnkey Kotlin SDK so the wallet provider can be
@@ -102,6 +111,13 @@ internal enum class OtpChannel { EMAIL, SMS }
  * up by it. Module-owned so test doubles never construct the vendor's result type.
  */
 internal data class OtpChallenge(val otpId: String, val encryptionTargetBundle: String, val channel: OtpChannel)
+
+/**
+ * A passkey the device just created: the challenge echoed in its client data and the attestation,
+ * in the shape the backend's authenticator activity takes them. Module-owned so test doubles never
+ * construct the vendor's registration result.
+ */
+internal data class PasskeyRegistration(val challenge: String, val attestation: V1Attestation)
 
 /** One account to create on a wallet — the module-owned shape of `V1WalletAccountParams`. */
 internal data class TurnkeyAccountSpec(
@@ -175,6 +191,65 @@ internal interface TurnkeyContextProtocol {
     /** Adds [accounts] to the existing wallet [walletId] — no new wallet, no new mnemonic. */
     suspend fun createWalletAccounts(walletId: String, accounts: List<TurnkeyAccountSpec>)
 
+    // ---- Passkeys (managed mode) ----
+
+    /**
+     * Signs an existing user in with a passkey bound to the relying-party domain of the one-shot
+     * configuration, through the system passkey sheet
+     * presented from [activity], and stores the session under [sessionKey]. Revokes the user's
+     * other sessions server-side. The vendor selects the new session itself only when none is
+     * selected; over a live session the caller switches. On return, success or failure, the vendor
+     * deletes every stored device key no session references. Suspends for the whole ceremony.
+     */
+    suspend fun completePasskeyLogin(activity: Activity, sessionKey: String)
+
+    /**
+     * Creates a new organization whose root user holds a passkey bound to the relying-party domain
+     * of the one-shot configuration, named
+     * [passkeyName], with [signupWallet] created inside the same request, then logs in and stores
+     * the session under [sessionKey]. The vendor swaps its process-wide client for a temporary-key
+     * client for the whole call and restores it only by selecting the new session, which it does
+     * only when none is selected: never run this while a session is selected. Same key cleanup as
+     * [completePasskeyLogin].
+     */
+    suspend fun completePasskeySignUp(
+        activity: Activity,
+        sessionKey: String,
+        passkeyName: String,
+        signupWallet: TurnkeyWalletSpec,
+    )
+
+    /**
+     * Runs the passkey creation ceremony for [rpId] on [activity], naming the passkey [name] in the
+     * credential provider. The domain is explicit here because the vendor's ceremony takes it as a
+     * parameter with no configured default; callers pass the one-shot configuration's value. Touches
+     * no session and no backend: the result is registered on the
+     * account through [registerAuthenticator], so a retry of the registration never re-runs the sheet.
+     */
+    suspend fun createPasskeyCredential(activity: Activity, rpId: String, name: String): PasskeyRegistration
+
+    /**
+     * Registers [registration] as the authenticator [name] on user [userId] of [organizationId],
+     * stamped by the selected session. The ids are the caller's (the session it just validated), not
+     * a second read of the vendor's state.
+     */
+    suspend fun registerAuthenticator(organizationId: String, userId: String, name: String, registration: PasskeyRegistration)
+
+    // ---- Contact attach (verify a code without logging in, then set the user's contact) ----
+
+    /**
+     * Verifies [otpCode] against [challenge] and returns the verification token, without logging
+     * in. Never binds the token to the live session's key: the vendor deletes the bound key on any
+     * failure. The throwaway key it binds instead is deleted before this returns.
+     */
+    suspend fun verifyOtpToken(challenge: OtpChallenge, otpCode: String): String
+
+    /** Sets the email of user [userId] on [organizationId]; [verificationToken] marks it verified. */
+    suspend fun setUserEmail(organizationId: String, userId: String, email: String, verificationToken: String)
+
+    /** Sets the phone number, E.164, of user [userId] on [organizationId]; [verificationToken] marks it verified. */
+    suspend fun setUserPhoneNumber(organizationId: String, userId: String, phoneNumber: String, verificationToken: String)
+
     // ---- Key export ----
 
     /**
@@ -199,7 +274,8 @@ internal fun OtpChannel.toVendorOtpType(): OtpType = when (this) {
 /**
  * Default adapter that bridges the real Turnkey singleton to the test-only interfaces.
  * Production code holds the singleton via this wrapper so the wallet provider doesn't
- * depend on `TurnkeyContext` statics directly.
+ * depend on `TurnkeyContext` statics directly. The passkey members hand the caller's `Activity`
+ * straight to the vendor, which needs it as the anchor for the system sheet.
  */
 @Suppress("TooManyFunctions") // vendor seam: one member per Turnkey call the SDK makes
 internal class TurnkeyContextAdapter(
@@ -290,16 +366,9 @@ internal class TurnkeyContextAdapter(
             // rejected code never reaches this point.
             invalidateExisting = true,
             sessionKey = sessionKey,
-            // Sign-up only (the vendor ignores it on login): the wallet is created inside the
-            // signup request; the vendor fills in the contact and verification token. `CustomWallet`
-            // carries no mnemonic length, so the seed gets Turnkey's default of 12 words — the
-            // length the createWallet fallback pins.
-            createSubOrgParams = CreateSubOrgParams(
-                customWallet = CustomWallet(
-                    walletName = signupWallet.name,
-                    walletAccounts = signupWallet.accounts.toVendorParams(),
-                )
-            ),
+            // Sign-up only (the vendor ignores it on login); the vendor fills in the contact and
+            // the verification token.
+            createSubOrgParams = signupWallet.toSignupParams(),
         )
     }
 
@@ -337,6 +406,129 @@ internal class TurnkeyContextAdapter(
                 organizationId = organizationId,
                 walletId = walletId,
                 accounts = accounts.toVendorParams()
+            )
+        )
+    }
+
+    // The vendor's passkey flows generate the session's P-256 key pair, open the Keystore master key
+    // and rewrite its stores on the calling thread, as refreshSession's vendor call does, and hosts
+    // call from the main thread. The credential sheet is launched through the Activity and needs no
+    // main-thread caller.
+    override suspend fun completePasskeyLogin(activity: Activity, sessionKey: String) {
+        withContext(ioDispatcher) {
+            context.loginWithPasskey(
+                activity = activity,
+                sessionKey = sessionKey,
+                // Revokes this user's other Turnkey sessions server-side on a successful login, the
+                // same rule as the code login; a refused passkey never reaches this point. The
+                // relying party comes from the one-shot configuration's authConfig.
+                invalidateExisting = true,
+            )
+        }
+    }
+
+    override suspend fun completePasskeySignUp(
+        activity: Activity,
+        sessionKey: String,
+        passkeyName: String,
+        signupWallet: TurnkeyWalletSpec,
+    ) {
+        withContext(ioDispatcher) {
+            context.signUpWithPasskey(
+                activity = activity,
+                sessionKey = sessionKey,
+                passkeyDisplayName = passkeyName,
+                // The vendor replaces the authenticators and API keys of these params with the
+                // passkey and its temporary key and keeps the wallet. The relying party comes from
+                // the one-shot configuration's authConfig.
+                createSubOrgParams = signupWallet.toSignupParams(),
+                invalidateExisting = true,
+            )
+        }
+    }
+
+    override suspend fun createPasskeyCredential(activity: Activity, rpId: String, name: String): PasskeyRegistration =
+        withContext(ioDispatcher) {
+            val result = createPasskey(
+                activity = activity,
+                // A fresh user id per registration, the vendor's own sign-up shape and Turnkey's guidance;
+                // the credential provider shows the name, and the vendor sends it as the display name too.
+                user = PasskeyUser(id = UUID.randomUUID().toString(), name = name, displayName = name),
+                rpId = rpId,
+                excludeCredentials = emptyList(),
+            )
+            PasskeyRegistration(challenge = result.challenge, attestation = result.attestation)
+        }
+
+    override suspend fun registerAuthenticator(
+        organizationId: String,
+        userId: String,
+        name: String,
+        registration: PasskeyRegistration,
+    ) {
+        // The high-level context has no wrapper for this activity; the typed client submits it and
+        // polls it to completion like every other activity.
+        context.client.createAuthenticators(
+            TCreateAuthenticatorsBody(
+                organizationId = organizationId,
+                authenticators = listOf(
+                    V1AuthenticatorParamsV2(
+                        attestation = registration.attestation,
+                        authenticatorName = name,
+                        challenge = registration.challenge,
+                    )
+                ),
+                userId = userId,
+            )
+        )
+    }
+
+    @Suppress("TooGenericExceptionCaught") // best-effort cleanup: a key that will not delete is logged, the token is already in hand
+    override suspend fun verifyOtpToken(challenge: OtpChallenge, otpCode: String): String = withContext(ioDispatcher) {
+        // The throwaway key pair and the code's encryption are generated on the calling thread.
+        val result = context.verifyOtp(
+            otpId = challenge.otpId,
+            otpCode = otpCode,
+            otpEncryptionTargetBundle = challenge.encryptionTargetBundle,
+            // Never the live session's key: the vendor deletes the bound key on any failure, so a
+            // wrong code would destroy the session. The vendor creates a throwaway key instead.
+            publicKey = null,
+        )
+        // Nothing else removes the throwaway key for a user who never runs a passkey ceremony.
+        try {
+            context.deleteKeyPair(publicKey = result.publicKey)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w("Rain SDK: could not delete the verification key pair (%s)", e.javaClass.simpleName)
+        }
+        result.verificationToken
+    }
+
+    override suspend fun setUserEmail(organizationId: String, userId: String, email: String, verificationToken: String) {
+        // No wrapper on the high-level context; the typed client submits and polls the activity.
+        context.client.updateUserEmail(
+            TUpdateUserEmailBody(
+                organizationId = organizationId,
+                userId = userId,
+                userEmail = email,
+                verificationToken = verificationToken,
+            )
+        )
+    }
+
+    override suspend fun setUserPhoneNumber(
+        organizationId: String,
+        userId: String,
+        phoneNumber: String,
+        verificationToken: String,
+    ) {
+        context.client.updateUserPhoneNumber(
+            TUpdateUserPhoneNumberBody(
+                organizationId = organizationId,
+                userId = userId,
+                userPhoneNumber = phoneNumber,
+                verificationToken = verificationToken,
             )
         )
     }
@@ -387,6 +579,15 @@ internal class TurnkeyContextAdapter(
     } catch (e: Exception) {
         throw TurnkeyExportFailures.rethrowable(e)
     }
+
+    /**
+     * The sign-up request's wallet, created inside the signup request itself so a new organization
+     * never exists without it. `CustomWallet` carries no mnemonic length, so the seed gets the
+     * vendor's default of 12 words, the length the createWallet fallback pins.
+     */
+    private fun TurnkeyWalletSpec.toSignupParams(): CreateSubOrgParams = CreateSubOrgParams(
+        customWallet = CustomWallet(walletName = name, walletAccounts = accounts.toVendorParams()),
+    )
 
     private fun List<TurnkeyAccountSpec>.toVendorParams(): List<V1WalletAccountParams> = map {
         V1WalletAccountParams(

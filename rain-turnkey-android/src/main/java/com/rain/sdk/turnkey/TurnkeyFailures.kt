@@ -1,6 +1,8 @@
 package com.rain.sdk.turnkey
 
+import com.rain.sdk.internal.error.RainError
 import kotlinx.coroutines.CancellationException
+import timber.log.Timber
 
 /**
  * This throwable and its causes, nearest first, at most [MAX_CAUSE_DEPTH] deep so a cyclic cause
@@ -22,3 +24,59 @@ internal fun Throwable.cancellationInChain(): CancellationException? =
 
 /** Bounds the one cause walk so a cyclic cause chain cannot spin it. */
 private const val MAX_CAUSE_DEPTH = 8
+
+/**
+ * The mapper's one exit for the vendor's HTTP response body. A [RainError.ProviderError] or
+ * [RainError.InternalError] whose cause chain carries a vendor HTTP failure is rebuilt around
+ * [TurnkeyHttpFailure], so the host sees the call and the status and never the body, whichever of
+ * the vendor's wrappers the failure arrived in and whichever mapping branch produced the error; no
+ * branch sanitizes on its own. The typed client's message embeds the raw body, which for the
+ * user-update activities can echo the email or phone being attached, and every vendor wrapper
+ * copies its cause's message into its own, which `ProviderError` copies into the message hosts
+ * log. Every other error, and one whose chain holds no HTTP failure, passes through untouched. The
+ * wrapper's name goes to the debug log, because the rebuilt message drops it.
+ */
+internal fun RainError.withoutResponseBody(): RainError {
+    val http = causeChain().drop(1).firstOrNull { TurnkeyErrorMapping.turnkeyHttpStatus(it) != null }
+        ?.takeUnless { it is TurnkeyHttpFailure }
+        ?: return this
+    Timber.d(
+        "Rain SDK: a wallet backend call failed with HTTP %s inside %s",
+        TurnkeyErrorMapping.turnkeyHttpStatus(http),
+        cause?.takeIf { it !== http }?.javaClass?.simpleName ?: "no wrapper",
+    )
+    return when (this) {
+        is RainError.ProviderError -> RainError.ProviderError(http.sanitizedForHost())
+        is RainError.InternalError -> RainError.InternalError(detailsWithoutCauseText(), http.sanitizedForHost())
+        else -> this
+    }
+}
+
+/**
+ * This error's own details without the vendor cause text: the base class prefixes every message
+ * with the code, and the vendor joins a wrapper's text to its cause's with " - error: ".
+ */
+private fun RainError.detailsWithoutCauseText(): String =
+    message.orEmpty().removePrefix("RainSDK Error [${errorCode.code}]: ").substringBefore(" - error: ")
+
+/**
+ * This vendor HTTP failure with the response body removed, or this throwable itself when its
+ * message is not a recognizable vendor HTTP failure. The status and the request path or activity
+ * type are what a host can act on.
+ */
+internal fun Throwable.sanitizedForHost(): Throwable {
+    val status = TurnkeyErrorMapping.turnkeyHttpStatus(this) ?: return this
+    val target = TURNKEY_HTTP_TARGET_REGEX.find(message.orEmpty())?.groupValues?.getOrNull(1)?.trimEnd(':')
+        ?: "the wallet backend"
+    return TurnkeyHttpFailure(status, target)
+}
+
+/**
+ * A vendor HTTP failure with the response body removed; see [withoutResponseBody]. The message keeps
+ * the vendor's path shape, so [TurnkeyErrorMapping.turnkeyHttpStatus] still reads the status off a
+ * mapped error's cause, which the wallet provider's history fallback relies on.
+ */
+internal class TurnkeyHttpFailure(status: Int, target: String) : RuntimeException("HTTP error from $target: $status")
+
+/** The first token after "from" or "calling": the request path or the activity type, never the body. */
+private val TURNKEY_HTTP_TARGET_REGEX = Regex("""^HTTP error (?:from|calling) (\S+)""")
