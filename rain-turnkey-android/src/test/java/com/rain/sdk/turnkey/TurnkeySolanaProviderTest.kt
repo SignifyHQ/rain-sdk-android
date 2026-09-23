@@ -575,12 +575,12 @@ class TurnkeySolanaProviderTest {
 
     @Test
     fun `sendNativeToken on solana surfaces a failed status with details as TransactionSimulationFailed`() {
-        // Turnkey decoded the execution failure into txError: the chain rejected the transaction,
+        // Turnkey decoded the program failure into error.solana: the chain rejected the transaction,
         // so it maps like a failed dry run (a withdrawal turns it into RAIN_405).
         stubBlockhash()
         val client = MockTurnkeyClient().apply {
             sendTransactionStatusQueue = mutableListOf(
-                MockTurnkeyClient.StatusFixture.failed(message = "custom program error: 0x1")
+                MockTurnkeyClient.StatusFixture.solanaRevertedOnChain(message = "custom program error: 0x1")
             )
         }
         val provider = makeProvider(client = client, sponsorGas = true)
@@ -590,6 +590,25 @@ class TurnkeySolanaProviderTest {
         }
 
         assertThat(ex.cause?.message).contains("custom program error")
+    }
+
+    @Test
+    fun `sendNativeToken on solana surfaces a failed status with only txError as ProviderError`() {
+        // A bare txError is a broadcast-or-confirm failure with nothing decoded, so it stays the
+        // provider's error rather than a revert.
+        stubBlockhash()
+        val client = MockTurnkeyClient().apply {
+            sendTransactionStatusQueue = mutableListOf(
+                MockTurnkeyClient.StatusFixture.failed(message = "blockhash not found")
+            )
+        }
+        val provider = makeProvider(client = client, sponsorGas = true)
+
+        val ex = assertThrows(RainError.ProviderError::class.java) {
+            runBlocking { provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5")) }
+        }
+
+        assertThat(ex.cause?.message).contains("blockhash not found")
     }
 
     @Test

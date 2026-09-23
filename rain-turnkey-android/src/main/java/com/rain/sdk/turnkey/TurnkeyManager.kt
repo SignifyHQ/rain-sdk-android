@@ -21,7 +21,6 @@ import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TGetActivitiesBody
 import com.turnkey.types.TGetNoncesBody
 import com.turnkey.types.TGetSendTransactionStatusBody
-import com.turnkey.types.TGetSendTransactionStatusResponse
 import com.turnkey.types.TGetWalletAddressBalancesBody
 import com.turnkey.types.TListEthTransactionHistoryBody
 import com.turnkey.types.TListSolTransactionHistoryBody
@@ -1021,12 +1020,7 @@ internal class TurnkeyManager(
             val txHash = status.eth?.txHash
             if (!txHash.isNullOrEmpty()) return txHash
 
-            val normalized = status.txStatus.uppercase()
-            val failed = normalized.contains("FAILED") ||
-                normalized.contains("REJECTED") ||
-                status.txError != null ||
-                status.error?.message != null
-            if (failed) throw statusFailure(status, "Wallet backend transaction submission failed")
+            TurnkeySendFailures.sendFailure(status, "Wallet backend transaction submission failed")?.let { throw it }
 
             if (attempt + 1 < DEFAULT_POLLING_ATTEMPTS) {
                 delay(pollingIntervalMs)
@@ -1037,24 +1031,6 @@ internal class TurnkeyManager(
         // may still confirm. Carrying the status id lets the host resume polling instead of
         // resending, which would risk a duplicate transfer.
         throw RainError.TransactionPending(sendTransactionStatusId)
-    }
-
-    /**
-     * The error for a terminal failed status. A decoded execution failure (Turnkey's `txError`,
-     * or per-chain revert details) is the chain rejecting the transaction, the same fact a
-     * self-paid preflight would have caught, so it is the simulation error and withdrawals map
-     * it to [RainError.WithdrawalRevertedByNetwork] on both the self-paid and sponsored paths.
-     * A failure without those details (a policy rejection, a submission that never reached the
-     * chain) stays a provider error.
-     */
-    private fun statusFailure(status: TGetSendTransactionStatusResponse, fallback: String): RainError {
-        val message = status.txError ?: status.error?.message ?: fallback
-        val reverted = status.txError != null || status.error?.eth != null || status.error?.solana != null
-        return if (reverted) {
-            RainError.TransactionSimulationFailed(IllegalStateException(message))
-        } else {
-            RainError.ProviderError(IllegalStateException(message))
-        }
     }
 
     // ---------- Solana send ----------
@@ -1163,12 +1139,8 @@ internal class TurnkeyManager(
                 return null
             }
 
+            TurnkeySendFailures.sendFailure(status, "Wallet backend Solana transaction submission failed")?.let { throw it }
             val normalized = status.txStatus.uppercase()
-            val failed = status.txError != null ||
-                status.error?.message != null ||
-                normalized.contains("FAILED") ||
-                normalized.contains("REJECTED")
-            if (failed) throw statusFailure(status, "Wallet backend Solana transaction submission failed")
 
             // Turnkey SDK 2.0 populates solana.signature once the tx is Included.
             status.solana?.signature?.takeIf { it.isNotEmpty() }?.let { return it }

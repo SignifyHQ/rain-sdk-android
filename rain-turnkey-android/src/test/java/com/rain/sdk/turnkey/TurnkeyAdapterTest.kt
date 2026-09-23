@@ -211,12 +211,12 @@ class TurnkeyAdapterTest {
 
     @Test
     fun `sendTransaction surfaces a failed status with revert details as TransactionSimulationFailed`() {
-        // Turnkey decoded the execution failure (txError): the chain rejected the transaction,
+        // Turnkey decoded the revert (error.revertChain): the chain rejected the transaction,
         // the same fact a self-paid preflight catches, so withdrawals map it to RAIN_405.
         stubSendTransactionRPCs()
         val turnkey = MockTurnkey()
         (turnkey.turnkeyClient as MockTurnkeyClient).sendTransactionStatusQueue =
-            mutableListOf(MockTurnkeyClient.StatusFixture.failed(message = "reverted"))
+            mutableListOf(MockTurnkeyClient.StatusFixture.revertedOnChain(message = "reverted"))
         val provider = makeProvider(turnkey)
 
         val ex = runCatching {
@@ -232,6 +232,31 @@ class TurnkeyAdapterTest {
         }.exceptionOrNull()
         assertThat(ex).isInstanceOf(RainError.TransactionSimulationFailed::class.java)
         assertThat(ex?.cause?.message).contains("reverted")
+    }
+
+    @Test
+    fun `sendTransaction surfaces a failed status with only txError as ProviderError`() {
+        // A bare txError is any broadcast-or-confirm failure, not proof that the chain executed and
+        // rejected the transaction, so it stays the provider's error (a withdrawal reads RAIN_501).
+        stubSendTransactionRPCs()
+        val turnkey = MockTurnkey()
+        (turnkey.turnkeyClient as MockTurnkeyClient).sendTransactionStatusQueue =
+            mutableListOf(MockTurnkeyClient.StatusFixture.failed(message = "nonce too low"))
+        val provider = makeProvider(turnkey)
+
+        val ex = runCatching {
+            runBlocking {
+                provider.sendTransaction(
+                    chainId = 1,
+                    from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
+                    to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
+                    data = "0x",
+                    value = "0x0"
+                )
+            }
+        }.exceptionOrNull()
+        assertThat(ex).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(ex?.cause?.message).contains("nonce too low")
     }
 
     @Test

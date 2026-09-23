@@ -26,6 +26,7 @@ import com.turnkey.types.V1ActivityType
 import com.turnkey.types.V1AddressFormat
 import com.turnkey.types.V1AssetBalance
 import com.turnkey.types.V1Curve
+import com.turnkey.types.V1EthFailureDetails
 import com.turnkey.types.V1EthSendTransactionIntent
 import com.turnkey.types.V1EthSendTransactionResult
 import com.turnkey.types.V1EthSendTransactionStatus
@@ -34,11 +35,14 @@ import com.turnkey.types.V1Intent
 import com.turnkey.types.V1PathFormat
 import com.turnkey.types.V1PayloadEncoding
 import com.turnkey.types.V1Result
+import com.turnkey.types.V1RevertChainEntry
 import com.turnkey.types.V1SignRawPayloadResult
 import com.turnkey.types.V1SolSendTransactionIntent
 import com.turnkey.types.V1SolSendTransactionResult
 import com.turnkey.types.V1SolSendTransactionResultV2
+import com.turnkey.types.V1SolanaFailureDetails
 import com.turnkey.types.V1SolanaSendTransactionStatus
+import com.turnkey.types.V1TxError
 import com.turnkey.types.V1WalletAccount
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,20 +59,75 @@ internal class MockTurnkeyClient(
 
     /**
      * Status response fixture for `getSendTransactionStatus`. Use the factory methods on
-     * the companion object to produce typical results (broadcasted / pending / failed).
+     * the companion object to produce typical results (broadcasted / pending / failed / reverted).
+     * [errorMessage], [revertChain], [ethRevertChain] and [solanaFailure] populate the structured
+     * `error` of the response; a fixture with none of them answers `error = null`.
      */
     data class StatusFixture(
         val txHash: String? = null,
         val txStatus: String = "TX_STATUS_BROADCASTED",
         val txError: String? = null,
         val errorMessage: String? = null,
-        val solanaSignature: String? = null
+        val solanaSignature: String? = null,
+        /** A decoded EVM revert chain on `error.revertChain`: a contract rejecting the transaction. */
+        val revertChain: List<V1RevertChainEntry>? = null,
+        /** The same chain under `error.eth.revertChain`; an empty list stands for `eth` details without a chain. */
+        val ethRevertChain: List<V1RevertChainEntry>? = null,
+        /** Decoded Solana failure details on `error.solana`: the program rejecting the transaction. */
+        val solanaFailure: V1SolanaFailureDetails? = null
     ) {
+        /** The vendor response this fixture stands for. */
+        fun toResponse(): TGetSendTransactionStatusResponse {
+            val carriesError = errorMessage != null || revertChain != null || ethRevertChain != null || solanaFailure != null
+            return TGetSendTransactionStatusResponse(
+                error = if (carriesError) {
+                    V1TxError(
+                        eth = ethRevertChain?.let { V1EthFailureDetails(revertChain = it) },
+                        message = errorMessage,
+                        revertChain = revertChain,
+                        solana = solanaFailure
+                    )
+                } else {
+                    null
+                },
+                eth = txHash?.let { V1EthSendTransactionStatus(txHash = it) },
+                solana = solanaSignature?.let { V1SolanaSendTransactionStatus(signature = it) },
+                txError = txError,
+                txStatus = txStatus
+            )
+        }
+
         companion object {
             fun broadcasted(hash: String) = StatusFixture(txHash = hash, txStatus = "TX_STATUS_BROADCASTED")
             fun pending() = StatusFixture(txHash = null, txStatus = "TX_STATUS_PENDING")
+
+            /** Failed with only the vendor's `txError` string: a broadcast or confirmation failure, nothing decoded. */
             fun failed(message: String = "broadcast failed") =
                 StatusFixture(txHash = null, txStatus = "TX_STATUS_FAILED", txError = message)
+
+            /** Failed with a decoded revert chain on `error.revertChain`: what a sponsored send reports when the contract rejects it. */
+            fun revertedOnChain(message: String = "execution reverted") = StatusFixture(
+                txHash = null,
+                txStatus = "TX_STATUS_FAILED",
+                errorMessage = message,
+                revertChain = listOf(V1RevertChainEntry(displayMessage = message, errorType = "native"))
+            )
+
+            /** Failed with the revert chain under `error.eth.revertChain` instead. */
+            fun ethRevertedOnChain(message: String = "execution reverted") = StatusFixture(
+                txHash = null,
+                txStatus = "TX_STATUS_FAILED",
+                errorMessage = message,
+                ethRevertChain = listOf(V1RevertChainEntry(displayMessage = message, errorType = "native"))
+            )
+
+            /** Failed with Solana program failure details attached. */
+            fun solanaRevertedOnChain(message: String = "custom program error: 0x1") = StatusFixture(
+                txHash = null,
+                txStatus = "TX_STATUS_FAILED",
+                errorMessage = message,
+                solanaFailure = V1SolanaFailureDetails(rpcMessage = message)
+            )
         }
     }
 
@@ -190,13 +249,7 @@ internal class MockTurnkeyClient(
             sendTransactionStatusQueue.size == 1 -> sendTransactionStatusQueue[0]
             else -> sendTransactionStatusQueue.removeAt(0)
         }
-        return TGetSendTransactionStatusResponse(
-            error = null,
-            eth = fixture.txHash?.let { V1EthSendTransactionStatus(txHash = it) },
-            solana = fixture.solanaSignature?.let { V1SolanaSendTransactionStatus(signature = it) },
-            txError = fixture.txError,
-            txStatus = fixture.txStatus
-        )
+        return fixture.toResponse()
     }
 
     override suspend fun getActivities(
