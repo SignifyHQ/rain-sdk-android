@@ -200,9 +200,9 @@ passes a `RainError` through with its code (the withdrawal paths alone rewrap a 
 as `WithdrawalRevertedByNetwork`); anything else it wraps as `ProviderError` after its shared prose
 heuristics, with two exceptions. On `estimateGas`, `estimateWithdrawalFee` and the Solana
 `withdrawCollateral` / `prepareWithdrawal` paths a raw exception floors at `InternalError`, and the
-hooks core calls before it enters a wrapper (the EVM wallet-address read, `requireSendSupport` on
-`withdrawCollateral`, and `sponsorsFees` on `estimateWithdrawalFee`) are
-not wrapped at all, so a raw exception there reaches the host as thrown. A vendor exception that
+hooks core calls before it enters a wrapper (the EVM wallet-address read and `requireSendSupport`
+on `withdrawCollateral`) are not wrapped at all, so a raw exception there reaches the host as
+thrown. A vendor exception that
 escapes therefore loses the specific code a host branches on, and an expired session arrives as a
 generic error with no re-authentication hook. Core needs no change: the transaction-building
 utilities are available regardless of which provider you register.
@@ -274,7 +274,7 @@ Internal API: every member below is marked `@InternalRainTurnkeyApi` (a `@Requir
 | `awaitSessionRestore` | `suspend fun awaitSessionRestore(timeoutMs: Long = 5_000)` | Waits for the vendor's asynchronous restore of a persisted session; a timeout returns normally and leaves `authState` at `Loading`. As the first auth call of a launch it also runs Turnkey's one-shot initialization first, which `timeoutMs` does not bound. Throws `RainError.InvalidConfig` on a configuration conflict (blank or different ids, a different `passkeyDomain`, or a `TurnkeyContext` initialized outside the SDK) and `RainError.InternalError` when Turnkey's initialization failed. |
 | `hasActiveSession` | `fun hasActiveSession(): Boolean` | True when a live session has more than 30 seconds left — the code step can be skipped. Local expiry only: a session revoked server-side reads as active until its first call fails. |
 | `authState` / `currentAuthState()` | `val authState: Flow<TurnkeyAuthState>` / `fun currentAuthState(): TurnkeyAuthState` | `Loading` / `Authenticated` / `Unauthenticated`; a view over `sessionState` with `Expired` collapsed into `Unauthenticated`. Reads `Loading` until the first auth call has configured Turnkey and its restore has settled. |
-| `LoginContact` | `sealed interface LoginContact { val value: String }` with `data class Email(value)` and `data class Phone(value)` | Where the code goes and the identity the account is keyed on: a first login signs the user up under this contact; a later login finds the account by email for `Email` and by phone number for `Sms`. The same person arriving through the other channel is a new account, with its own sub-organization and wallet, unless the contacts were linked outside the SDK. `value` is the string as given; `toString()` hides it. Marked `@InternalRainTurnkeyApi`. |
+| `LoginContact` | `sealed interface LoginContact { val value: String }` with `data class Email(value)` and `data class Phone(value)` | Where the code goes and the identity the account is keyed on: a first login signs the user up under this contact; a later login finds the account by email for `Email` and by phone number for `Phone`. The same person arriving through the other channel is a new account, with its own sub-organization and wallet, unless the contacts were linked outside the SDK. `value` is the string as given; `toString()` hides it. Marked `@InternalRainTurnkeyApi`. |
 
 Resolving a managed provider before a session is live throws `RainError.TokenExpired`; resolution re-checks the account set, so a login whose provisioning failed heals itself. The Turnkey configuration is one-shot per app launch, applied by the first auth call or by resolution: blank ids, ids that differ from the ones this launch was configured with, or a `TurnkeyContext` the app initialized itself make every auth call throw `RainError.InvalidConfig`; a failed Turnkey initialization makes them throw `RainError.InternalError` until the app relaunches.
 
@@ -405,7 +405,7 @@ distinction and return the hex address.
 Estimates the gas fee required for a transaction.
 
 On a provider that sponsors fees (Turnkey with `sponsorGas`, the Rain wallet) the estimate is still
-the network cost of the transaction: the sponsor pays it and the wallet is not charged, so a host
+the network cost of the transaction. The sponsor pays it and the wallet is not charged, so a host
 can show what sponsorship saves.
 
 - **Returns:** `BigDecimal` — estimated gas fee in the chain's native token (e.g. AVAX).
@@ -431,7 +431,7 @@ Internally builds the EIP-712 payload, signs it with the wallet, then runs `eth_
 against the withdrawal controller. Nothing is broadcast.
 
 On a provider that sponsors the fee on that chain (Turnkey with `sponsorGas`, the default, on its
-broadcast chains) the result is still the network cost: the withdrawal is built and signed once to
+broadcast chains) the result is still the network cost. The withdrawal is built and signed once to
 price it, as on a self-paid chain, and the sponsor pays what the estimate shows.
 
 > **Signing side effect.** The estimated calldata embeds a wallet signature the controller
@@ -483,9 +483,7 @@ coverage (Avalanche, Celo, ZKsync, Plasma, and Ink are read-only there); this ap
 
 On Monad (`143`, `10143`) Turnkey's sponsorship runs through EIP-7702 delegation, and Monad reverts
 any delegated-account transaction that would leave the balance under 10 MON. A sponsored native MON
-send from a wallet below that quotes `0` and then fails on chain; token sends are unaffected.
-
-> `sendNativeToken(chainId, toAddress, amount)` is a deprecated alias that delegates to this method.
+send from a wallet below that fails on chain even when the estimate succeeds; token sends are unaffected.
 
 - **Returns:** `RainTokenTransferResult` — containing the transaction hash.
 - **Throws:** `RainError` if send fails.
@@ -717,8 +715,8 @@ Fetches a single balance (native or a contract token) for the current wallet.
 ### getTokenBalances(chainId)
 
 Fetches all non-zero balances for the current wallet on the given network. The native
-balance is always included; zero-balance contract tokens are omitted. Supersedes the
-deprecated `getBalances(chainId)`, which returned a lossy `Map<String, Double>`.
+balance is always included; zero-balance contract tokens are omitted. It replaces the 1.0.x
+`getBalances(chainId)`, which returned a lossy `Map<String, Double>` and is removed.
 
 - **Returns:** `List<Balance>` — one per non-zero token plus the native balance.
 - **Throws:** `RainError` if the request fails.
@@ -1024,7 +1022,7 @@ Format: `"RainSDK Error [CODE]: message"`
 | `RAIN_402` | `RainError.InsufficientFunds` / `RainError.InsufficientTokenBalance` / `RainError.TokenAccountNotFound` | Balance too low for the requested amount or gas; a token balance below the requested amount (`InsufficientTokenBalance`); a Solana sender with no token account for the mint (`TokenAccountNotFound`). `InsufficientFunds` carries `required` and `available` as `BigDecimal?` in the native currency's human units, null when the failure came from vendor prose without amounts. |
 | `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight `eth_call` simulation failed (e.g. contract revert, insufficient funds), or the wallet backend's failed send status carried decoded revert details (a revert chain, or Solana program failure details); a failed status without them is `ProviderError`. |
 | `RAIN_404` | `RainError.WalletUnavailable` | The backing provider returned no usable wallet address (e.g. Turnkey context has no Ethereum account), or, for a Turnkey or Rain wallet key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors). |
-| `RAIN_405` | `RainError.WithdrawalRevertedByNetwork` | Withdrawal reverted on-chain (e.g. duplicate withdrawal, already-used signature). A fee-sponsored withdrawal skips the dry run; a failed status carrying decoded revert details maps here too, one without them is `RAIN_501`. |
+| `RAIN_405` | `RainError.WithdrawalRevertedByNetwork` | Withdrawal reverted on-chain (e.g. duplicate withdrawal, already-used signature). A fee-sponsored withdrawal skips the dry run; a failed status carrying decoded revert details maps here too, and one without them is `RAIN_501`. |
 | `RAIN_406` | `RainError.InvalidAmount` | The amount is invalid for the token — negative, more decimal places than the token supports, or past `uint256` max. |
 | `RAIN_407` | `RainError.WalletNotAuthorized` | The wallet is not an admin of the collateral contract; checked before a withdrawal is signed. |
 | `RAIN_501` | `RainError.ProviderError` | Portal, Turnkey, or other provider error; for a Turnkey or Rain wallet key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors); a passkey ceremony, login or sign-up the device or the backend refused for another reason, an HTTP status inside a passkey login or sign-up included (no session exists yet, so it is never `RAIN_201` or `RAIN_202`); a contact code request or contact update the backend refused. |

@@ -45,7 +45,7 @@ class CollateralMetadataTest {
         val rows = tokensWithMetadata(
             contract,
             lookup = { chainId, _ -> throw RainError.InvalidConfig("No RPC endpoint configured for chainId=$chainId") },
-            onUnavailable = { token, error -> reported += token.address to error.errorCode.code },
+            onUnavailable = { token, error -> reported += token.address to error.code },
         )
 
         assertThat(rows.map { it.decimals }).containsExactly(null, null)

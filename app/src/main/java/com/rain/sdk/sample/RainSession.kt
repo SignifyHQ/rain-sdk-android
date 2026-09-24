@@ -179,7 +179,7 @@ class RainSession {
                 // stays unnamed rather than the screen guessing its scale.
                 SampleLog.w(
                     "RainApi",
-                    "token metadata unavailable for ${token.address} on chainId=${contract.chainId}: ${error.errorCode.code}"
+                    "token metadata unavailable for ${token.address} on chainId=${contract.chainId}: ${error.code}"
                 )
             },
         )
@@ -344,10 +344,10 @@ class RainSession {
         } catch (e: RainError.InvalidConfig) {
             // A closed provider, or a backend another tab configured this launch: there is no Rain
             // wallet session of ours to clear, so clearing the rest must go ahead.
-            SampleLog.w("RainWallet.session", "logout skipped: ${e.errorCode.code} ${e.javaClass.simpleName}")
+            SampleLog.w("RainWallet.session", "logout skipped: ${e.code} ${e.javaClass.simpleName}")
             true
         } catch (e: RainError) {
-            SampleLog.w("RainWallet.session", "logout failed: ${e.errorCode.code} ${e.javaClass.simpleName}")
+            SampleLog.w("RainWallet.session", "logout failed: ${e.code} ${e.javaClass.simpleName}")
             false
         }
     }

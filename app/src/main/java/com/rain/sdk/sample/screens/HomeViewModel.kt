@@ -907,7 +907,7 @@ class HomeViewModel(
         hadSession: Boolean,
         e: RainError,
     ) {
-        val code = e.errorCode.code
+        val code = e.code
         when {
             e is RainError.UserRejected || e is RainError.InvalidConfig -> {
                 restoreRainWalletOwner(previousOwner)
@@ -958,11 +958,11 @@ class HomeViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: RainError.UserRejected) {
-                SampleLog.w("RainWallet.addPasskey", "sheet closed ${e.errorCode.code}")
-                _state.update { it.copy(statusText = "Passkey sheet closed (${e.errorCode.code}), no passkey added") }
+                SampleLog.w("RainWallet.addPasskey", "sheet closed ${e.code}")
+                _state.update { it.copy(statusText = "Passkey sheet closed (${e.code}), no passkey added") }
             } catch (e: RainError) {
                 SampleLog.w("RainWallet.addPasskey", "failed ${e.describe()}")
-                _state.update { it.copy(statusText = "Add passkey failed (${e.errorCode.code})") }
+                _state.update { it.copy(statusText = "Add passkey failed (${e.code})") }
             } finally {
                 _state.update { it.copy(rainWalletPasskeyInFlight = null) }
             }
@@ -1034,7 +1034,7 @@ class HomeViewModel(
                 throw e
             } catch (e: RainError) {
                 SampleLog.w("RainWallet.attach", "send failed ${e.describe()}")
-                _state.update { it.copy(statusText = "Verification code failed (${e.errorCode.code})") }
+                _state.update { it.copy(statusText = "Verification code failed (${e.code})") }
             } finally {
                 _state.update { it.copy(rainWalletAttachInFlight = false) }
             }
@@ -1067,7 +1067,7 @@ class HomeViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: RainError.InvalidLoginCode) {
-                SampleLog.w("RainWallet.attach", "verification code rejected (${e.errorCode.code})")
+                SampleLog.w("RainWallet.attach", "verification code rejected (${e.code})")
                 _state.update {
                     it.copy(rainWalletAttachCode = "", statusText = "That code was not accepted; check it and try again")
                 }
@@ -1077,7 +1077,7 @@ class HomeViewModel(
                     it.copy(
                         rainWalletAttachCodeSent = false,
                         rainWalletAttachCode = "",
-                        statusText = "Contact attach failed (${e.errorCode.code}); request a new verification code",
+                        statusText = "Contact attach failed (${e.code}); request a new verification code",
                     )
                 }
             } finally {
@@ -1308,7 +1308,7 @@ class HomeViewModel(
 
     /** The code and class of a failure, never its prose: an auth-proxy failure can echo the contact. */
     private fun Throwable.describe(): String =
-        (this as? RainError)?.let { "${it.errorCode.code} ${javaClass.simpleName}" } ?: javaClass.simpleName
+        (this as? RainError)?.let { "${it.code} ${javaClass.simpleName}" } ?: javaClass.simpleName
 
     fun sendPrivyOtp(app: Application) {
         val s = _state.value
@@ -1519,8 +1519,8 @@ class HomeViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: RainError) {
-                SampleLog.w("RainWallet.export", "export failed ${e.errorCode.code} (${e.javaClass.simpleName})")
-                _state.update { it.copy(statusText = "Export failed (${e.errorCode.code})") }
+                SampleLog.w("RainWallet.export", "export failed ${e.code} (${e.javaClass.simpleName})")
+                _state.update { it.copy(statusText = "Export failed (${e.code})") }
             } finally {
                 _state.update { it.copy(rainWalletExportInFlight = null) }
             }

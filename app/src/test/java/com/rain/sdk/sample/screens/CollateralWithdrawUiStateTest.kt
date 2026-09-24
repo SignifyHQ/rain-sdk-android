@@ -9,7 +9,8 @@ import java.math.BigDecimal
 /**
  * The withdraw screen's fail-closed rule: a token whose decimals the SDK could not establish never
  * reaches a money action, from the rows the screen builds through the checks every money action
- * runs, and the signature cache key tells chains and amounts apart.
+ * runs, the signature cache key tells chains and amounts apart, and the fee note says where an
+ * estimate came from and who pays it.
  */
 class CollateralWithdrawUiStateTest {
 
@@ -85,6 +86,15 @@ class CollateralWithdrawUiStateTest {
         assertThat(key.copy(chainId = 421614)).isNotEqualTo(key)
         assertThat(key.copy(amountBaseUnits = "12500001")).isNotEqualTo(key)
         assertThat(key.copy(recipientAddress = RECIPIENT.uppercase())).isNotEqualTo(key)
+    }
+
+    @Test
+    fun `the fee note names the source and the payer, or is absent`() {
+        assertThat(feeNote(sponsored = false, fromPrepared = false)).isNull()
+        assertThat(feeNote(sponsored = true, fromPrepared = false)).isEqualTo("A sponsor pays this fee, not the wallet.")
+        assertThat(feeNote(sponsored = false, fromPrepared = true)).isEqualTo("From the prepared withdrawal, no new signature.")
+        assertThat(feeNote(sponsored = true, fromPrepared = true))
+            .isEqualTo("From the prepared withdrawal, no new signature. A sponsor pays this fee, not the wallet.")
     }
 
     @Test
