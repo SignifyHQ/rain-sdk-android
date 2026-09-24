@@ -260,6 +260,33 @@ class TurnkeyAdapterTest {
     }
 
     @Test
+    fun `sendTransaction surfaces an included transaction that reverted on chain as TransactionSimulationFailed`() {
+        // Turnkey reports an on-chain revert on an INCLUDED status, hash and decoded revert together:
+        // the revert wins over the hash, and the hash rides in the message so the host can look it up.
+        stubSendTransactionRPCs()
+        val hash = "0x" + "d".repeat(64)
+        val turnkey = MockTurnkey()
+        (turnkey.turnkeyClient as MockTurnkeyClient).sendTransactionStatusQueue =
+            mutableListOf(MockTurnkeyClient.StatusFixture.includedButReverted(hash, message = "execution reverted"))
+        val provider = makeProvider(turnkey)
+
+        val ex = runCatching {
+            runBlocking {
+                provider.sendTransaction(
+                    chainId = 1,
+                    from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
+                    to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
+                    data = "0x",
+                    value = "0x0"
+                )
+            }
+        }.exceptionOrNull()
+        assertThat(ex).isInstanceOf(RainError.TransactionSimulationFailed::class.java)
+        assertThat(ex?.cause?.message).contains("execution reverted")
+        assertThat(ex?.cause?.message).contains(hash)
+    }
+
+    @Test
     fun `sendTransaction surfaces a failed status without details as ProviderError`() {
         // A rejection with no decoded execution failure (policy, submission) is the provider's.
         stubSendTransactionRPCs()

@@ -24,8 +24,9 @@ import com.rain.sdk.turnkey.TurnkeyConfig
  *                         deliberate [RainProvider.logout] does not fire it. The provider holds the hook for its whole life, so
  *                         capture no Activity or ViewModel in it.
  * @param sponsorGas When true, every send on a supported chain is fee-sponsored: the wallet
- *                   backend builds and pays the network fee, fee estimates still quote the network
- *                   cost the sponsor pays, and the descriptor advertises `Capability.GAS_SPONSORSHIP`. Sponsorship cost passes
+ *                   backend builds and pays the network fee, fee estimates still quote what the
+ *                   wallet would pay itself, and the descriptor advertises
+ *                   `Capability.GAS_SPONSORSHIP`. Sponsorship cost passes
  *                   through to the partner. Two limits: rent for a first-time recipient's Solana
  *                   token account is a separate backend setting and stays with the sender, and a
  *                   sponsored send runs no client-side revert preflight, so a failure surfaces as

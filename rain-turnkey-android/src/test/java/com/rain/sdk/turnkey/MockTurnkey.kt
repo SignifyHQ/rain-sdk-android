@@ -121,12 +121,23 @@ internal class MockTurnkeyClient(
                 ethRevertChain = listOf(V1RevertChainEntry(displayMessage = message, errorType = "native"))
             )
 
-            /** Failed with Solana program failure details attached. */
+            /** Failed in simulation with a Solana program failure: an `InstructionError` plus the RPC message. */
             fun solanaRevertedOnChain(message: String = "custom program error: 0x1") = StatusFixture(
                 txHash = null,
                 txStatus = "TX_STATUS_FAILED",
                 errorMessage = message,
-                solanaFailure = V1SolanaFailureDetails(rpcMessage = message)
+                solanaFailure = V1SolanaFailureDetails(
+                    rpcMessage = message,
+                    transactionErrorJson = "{\"InstructionError\":[0,{\"Custom\":1}]}"
+                )
+            )
+
+            /** Included on chain and reverted there: the hash and the decoded revert chain arrive together. */
+            fun includedButReverted(hash: String, message: String = "execution reverted") = StatusFixture(
+                txHash = hash,
+                txStatus = "TX_STATUS_INCLUDED",
+                errorMessage = message,
+                revertChain = listOf(V1RevertChainEntry(displayMessage = message, errorType = "native"))
             )
         }
     }

@@ -1266,10 +1266,13 @@ class TurnkeySolanaProviderTest {
     fun `sendToken on solana rejects a wallet that cannot cover the fee`(): Unit = runBlocking {
         splFixture(recipientAccountExists = true, lamports = 100L)
 
-        assertThrows(RainError.InsufficientFunds::class.java) {
+        val error = assertThrows(RainError.InsufficientFunds::class.java) {
             runBlocking { makeProvider().sendToken(devnet, mint, recipient, BigDecimal("1"), decimals = 6) }
         }
-        Unit
+
+        // Self-paid with the recipient account in place: the 5000-lamport fee alone against 100 lamports, in SOL.
+        assertThat(error.required?.compareTo(BigDecimal("0.000005"))).isEqualTo(0)
+        assertThat(error.available?.compareTo(BigDecimal("0.0000001"))).isEqualTo(0)
     }
 
     // ---------- EVM-only entry points ----------

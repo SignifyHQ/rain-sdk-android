@@ -166,7 +166,7 @@ Each adapter is a `ProviderDescriptor` that owns its vendor SDK as a private dep
 | Adapter | Module | Config | Notes |
 |---------|--------|--------|-------|
 | `PortalProvider(PortalConfig(sessionToken, chainId?, sessionPolicy?, onSessionTokenNeeded?, onSessionExpired?, autoApprove?))` | `rain-portal-android` | `sessionToken: String`, `chainId: Int?`, `sessionPolicy: PortalSessionPolicy`, `onSessionTokenNeeded: (suspend () -> String?)?`, `onSessionExpired: (() -> Unit)?`, `autoApprove: Boolean = true` | Portal MPC signer (EVM). Advertises `EXPORT`, `RECOVERY`.|
-| `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?))` (bring-your-own) or `TurnkeyProvider(TurnkeyConfig(application, organizationId, authProxyConfigId, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?, passkeyDomain?))` (managed — internal API, `@InternalRainTurnkeyApi`) | `rain-turnkey-android` | BYO: `turnkey: TurnkeyContext`. Managed: `application: Application`, `organizationId: String`, `authProxyConfigId: String`, `passkeyDomain: String? = null` (a registrable domain of at least two labels the host controls; null or blank turns the passkey methods off; a scheme, port, path or a single label throws `RAIN_102` at construction). Shared: `walletAddress: String?`, `sessionPolicy: TurnkeySessionPolicy`, `onSessionExpired: (() -> Unit)?`, `sponsorGas: Boolean = true` | Turnkey P256 signer (EVM + Solana). The `walletAddress` override is validated and stored in EIP-55 checksum form at construction (`RAIN_102` for a malformed address or a wrong mixed-case checksum). Advertises `EXPORT` (the recovery phrase and private keys through `exportRecoveryPhrase` / `exportPrivateKey`, see [Turnkey key export](#turnkey-key-export)), `MULTI_CHAIN`, and `GAS_SPONSORSHIP` while `sponsorGas` is on; not `BIOMETRIC_GATE`, since the backend stamps with a device key and no user-verification prompt gates signing. Sends work only on Turnkey's managed-broadcast chains (others throw `RAIN_104`; reads unaffected). Sponsorship is on by default (`sponsorGas = true`): every send goes through Turnkey sponsored, all EVM sends (transfers, withdrawals, approvals, raw sends) via Gas Station and Solana network fees too (EVM fee estimates return 0; rent for a new recipient token account is a separate Turnkey toggle and stays with the sender). Requires sponsorship enabled on the Turnkey organization; pass `sponsorGas = false` on an organization without it, or to have users pay their own gas. Cannot be registered together with the Rain wallet's `RainProvider`, which drives the same process-wide Turnkey singleton. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
+| `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?))` (bring-your-own) or `TurnkeyProvider(TurnkeyConfig(application, organizationId, authProxyConfigId, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?, passkeyDomain?))` (managed — internal API, `@InternalRainTurnkeyApi`) | `rain-turnkey-android` | BYO: `turnkey: TurnkeyContext`. Managed: `application: Application`, `organizationId: String`, `authProxyConfigId: String`, `passkeyDomain: String? = null` (a registrable domain of at least two labels the host controls; null or blank turns the passkey methods off; a scheme, port, path or a single label throws `RAIN_102` at construction). Shared: `walletAddress: String?`, `sessionPolicy: TurnkeySessionPolicy`, `onSessionExpired: (() -> Unit)?`, `sponsorGas: Boolean = true` | Turnkey P256 signer (EVM + Solana). The `walletAddress` override is validated and stored in EIP-55 checksum form at construction (`RAIN_102` for a malformed address or a wrong mixed-case checksum). Advertises `EXPORT` (the recovery phrase and private keys through `exportRecoveryPhrase` / `exportPrivateKey`, see [Turnkey key export](#turnkey-key-export)), `MULTI_CHAIN`, and `GAS_SPONSORSHIP` while `sponsorGas` is on; not `BIOMETRIC_GATE`, since the backend stamps with a device key and no user-verification prompt gates signing. Sends work only on Turnkey's managed-broadcast chains (others throw `RAIN_104`; reads unaffected). Sponsorship is on by default (`sponsorGas = true`): every send goes through Turnkey sponsored, all EVM sends (transfers, withdrawals, approvals, raw sends) via Gas Station and Solana network fees too (fee estimates quote what the wallet would pay itself; rent for a new recipient token account is a separate Turnkey toggle and stays with the sender). Requires sponsorship enabled on the Turnkey organization; pass `sponsorGas = false` on an organization without it, or to have users pay their own gas. Cannot be registered together with the Rain wallet's `RainProvider`, which drives the same process-wide Turnkey singleton. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
 | `RainProvider(application, RainWalletConfig(sessionPolicy?, onSessionExpired?, sponsorGas?, passkeyDomain?))` | `rain-wallet-android` | `application: Application`; `sessionPolicy: RainWalletSessionPolicy`, `onSessionExpired: (() -> Unit)?`, `sponsorGas: Boolean = true`, `passkeyDomain: String? = null` (a registrable domain of at least two labels the partner controls; null or blank turns the passkey methods off; a scheme, port, path or a single label throws `RAIN_102` at construction) | The Rain wallet: SDK-owned one-time-code login (email or SMS) and passkeys, one wallet with Ethereum and Solana accounts, sessions and key export, under Rain's names; the backend identity is embedded, and there is no address override: a Rain wallet holds one Ethereum account, the one the SDK provisions. Advertises `EXPORT`, `MULTI_CHAIN`, and `GAS_SPONSORSHIP` while `sponsorGas` is on; not `BIOMETRIC_GATE`, since the backend stamps with a device key and no user-verification prompt gates signing. Sends work only on the chains the wallet backend broadcasts to (others throw `RAIN_104`; reads unaffected). Cannot be registered together with `TurnkeyProvider`. See [Rain wallet provider](#rain-wallet-provider). |
 | `PrivyProvider(PrivyConfig(privy, walletAddress?, sessionPolicy?, onSessionExpired?))` | `rain-privy-android` | `privy: Privy`, `walletAddress: String?`, `sessionPolicy: PrivySessionPolicy`, `onSessionExpired: (() -> Unit)?` | Privy embedded-wallet signer (EVM + Solana). Advertises `EXPORT`, `RECOVERY`, `MULTI_CHAIN`.|
 
@@ -217,7 +217,7 @@ The embedded identity is Rain's sandbox wallet backend; this release has no host
 
 | Config | Description |
 |--------|-------------|
-| `RainWalletConfig(sessionPolicy: RainWalletSessionPolicy = RainWalletSessionPolicy(), onSessionExpired: (() -> Unit)? = null, sponsorGas: Boolean = true, passkeyDomain: String? = null)` | No address override: a Rain wallet holds one Ethereum account, the one the SDK provisions on first login, and the SDK signs with it and reads for it; `onSessionExpired` fires once per session death that cannot be refreshed, on any thread, and a deliberate `logout()` never fires it; `sponsorGas` makes every send on a supported chain fee-sponsored, with `GAS_SPONSORSHIP` advertised and fee estimates that quote the network cost the sponsor pays; rent for a first-time recipient's Solana token account is a separate backend setting that stays with the sender, and a sponsored send runs no client-side revert preflight, so a failure surfaces as the backend's failed status after broadcast; `passkeyDomain` is a registrable domain of at least two labels the partner controls (`passkeys.example.com`) whose `/.well-known/assetlinks.json` carries both statements of Google's passkey example, one for the site itself and one for the app with its package name and every signing-certificate fingerprint (shape under [Passkeys](TURNKEY_SUPPORT.md#passkeys); the app statement alone is refused at the sheet); null or blank turns `loginWithPasskey`, `signUpWithPasskey` and `addPasskey` off (`RAIN_102` when called), a scheme, port, path or a single label such as `localhost` throws `RAIN_102` from the `RainProvider` constructor, and the domain is permanent, since every passkey created against it stops working when it changes; partners host their own file, Rain runs no shared domain. |
+| `RainWalletConfig(sessionPolicy: RainWalletSessionPolicy = RainWalletSessionPolicy(), onSessionExpired: (() -> Unit)? = null, sponsorGas: Boolean = true, passkeyDomain: String? = null)` | No address override: a Rain wallet holds one Ethereum account, the one the SDK provisions on first login, and the SDK signs with it and reads for it; `onSessionExpired` fires once per session death that cannot be refreshed, on any thread, and a deliberate `logout()` never fires it; `sponsorGas` makes every send on a supported chain fee-sponsored, with `GAS_SPONSORSHIP` advertised and fee estimates that quote what the wallet would pay itself; rent for a first-time recipient's Solana token account is a separate backend setting that stays with the sender, and a sponsored send runs no client-side revert preflight, so a failure surfaces as the backend's failed status after broadcast; `passkeyDomain` is a registrable domain of at least two labels the partner controls (`passkeys.example.com`) whose `/.well-known/assetlinks.json` carries both statements of Google's passkey example, one for the site itself and one for the app with its package name and every signing-certificate fingerprint (shape under [Passkeys](TURNKEY_SUPPORT.md#passkeys); the app statement alone is refused at the sheet); null or blank turns `loginWithPasskey`, `signUpWithPasskey` and `addPasskey` off (`RAIN_102` when called), a scheme, port, path or a single label such as `localhost` throws `RAIN_102` from the `RainProvider` constructor, and the domain is permanent, since every passkey created against it stops working when it changes; partners host their own file, Rain runs no shared domain. |
 | `RainWalletSessionPolicy(refreshBufferSeconds: Long = 60, autoRefresh: Boolean = true, refreshExpirationSeconds: Long? = null, maxTransientRetries: Int = 2, initialRetryDelayMs: Long = 500, maxRetryDelayMs: Long = 4_000)` | Expiry, refresh and retry behaviour for the session guarding every wallet call; `refreshExpirationSeconds` is the lifetime requested for refreshed sessions, null for the backend default of 900. Out-of-range values throw `IllegalArgumentException` at construction: a programming error, not a runtime failure. |
 
 | Member | Signature | Notes |
@@ -325,8 +325,10 @@ accounts are supported; the wallet must be the account's owner.
 - **Returns:** `String` — the transaction hash (EVM) or transaction signature (Solana).
 - **Throws:** `RainError` if construction, signing, or submission fails. On Turnkey, a chain outside
   its managed-broadcast coverage throws `RainError.ChainNotSupported` (`RAIN_104`) before anything
-  is read or signed. A fee-sponsored withdrawal skips the self-paid dry run; a revert the provider
-  reports after broadcast still surfaces as `WithdrawalRevertedByNetwork`. On Solana, a recipient
+  is read or signed. A fee-sponsored withdrawal skips the self-paid dry run; a status the provider
+  reports with decoded revert details, failed before inclusion or included and reverted, surfaces as
+  `WithdrawalRevertedByNetwork` (the transaction hash rides in the message once included), and a
+  failed status without them is `ProviderError`. On Solana, a recipient
   without a token account costs the owner rent, checked up front (`InsufficientFunds`). A raw
   provider failure during the Solana wallet-address read or send passes through the adapter's
   session coordinator on Turnkey and Privy and arrives as its mapping: `ProviderError` (`RAIN_501`), `Unauthorized`
@@ -356,8 +358,9 @@ the transaction (the simulation is skipped when the provider sponsors fees).
 
 Not gated on the provider's broadcast chains: preparing signs and composes but never broadcasts, so
 it works on a chain the provider cannot send on (Avalanche with the Turnkey and Rain wallet
-providers), and the prepared transaction is what a host submits through its own RPC there.
-`withdrawCollateral` on the same chain still throws `RAIN_104`.
+providers). The EVM result is an unsigned envelope whose `data` carries the typed-data signature; a
+host signs it with the wallet's key and submits it through its own RPC there. `withdrawCollateral`
+on the same chain still throws `RAIN_104`.
 
 - **Returns:** `RainPreparedWithdrawal` — `Evm(RainTransactionParameters)` carrying a complete,
   submittable transaction (`from` / `to` / `value` / `data`), or `Solana(UnsignedSolanaTransfer)`
@@ -405,8 +408,8 @@ distinction and return the hex address.
 Estimates the gas fee required for a transaction.
 
 On a provider that sponsors fees (Turnkey with `sponsorGas`, the Rain wallet) the estimate is still
-the network cost of the transaction. The sponsor pays it and the wallet is not charged, so a host
-can show what sponsorship saves.
+what the wallet would pay to send the transaction itself. A sponsor pays instead and the wallet is not
+charged, so a host can show what sponsorship saves the user; the sponsor's own cost is not quoted.
 
 - **Returns:** `BigDecimal` — estimated gas fee in the chain's native token (e.g. AVAX).
 - **Throws:** `RainError` if estimation fails. A node revert arrives as `TransactionSimulationFailed` (RAIN_403) on every adapter. Anything else depends on the adapter: Portal maps through its session coordinator, prose rules included, so an unrecognized Portal failure is `ProviderError` (RAIN_501) and one whose text names a funds shortfall is `InsufficientFunds`; Privy's own RPC client also maps a funds shortfall to `InsufficientFunds` and floors at `InternalError` (RAIN_502); Turnkey's self-paid estimate runs through core's RPC client and floors at `InternalError`. A raw exception from the estimate call that nothing mapped floors at `InternalError` as well.
@@ -431,8 +434,9 @@ Internally builds the EIP-712 payload, signs it with the wallet, then runs `eth_
 against the withdrawal controller. Nothing is broadcast.
 
 On a provider that sponsors the fee on that chain (Turnkey with `sponsorGas`, the default, on its
-broadcast chains) the result is still the network cost. The withdrawal is built and signed once to
-price it, as on a self-paid chain, and the sponsor pays what the estimate shows.
+broadcast chains) the result is still what the wallet would pay itself. The withdrawal is built and
+signed once to price it, as on a self-paid chain; a sponsor pays instead, and its own cost is not
+quoted.
 
 > **Signing side effect.** The estimated calldata embeds a wallet signature the controller
 > verifies (a placeholder would revert the estimate), so estimate-then-withdraw signs twice.
@@ -452,7 +456,7 @@ price it, as on a self-paid chain, and the sponsor pays what the estimate shows.
 | `adminSignature` | `RainAdminSignature` | Rain's withdrawal authorization, fetched by the host from the Rain API. |
 | `nonce` | `BigInteger?` | Optional; pin the estimate to the nonce the withdrawal will sign. |
 
-EVM only — throws on a Solana chain id.
+EVM only. A Solana chain id throws `InternalError` (`RAIN_502`), as it does on the overload below.
 
 ---
 
@@ -468,7 +472,7 @@ quote the fee on the preparation, then submit.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `chainId` | `Int` | Target network chain ID. EVM only. |
+| `chainId` | `Int` | Target network chain ID. EVM only. Not checked against `prepared`; pass the chain id `prepareWithdrawal` was called with. |
 | `prepared` | `RainPreparedWithdrawal` | The withdrawal built by `prepareWithdrawal`. |
 
 ---
@@ -608,8 +612,9 @@ approving (to skip a redundant transaction). To confirm an approval was mined, u
 
 Estimates the total fee (estimated gas x gas price) to submit the approval, in the chain's native
 token. Nothing is broadcast and no signature is requested; the fee is priced against the exact
-calldata `approveTokenAllowance` would send. On Turnkey with `sponsorGas` enabled (the default) the
-result is `0` on Turnkey's broadcast chains, because the approval will be sponsored.
+calldata `approveTokenAllowance` would send. On a provider that sponsors fees (Turnkey with
+`sponsorGas`, the default, on its broadcast chains) the result is still what the wallet would pay
+itself; a sponsor pays the approval instead.
 
 - **Returns:** `BigDecimal` — fee in the chain's native currency (e.g. ETH).
 - **Throws:** `RainError`.
@@ -864,7 +869,7 @@ on the Rain wallet's `RainProvider`, see [Turnkey key export](#turnkey-key-expor
 | `RECOVERY` | The wallet supports a recovery ceremony. |
 | `MULTI_CHAIN` | The provider holds accounts across multiple chain families (e.g. EVM + Solana). |
 | `BIOMETRIC_GATE` | Signing is gated behind a device biometric / passkey prompt. No bundled provider advertises it; it is available to host-supplied providers. |
-| `GAS_SPONSORSHIP` | The provider's sends are fee-sponsored (a third party pays the network fee), so core skips self-paid preflights such as the Solana withdrawal dry run and the signing step of a withdrawal fee estimate. Core's operative, per-chain check is `WalletProvider.sponsorsFees(chainId)`, which defaults to this capability. |
+| `GAS_SPONSORSHIP` | The provider's sends are fee-sponsored (a third party pays the network fee), so core skips the self-paid preflight that would charge the fee to the wallet, the Solana withdrawal dry run; fee estimates are not affected and quote what the wallet would pay itself. Core's operative, per-chain check is `WalletProvider.sponsorsFees(chainId)`, which defaults to this capability. |
 
 Bundled providers: **Portal** → `EXPORT`, `RECOVERY`. **Turnkey** → `EXPORT`, `MULTI_CHAIN`, plus
 `GAS_SPONSORSHIP` while `sponsorGas` is on (the default). **Rain wallet** →
@@ -1019,10 +1024,10 @@ Format: `"RainSDK Error [CODE]: message"`
 | `RAIN_301` | `RainError.NetworkError` | Network/connectivity failure. |
 | `RAIN_302` | `RainError.TransactionPending` | Submitted, not yet confirmed. `statusId` is what to resume from (status id, UserOperation hash, or transaction hash). Do not resend. |
 | `RAIN_401` | `RainError.UserRejected` | User cancelled the signing request in the wallet, or ended the passkey sheet without a passkey (dismissed it, or the device holds none for the domain). |
-| `RAIN_402` | `RainError.InsufficientFunds` / `RainError.InsufficientTokenBalance` / `RainError.TokenAccountNotFound` | Balance too low for the requested amount or gas; a token balance below the requested amount (`InsufficientTokenBalance`); a Solana sender with no token account for the mint (`TokenAccountNotFound`). `InsufficientFunds` carries `required` and `available` as `BigDecimal?` in the native currency's human units, null when the failure came from vendor prose without amounts. |
-| `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight `eth_call` simulation failed (e.g. contract revert, insufficient funds), or the wallet backend's failed send status carried decoded revert details (a revert chain, or Solana program failure details); a failed status without them is `ProviderError`. |
+| `RAIN_402` | `RainError.InsufficientFunds` / `RainError.InsufficientTokenBalance` / `RainError.TokenAccountNotFound` | Balance too low for the requested amount or gas; a token balance below the requested amount (`InsufficientTokenBalance`); a Solana sender with no token account for the mint (`TokenAccountNotFound`). `InsufficientFunds` carries `required` and `available` as `BigDecimal?` in the native currency's human units: the Solana preflight fills them (fee plus token-account rent, or rent alone when the fee is sponsored), and every EVM path, which maps vendor prose without amounts, leaves them null. A Solana send the wallet backend refused for a fee or rent shortfall arrives here too. |
+| `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight `eth_call` simulation failed (e.g. contract revert, insufficient funds), or the wallet backend's send status carried decoded revert details (an EVM revert chain, whether the transaction failed before inclusion or was included and reverted, or a Solana `InstructionError`); a failed status without them is `ProviderError`, and a Solana fee or rent shortfall is `InsufficientFunds`. |
 | `RAIN_404` | `RainError.WalletUnavailable` | The backing provider returned no usable wallet address (e.g. Turnkey context has no Ethereum account), or, for a Turnkey or Rain wallet key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors). |
-| `RAIN_405` | `RainError.WithdrawalRevertedByNetwork` | Withdrawal reverted on-chain (e.g. duplicate withdrawal, already-used signature). A fee-sponsored withdrawal skips the dry run; a failed status carrying decoded revert details maps here too, and one without them is `RAIN_501`. |
+| `RAIN_405` | `RainError.WithdrawalRevertedByNetwork` | Withdrawal reverted on-chain (e.g. duplicate withdrawal, already-used signature). A fee-sponsored withdrawal skips the dry run; a send status carrying decoded revert details maps here too, with the transaction hash in the message once the transaction was included, and one without them is `RAIN_501`. |
 | `RAIN_406` | `RainError.InvalidAmount` | The amount is invalid for the token — negative, more decimal places than the token supports, or past `uint256` max. |
 | `RAIN_407` | `RainError.WalletNotAuthorized` | The wallet is not an admin of the collateral contract; checked before a withdrawal is signed. |
 | `RAIN_501` | `RainError.ProviderError` | Portal, Turnkey, or other provider error; for a Turnkey or Rain wallet key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors); a passkey ceremony, login or sign-up the device or the backend refused for another reason, an HTTP status inside a passkey login or sign-up included (no session exists yet, so it is never `RAIN_201` or `RAIN_202`); a contact code request or contact update the backend refused. |

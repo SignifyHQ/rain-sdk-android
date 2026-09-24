@@ -1017,10 +1017,12 @@ internal class TurnkeyManager(
                 throw RainError.TransactionPending(sendTransactionStatusId)
             }
 
+            // Classified before the hash is read: an included transaction that reverted on chain
+            // carries both its hash and the decoded revert, and the revert wins.
+            TurnkeySendFailures.sendFailure(status, "Wallet backend transaction submission failed")?.let { throw it }
+
             val txHash = status.eth?.txHash
             if (!txHash.isNullOrEmpty()) return txHash
-
-            TurnkeySendFailures.sendFailure(status, "Wallet backend transaction submission failed")?.let { throw it }
 
             if (attempt + 1 < DEFAULT_POLLING_ATTEMPTS) {
                 delay(pollingIntervalMs)

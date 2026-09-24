@@ -15,6 +15,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertThrows
@@ -361,7 +362,7 @@ class RainSdkManagerEstimateFeeTest {
                 adminSignature = TestFixtures.adminSignature()
             )
 
-            assertThat(fee).isEqualTo(BigDecimal("0.001"))
+            assertThat(fee).isEqualToIgnoringScale(BigDecimal("0.001"))
             assertThat(stub.signTypedDataCalls).hasSize(1)
             assertThat(stub.estimateTransactionFeeCalls).hasSize(1)
         }
@@ -405,7 +406,7 @@ class RainSdkManagerEstimateFeeTest {
 
             val fee = manager.estimateWithdrawalFee(chainId = 1, prepared = prepared)
 
-            assertThat(fee).isEqualTo(BigDecimal("0.002"))
+            assertThat(fee).isEqualToIgnoringScale(BigDecimal("0.002"))
             // The prepare signed once; the estimate on its result did not sign again.
             assertThat(stub.signTypedDataCalls).hasSize(1)
             val call = stub.estimateTransactionFeeCalls.single()
@@ -479,5 +480,82 @@ class RainSdkManagerEstimateFeeTest {
             }
 
             assertThat(error.cause).isSameInstanceAs(simulationFailure)
+        }
+
+    @Test
+    fun `estimateWithdrawalFee on a Solana preparation rejects an EVM chain id before asking the provider`(): Unit =
+        runBlocking {
+            // The chain id alone would take the EVM path; the preparation's shape refuses it first.
+            val (manager, stub) = TestManagers.stubProviderManager(transactionBuilder = builder)
+            val prepared = RainPreparedWithdrawal.Solana(UnsignedSolanaTransfer(ByteArray(1), recentBlockhash = "hash"))
+
+            assertThrows(RainError.InternalError::class.java) {
+                runBlocking { manager.estimateWithdrawalFee(chainId = 1, prepared = prepared) }
+            }
+
+            assertThat(stub.estimateTransactionFeeCalls).isEmpty()
+        }
+
+    @Test
+    fun `estimateWithdrawalFee on a prepared withdrawal passes a cancellation through unwrapped`(): Unit =
+        runBlocking {
+            val stub = object : StubWalletProvider() {
+                override suspend fun estimateTransactionFee(
+                    chainId: Int,
+                    from: String,
+                    to: String,
+                    data: String,
+                    value: String
+                ): BigDecimal = throw CancellationException("caller cancelled")
+            }
+            val (manager, _) = TestManagers.stubProviderManager(stub, transactionBuilder = builder)
+            stub.signTypedDataToReturn = TestFixtures.validSignatureHex
+            val prepared = manager.prepareWithdrawal(
+                chainId = 1,
+                addresses = addresses,
+                amount = BigDecimal("100.0"),
+                decimals = 6,
+                adminSignature = TestFixtures.adminSignature(),
+                nonce = BigInteger.valueOf(7)
+            )
+
+            val thrown = assertThrows(CancellationException::class.java) {
+                runBlocking { manager.estimateWithdrawalFee(chainId = 1, prepared = prepared) }
+            }
+
+            // Not wrapped into a RainError: the host sees its own cancellation.
+            assertThat(thrown).isNotInstanceOf(RainError::class.java)
+            assertThat(thrown).hasMessageThat().isEqualTo("caller cancelled")
+        }
+
+    @Test
+    fun `estimateWithdrawalFee on a prepared withdrawal still floors a failure nothing mapped at InternalError`(): Unit =
+        runBlocking {
+            val raw = IllegalStateException("truncated response")
+            val stub = object : StubWalletProvider() {
+                override suspend fun estimateTransactionFee(
+                    chainId: Int,
+                    from: String,
+                    to: String,
+                    data: String,
+                    value: String
+                ): BigDecimal = throw raw
+            }
+            val (manager, _) = TestManagers.stubProviderManager(stub, transactionBuilder = builder)
+            stub.signTypedDataToReturn = TestFixtures.validSignatureHex
+            val prepared = manager.prepareWithdrawal(
+                chainId = 1,
+                addresses = addresses,
+                amount = BigDecimal("100.0"),
+                decimals = 6,
+                adminSignature = TestFixtures.adminSignature(),
+                nonce = BigInteger.valueOf(7)
+            )
+
+            val error = assertThrows(RainError.InternalError::class.java) {
+                runBlocking { manager.estimateWithdrawalFee(chainId = 1, prepared = prepared) }
+            }
+
+            assertThat(error.cause).isSameInstanceAs(raw)
         }
 }

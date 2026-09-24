@@ -232,7 +232,7 @@ private fun CollateralWithdrawContent(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     RainSpinner()
-                    RainMuted("Fetching the admin signature and building the withdrawal…")
+                    RainMuted(state.busyText)
                 }
             }
 

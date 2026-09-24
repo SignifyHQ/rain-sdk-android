@@ -66,7 +66,7 @@ interface WalletProvider {
     /**
      * True when this provider pays the network fee for sends on [chainId], so core skips the
      * self-paid preflight that would charge the fee to the wallet: the Solana withdrawal dry run.
-     * Fee estimates are not affected; they quote the network cost whether or not the sponsor pays it.
+     * Fee estimates are not affected; they quote what the wallet would pay itself whether or not a sponsor pays.
      * The per-chain refinement of [Capability.GAS_SPONSORSHIP]: a provider may sponsor only where
      * it can broadcast. Defaults to advertising the capability.
      */

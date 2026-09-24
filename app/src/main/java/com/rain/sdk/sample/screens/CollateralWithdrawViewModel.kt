@@ -34,7 +34,7 @@ class CollateralWithdrawViewModel(
 
     fun loadContractInfo(chain: WalletChain = WalletChain.EVM) {
         SampleLog.i("Withdraw.contract", "loading contract info chain=${chain.displayName}")
-        _state.update { it.copy(isLoadingContract = true, errorText = null) }
+        _state.update { it.withoutResults().copy(isLoadingContract = true, errorText = null) }
 
         viewModelScope.launch {
             try {
@@ -103,6 +103,13 @@ class CollateralWithdrawViewModel(
             it.builder().copy(adminSignature = null, signatureKey = null, prepared = null, preparedWithdrawal = null)
         }
     }
+
+    /**
+     * Drops every result of the previous contract: a preparation, its summary and its fee belong to
+     * the chain they were built on, and a sent hash would otherwise get the new chain's explorer link.
+     */
+    private fun CollateralWithdrawUiState.withoutResults(): CollateralWithdrawUiState =
+        copy(prepared = null, preparedWithdrawal = null, estimatedFee = null, feeNote = null, withdrawResult = null)
 
     fun onTokenSelected(index: Int) {
         invalidateSignature { copy(selectedTokenIndex = index, withdrawResult = null, errorText = null) }
@@ -187,9 +194,18 @@ class CollateralWithdrawViewModel(
      */
     fun estimatePreparedFee() {
         val current = _state.value
+        if (current.isWithdrawing) return
         val prepared = current.prepared ?: return
         SampleLog.i("Withdraw.estimatePrepared", "chainId=${current.chainId}")
-        _state.update { it.copy(isWithdrawing = true, errorText = null, estimatedFee = null, feeNote = null) }
+        _state.update {
+            it.copy(
+                isWithdrawing = true,
+                busyText = "Quoting the prepared withdrawal…",
+                errorText = null,
+                estimatedFee = null,
+                feeNote = null
+            )
+        }
         launchWithdrawCall("Withdraw.estimatePrepared") {
             val fee = rainClient.estimateWithdrawalFee(current.chainId, prepared)
             _state.update {
@@ -272,7 +288,9 @@ class CollateralWithdrawViewModel(
         ) -> Unit
     ) {
         val current = _state.value
-        val input = when (val prepared = withdrawInput(current, amountOverride)) {
+        // One SDK call at a time: a second tap before recomposition would otherwise overlap the first,
+        // so a busy screen is treated like one with nothing selected.
+        val input = when (val prepared = withdrawInput(current, amountOverride).takeUnless { current.isWithdrawing }) {
             null -> return
             is WithdrawInput.Refused -> {
                 _state.update { it.copy(errorText = prepared.errorText) }
@@ -288,6 +306,7 @@ class CollateralWithdrawViewModel(
         _state.update {
             it.copy(
                 isWithdrawing = true,
+                busyText = "Fetching the admin signature and building the withdrawal…",
                 errorText = null,
                 withdrawResult = null,
                 prepared = null,
@@ -453,11 +472,11 @@ internal fun withdrawInput(current: CollateralWithdrawUiState, amountOverride: B
  * The note under a fee estimate says where the number came from, and who pays it when a sponsor does.
  * Null for an estimate built from the form on a provider whose wallets pay their own fees, which
  * needs no note. `sponsored` is the provider-wide [Capability.GAS_SPONSORSHIP]; the SDK's per-chain
- * refinement is not on `RainClient`, so a chain the provider does not sponsor still gets the note.
+ * refinement is not on `RainClient`, so the note names its condition instead of asserting it.
  */
 internal fun feeNote(sponsored: Boolean, fromPrepared: Boolean): String? = listOfNotNull(
     "From the prepared withdrawal, no new signature.".takeIf { fromPrepared },
-    "A sponsor pays this fee, not the wallet.".takeIf { sponsored },
+    "On a chain the provider sponsors, a sponsor pays this instead of the wallet.".takeIf { sponsored },
 ).joinToString(" ").ifEmpty { null }
 
 data class WithdrawTokenOption(
@@ -502,6 +521,8 @@ data class CollateralWithdrawUiState(
     val signatureKey: SignatureKey? = null,
     val isLoadingContract: Boolean = false,
     val isWithdrawing: Boolean = false,
+    /** What the spinner says while [isWithdrawing]; each flow names its own work. */
+    val busyText: String = "Working…",
     val withdrawResult: String? = null,
     /**
      * The last `prepareWithdrawal` result, held for `estimateWithdrawalFee(chainId, prepared)`; nothing

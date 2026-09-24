@@ -94,7 +94,7 @@ class RainWalletNeutralityTest {
         val ALLOWED_PACKAGES = listOf(
             "com.rain.sdk.wallet",
             "com.rain.sdk.provider",
-            "com.rain.sdk.internal.error",
+            "com.rain.sdk.error",
             "com.rain.sdk.internal.provider",
             "kotlin",
             "kotlinx.coroutines",

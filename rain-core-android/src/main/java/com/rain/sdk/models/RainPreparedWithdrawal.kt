@@ -1,7 +1,5 @@
 package com.rain.sdk.models
 
-import com.rain.sdk.models.UnsignedSolanaTransfer
-
 /**
  * A collateral withdrawal built but not broadcast, in the shape the target chain requires.
  *
@@ -14,7 +12,7 @@ sealed interface RainPreparedWithdrawal {
     /** A complete, submittable EVM transaction — from/to/value/data, not bare calldata. */
     data class Evm(val parameters: RainTransactionParameters) : RainPreparedWithdrawal
 
-    /** The serialized unsigned Solana transaction, already simulated, with its recent blockhash. */
+    /** The serialized unsigned Solana transaction, simulated unless the provider sponsors the fee, with its blockhash. */
     data class Solana(val transfer: UnsignedSolanaTransfer) : RainPreparedWithdrawal
 
     /** The EVM parameters, or null on a Solana withdrawal. */

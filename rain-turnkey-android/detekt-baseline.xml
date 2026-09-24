@@ -13,7 +13,6 @@
     <ID>LargeClass:TurnkeySolanaProviderTest.kt:TurnkeySolanaProviderTest</ID>
     <ID>LongMethod:TurnkeySolanaProviderTest.kt:TurnkeySolanaProviderTest$@Test fun `getTransactions on solana decodes an spl transfer and resolves the recipient wallet`: Unit</ID>
     <ID>LongMethod:TurnkeySolanaProviderTest.kt:TurnkeySolanaProviderTest$private fun splFixture: Boolean</ID>
-    <ID>LongMethod:TurnkeyWalletProviderHistoryTest.kt:TurnkeyWalletProviderHistoryTest$@Test fun `solana history maps signature native SOL and SPL rows`</ID>
     <ID>LongParameterList:MockChainReader.kt:MockChainReader</ID>
     <ID>LongParameterList:MockTurnkey.kt:MockTurnkey.Companion$fun makeActivity: V1Activity</ID>
     <ID>LongParameterList:MockTurnkey.kt:MockTurnkey.Companion$fun makeSolanaActivity: V1Activity</ID>

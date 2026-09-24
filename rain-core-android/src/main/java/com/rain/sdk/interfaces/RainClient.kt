@@ -106,7 +106,8 @@ interface RainClient {
     suspend fun getWalletAddress(chainId: Int): String
 
     /**
-     * Estimates the gas fee required for a transaction.
+     * Estimates the gas fee required for a transaction. On a provider that sponsors fees the quote is
+     * what the wallet would pay itself; a sponsor pays instead and its own cost is not quoted.
      *
      * @param chainId The chain ID for the transaction
      * @param from The sender address
@@ -132,7 +133,8 @@ interface RainClient {
      * signature the controller verifies, so the estimate signs once with the wallet (a
      * placeholder signature would revert the estimate). To quote without a second signature,
      * prepare once with [prepareWithdrawal] and call `estimateWithdrawalFee(chainId, prepared)`
-     * on the result.
+     * passing the result. On a provider that sponsors fees the quote is what the wallet would pay
+     * itself; a sponsor pays instead and its own cost is not quoted.
      *
      * @param chainId The chain ID for the transaction. EVM only.
      * @param addresses All required addresses for the withdrawal.
@@ -141,7 +143,7 @@ interface RainClient {
      * @param adminSignature Rain's authorization for this withdrawal, fetched by the host from the Rain API
      * @param nonce Optional nonce; pin the estimate to the nonce the withdrawal will sign.
      * @return Estimated withdrawal fee in the chain's native token, as an exact [BigDecimal].
-     * @throws RainError if estimation fails, or if [chainId] is a Solana chain.
+     * @throws RainError if estimation fails; a Solana [chainId] throws [RainError.InternalError].
      */
     @Throws(RainError::class)
     suspend fun estimateWithdrawalFee(
@@ -158,7 +160,8 @@ interface RainClient {
      * token, without building or signing anything: prepare once, estimate on the result, then
      * submit. EVM only.
      *
-     * @param chainId The chain the withdrawal was prepared for.
+     * @param chainId The chain the withdrawal was prepared for. Not checked against [prepared]: pass the
+     *   chain id [prepareWithdrawal] was called with.
      * @param prepared The result of [prepareWithdrawal].
      * @return Estimated withdrawal fee in the chain's native token, as an exact [BigDecimal].
      * @throws RainError if estimation fails; a node revert arrives as [RainError.WithdrawalRevertedByNetwork].

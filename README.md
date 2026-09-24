@@ -488,7 +488,7 @@ val fee = client.estimateGas(
 println("Estimated fee: $fee AVAX")
 ```
 
-On a provider that sponsors fees the estimate is still the network cost, paid by the sponsor.
+On a provider that sponsors fees the estimate is still what the wallet would pay itself; a sponsor pays instead.
 
 ### 11. Transaction History
 

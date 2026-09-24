@@ -154,9 +154,8 @@ internal class TurnkeyWalletProvider(
      * Raw sends follow [sponsorGas] exactly like the transfer entries. Withdrawals, Auth Pull
      * approvals, and host-composed calldata arrive here, and Turnkey sponsors any
      * `ethSendTransaction`, not just plain transfers. A zero-balance card user's first action
-     * is often the Auth Pull approval, so leaving these self-paid would defeat the feature and
-     * would make the zero fee estimate wrong for exactly these flows. Sponsorship cost passes
-     * through to the partner that turned the flag on.
+     * is often the Auth Pull approval, so leaving these self-paid would defeat the feature.
+     * Sponsorship cost passes through to the partner that turned the flag on.
      */
     override suspend fun sendTransaction(
         chainId: Int,
@@ -176,9 +175,10 @@ internal class TurnkeyWalletProvider(
     }
 
     /**
-     * Quotes what the network would charge for this transaction, sponsored or not: `eth_estimateGas`
-     * times `eth_gasPrice` over the chain's RPC. On a sponsored chain the sponsor pays it and the
-     * wallet is not charged; the number lets a host show what sponsorship saves.
+     * Quotes what the wallet would pay to send this transaction itself, sponsored or not:
+     * `eth_estimateGas` times `eth_gasPrice` over the chain's RPC. On a sponsored chain a sponsor pays
+     * instead, through its own outer transaction whose cost is not quoted; the number lets a host show
+     * what sponsorship saves the user.
      */
     override suspend fun estimateTransactionFee(
         chainId: Int,
@@ -431,7 +431,7 @@ internal class TurnkeyWalletProvider(
 internal fun requireEvmChain(chainId: Int, operation: String) {
     if (SolanaChains.isSolanaChain(chainId)) {
         throw RainError.InvalidConfig(
-            "$operation is EVM-only; use sendNativeToken/sendToken on Solana chainId=$chainId"
+            "$operation is EVM-only; use sendNative/sendToken on Solana chainId=$chainId"
         )
     }
 }

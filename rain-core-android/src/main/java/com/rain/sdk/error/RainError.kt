@@ -116,14 +116,15 @@ sealed class RainError(
     class UserRejected : RainError(RainErrorCode.USER_REJECTED)
 
     /**
-     * The wallet holds less of the chain's native currency than the amount or the network fee
-     * needs. [required] and [available] are in the currency's human units (ETH, SOL), null when the
-     * producer had no number: the vendor-prose classifiers report the shortfall without amounts.
+     * The wallet holds less of the chain's native currency than the amount, the network fee or the
+     * account rent needs. [required] and [available] are in the currency's human units (ETH, SOL):
+     * the Solana preflight fills them, and every EVM path, which maps vendor prose without amounts,
+     * leaves them null.
      */
     class InsufficientFunds(val required: BigDecimal? = null, val available: BigDecimal? = null) :
         RainError(
             RainErrorCode.INSUFFICIENT_FUNDS,
-            "Insufficient funds for the amount or the network fee: " +
+            "Insufficient funds for the amount, the network fee or account rent: " +
                 "required ${required?.toPlainString() ?: "unknown"}, available ${available?.toPlainString() ?: "unknown"}"
         )
 

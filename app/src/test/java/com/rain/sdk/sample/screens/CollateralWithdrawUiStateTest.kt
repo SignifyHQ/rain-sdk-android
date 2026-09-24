@@ -91,10 +91,12 @@ class CollateralWithdrawUiStateTest {
     @Test
     fun `the fee note names the source and the payer, or is absent`() {
         assertThat(feeNote(sponsored = false, fromPrepared = false)).isNull()
-        assertThat(feeNote(sponsored = true, fromPrepared = false)).isEqualTo("A sponsor pays this fee, not the wallet.")
+        assertThat(feeNote(sponsored = true, fromPrepared = false))
+            .isEqualTo("On a chain the provider sponsors, a sponsor pays this instead of the wallet.")
         assertThat(feeNote(sponsored = false, fromPrepared = true)).isEqualTo("From the prepared withdrawal, no new signature.")
-        assertThat(feeNote(sponsored = true, fromPrepared = true))
-            .isEqualTo("From the prepared withdrawal, no new signature. A sponsor pays this fee, not the wallet.")
+        assertThat(feeNote(sponsored = true, fromPrepared = true)).isEqualTo(
+            "From the prepared withdrawal, no new signature. On a chain the provider sponsors, a sponsor pays this instead of the wallet."
+        )
     }
 
     @Test

@@ -588,7 +588,7 @@ internal class PrivyWalletProvider(
     private fun requireEvmChain(chainId: Int, operation: String) {
         if (solanaSupport.isSolanaChain(chainId)) {
             throw RainError.InvalidConfig(
-                "$operation is EVM-only; use sendNativeToken/sendToken on Solana chainId=$chainId"
+                "$operation is EVM-only; use sendNative/sendToken on Solana chainId=$chainId"
             )
         }
     }
