@@ -303,16 +303,6 @@ Full withdrawal flow: builds the transaction, signs via the backing provider, su
 returns the transaction hash. Use [prepareWithdrawal](#preparewithdrawalchainid-addresses-amount-decimals-adminsignature-nonce)
 to build without broadcasting.
 
-> **Migrating from 1.0.x — this method always broadcasts now.** In 1.0.x the same name took an
-> `autoSend: Boolean = false` trailing parameter, so a call that left it out only *prepared* the
-> transaction and returned `RainWithdrawResult.transactionData`. That flag and that type are gone:
-> `withdrawCollateral` signs and submits, and the prepare-only path is `prepareWithdrawal`.
-> Old call sites mostly fail to compile — passing `autoSend` is an unknown parameter, reading
-> `.transactionHash` / `.transactionData` off the `String` result is an error, and builds that took
-> `amount: Double` no longer accept a `Double` — but a call that omitted `autoSend` **and discards
-> the result** compiles unchanged and moves funds. Audit every `withdrawCollateral` call when
-> upgrading; the ones meant to prepare must become `prepareWithdrawal`.
-
 On EVM chains this calls `withdrawAsset` on the Rain coordinator contract (EIP-712 admin
 signature + the Rain API signature). On Solana chains it drives Rain's on-chain collateral
 program instead: the SDK reads the collateral account (program id, coordinator, nonce) from the
@@ -720,8 +710,7 @@ Fetches a single balance (native or a contract token) for the current wallet.
 ### getTokenBalances(chainId)
 
 Fetches all non-zero balances for the current wallet on the given network. The native
-balance is always included; zero-balance contract tokens are omitted. It replaces the 1.0.x
-`getBalances(chainId)`, which returned a lossy `Map<String, Double>` and is removed.
+balance is always included; zero-balance contract tokens are omitted.
 
 - **Returns:** `List<Balance>` — one per non-zero token plus the native balance.
 - **Throws:** `RainError` if the request fails.
@@ -810,47 +799,6 @@ chain configuration the `RainSdk` owns. One client resetting must not deconfigur
 `RainSdk.reset()` to tear down the whole SDK.
 
 - **Suspend:** No
-
----
-
-## Removed API
-
-No compatibility shims remain. The 1.0.x names below were removed without a replacement stub, a
-decision shared by Rain's SDKs while the SDK has no external users; each row names what to call
-instead.
-
-### Removed without a shim
-
-| 1.0.x signature | Replacement | Why no shim |
-|-----------------|-------------|-------------|
-| `RainSdk.isRainApiConfigured`, `configureRainApi(apiKey, userId)`, `fetchCollateralContracts()`, `fetchCollateralContract()`, `fetchAdminSignature(...)` | Your backend calls the Rain API and hands the SDK `RainWithdrawAddresses` and `RainAdminSignature` (README section 7); `tokenMetadata(chainId, address)` replaces the token enrichment those calls did | The SDK no longer holds a program Api-Key, so a shim would have nothing to call |
-| `RainSdk.Builder.rainApiEnvironment(environment)`, `rainApiCredentials(apiKey, userId)` | None: the SDK has no Rain environment setting; the `RainAuthPullConfig` factory you call (`sandbox`, `production`, `custom`) names the environment for Auth Pull | Same |
-| `RainAuthPullChains.supported(environment)`, `isSupported(chainId, environment)` | `RainAuthPullChains.SANDBOX` / `PRODUCTION` before an SDK exists; `authPullChainIds` on a built SDK | `RainApiEnvironment` no longer exists |
-| Models `RainApiEnvironment` (`Dev`, `Production`, `Custom`), `RainCollateralContract`, `RainCollateralToken` | Your own response types for the two endpoints; README section 7 lists the fields the SDK consumes, and `tokenMetadata` supplies a token's `name`, `symbol` and `decimals` | They described the SDK's own Rain API calls, which no longer exist |
-| `RainError.ApiNotConfigured`, `RainError.ApiError`, `RainError.SignatureNotReady`, `RainError.NoCollateralContracts` | Your backend client's own errors: it decides when to poll again on `status` and `retryAfter`, and how to report a rejected key or an empty contract list | The SDK no longer makes the calls that raised them |
-| `RainErrorCode.API_NOT_CONFIGURED`, `API_ERROR`, `NO_COLLATERAL_CONTRACTS`; `RainErrorCode.SIGNATURE_NOT_READY` | None for the first three (`RAIN_104` and `RAIN_302` now mean `ChainNotSupported` and `TransactionPending`); `SIGNATURE_NOT_READY` is renamed `TRANSACTION_PENDING` (`RAIN_302`), the constant `TransactionPending` always carried | An enum constant cannot be deprecated in place without keeping the removed case alive |
-| `withdrawCollateral(chainId, addresses, amount, decimals, adminSignature, nonce, autoSend = false): RainWithdrawResult` | `withdrawCollateral(...)` to broadcast, `prepareWithdrawal(...)` to build only | The current method shares the leading parameters, so a shim with a defaulted `autoSend` would never be selected for calls that omit it — Kotlin prefers the overload using fewer defaults — and could not restore the old prepare-only default. See the migration note under [withdrawCollateral](#withdrawcollateralchainid-addresses-amount-decimals-adminsignature-nonce). |
-| `import com.rain.sdk.internal.error.RainError` / `RainErrorCode` | `import com.rain.sdk.error.RainError` / `RainErrorCode` | A public type under an `internal` package misstated its stability. The types are unchanged; only the package moved, with no typealias at the old path. |
-| `com.rain.sdk.internal.solana.UnsignedSolanaTransfer` | `com.rain.sdk.models.UnsignedSolanaTransfer` | The same: it reaches hosts through `RainPreparedWithdrawal.Solana.transfer`, so it is a model. |
-| `RainErrorCode.INTERNAL_LOGIC_ERROR` | `RainErrorCode.INTERNAL_ERROR`, still `RAIN_502` | The constant now matches the `InternalError` class; an enum constant cannot be renamed in place with a shim. |
-| `RainSdk.descriptors: Collection<ProviderDescriptor>` | `RainSdk.providers: List<ProviderDescriptor>`, in registration order | Pairs with `providerIds`; the earlier rename to `descriptors` is undone on purpose. |
-| `RainWalletContact.Sms(value)` | `RainWalletContact.Phone(value)` | The value is a phone number; SMS is only the channel the code travels on. |
-| `LoginContact.Sms(value)` (opt-in wallet-backend API) | `LoginContact.Phone(value)` | The same rename at the backend layer, so both layers name the channel alike. |
-| `sendLoginCode(email: String)` on `RainProvider` and `TurnkeyProvider` | `sendLoginCode(RainWalletContact.Email(email))` and `sendLoginCode(LoginContact.Email(email))` | The String overload sent any string as an email address; the typed contact is the one way to name the channel. |
-| `RainWalletSessionState.Reserved`, `RainWalletAuthState.Reserved` (internal sentinels) | None: a `when` over either hierarchy is exhaustive | The sentinels forced an `else` branch so a state could be added without a source break; a new state now ships in a major version. |
-| `getAddress(): String` | `getWalletAddress()` | Renamed; the shim only delegated. |
-| `sendNativeToken(chainId, toAddress, amount): RainTokenTransferResult` | `sendNative(chainId, to, amount)` | Renamed; the shim only delegated. |
-| `sendToken(chainId, contractAddress, toAddress, amount: Double, decimals: Int)` | `sendToken(chainId, contractAddress, to, amount: BigDecimal, decimals?)` | `Double` loses precision, and `decimals` is optional: the SDK resolves it. |
-| `getNativeBalance(chainId): Double` | `getBalance(chainId, Token.Native).decimalAmount` | An exact `BigDecimal` instead of a lossy `Double`. |
-| `getERC20Balance(chainId, tokenAddress, decimals?): Double` | `getBalance(chainId, Token.contract(tokenAddress)).decimalAmount` | The same; the `decimals` argument was ignored. |
-| `getERC20Balances(chainId): Map<String, Double>` | `getTokenBalances(chainId)` | The same; the list carries the native balance too. |
-| `getBalances(chainId): Map<String, Double>` | `getTokenBalances(chainId)` | The same; no empty-string key for the native balance. |
-| `generateAddressQRCode(address, width, height)` | `generateAddressQRCode(address, dimension)` | A QR code is square. |
-| `composeTransactionParameters(walletAddress, contractAddress, transactionData)` | `RainSdk.buildTransactionParameters(...)` | Pure composition needs no resolved client. |
-| `RainSdk.transactionBuilder` | `buildEIP712Message(...)` and `buildWithdrawTransactionData(...)` on `RainSdk` itself | The builder methods moved onto `RainSdk`. |
-| `RainClient.DEFAULT_ERC20_DECIMALS` | None; the display-path default is an internal constant | It backed the ignored `decimals` argument of `getERC20Balance`; money paths never guess decimals. |
-| `EthereumConverter.convertWeiHexToDouble`, `convertWeiToEth`, `convertHexToDouble`, `parseHexToBigInteger` | `convertWeiHexToDecimal`, `convertWeiToEthDecimal`, `convertHexToDecimal`, `parseHexToBigIntegerStrict` | `Double` loses precision, and the lenient parser zeroed a malformed payload. |
-| `EthereumConverter.convertWeiHexToEth`, `parseHexToInt` | `convertWeiHexToDecimal`, `parseHexToIntStrict` | The same two reasons: a `Double` result, and a lenient parser that read a malformed payload as 0. |
 
 ---
 
@@ -1034,12 +982,9 @@ Format: `"RainSDK Error [CODE]: message"`
 | `RAIN_501` | `RainError.ProviderError` | Portal, Turnkey, or other provider error; for a Turnkey or Rain wallet key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors); a passkey ceremony, login or sign-up the device or the backend refused for another reason, an HTTP status inside a passkey login or sign-up included (no session exists yet, so it is never `RAIN_201` or `RAIN_202`); a contact code request or contact update the backend refused. |
 | `RAIN_502` | `RainError.InternalError` | EIP-712 encoding, ABI encoding, or internal processing error; for a Turnkey or Rain wallet key export, the case under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors); a passkey login or sign-up the backend answered with an unusable response (no session token, an occupied session key). |
 
-The map was compacted once, when the Rain issuing API cases left the SDK: `ChainNotSupported` moved from
-`RAIN_105` to `RAIN_104` and `TransactionPending` from `RAIN_303` to `RAIN_302`, so the table has no gaps.
-`RAIN_104` and `RAIN_302` belonged to the removed `ApiNotConfigured` and `ApiError` cases, so a host that
-switched on either string must revisit that branch. `RAIN_304` was retired with the issuing API, and `RAIN_105`
-and `RAIN_303` were vacated by the moves; none of the three is reused, a new 1xx code starts at `RAIN_106` and
-a new 3xx code at `RAIN_305`. `RainErrorCodeParityTest` pins this table.
+The code strings are a published contract hosts switch on; `RainErrorCodeParityTest` pins every value.
+`RAIN_105`, `RAIN_303` and `RAIN_304` are unassigned and stay so: a new 1xx code starts at `RAIN_106` and a
+new 3xx code at `RAIN_305`.
 
 ### Error handling example
 

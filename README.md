@@ -61,17 +61,6 @@ choice of wallet provider at runtime. The one pair that cannot share a `RainSdk`
 All Rain modules share one version number and release together. Use the same version for every
 Rain module in one app; a core from one release with an adapter from another is not supported.
 
-Upgrading from a core-only dependency: the `com.rain.sdk.turnkey` package used to ship inside
-`rain-core-android`. It now lives in `rain-turnkey-android`, so an app that registers
-`TurnkeyProvider` swaps its core coordinate for the adapter's. Imports do not change. Take both
-artifacts from the first release that carries the split; the version printed above is the catalog
-version at the time of writing. In the same release the descriptor interface `RainProvider` became
-`ProviderDescriptor` (`RainSdk.providers` keeps its name); `RainProvider` now names
-the Rain wallet's class in `com.rain.sdk.wallet`, so an auto-import that offers it after the upgrade
-is pointing at the wrong type. The Turnkey adapter and the Rain wallet no longer advertise
-`Capability.BIOMETRIC_GATE`, because nothing gates signing behind a biometric prompt; a lookup by
-that capability finds no bundled provider.
-
 | Module        | Contains                                                                 |
 |---------------|--------------------------------------------------------------------------|
 | `rain-core-android`   | The `WalletProvider` port, capability model, provider registry, and all Rain domain logic. No wallet vendor SDK. |
@@ -423,7 +412,7 @@ val adminSignature = RainAdminSignature(
 )
 
 // Sign and submit via the backing provider, returns the tx hash.
-// Always broadcasts: the 1.0.x `autoSend = false` prepare-only default is gone (see prepareWithdrawal).
+// Always broadcasts; prepareWithdrawal builds without sending.
 val txHash = client.withdrawCollateral(
     chainId = 8453,
     addresses = addresses,
