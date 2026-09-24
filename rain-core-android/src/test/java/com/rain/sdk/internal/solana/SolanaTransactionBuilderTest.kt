@@ -346,7 +346,9 @@ class SolanaTransactionBuilderTest {
         } else {
             listOf(transfer)
         }
-        return SolanaTransactionBuilder.buildUnsignedHex(goldenOwner, goldenBlockhash, instructions)
+        return SolanaTransactionBuilder.hexEncode(
+            SolanaTransactionBuilder.buildUnsignedTransaction(goldenOwner, goldenBlockhash, instructions)
+        )
     }
 
     @Test

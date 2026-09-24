@@ -1,7 +1,7 @@
 package com.rain.sdk.interfaces
 
 import android.graphics.Bitmap
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainPreparedWithdrawal
@@ -10,7 +10,6 @@ import com.rain.sdk.models.RainTokenApprovalResult
 import com.rain.sdk.models.RainTokenTransferResult
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
-import com.rain.sdk.models.RainTransactionParameters
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
@@ -26,8 +25,7 @@ private const val AUTH_PULL_NOT_SUPPORTED = "Auth Pull is not supported by this 
  * Operations Rain exposes against a single, already-resolved wallet provider.
  *
  * A `RainClient` is obtained from [com.rain.sdk.RainSdk.provider] / [com.rain.sdk.RainSdk.first];
- * it is bound to one provider for its lifetime, so it carries no `initialize*` methods and never
- * references a concrete vendor type. Which provider backs it is described by [providerId] and
+ * it is bound to one provider for its lifetime and never references a concrete vendor type. Which provider backs it is described by [providerId] and
  * [capabilities].
  */
 interface RainClient {
@@ -47,8 +45,8 @@ interface RainClient {
     val capabilities: Set<Capability>
 
     /**
-     * Executes a collateral withdrawal on-chain. Always broadcasts: the 1.0.x `autoSend` flag
-     * (default `false`, prepare-only) is gone — use [prepareWithdrawal] for that.
+     * Executes a collateral withdrawal on-chain. Always broadcasts; [prepareWithdrawal] builds without
+     * sending.
      *
      * @param chainId The chain ID for the transaction
      * @param addresses All required addresses for the withdrawal
@@ -58,6 +56,12 @@ interface RainClient {
      * @param adminSignature Rain's authorization for this withdrawal, fetched by the host from the Rain API
      * @param nonce Optional nonce; resolved from the contract when null
      * @return The transaction hash (EVM) or transaction signature (Solana)
+     * @throws RainError.ChainNotSupported (`RAIN_104`) when the provider cannot broadcast on [chainId]
+     * @throws RainError.WithdrawalRevertedByNetwork (`RAIN_405`) when the network rejected the withdrawal,
+     *   in the dry run or after broadcast
+     * @throws RainError.InsufficientFunds (`RAIN_402`) when the wallet cannot pay the amount, the fee or the rent
+     * @throws RainError.ProviderError (`RAIN_501`) for a provider failure; [RainError.InternalError] (`RAIN_502`)
+     *   for one nothing mapped
      */
     @Throws(RainError::class)
     suspend fun withdrawCollateral(
@@ -71,8 +75,11 @@ interface RainClient {
 
     /**
      * Builds a collateral withdrawal without broadcasting it. Takes the same parameters as
-     * [withdrawCollateral]. See [RainPreparedWithdrawal] for what this does and does not do
-     * offline, and for the Solana blockhash lifetime.
+     * [withdrawCollateral]. Not gated on the provider's broadcast chains: preparing never broadcasts,
+     * so it works where [withdrawCollateral] throws [RainError.ChainNotSupported]. On Solana the fee
+     * check and the dry run always run, because the prepared transaction is the host's own self-paid
+     * submission. See [RainPreparedWithdrawal] for what this does and does not do offline, and for
+     * the Solana blockhash lifetime.
      */
     @Throws(RainError::class)
     suspend fun prepareWithdrawal(
@@ -93,19 +100,6 @@ interface RainClient {
     suspend fun getWalletAddress(): String
 
     /**
-     * Gets the current wallet address from the underlying provider.
-     *
-     * @return Hex-encoded wallet address.
-     * @throws RainError if the address cannot be retrieved.
-     */
-    @Deprecated(
-        message = "Renamed to getWalletAddress(). This shim delegates to it.",
-        replaceWith = ReplaceWith("getWalletAddress()")
-    )
-    @Throws(RainError::class)
-    suspend fun getAddress(): String = getWalletAddress()
-
-    /**
      * Gets the wallet address for a specific chain. For EVM chains this matches [getWalletAddress]
      * (a hex address). A provider that also holds non-EVM accounts (one advertising
      * [Capability.MULTI_CHAIN]) returns the address matching [chainId]'s family — e.g. a base58
@@ -120,13 +114,14 @@ interface RainClient {
     suspend fun getWalletAddress(chainId: Int): String
 
     /**
-     * Estimates the gas fee required for a transaction.
+     * Estimates the gas fee required for a transaction. On a provider that sponsors fees the quote is
+     * what the wallet would pay itself; a sponsor pays instead and its own cost is not quoted.
      *
      * @param chainId The chain ID for the transaction
      * @param from The sender address
      * @param to The target contract address
      * @param data The transaction data (hex-encoded)
-     * @return Estimated gas fee in ETH
+     * @return Estimated gas fee in the chain's native token
      * @throws RainError if estimation fails
      */
     @Throws(RainError::class)
@@ -144,7 +139,10 @@ interface RainClient {
      * Builds the EIP-712 payload, signs it with the wallet, then runs `eth_estimateGas`
      * against the controller. Nothing is broadcast. Note: the calldata also embeds a wallet
      * signature the controller verifies, so the estimate signs once with the wallet (a
-     * placeholder signature would revert the estimate).
+     * placeholder signature would revert the estimate). To quote without a second signature,
+     * prepare once with [prepareWithdrawal] and call `estimateWithdrawalFee(chainId, prepared)`
+     * passing the result. On a provider that sponsors fees the quote is what the wallet would pay
+     * itself; a sponsor pays instead and its own cost is not quoted.
      *
      * @param chainId The chain ID for the transaction. EVM only.
      * @param addresses All required addresses for the withdrawal.
@@ -153,7 +151,7 @@ interface RainClient {
      * @param adminSignature Rain's authorization for this withdrawal, fetched by the host from the Rain API
      * @param nonce Optional nonce; pin the estimate to the nonce the withdrawal will sign.
      * @return Estimated withdrawal fee in the chain's native token, as an exact [BigDecimal].
-     * @throws RainError if estimation fails, or if [chainId] is a Solana chain.
+     * @throws RainError if estimation fails; a Solana [chainId] throws [RainError.InternalError].
      */
     @Throws(RainError::class)
     suspend fun estimateWithdrawalFee(
@@ -166,25 +164,19 @@ interface RainClient {
     ): BigDecimal
 
     /**
-     * Composes wallet-agnostic transaction parameters for a contract call.
+     * Estimates the fee of a withdrawal already built by [prepareWithdrawal], in the chain's native
+     * token, without building or signing anything: prepare once, estimate on the result, then
+     * submit. EVM only.
      *
-     * Pure composition — no wallet provider and no RPC — so it belongs on [com.rain.sdk.RainSdk],
-     * not on a resolved client.
+     * @param chainId The chain the withdrawal was prepared for. Not checked against [prepared]: pass the
+     *   chain id [prepareWithdrawal] was called with.
+     * @param prepared The result of [prepareWithdrawal].
+     * @return Estimated withdrawal fee in the chain's native token, as an exact [BigDecimal].
+     * @throws RainError if estimation fails; a node revert arrives as [RainError.WithdrawalRevertedByNetwork].
+     *   A Solana preparation or chain id throws [RainError.InternalError].
      */
-    @Deprecated(
-        message = "Pure composition needs no resolved client. Call RainSdk.buildTransactionParameters(...).",
-        replaceWith = ReplaceWith("rain.buildTransactionParameters(walletAddress, contractAddress, transactionData)")
-    )
-    fun composeTransactionParameters(
-        walletAddress: String,
-        contractAddress: String,
-        transactionData: String
-    ): RainTransactionParameters = RainTransactionParameters(
-        from = walletAddress,
-        to = contractAddress,
-        value = "0x0",
-        data = transactionData
-    )
+    @Throws(RainError::class)
+    suspend fun estimateWithdrawalFee(chainId: Int, prepared: RainPreparedWithdrawal): BigDecimal
 
     /**
      * Sends the chain's native token (e.g. ETH, AVAX).
@@ -200,25 +192,6 @@ interface RainClient {
         to: String,
         amount: BigDecimal
     ): RainTokenTransferResult
-
-    /**
-     * Sends the chain's native token (e.g. ETH, AVAX).
-     *
-     * @param chainId Network ID
-     * @param toAddress Recipient's wallet address
-     * @param amount Amount of token to send
-     * @return RainTokenTransferResult containing the transaction hash
-     */
-    @Deprecated(
-        message = "Renamed to sendNative(chainId, to, amount). This shim delegates to it.",
-        replaceWith = ReplaceWith("sendNative(chainId, toAddress, amount)")
-    )
-    @Throws(RainError::class)
-    suspend fun sendNativeToken(
-        chainId: Int,
-        toAddress: String,
-        amount: BigDecimal
-    ): RainTokenTransferResult = sendNative(chainId, toAddress, amount)
 
     /**
      * Sends an ERC-20 token.
@@ -247,37 +220,6 @@ interface RainClient {
     ): RainTokenTransferResult
 
     /**
-     * Sends an ERC-20 token with an explicit, non-null [decimals].
-     *
-     * Backward-compatibility shim for callers compiled against the pre-1.1 signature
-     * (`decimals: Int`). It delegates to [sendToken] with a nullable `decimals`; new code can
-     * simply omit `decimals` and let the SDK resolve it. Retained so an SDK upgrade doesn't
-     * break already-compiled consumers (the `Int` and `Int?` parameters have different JVM
-     * descriptors).
-     *
-     * @param decimals Number of decimals the token uses (e.g. 6 for USDC, 18 for most tokens).
-     */
-    @Deprecated(
-        message = "decimals is now optional; the SDK resolves it from its registry or an " +
-            "on-chain decimals() read. Call sendToken(chainId, contractAddress, toAddress, " +
-            "amount) and omit decimals.",
-        replaceWith = ReplaceWith("sendToken(chainId, contractAddress, toAddress, amount)")
-    )
-    @Throws(RainError::class)
-    suspend fun sendToken(
-        chainId: Int,
-        contractAddress: String,
-        toAddress: String,
-        amount: Double,
-        decimals: Int
-    ): RainTokenTransferResult {
-        if (!amount.isFinite()) {
-            throw RainError.InvalidAmount(amount.toString(), "amount must be a finite number")
-        }
-        return sendToken(chainId, contractAddress, toAddress, amount.toBigDecimal(), decimals as Int?)
-    }
-
-    /**
      * Fetches a single balance (native or a contract token) for the current wallet.
      *
      * @param chainId The numeric chain ID (e.g. 1 for Ethereum, 43114 for Avalanche).
@@ -292,8 +234,6 @@ interface RainClient {
     /**
      * Fetches all non-zero balances for the current wallet on the given network. The native
      * balance is always included; zero-balance contract tokens are omitted.
-     *
-     * Supersedes the deprecated [getBalances], which returned a lossy `Map<String, Double>`.
      *
      * @param chainId The numeric chain ID.
      * @return One [Balance] per non-zero token plus the native balance.
@@ -315,107 +255,6 @@ interface RainClient {
      */
     @Throws(RainError::class)
     suspend fun getAllBalances(): List<Balance>
-
-    // ---------------------------------------------------------------------------------------
-    // Deprecated balance API (pre-balance-consolidation, i.e. before #38's follow-up work).
-    // Kept as default-method shims so existing call sites keep compiling and linking against
-    // newer releases. Each delegates to the precise [Balance] API and collapses the result to
-    // the old lossy `Double` shape. Slated for removal in the next major version.
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * Gets the native token balance (e.g. AVAX) for the current wallet.
-     *
-     * @param chainId The numeric chain ID (e.g. 43114 for Avalanche Mainnet).
-     * @return Native token balance in Ether units (Double).
-     * @throws RainError if the balance cannot be retrieved.
-     */
-    @Deprecated(
-        message = "Use getBalance(chainId, Token.Native) and read .decimalAmount for exact " +
-            "precision. This shim collapses the balance to a lossy Double.",
-        replaceWith = ReplaceWith(
-            "getBalance(chainId, Token.Native).decimalAmount.toDouble()",
-            "com.rain.sdk.models.Token"
-        )
-    )
-    @Throws(RainError::class)
-    suspend fun getNativeBalance(chainId: Int): Double =
-        getBalance(chainId, Token.Native).decimalAmount.toDouble()
-
-    /**
-     * Gets the balance of a specific ERC-20 token for the current wallet.
-     *
-     * The [decimals] argument is ignored: the SDK now resolves token decimals itself (from its
-     * token store or on-chain). It is retained only for source compatibility.
-     *
-     * @param chainId The numeric chain ID (e.g. 43114 for Avalanche Mainnet).
-     * @param tokenAddress The contract address of the ERC-20 token.
-     * @param decimals Ignored. Previously the assumed token decimals.
-     * @return Token balance as a Double (with decimals already applied).
-     * @throws RainError if the balance cannot be retrieved.
-     */
-    @Deprecated(
-        message = "Use getBalance(chainId, Token.contract(tokenAddress)) and read .decimalAmount " +
-            "for exact precision. The decimals argument is ignored; the SDK resolves decimals itself.",
-        replaceWith = ReplaceWith(
-            "getBalance(chainId, Token.contract(tokenAddress)).decimalAmount.toDouble()",
-            "com.rain.sdk.models.Token"
-        )
-    )
-    @Throws(RainError::class)
-    suspend fun getERC20Balance(
-        chainId: Int,
-        tokenAddress: String,
-        decimals: Int? = DEFAULT_ERC20_DECIMALS
-    ): Double = getBalance(chainId, Token.contract(tokenAddress)).decimalAmount.toDouble()
-
-    /**
-     * Gets all ERC-20 token balances for the current wallet on the given network, keyed by
-     * contract address.
-     *
-     * Note: built on [getTokenBalances], which omits zero-balance contract tokens and includes the
-     * native balance; this shim drops the native entry, so the result is non-zero ERC-20s only.
-     *
-     * @param chainId The numeric chain ID.
-     * @return Map of token contract address to balance (Double).
-     * @throws RainError if balances cannot be retrieved.
-     */
-    @Deprecated(
-        message = "Use getTokenBalances(chainId), which returns List<Balance> (native + contract " +
-            "tokens) with exact precision. This shim drops the native entry and collapses to Double.",
-        replaceWith = ReplaceWith("getTokenBalances(chainId)")
-    )
-    @Throws(RainError::class)
-    suspend fun getERC20Balances(chainId: Int): Map<String, Double> =
-        getTokenBalances(chainId)
-            .mapNotNull { balance ->
-                (balance.token as? Token.Contract)?.let { contract ->
-                    contract.address to balance.decimalAmount.toDouble()
-                }
-            }
-            .toMap()
-
-    /**
-     * Gets all balances for the current wallet on the given network, keyed by contract address,
-     * with the native balance stored under the empty-string key `""`.
-     *
-     * @param chainId The numeric chain ID.
-     * @return Map of token contract address to balance (Double), plus native balance under `""`.
-     * @throws RainError if balances cannot be retrieved.
-     */
-    @Deprecated(
-        message = "Use getTokenBalances(chainId), which returns List<Balance> (native + contract " +
-            "tokens) with exact precision. This shim collapses to a lossy Double map keyed by " +
-            "contract address (as returned by the provider), with the native balance under the " +
-            "empty-string key \"\".",
-        replaceWith = ReplaceWith("getTokenBalances(chainId)")
-    )
-    @Throws(RainError::class)
-    suspend fun getBalances(chainId: Int): Map<String, Double> =
-        getTokenBalances(chainId).associate { balance ->
-            val key = (balance.token as? Token.Contract)?.address ?: ""
-            key to balance.decimalAmount.toDouble()
-        }
 
     // ---------------------------------------------------------------------------------------
     // Token approvals (Auth Pull)
@@ -445,7 +284,7 @@ interface RainClient {
      *
      * @param chainId EVM chain the token lives on. Solana chain IDs throw — SPL has no
      *                ERC-20-style allowance.
-     * @param contractAddress The ERC-20 token contract (USDC for Auth Pull today).
+     * @param contractAddress The ERC-20 token contract (USDC for Auth Pull).
      * @param spender The address being approved. Source Rain's operator address from Rain rather
      *                than hardcoding it — it differs between sandbox and production.
      * @param amount Human-readable allowance (e.g. `250` for 250 USDC). `null` (the default)
@@ -482,7 +321,8 @@ interface RainClient {
     /**
      * Estimates the total fee (estimated gas x gas price) to submit the approval, in the chain's
      * native token. Same parameters as [approveTokenAllowance]; nothing is broadcast and no
-     * signature is requested.
+     * signature is requested. On a provider that sponsors fees the quote is what the wallet would
+     * pay itself; a sponsor pays instead and its own cost is not quoted.
      */
     @Throws(RainError::class)
     suspend fun estimateApprovalFee(
@@ -546,7 +386,7 @@ interface RainClient {
     /**
      * Clears this client's own state only. The shared token store and the chain configuration the
      * `RainSdk` owns survive, so one client resetting does not deconfigure the others. Idempotent.
-     * Prefer `RainSdk.reset()` to tear down the whole SDK.
+     * Prefer `RainSdk.close()` to tear down the whole SDK.
      */
     fun reset()
 
@@ -569,22 +409,6 @@ interface RainClient {
     ): Bitmap
 
     /**
-     * Generates a QR code with independent width and height.
-     *
-     * A QR code is square, so the two dimensions were always set to the same value in practice.
-     */
-    @Deprecated(
-        message = "A QR code is square. Call generateAddressQRCode(address, dimension).",
-        replaceWith = ReplaceWith("generateAddressQRCode(address, width)")
-    )
-    @Throws(RainError::class)
-    suspend fun generateAddressQRCode(
-        address: String?,
-        width: Int,
-        height: Int
-    ): Bitmap = generateAddressQRCode(address, width)
-
-    /**
      * Retrieves the transaction history for the specified chain.
      *
      * @param chainId The numeric chain ID
@@ -601,11 +425,4 @@ interface RainClient {
         offset: Int? = null,
         order: RainTransactionOrder? = null
     ): List<RainTransaction>
-
-    companion object {
-        /**
-         * Default number of decimals for ERC20 tokens if not specified.
-         */
-        const val DEFAULT_ERC20_DECIMALS = 18
-    }
 }

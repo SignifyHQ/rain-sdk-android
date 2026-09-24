@@ -1,7 +1,7 @@
 package com.rain.sdk.internal.transaction
 
+import com.rain.sdk.error.RainError
 import com.rain.sdk.interfaces.RainTransactionBuilder
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.models.RainTransactionParameters
 import kotlinx.coroutines.CancellationException
@@ -78,7 +78,7 @@ internal class TransactionCoordinator(
         try {
             block()
         } catch (e: RainError.TransactionSimulationFailed) {
-            throw RainError.WithdrawalRevertedByNetwork(cause = e)
+            throw RainError.WithdrawalRevertedByNetwork(cause = e, transactionId = e.transactionId)
         } catch (e: RainError) {
             throw e
         } catch (e: Exception) {
@@ -184,6 +184,24 @@ internal class TransactionCoordinator(
         val provider = walletProvider() ?: throw RainError.SdkNotInitialized()
         provider.estimateTransactionFee(
             chainId = request.chainId,
+            from = parameters.from,
+            to = parameters.to,
+            data = parameters.data,
+            value = parameters.value
+        )
+    }
+
+    /**
+     * Estimates the fee of an already-prepared EVM withdrawal: the provider quotes [parameters] as
+     * they are, so nothing is rebuilt or signed. Same error contract as [estimateWithdrawalFee].
+     */
+    suspend fun estimatePreparedWithdrawalFee(
+        chainId: Int,
+        parameters: RainTransactionParameters
+    ): BigDecimal = withWithdrawalErrors("Estimate prepared withdrawal fee") {
+        val provider = walletProvider() ?: throw RainError.SdkNotInitialized()
+        provider.estimateTransactionFee(
+            chainId = chainId,
             from = parameters.from,
             to = parameters.to,
             data = parameters.data,

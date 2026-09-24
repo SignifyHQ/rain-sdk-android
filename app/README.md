@@ -9,8 +9,7 @@ connect a wallet, read balances, send tokens, withdraw collateral, and list tran
 
 - Android Studio with its bundled JBR
 - An emulator or device on API 28+. The passkey buttons on the Rain Wallet card also need Google
-  Play services with a Google account signed in and a screen lock set; the `medium_phone` AVD is a
-  Play image and ships with neither.
+  Play services with a Google account signed in and a screen lock set.
 - The SDK modules this sample uses (`:rain-core-android`, `:rain-wallet-android`, `:rain-turnkey-android`,
   `:rain-portal-android`, `:rain-privy-android`)
 
@@ -34,17 +33,18 @@ screens otherwise need a real provider login to reach.
 | **Wallet & QR** | `getWalletAddress(chainId)` and the collateral deposit address from the demo's own `RainApiClient` (a call a shipped app makes from its backend), each with a QR bitmap from `generateAddressQRCode(address)` |
 | **Balances** | Collateral balances from the demo's `RainApiClient`, with token names and decimals from `RainSdk.tokenMetadata`, plus the wallet's own native and token balances (`getBalance`, `getTokenBalances`) |
 | **Send tokens** | `sendNative` and `sendToken` (ERC-20 on EVM, SPL on Solana) |
-| **Withdraw collateral** | The withdrawal signature from the demo's `RainApiClient` + `withdrawCollateral`, with `estimateWithdrawalFee` and `prepareWithdrawal` dry runs, on both EVM and Solana collateral; a token whose decimals the SDK cannot resolve stays listed with its money actions disabled |
+| **Withdraw collateral** | The withdrawal signature from the demo's `RainApiClient` + `withdrawCollateral`, with the `estimateWithdrawalFee` and `prepareWithdrawal` dry runs and an *Estimate fee of prepared* button that quotes the held preparation with no new signature, on both EVM and Solana collateral (both fee estimates are EVM-only). The fee card says when a sponsor pays, and a token whose decimals the SDK cannot resolve stays listed with its money actions disabled |
 | **Auth pull** | `getTokenAllowance`, `estimateApprovalFee`, `approveTokenAllowance` + `confirmTokenAllowance`, and revocation |
 | **History** | `getTransactions(chainId, limit, offset, order)`, newest-first |
 
 Every feature screen reads the chain picked in the **Active wallet** dropdown on Home, so switching
 networks needs no re-initialization: the SDK is built with all chains' RPC endpoints at once (see
-`WalletChain.rpcEndpoints`).
+`WalletChain.rpcEndpoints`; Portal gets the EVM subset, `evmRpcEndpoints`).
 
 ## Networks
 
-`WalletChain` defines the three demo networks — Avalanche Fuji, Base Sepolia, and Solana devnet —
+`WalletChain` defines six networks (a sandbox build offers Avalanche Fuji, Base Sepolia, Arbitrum Sepolia and
+Solana devnet, hides the mainnet Auth Pull chains, and adds an Ethereum Sepolia endpoint for collateral reads),
 along with each one's RPC URL, native symbol, explorer links, default token / recipient, and address
 validation. Portal holds no Solana account, so selecting Portal restricts the dropdown to the EVM
 chains.
@@ -119,16 +119,15 @@ The last working values — provider choice, Rain API credentials, and each prov
 was established with a passkey) — are kept in an encrypted store (`SessionStore`) so the next launch
 pre-fills them and resumes the session; *Clear session* wipes them.
 
-`RainSession` also registers each demo chain's testnet token (`WalletChain.defaultTokenInfo`) via
-`registerTokens` on the builder, identically for all three providers. That is not a workaround the
+`RainSession` also registers each selectable chain's default token (`WalletChain.defaultTokenInfo`) via
+`registerTokens` on the builder and enables Auth Pull with `authPullConfig`, identically for all four providers. That is not a workaround the
 SDK needs in production — it is the same mechanism a host app uses when a token cannot be
-discovered on chain. An SPL mint carries no on-chain symbol, and the built-in token registry is
-mainnet-only, so naming the testnet tokens keeps the balance screen readable.
+discovered on chain. An SPL mint carries no on-chain symbol, and the built-in token registry has no entry for
+Fuji USDC or the devnet mint, so naming them keeps the balance screen readable.
 
 ## Notes
 
-- **Portal wallet recovery** is unavailable: the Rain API has no backup-share endpoint yet (it is
-  slated to move behind `POST /v1/issuing/users/{userId}/wallet`), so the app has no recovery UI.
+- **Portal wallet recovery**: the sample has no Portal backup or recovery UI.
 - **Solana history** rows carry the wallet backend's activity id rather than a resolvable signature, so those
   rows are not linked to an explorer.
 - **Demo keystore.** `app/demo-debug.keystore` is committed on purpose and signs both the debug and
@@ -153,6 +152,7 @@ mainnet-only, so naming the testnet tokens keeps the balance screen readable.
 app/src/main/java/com/rain/sdk/sample/
 ├── MainActivity.kt          # App entry + Compose navigation host (wrapped in RainTheme)
 ├── RainSampleApp.kt         # Application: session store + vendor init at launch
+├── CollateralMetadata.kt    # Fills collateral tokens' name, symbol and decimals from RainSdk.tokenMetadata
 ├── Screen.kt                # Route definitions for the seven screens
 ├── RainSession.kt           # Holds the built RainSdk + resolved RainClient; prepares the Rain wallet provider, builds Turnkey
 ├── RainApiClient.kt         # The demo's own Rain API client (contracts, withdrawal signature): host reference code
@@ -190,19 +190,18 @@ in two weights (Light for body, Semibold for headings and labels), two type size
 12 for badges), hairline neutral borders on all four sides, 20dp cards, 4dp inputs, pill buttons
 that settle to pink while pressed, sentence case throughout, and no emoji. Pink is reserved for the
 wordmark, the icon tiles, and interaction states. The tokens live in `ui/theme` and the components
-in the `ui/Rain*.kt` files; the design canvas the port was built from is the Claude Design project
-"Rain SDK Sample App".
+in the `ui/Rain*.kt` files.
 
-Two things are stand-ins until the brand assets are dropped in:
+Two things differ from the brand assets:
 
 - **Typeface.** Rain's Antique Legacy is licensed and not checked in, so text renders on the
-  platform sans at the same two weights. `RainType.fontFamily` documents the one-line swap once the
-  OTFs are placed in `app/src/main/res/font/`.
+  platform sans at the same two weights. `RainType.fontFamily` documents the one-line swap for a build
+  that has the OTFs in `app/src/main/res/font/`.
 - **Icon tiles.** The home grid's wallet / coin / transaction / bank / secure / time glyphs are
   hand-drawn line icons in the Phosphor idiom inside the brand's pink container
   (`RainIconTile`). The design canvas uses the brand's "settle" (handshake) tile for Withdraw; a
-  legible handshake needs the real asset, so the port uses the set's "bank" glyph until the PNGs
-  (or Phosphor's SVGs) replace the `ic_tile_*` drawables. Chrome icons (back, caret, copy, external
+  legible handshake needs the real asset, so the port uses the set's "bank" glyph; the `ic_tile_*`
+  drawables are the swap point for the brand's PNGs or Phosphor's SVGs. Chrome icons (back, caret, copy, external
   link, check) are Phosphor's own paths.
 
 ## Key code
@@ -216,7 +215,8 @@ provider and the `ProviderId` resolved:
 val sdk = RainSdk.builder()
     .rpcEndpoints(rpcEndpoints)                                   // Map<Int, String>
     .register(rainWalletProvider)                                 // prepared + authenticated first
-    .registerTokens(WalletChain.entries.map { it.defaultTokenInfo })
+    .registerTokens(WalletChain.selectable.map { it.defaultTokenInfo })
+    .authPullConfig(SampleEnvironment.authPullConfig)
     .build()
 val client = sdk.provider(ProviderId.RAIN)
 ```

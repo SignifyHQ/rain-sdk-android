@@ -6,7 +6,7 @@ import com.rain.sdk.turnkey.LoginContact
  * Where a login code is delivered, the identity the account is keyed on, and the contact
  * [RainProvider.sendContactVerificationCode] attaches to the signed-in account as a further login
  * method. A first login signs the user up under this contact; a later login finds the account by
- * email for [Email] and by phone number for [Sms]. The same person arriving through the other
+ * email for [Email] and by phone number for [Phone]. The same person arriving through the other
  * channel is a new account. [RainProvider.sendLoginCode] and [RainProvider.sendContactVerificationCode]
  * canonicalize the value once (trim for an email; trim, separator removal and an E.164 check for a
  * phone number) and send that same string on confirm. `toString()` hides the value, which is
@@ -36,21 +36,21 @@ sealed interface RainWalletContact {
      * stripping would fold into a different number. A national number without its country code
      * is not converted.
      */
-    class Sms(override val value: String) : RainWalletContact {
-        override fun equals(other: Any?): Boolean = other is Sms && other.value == value
+    class Phone(override val value: String) : RainWalletContact {
+        override fun equals(other: Any?): Boolean = other is Phone && other.value == value
 
-        override fun hashCode(): Int = value.hashCode() + SMS_HASH_OFFSET
+        override fun hashCode(): Int = value.hashCode() + PHONE_HASH_OFFSET
 
-        override fun toString(): String = "RainWalletContact.Sms(…)"
+        override fun toString(): String = "RainWalletContact.Phone(…)"
     }
 }
 
 // Keeps an email and a phone number with the same text from hashing alike. File-private rather than
 // a companion constant, which Kotlin would hoist onto the published interface as a public field.
-private const val SMS_HASH_OFFSET = 31
+private const val PHONE_HASH_OFFSET = 31
 
 @JvmSynthetic
 internal fun RainWalletContact.toBacking(): LoginContact = when (this) {
     is RainWalletContact.Email -> LoginContact.Email(value)
-    is RainWalletContact.Sms -> LoginContact.Sms(value)
+    is RainWalletContact.Phone -> LoginContact.Phone(value)
 }

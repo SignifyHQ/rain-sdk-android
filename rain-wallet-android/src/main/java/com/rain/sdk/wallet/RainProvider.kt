@@ -2,7 +2,7 @@ package com.rain.sdk.wallet
 
 import android.app.Activity
 import android.app.Application
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
@@ -196,19 +196,6 @@ class RainProvider internal constructor(
      */
     suspend fun sendLoginCode(contact: RainWalletContact) {
         backing.sendLoginCode(contact.toBacking())
-    }
-
-    /**
-     * The email channel: `sendLoginCode(RainWalletContact.Email(email))`. Pass a phone number
-     * through [RainWalletContact.Sms] instead; this overload sends any string as an email address.
-     *
-     * @throws RainError.InvalidConfig (`RAIN_102`) for a blank email, on a wallet backend
-     *   configuration conflict for this launch, or when this provider was closed.
-     * @throws RainError.InternalError (`RAIN_502`) when the backend's initialization failed for
-     *   this launch; relaunch the app.
-     */
-    suspend fun sendLoginCode(email: String) {
-        sendLoginCode(RainWalletContact.Email(email))
     }
 
     /**

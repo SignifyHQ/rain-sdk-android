@@ -2,7 +2,7 @@ package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.turnkey.core.models.errors.TurnkeyKotlinError
 import org.junit.Test
 import kotlin.reflect.full.primaryConstructor

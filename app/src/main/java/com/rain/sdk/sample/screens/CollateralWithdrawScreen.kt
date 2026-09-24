@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -16,6 +17,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.models.RainPreparedWithdrawal
+import com.rain.sdk.models.RainTransactionParameters
 import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.WalletChain
 import com.rain.sdk.sample.ui.RainBackHeader
@@ -67,6 +70,7 @@ fun CollateralWithdrawScreen(
             onRecipientChanged = viewModel::onRecipientChanged,
             onAmountChanged = viewModel::onAmountChanged,
             onEstimateFee = viewModel::estimateFee,
+            onEstimatePreparedFee = viewModel::estimatePreparedFee,
             onPrepareWithdrawal = viewModel::prepareWithdrawal,
             onWithdrawMaximum = viewModel::withdrawMaximum,
             onExecuteWithdraw = viewModel::executeWithdraw,
@@ -81,6 +85,7 @@ private class CollateralWithdrawActions(
     val onRecipientChanged: (String) -> Unit,
     val onAmountChanged: (String) -> Unit,
     val onEstimateFee: () -> Unit,
+    val onEstimatePreparedFee: () -> Unit,
     val onPrepareWithdrawal: () -> Unit,
     val onWithdrawMaximum: () -> Unit,
     val onExecuteWithdraw: () -> Unit,
@@ -92,6 +97,7 @@ private class CollateralWithdrawActions(
             onRecipientChanged = {},
             onAmountChanged = {},
             onEstimateFee = {},
+            onEstimatePreparedFee = {},
             onPrepareWithdrawal = {},
             onWithdrawMaximum = {},
             onExecuteWithdraw = {},
@@ -172,8 +178,9 @@ private fun CollateralWithdrawContent(
             )
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Dry-run actions: both build the withdrawal exactly as "Withdraw" would, signing
-                // EIP-712 and reading the collateral's admin set, but broadcast nothing.
+                // Dry-run actions: the first two build the withdrawal exactly as "Withdraw" would,
+                // signing EIP-712 and reading the collateral's admin set, but broadcast nothing; the
+                // third quotes the held preparation again without signing anything.
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     RainButton(
                         text = "Estimate fee",
@@ -191,6 +198,14 @@ private fun CollateralWithdrawContent(
                         enabled = state.isAmountValid && !state.isWithdrawing,
                     )
                 }
+                RainButton(
+                    text = "Estimate fee of prepared",
+                    onClick = actions.onEstimatePreparedFee,
+                    modifier = Modifier.fillMaxWidth(),
+                    style = RainButtonStyle.Secondary,
+                    // EVM only, and only while a preparation for the current inputs is held.
+                    enabled = state.prepared is RainPreparedWithdrawal.Evm && !state.isWithdrawing,
+                )
                 // Gas estimation also happens as part of the withdraw itself, so "Estimate fee"
                 // above is optional.
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -217,7 +232,7 @@ private fun CollateralWithdrawContent(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     RainSpinner()
-                    RainMuted("Fetching the admin signature and building the withdrawal…")
+                    RainMuted(state.busyText)
                 }
             }
 
@@ -228,6 +243,7 @@ private fun CollateralWithdrawContent(
                         RainStrong("Estimated fee", Modifier.weight(1f))
                         RainStrong(fee)
                     }
+                    state.feeNote?.let { RainMuted(it) }
                     RainMuted("Dry run. Nothing was broadcast.")
                 }
             }
@@ -357,6 +373,10 @@ private fun CollateralWithdrawDryRunPreview() {
     CollateralWithdrawPreview(
         previewLoadedState.copy(
             estimatedFee = "0.000042 ETH",
+            feeNote = feeNote(sponsored = true, fromPrepared = true),
+            prepared = RainPreparedWithdrawal.Evm(
+                RainTransactionParameters(from = PREVIEW_WALLET, to = PREVIEW_PROXY, value = "0x0", data = "0x"),
+            ),
             preparedWithdrawal = "withdrawAsset(USDC, 100.00) to ${shortAddress(PREVIEW_WALLET)} · nonce 7 · " +
                 "admin signature cached",
         ),

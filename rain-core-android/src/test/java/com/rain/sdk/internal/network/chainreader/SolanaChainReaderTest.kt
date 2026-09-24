@@ -2,8 +2,8 @@ package com.rain.sdk.internal.network.chainreader
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.RainChain
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.constants.SolanaPrograms
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.helpers.MockRpcServer
 import com.rain.sdk.internal.solana.Base58
 import com.rain.sdk.internal.solana.SolanaAddresses

@@ -2,8 +2,8 @@ package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.RainChain
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.constants.SolanaChains
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.chainreader.JsonRpcClient
 import com.rain.sdk.internal.solana.SolanaRpcClient
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore

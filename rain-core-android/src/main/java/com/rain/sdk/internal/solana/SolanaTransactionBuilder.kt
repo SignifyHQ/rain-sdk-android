@@ -53,14 +53,6 @@ object SolanaTransactionBuilder {
         )
     }
 
-    /** Lowercase hex of [buildUnsignedTransaction], ready for a vendor's unsigned-transaction field. */
-    fun buildUnsignedHex(
-        feePayer: ByteArray,
-        recentBlockhash: String,
-        instructions: List<Instruction>,
-        extraReadonlyKeys: List<ByteArray> = emptyList()
-    ): String = hexEncode(buildUnsignedTransaction(feePayer, recentBlockhash, instructions, extraReadonlyKeys))
-
     /**
      * Serializes [instructions] into an unsigned legacy transaction paid for by [feePayer].
      *

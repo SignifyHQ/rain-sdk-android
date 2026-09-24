@@ -7,6 +7,7 @@ import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.models.RainAdminSignature
 import com.rain.sdk.models.RainPreparedWithdrawal
 import com.rain.sdk.models.RainWithdrawAddresses
+import com.rain.sdk.provider.Capability
 import com.rain.sdk.sample.CollateralContract
 import com.rain.sdk.sample.RainApiError
 import com.rain.sdk.sample.RainSession
@@ -14,6 +15,7 @@ import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain
 import com.rain.sdk.sample.WithdrawalSignatureRequest
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,11 +33,15 @@ class CollateralWithdrawViewModel(
     private val _state = MutableStateFlow(CollateralWithdrawUiState())
     val state: StateFlow<CollateralWithdrawUiState> = _state.asStateFlow()
 
+    /** The contract load in flight, so a second call (a chain switch) supersedes the first instead of racing it. */
+    private var loadJob: Job? = null
+
     fun loadContractInfo(chain: WalletChain = WalletChain.EVM) {
         SampleLog.i("Withdraw.contract", "loading contract info chain=${chain.displayName}")
-        _state.update { it.copy(isLoadingContract = true, errorText = null) }
+        _state.update { it.withoutResults().copy(isLoadingContract = true, errorText = null) }
 
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             try {
                 val walletAddress = rainClient.getWalletAddress(chain.chainId)
                 SampleLog.d("Withdraw.contract", "wallet address=$walletAddress")
@@ -95,10 +101,20 @@ class CollateralWithdrawViewModel(
     // A cached admin signature is bound to a specific (token, amount, recipient) via
     // [CollateralWithdrawUiState.signatureKey]. Clearing it on input changes is belt-and-
     // suspenders — executeWithdraw also verifies the key matches before reusing — so a stale
-    // signature is never sent for the wrong amount/recipient.
+    // signature is never sent for the wrong amount/recipient. A prepared withdrawal is bound to
+    // the same inputs, so it and its summary go with the signature.
     private fun invalidateSignature(builder: CollateralWithdrawUiState.() -> CollateralWithdrawUiState) {
-        _state.update { it.builder().copy(adminSignature = null, signatureKey = null) }
+        _state.update {
+            it.builder().copy(adminSignature = null, signatureKey = null, prepared = null, preparedWithdrawal = null)
+        }
     }
+
+    /**
+     * Drops every result of the previous contract: a preparation, its summary and its fee belong to
+     * the chain they were built on, and a sent hash would otherwise get the new chain's explorer link.
+     */
+    private fun CollateralWithdrawUiState.withoutResults(): CollateralWithdrawUiState =
+        copy(prepared = null, preparedWithdrawal = null, estimatedFee = null, feeNote = null, withdrawResult = null)
 
     fun onTokenSelected(index: Int) {
         invalidateSignature { copy(selectedTokenIndex = index, withdrawResult = null, errorText = null) }
@@ -122,7 +138,8 @@ class CollateralWithdrawViewModel(
     /**
      * Builds the withdrawal without broadcasting it, and shows what came back. The EVM case is a
      * complete transaction (from/to/value/data); the Solana case is the serialized unsigned
-     * transaction plus the blockhash it was simulated against.
+     * transaction plus the blockhash it was simulated against. The object itself is kept for
+     * [estimatePreparedFee].
      */
     fun prepareWithdrawal(amountOverride: BigDecimal? = null) {
         runWithdrawFlow(amountOverride, "Withdraw.prepare") { addresses, amountBd, decimals, adminSig ->
@@ -145,18 +162,20 @@ class CollateralWithdrawViewModel(
                 }
             }
             // Nothing was broadcast, so the signature is still good — keep it cached.
-            _state.update { it.copy(isWithdrawing = false, preparedWithdrawal = summary) }
+            _state.update { it.copy(isWithdrawing = false, prepared = prepared, preparedWithdrawal = summary) }
         }
     }
 
     /**
      * Estimates the withdrawal fee without broadcasting. EVM only — the SDK throws on a Solana
-     * chain id, which the UI surfaces as-is.
+     * chain id, which the UI surfaces as-is. Builds and signs the withdrawal to price it, and on a
+     * provider that sponsors fees the number is still the network cost, so the fee card says who pays.
      */
     fun estimateFee(amountOverride: BigDecimal? = null) {
         runWithdrawFlow(amountOverride, "Withdraw.estimate") { addresses, amountBd, decimals, adminSig ->
+            val chainId = _state.value.chainId
             val fee = rainClient.estimateWithdrawalFee(
-                chainId = _state.value.chainId,
+                chainId = chainId,
                 addresses = addresses,
                 amount = amountBd,
                 decimals = decimals,
@@ -165,17 +184,58 @@ class CollateralWithdrawViewModel(
             _state.update {
                 it.copy(
                     isWithdrawing = false,
-                    estimatedFee = "${fee.stripTrailingZeros().toPlainString()} ${nativeSymbol()}"
+                    estimatedFee = feeDisplay(fee, chainId),
+                    feeNote = feeNote(sponsored = sponsorsFees(), fromPrepared = false)
                 )
             }
         }
     }
 
+    /**
+     * Quotes the fee of the withdrawal [prepareWithdrawal] built, without building or signing again.
+     * `estimateWithdrawalFee(chainId, prepared)` runs `eth_estimateGas` on the prepared parameters.
+     * EVM only, like [estimateFee]; the screen offers it only while an EVM preparation is held. This
+     * bypasses [runWithdrawFlow] on purpose, since that would resolve an admin signature the call
+     * does not need, and would mint a fresh one after a broadcast consumed the cached one.
+     */
+    fun estimatePreparedFee() {
+        val current = _state.value
+        if (current.isWithdrawing) return
+        val prepared = current.prepared ?: return
+        SampleLog.i("Withdraw.estimatePrepared", "chainId=${current.chainId}")
+        _state.update {
+            it.copy(
+                isWithdrawing = true,
+                busyText = "Quoting the prepared withdrawal…",
+                errorText = null,
+                estimatedFee = null,
+                feeNote = null
+            )
+        }
+        launchWithdrawCall("Withdraw.estimatePrepared") {
+            val fee = rainClient.estimateWithdrawalFee(current.chainId, prepared)
+            _state.update {
+                it.copy(
+                    isWithdrawing = false,
+                    estimatedFee = feeDisplay(fee, current.chainId),
+                    feeNote = feeNote(sponsored = sponsorsFees(), fromPrepared = true)
+                )
+            }
+        }
+    }
+
+    /** The provider-wide capability; the SDK's per-chain refinement is not on `RainClient`. */
+    private fun sponsorsFees(): Boolean = Capability.GAS_SPONSORSHIP in rainClient.capabilities
+
+    /** Labelled with the chain the quote was made for, not the chain on screen when it returns. */
+    private fun feeDisplay(fee: BigDecimal, chainId: Int): String =
+        "${fee.stripTrailingZeros().toPlainString()} ${nativeSymbol(chainId)}"
+
     private fun truncate(value: String): String =
         if (value.length > 40) "${value.take(24)}…${value.takeLast(12)}" else value
 
-    private fun nativeSymbol(): String =
-        WalletChain.entries.firstOrNull { it.chainId == _state.value.chainId }?.nativeSymbol ?: ""
+    private fun nativeSymbol(chainId: Int): String =
+        WalletChain.entries.firstOrNull { it.chainId == chainId }?.nativeSymbol.orEmpty()
 
     /**
      * Executes a collateral withdrawal. Gas estimation is handled internally by the SDK as
@@ -223,7 +283,7 @@ class CollateralWithdrawViewModel(
      * Shared prep for every withdrawal-shaped call: [withdrawInput] refuses a token whose decimals are
      * unknown and validates the amount, then the admin signature is resolved (and cached) for these
      * exact inputs and the pieces go to [action]. Each of the three SDK entry points differs only in
-     * what it does with them.
+     * what it does with them. [estimatePreparedFee] needs none of this and has its own entry.
      */
     private fun runWithdrawFlow(
         amountOverride: BigDecimal?,
@@ -236,7 +296,9 @@ class CollateralWithdrawViewModel(
         ) -> Unit
     ) {
         val current = _state.value
-        val input = when (val prepared = withdrawInput(current, amountOverride)) {
+        // One SDK call at a time: a second tap before recomposition would otherwise overlap the first,
+        // so a busy screen is treated like one with nothing selected.
+        val input = when (val prepared = withdrawInput(current, amountOverride).takeUnless { current.isWithdrawing }) {
             null -> return
             is WithdrawInput.Refused -> {
                 _state.update { it.copy(errorText = prepared.errorText) }
@@ -252,31 +314,41 @@ class CollateralWithdrawViewModel(
         _state.update {
             it.copy(
                 isWithdrawing = true,
+                busyText = "Fetching the admin signature and building the withdrawal…",
                 errorText = null,
                 withdrawResult = null,
+                prepared = null,
                 preparedWithdrawal = null,
-                estimatedFee = null
+                estimatedFee = null,
+                feeNote = null
             )
         }
 
+        launchWithdrawCall(tag) {
+            // Exact base-unit conversion from the SAME normalized BigDecimal the SDK will
+            // use — no float overflow / precision loss, and it matches the signed amount.
+            val amountBaseUnits = amountBd
+                .multiply(BigDecimal.TEN.pow(decimals))
+                .toBigInteger()
+
+            val adminSig = adminSignatureFor(current, token, amountBaseUnits, tag)
+
+            val addresses = RainWithdrawAddresses(
+                proxyAddress = current.proxyAddress,
+                controllerAddress = current.controllerAddress,
+                tokenAddress = token.address,
+                recipientAddress = current.recipientAddress
+            )
+
+            action(addresses, amountBd, decimals, adminSig)
+        }
+    }
+
+    /** Runs one SDK call and reports its failure in [CollateralWithdrawUiState.errorText]. */
+    private fun launchWithdrawCall(tag: String, block: suspend () -> Unit) {
         viewModelScope.launch {
             try {
-                // Exact base-unit conversion from the SAME normalized BigDecimal the SDK will
-                // use — no float overflow / precision loss, and it matches the signed amount.
-                val amountBaseUnits = amountBd
-                    .multiply(BigDecimal.TEN.pow(decimals))
-                    .toBigInteger()
-
-                val adminSig = adminSignatureFor(current, token, amountBaseUnits, tag)
-
-                val addresses = RainWithdrawAddresses(
-                    proxyAddress = current.proxyAddress,
-                    controllerAddress = current.controllerAddress,
-                    tokenAddress = token.address,
-                    recipientAddress = current.recipientAddress
-                )
-
-                action(addresses, amountBd, decimals, adminSig)
+                block()
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 SampleLog.e(tag, "failed: ${e.message}", e)
@@ -404,6 +476,17 @@ internal fun withdrawInput(current: CollateralWithdrawUiState, amountOverride: B
     }
 }
 
+/**
+ * The note under a fee estimate says where the number came from, and who pays it when a sponsor does.
+ * Null for an estimate built from the form on a provider whose wallets pay their own fees, which
+ * needs no note. `sponsored` is the provider-wide [Capability.GAS_SPONSORSHIP]; the SDK's per-chain
+ * refinement is not on `RainClient`, so the note names its condition instead of asserting it.
+ */
+internal fun feeNote(sponsored: Boolean, fromPrepared: Boolean): String? = listOfNotNull(
+    "From the prepared withdrawal, no new signature.".takeIf { fromPrepared },
+    "On a chain the provider sponsors, a sponsor pays this instead of the wallet.".takeIf { sponsored },
+).joinToString(" ").ifEmpty { null }
+
 data class WithdrawTokenOption(
     val name: String,
     val symbol: String,
@@ -446,11 +529,20 @@ data class CollateralWithdrawUiState(
     val signatureKey: SignatureKey? = null,
     val isLoadingContract: Boolean = false,
     val isWithdrawing: Boolean = false,
+    /** What the spinner says while [isWithdrawing]; each flow names its own work. */
+    val busyText: String = "Working…",
     val withdrawResult: String? = null,
-    /** Summary of the last `prepareWithdrawal` result — nothing was broadcast. */
+    /**
+     * The last `prepareWithdrawal` result, held for `estimateWithdrawalFee(chainId, prepared)`; nothing
+     * was broadcast.
+     */
+    val prepared: RainPreparedWithdrawal? = null,
+    /** Summary of [prepared] for the screen. */
     val preparedWithdrawal: String? = null,
     /** Fee from the last `estimateWithdrawalFee` call, in the chain's native token. */
     val estimatedFee: String? = null,
+    /** Where [estimatedFee] came from and who pays it, from [feeNote]; null when neither needs saying. */
+    val feeNote: String? = null,
     val errorText: String? = null
 ) {
     val selectedToken: WithdrawTokenOption?

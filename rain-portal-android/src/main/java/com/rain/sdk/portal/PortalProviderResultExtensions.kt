@@ -1,6 +1,6 @@
 package com.rain.sdk.portal
 
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.utils.EthereumConverter
 import io.portalhq.android.provider.data.PortalProviderResult
 import io.portalhq.android.provider.data.PortalProviderRpcResponse

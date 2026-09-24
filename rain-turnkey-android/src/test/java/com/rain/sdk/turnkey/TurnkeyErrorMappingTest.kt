@@ -15,8 +15,8 @@ import androidx.credentials.exceptions.domerrors.TimeoutError
 import androidx.credentials.exceptions.publickeycredential.CreatePublicKeyCredentialDomException
 import androidx.credentials.exceptions.publickeycredential.GetPublicKeyCredentialDomException
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.internal.error.RainErrorCode
+import com.rain.sdk.error.RainError
+import com.rain.sdk.error.RainErrorCode
 import com.turnkey.core.models.errors.TurnkeyKotlinError
 import org.junit.Before
 import org.junit.Test

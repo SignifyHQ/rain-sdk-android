@@ -35,8 +35,6 @@ fun RainWalletSessionState.toStatus(): WalletSessionStatus = when (this) {
         WalletSessionStatus("Session expired", SessionHealth.Dead, "Log in again")
     is RainWalletSessionState.Unauthenticated ->
         WalletSessionStatus("Not signed in", SessionHealth.Dead, "Log in again")
-    // The hierarchy is not exhaustive on purpose: a state added in a later release lands here.
-    else -> WalletSessionStatus("Unknown session state", SessionHealth.Transitional)
 }
 
 /** Turnkey, bring-your-own: JWT-backed, so `Active` carries an expiry. */

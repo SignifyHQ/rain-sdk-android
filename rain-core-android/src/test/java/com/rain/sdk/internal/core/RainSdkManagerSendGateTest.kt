@@ -1,23 +1,63 @@
 package com.rain.sdk.internal.core
 
+import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.RainChain
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers
+import com.rain.sdk.internal.network.Web3jProvider
+import com.rain.sdk.models.RainPreparedWithdrawal
 import com.rain.sdk.models.RainWithdrawAddresses
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkAll
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertThrows
+import org.junit.Before
 import org.junit.Test
+import org.web3j.protocol.Web3j
+import org.web3j.protocol.core.Request
+import org.web3j.protocol.core.methods.response.EthCall
 import java.math.BigDecimal
+import java.math.BigInteger
+import java.util.concurrent.CompletableFuture
 
 /**
  * Core asks the provider whether it can broadcast on the chain before a withdrawal or approval
  * does any work. The provider's own funnel gate would catch the same chain later, but only after
- * the contract reads and a biometric signing prompt the user then sees refused.
+ * the contract reads and a biometric signing prompt the user then sees refused. Preparing is the
+ * exception: it signs but never broadcasts, so it is not gated.
  */
 class RainSdkManagerSendGateTest {
+
+    /** Builder over a mocked Web3j, so a prepare can run end to end against a refusing provider. */
+    private lateinit var builder: RainTransactionBuilderImpl
+
+    @Before
+    fun setUp() {
+        mockkStatic(URLUtil::class)
+        every { URLUtil.isValidUrl(any()) } returns true
+
+        // Every eth_call answers uint256(1): nonce = 1, and the isAdmin check decodes to true.
+        val mockWeb3j = mockk<Web3j>(relaxed = true)
+        val mockEthCall = mockk<Request<*, EthCall>>()
+        val response = EthCall().apply { result = "0x" + "0".repeat(63) + "1" }
+        every { mockWeb3j.ethCall(any(), any()) } returns mockEthCall
+        every { mockEthCall.sendAsync() } returns CompletableFuture.completedFuture(response)
+        builder = RainTransactionBuilderImpl(mapOf(1 to "https://rpc.example/test")) { mockWeb3j }
+
+        Web3jProvider.shutDownAll()
+    }
+
+    @After
+    fun tearDown() {
+        unmockkAll()
+        Web3jProvider.shutDownAll()
+    }
 
     private val addresses = RainWithdrawAddresses(
         proxyAddress = TestFixtures.PROXY_ADDRESS,
@@ -46,16 +86,24 @@ class RainSdkManagerSendGateTest {
     }
 
     @Test
-    fun `prepareWithdrawal is gated the same way because it signs too`() {
-        val (manager, stub) = TestManagers.stubProviderManager(stub = refusingStub())
+    fun `prepareWithdrawal is not gated because it never broadcasts`(): Unit = runBlocking {
+        // The prepared transaction is the host's own-RPC path on a chain the provider cannot
+        // broadcast on, so a refusing provider is still asked to sign, and nothing is sent.
+        val (manager, stub) = TestManagers.stubProviderManager(stub = refusingStub(), transactionBuilder = builder)
+        stub.signTypedDataToReturn = TestFixtures.validSignatureHex
 
-        assertThrows(RainError.ChainNotSupported::class.java) {
-            runBlocking {
-                manager.prepareWithdrawal(1, addresses, BigDecimal("1"), 6, TestFixtures.adminSignature())
-            }
-        }
+        val prepared = manager.prepareWithdrawal(
+            chainId = 1,
+            addresses = addresses,
+            amount = BigDecimal("1"),
+            decimals = 6,
+            adminSignature = TestFixtures.adminSignature(),
+            nonce = BigInteger.valueOf(7)
+        )
 
-        assertThat(stub.signTypedDataCalls).isEmpty()
+        assertThat(prepared).isInstanceOf(RainPreparedWithdrawal.Evm::class.java)
+        assertThat(stub.signTypedDataCalls).hasSize(1)
+        assertThat(stub.sendTransactionCalls).isEmpty()
     }
 
     @Test

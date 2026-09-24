@@ -1,17 +1,17 @@
 package com.rain.sdk.privy
 
 import com.rain.sdk.RainChain
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.abi.Erc20Abi
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.solana.SolanaSupport
-import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionCategory
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
+import com.rain.sdk.models.UnsignedSolanaTransfer
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.utils.EthereumConverter
@@ -588,7 +588,7 @@ internal class PrivyWalletProvider(
     private fun requireEvmChain(chainId: Int, operation: String) {
         if (solanaSupport.isSolanaChain(chainId)) {
             throw RainError.InvalidConfig(
-                "$operation is EVM-only; use sendNativeToken/sendToken on Solana chainId=$chainId"
+                "$operation is EVM-only; use sendNative/sendToken on Solana chainId=$chainId"
             )
         }
     }

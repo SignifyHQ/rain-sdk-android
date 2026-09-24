@@ -3,8 +3,9 @@ package com.rain.sdk.internal.core
 import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.RainSdk
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.helpers.StubWalletProvider
+import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
@@ -63,13 +64,14 @@ class RainSdkBuilderTest {
 
     @Test
     fun `build succeeds with zero providers (wallet-agnostic mode)`() {
-        // transactionBuilder + tokenMetadata work without any wallet provider.
+        // The builder methods and tokenMetadata work without any wallet provider.
         val sdk = RainSdk.builder()
             .rpcEndpoints(mapOf(1 to "https://rpc.test"))
             .build()
 
         assertThat(sdk.providerIds).isEmpty()
-        assertThat(sdk.transactionBuilder).isNotNull()
+        val parameters = sdk.buildTransactionParameters(TestFixtures.WALLET_ADDRESS, TestFixtures.CONTROLLER_ADDRESS, "0x")
+        assertThat(parameters.to).isEqualTo(TestFixtures.CONTROLLER_ADDRESS)
     }
 
     @Test
@@ -101,7 +103,7 @@ class RainSdkBuilderTest {
         val client = sdk.provider(ProviderId("fake"))
 
         assertThat(client.providerId.value).isEqualTo("fake")
-        assertThat(sdk.descriptors.map { it.id }).containsExactly(ProviderId("fake"))
+        assertThat(sdk.providers.map { it.id }).containsExactly(ProviderId("fake"))
         assertThat(client.getWalletAddress())
             .isEqualTo("0xb0b0000000000000000000000000000000000000")
     }
@@ -116,7 +118,7 @@ class RainSdkBuilderTest {
 
         assertThat(sdk.first { it.id == ProviderId("second") }.providerId).isEqualTo(ProviderId("second"))
         assertThat(sdk.first { true }.providerId).isEqualTo(ProviderId("fake"))
-        assertThat(sdk.descriptors.map { it.id })
+        assertThat(sdk.providers.map { it.id })
             .containsExactly(ProviderId("fake"), ProviderId("second"))
             .inOrder()
     }
@@ -144,7 +146,7 @@ class RainSdkBuilderTest {
             .register(second)
             .build()
 
-        assertThat(sdk.descriptors).containsExactly(second)
+        assertThat(sdk.providers).containsExactly(second)
         assertThat(first.closed).isTrue()
         assertThat(second.closed).isFalse()
     }
@@ -161,7 +163,7 @@ class RainSdkBuilderTest {
             .register(first)
             .build()
 
-        assertThat(sdk.descriptors).containsExactly(first)
+        assertThat(sdk.providers).containsExactly(first)
         assertThat(first.closed).isFalse()
         assertThat(second.closed).isTrue()
     }
@@ -189,7 +191,7 @@ class RainSdkBuilderTest {
             .register(only)
             .build()
 
-        assertThat(sdk.descriptors).containsExactly(only)
+        assertThat(sdk.providers).containsExactly(only)
         assertThat(only.closed).isFalse()
     }
 
@@ -234,7 +236,7 @@ class RainSdkBuilderTest {
             .register(FakeProvider(StubWalletProvider(), ProviderId.PRIVY))
             .build()
 
-        assertThat(sdk.descriptors.map { it.id })
+        assertThat(sdk.providers.map { it.id })
             .containsExactly(ProviderId.RAIN, ProviderId.PORTAL, ProviderId.PRIVY)
             .inOrder()
     }

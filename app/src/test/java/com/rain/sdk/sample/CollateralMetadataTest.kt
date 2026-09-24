@@ -1,7 +1,7 @@
 package com.rain.sdk.sample
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.models.TokenInfo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
@@ -45,7 +45,7 @@ class CollateralMetadataTest {
         val rows = tokensWithMetadata(
             contract,
             lookup = { chainId, _ -> throw RainError.InvalidConfig("No RPC endpoint configured for chainId=$chainId") },
-            onUnavailable = { token, error -> reported += token.address to error.errorCode.code },
+            onUnavailable = { token, error -> reported += token.address to error.code },
         )
 
         assertThat(rows.map { it.decimals }).containsExactly(null, null)

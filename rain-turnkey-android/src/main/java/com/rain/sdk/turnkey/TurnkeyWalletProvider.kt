@@ -1,18 +1,18 @@
 package com.rain.sdk.turnkey
 
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.abi.Erc20Abi
 import com.rain.sdk.internal.constants.SolanaChains
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.chainreader.ChainReader
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.solana.SolanaTransferComposer
-import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
+import com.rain.sdk.models.UnsignedSolanaTransfer
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.utils.EthereumConverter
@@ -154,9 +154,8 @@ internal class TurnkeyWalletProvider(
      * Raw sends follow [sponsorGas] exactly like the transfer entries. Withdrawals, Auth Pull
      * approvals, and host-composed calldata arrive here, and Turnkey sponsors any
      * `ethSendTransaction`, not just plain transfers. A zero-balance card user's first action
-     * is often the Auth Pull approval, so leaving these self-paid would defeat the feature and
-     * would make the zero fee estimate wrong for exactly these flows. Sponsorship cost passes
-     * through to the partner that turned the flag on.
+     * is often the Auth Pull approval, so leaving these self-paid would defeat the feature.
+     * Sponsorship cost passes through to the partner that turned the flag on.
      */
     override suspend fun sendTransaction(
         chainId: Int,
@@ -175,6 +174,12 @@ internal class TurnkeyWalletProvider(
         return manager.signTypedData(walletAddress, typedDataJson)
     }
 
+    /**
+     * Quotes what the wallet would pay to send this transaction itself, sponsored or not:
+     * `eth_estimateGas` times `eth_gasPrice` over the chain's RPC. On a sponsored chain a sponsor pays
+     * instead, through its own outer transaction whose cost is not quoted; the number lets a host show
+     * what sponsorship saves the user.
+     */
     override suspend fun estimateTransactionFee(
         chainId: Int,
         from: String,
@@ -183,13 +188,6 @@ internal class TurnkeyWalletProvider(
         value: String
     ): BigDecimal {
         requireEvmChain(chainId, "estimateTransactionFee")
-        if (sponsorsFees(chainId)) {
-            // Every EVM send is sponsored under this flag, so zero is the honest quote for
-            // transfers, withdrawals, and approvals alike (product decision: pass through what
-            // Turnkey charges the sender, which is nothing). Estimating as if the sender paid
-            // would also reject the zero-balance wallets sponsorship serves.
-            return BigDecimal.ZERO
-        }
         return manager.estimateTransactionFee(chainId, from, to, data, value)
     }
 
@@ -433,7 +431,7 @@ internal class TurnkeyWalletProvider(
 internal fun requireEvmChain(chainId: Int, operation: String) {
     if (SolanaChains.isSolanaChain(chainId)) {
         throw RainError.InvalidConfig(
-            "$operation is EVM-only; use sendNativeToken/sendToken on Solana chainId=$chainId"
+            "$operation is EVM-only; use sendNative/sendToken on Solana chainId=$chainId"
         )
     }
 }

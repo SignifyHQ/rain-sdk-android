@@ -2,7 +2,7 @@ package com.rain.sdk.turnkey
 
 import android.app.Activity
 import android.app.Application
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.utils.validateAndChecksumAddress
 import com.rain.sdk.provider.Capability
@@ -53,8 +53,9 @@ internal const val TURNKEY_PROVIDER_CLOSED_MESSAGE = "This provider was closed; 
  * @param sponsorGas When true, every EVM send on a Turnkey broadcast chain is sponsored —
  *                   transfers, collateral withdrawals, Auth Pull approvals, and raw
  *                   `sendTransaction` calls alike: Turnkey's Gas Station builds and pays the
- *                   fee (gasless for the end user) and fee estimates return zero. Sponsorship
- *                   cost passes through to the partner that turns this on. Solana sends are
+ *                   fee (gasless for the end user); fee estimates still quote what the wallet
+ *                   would pay itself. Sponsorship cost passes through to the partner that turns
+ *                   this on. Solana sends are
  *                   sponsored too (network fee only: rent for a first-time recipient's token
  *                   account is a separate Turnkey toggle, off by default, so the sender must
  *                   still hold it). Turnkey does not document its Solana payer model, so run
@@ -452,10 +453,6 @@ class TurnkeyProvider internal constructor(
      */
     @InternalRainTurnkeyApi
     suspend fun sendLoginCode(contact: LoginContact) = requireManagedAuth().sendLoginCode(contact)
-
-    /** The email channel: `sendLoginCode(LoginContact.Email(email))`. */
-    @InternalRainTurnkeyApi
-    suspend fun sendLoginCode(email: String) = sendLoginCode(LoginContact.Email(email))
 
     /**
      * Confirms the code from [sendLoginCode]. A first login signs the user up and creates one

@@ -1,6 +1,6 @@
 package com.rain.sdk.privy
 
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.error.VendorErrorClassifier
 import io.privy.auth.AuthenticationException
 import io.privy.network.PrivyApiException

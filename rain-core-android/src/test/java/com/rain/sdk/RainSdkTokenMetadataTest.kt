@@ -3,7 +3,7 @@ package com.rain.sdk
 import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.helpers.MockRpcServer
 import com.rain.sdk.internal.network.chainreader.ERC20Selectors
 import com.rain.sdk.internal.solana.Base58

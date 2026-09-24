@@ -20,8 +20,7 @@ val client = rain.provider(ProviderId.PORTAL)   // suspend — RainClient for wa
 rain.buildEIP712Message(...)                     // wallet-agnostic — no provider required
 ```
 
-There is no singleton and no `initialize*` methods: a `RainClient` is bound to one provider for
-its lifetime. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md) for the Turnkey adapter walkthrough.
+A `RainClient` is bound to one provider for its lifetime. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md) for the Turnkey adapter walkthrough.
 
 ---
 
@@ -36,8 +35,7 @@ module isn't on the classpath simply can't be registered.
 | Property | Type | Description |
 |----------|------|-------------|
 | `providerIds` | `Set<ProviderId>` | Ids of every provider the host registered. |
-| `descriptors` | `Collection<ProviderDescriptor>` | The registered provider descriptors, for capability resolution. |
-| `transactionBuilder` | `RainTransactionBuilder` | **Deprecated** — the builder methods are now on `RainSdk` itself. |
+| `providers` | `List<ProviderDescriptor>` | The registered provider descriptors in registration order, for capability resolution. |
 | `authPullChainIds` | `Set<Int>` | Chains Auth Pull is enabled on for this instance: the configured `RainAuthPullConfig`'s chains intersected with the chains that have an RPC endpoint. Empty when no `authPullConfig(...)` was supplied. Also exposed on `RainClient`; see [authPullChainIds](#authpullchainids). |
 
 ### Methods
@@ -78,11 +76,22 @@ val exporter = rain.first { Capability.EXPORT in it.capabilities }
 
 #### reset()
 
-Tears down all resolved clients. Idempotent.
+Evicts the resolved clients. Idempotent.
 
 The chain configuration is immutable state fixed at `build()`, so this instance stays usable: the
 next `provider(id)` / `first { }` call re-resolves the provider from scratch. Build a new `RainSdk`
 via `builder()` to change configuration.
+
+- **Suspend:** No
+
+#### close()
+
+Full teardown: `reset()`, then `close()` on every registered provider, so vendor clients and session
+watchers stop and no `onSessionExpired` hook can fire again. Idempotent.
+
+Terminal, unlike `reset()`: `provider(id)`, `first { }`, `tokenMetadata` and `registerTokens` throw
+`RainError.SdkNotInitialized` (`RAIN_101`) afterwards. Build a new `RainSdk` via `builder()` for the
+next login.
 
 - **Suspend:** No
 
@@ -166,10 +175,18 @@ Each adapter is a `ProviderDescriptor` that owns its vendor SDK as a private dep
 
 | Adapter | Module | Config | Notes |
 |---------|--------|--------|-------|
-| `PortalProvider(PortalConfig(sessionToken, chainId?, sessionPolicy?, onSessionTokenNeeded?, onSessionExpired?, autoApprove?))` | `rain-portal-android` | `sessionToken: String`, `chainId: Int?`, `sessionPolicy: PortalSessionPolicy`, `onSessionTokenNeeded: (suspend () -> String?)?`, `onSessionExpired: (() -> Unit)?`, `autoApprove: Boolean = true` | Portal MPC signer (EVM). Advertises `EXPORT`, `RECOVERY`.|
-| `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?))` (bring-your-own) or `TurnkeyProvider(TurnkeyConfig(application, organizationId, authProxyConfigId, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?, passkeyDomain?))` (managed — internal API, `@InternalRainTurnkeyApi`) | `rain-turnkey-android` | BYO: `turnkey: TurnkeyContext`. Managed: `application: Application`, `organizationId: String`, `authProxyConfigId: String`, `passkeyDomain: String? = null` (a registrable domain of at least two labels the host controls; null or blank turns the passkey methods off; a scheme, port, path or a single label throws `RAIN_102` at construction). Shared: `walletAddress: String?`, `sessionPolicy: TurnkeySessionPolicy`, `onSessionExpired: (() -> Unit)?`, `sponsorGas: Boolean = true` | Turnkey P256 signer (EVM + Solana). The `walletAddress` override is validated and stored in EIP-55 checksum form at construction (`RAIN_102` for a malformed address or a wrong mixed-case checksum). Advertises `EXPORT` (the recovery phrase and private keys through `exportRecoveryPhrase` / `exportPrivateKey`, see [Turnkey key export](#turnkey-key-export)), `MULTI_CHAIN`, and `GAS_SPONSORSHIP` while `sponsorGas` is on; not `BIOMETRIC_GATE`, since the backend stamps with a device key and no user-verification prompt gates signing. Sends work only on Turnkey's managed-broadcast chains (others throw `RAIN_104`; reads unaffected). Sponsorship is on by default (`sponsorGas = true`): every send goes through Turnkey sponsored, all EVM sends (transfers, withdrawals, approvals, raw sends) via Gas Station and Solana network fees too (EVM fee estimates return 0; rent for a new recipient token account is a separate Turnkey toggle and stays with the sender). Requires sponsorship enabled on the Turnkey organization; pass `sponsorGas = false` on an organization without it, or to have users pay their own gas. Cannot be registered together with the Rain wallet's `RainProvider`, which drives the same process-wide Turnkey singleton. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
-| `RainProvider(application, RainWalletConfig(sessionPolicy?, onSessionExpired?, sponsorGas?, passkeyDomain?))` | `rain-wallet-android` | `application: Application`; `sessionPolicy: RainWalletSessionPolicy`, `onSessionExpired: (() -> Unit)?`, `sponsorGas: Boolean = true`, `passkeyDomain: String? = null` (a registrable domain of at least two labels the partner controls; null or blank turns the passkey methods off; a scheme, port, path or a single label throws `RAIN_102` at construction) | The Rain wallet: SDK-owned one-time-code login (email or SMS) and passkeys, one wallet with Ethereum and Solana accounts, sessions and key export, under Rain's names; the backend identity is embedded, and there is no address override: a Rain wallet holds one Ethereum account, the one the SDK provisions. Advertises `EXPORT`, `MULTI_CHAIN`, and `GAS_SPONSORSHIP` while `sponsorGas` is on; not `BIOMETRIC_GATE`, since the backend stamps with a device key and no user-verification prompt gates signing. Sends work only on the chains the wallet backend broadcasts to (others throw `RAIN_104`; reads unaffected). Cannot be registered together with `TurnkeyProvider`. See [Rain wallet provider](#rain-wallet-provider). |
+| `PortalProvider(PortalConfig(sessionToken, chainId?, sessionPolicy?, onSessionTokenNeeded?, onSessionExpired?, autoApprove?), onPortalCreated?)` | `rain-portal-android` | `sessionToken: String`, `chainId: Int?`, `sessionPolicy: PortalSessionPolicy`, `onSessionTokenNeeded: (suspend () -> String?)?`, `onSessionExpired: (() -> Unit)?`, `autoApprove: Boolean = true`; `onPortalCreated: ((Portal) -> Unit)? = null` hands the host the vendor `Portal` instance each time the adapter creates one, for Portal-only APIs such as backup and recovery | Portal MPC signer (EVM). Advertises `EXPORT`, `RECOVERY`.|
+| `TurnkeyProvider(TurnkeyConfig(turnkey, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?))` (bring-your-own) or `TurnkeyProvider(TurnkeyConfig(application, organizationId, authProxyConfigId, walletAddress?, sessionPolicy?, onSessionExpired?, sponsorGas?, passkeyDomain?))` (managed — internal API, `@InternalRainTurnkeyApi`) | `rain-turnkey-android` | BYO: `turnkey: TurnkeyContext`. Managed: `application: Application`, `organizationId: String`, `authProxyConfigId: String`, `passkeyDomain: String? = null` (the rules of the Rain wallet's `passkeyDomain`, see [Rain wallet provider](#rain-wallet-provider)). Shared: `walletAddress: String?`, `sessionPolicy: TurnkeySessionPolicy`, `onSessionExpired: (() -> Unit)?`, `sponsorGas: Boolean = true` | Turnkey P256 signer (EVM + Solana). The `walletAddress` override is validated and stored in EIP-55 checksum form at construction (`RAIN_102` for a malformed address or a wrong mixed-case checksum). Advertises `EXPORT` (the recovery phrase and private keys through `exportRecoveryPhrase` / `exportPrivateKey`, see [Turnkey key export](#turnkey-key-export)), `MULTI_CHAIN`, and `GAS_SPONSORSHIP` while `sponsorGas` is on; not `BIOMETRIC_GATE`, since the backend stamps with a device key and no user-verification prompt gates signing. Sends work only on Turnkey's managed-broadcast chains (others throw `RAIN_104`; reads unaffected). Sponsorship is on by default (`sponsorGas = true`): every send goes through Turnkey sponsored, all EVM sends (transfers, withdrawals, approvals, raw sends) via Gas Station and Solana network fees too (fee estimates quote what the wallet would pay itself; rent for a new recipient token account is a separate Turnkey toggle and stays with the sender). Requires sponsorship enabled on the Turnkey organization; pass `sponsorGas = false` on an organization without it, or to have users pay their own gas. Cannot be registered together with the Rain wallet's `RainProvider`, which drives the same process-wide Turnkey singleton. See [TURNKEY_SUPPORT.md](TURNKEY_SUPPORT.md). |
+| `RainProvider(application, RainWalletConfig(sessionPolicy?, onSessionExpired?, sponsorGas?, passkeyDomain?))` | `rain-wallet-android` | `application: Application`; `sessionPolicy: RainWalletSessionPolicy`, `onSessionExpired: (() -> Unit)?`, `sponsorGas: Boolean = true`, `passkeyDomain: String? = null` (rules under [Rain wallet provider](#rain-wallet-provider)) | The Rain wallet: SDK-owned one-time-code login (email or SMS) and passkeys, one wallet with Ethereum and Solana accounts, sessions and key export, under Rain's names; the backend identity is embedded, and there is no address override: a Rain wallet holds one Ethereum account, the one the SDK provisions. Advertises `EXPORT`, `MULTI_CHAIN`, and `GAS_SPONSORSHIP` while `sponsorGas` is on; not `BIOMETRIC_GATE`, since the backend stamps with a device key and no user-verification prompt gates signing. Sends work only on the chains the wallet backend broadcasts to (others throw `RAIN_104`; reads unaffected). Cannot be registered together with `TurnkeyProvider`. See [Rain wallet provider](#rain-wallet-provider). |
 | `PrivyProvider(PrivyConfig(privy, walletAddress?, sessionPolicy?, onSessionExpired?))` | `rain-privy-android` | `privy: Privy`, `walletAddress: String?`, `sessionPolicy: PrivySessionPolicy`, `onSessionExpired: (() -> Unit)?` | Privy embedded-wallet signer (EVM + Solana). Advertises `EXPORT`, `RECOVERY`, `MULTI_CHAIN`.|
+
+Every adapter also exposes its session on the descriptor: `sessionState` (a flow of the adapter's session
+state), `currentSessionState()`, `suspend fun refreshSession()` (a forced refresh; `RAIN_201` when the session
+cannot be refreshed) and `close()` (stops the session watcher so a discarded provider never fires
+`onSessionExpired`; `RainSdk.close()` calls it for every registered descriptor). `PortalProvider` adds
+`suspend fun updateSessionToken(sessionToken)`, which installs a new Portal session token on the running
+client; its `refreshSession()` and `updateSessionToken()` throw `RainError.SdkNotInitialized` (`RAIN_101`)
+before the provider was resolved.
 
 #### Portal construction
 
@@ -179,19 +196,16 @@ vendor-shaped details are worth knowing:
 
 - **Storage backends.** portal-android registers backup storage at backup-call time, so the
   adapter passes none at construction.
-- **`autoApprove`.** Defaults to `true`, and the adapter also answers
-  `PortalEvents.PortalSigningRequested` with `PortalSigningApproved` while it is on. Every Rain call
-  that signs is already an explicit, user-initiated SDK call and Portal raises no approval UI of its
-  own, so an unanswered signing request simply hangs. Pass `false` only if the host gates signing
-  itself, and then answer the event on the `Portal` instance handed to `onPortalCreated`. The
-  handler is registered on the `Portal` instance itself, so while `autoApprove` is on every signing
-  request on that instance is auto-approved, including ones the host makes directly through the
-  `onPortalCreated` instance.
+- **`autoApprove`.** Defaults to `true`: the adapter answers `PortalEvents.PortalSigningRequested` with
+  `PortalSigningApproved` on the `Portal` instance, so every signing request on it is auto-approved,
+  including ones the host makes directly through the `onPortalCreated` instance. Every Rain call that
+  signs is already an explicit, user-initiated SDK call and Portal raises no approval UI of its own, so
+  an unanswered request simply hangs. Pass `false` only if the host gates signing itself, and then
+  answer the event on the `onPortalCreated` instance.
 - **`chainId`.** `PortalConfig.chainId` feeds portal-android's **required** `legacyEthChainId`
   constructor parameter, so the adapter must supply one; the field lets the host pick it instead of
   guessing. Omit it and the adapter falls back to Avalanche mainnet when configured, else the first
-  configured chain. PortalSwift 7.x takes no such parameter, so iOS's `PortalConfig` has no
-  `chainId` — an intentional, vendor-imposed divergence, not a parity gap.
+  configured chain.
 
 **Bring your own provider:** implement the `WalletProvider` port and a `ProviderDescriptor`
 (with your own `ProviderId`), then `register(...)` it; only `rain-core-android` is needed, and the root
@@ -201,9 +215,9 @@ passes a `RainError` through with its code (the withdrawal paths alone rewrap a 
 as `WithdrawalRevertedByNetwork`); anything else it wraps as `ProviderError` after its shared prose
 heuristics, with two exceptions. On `estimateGas`, `estimateWithdrawalFee` and the Solana
 `withdrawCollateral` / `prepareWithdrawal` paths a raw exception floors at `InternalError`, and the
-hooks core calls before it enters a wrapper (the EVM wallet-address read, `requireSendSupport` on
-`withdrawCollateral` and `prepareWithdrawal`, and `sponsorsFees` on `estimateWithdrawalFee`) are
-not wrapped at all, so a raw exception there reaches the host as thrown. A vendor exception that
+hooks core calls before it enters a wrapper (the EVM wallet-address read and `requireSendSupport`
+on `withdrawCollateral`) are not wrapped at all, so a raw exception there reaches the host as
+thrown. A vendor exception that
 escapes therefore loses the specific code a host branches on, and an expired session arrives as a
 generic error with no re-authentication hook. Core needs no change: the transaction-building
 utilities are available regardless of which provider you register.
@@ -214,11 +228,11 @@ utilities are available regardless of which provider you register.
 
 `RainProvider` in `rain-wallet-android` (package `com.rain.sdk.wallet`) is the Rain wallet: a `ProviderDescriptor` under which the SDK owns authentication, wallet provisioning, sessions and key export, with no wallet-vendor type or name on its surface. The backend identity (Rain's organization and authentication configuration) is embedded, so `RainProvider(application)` is the whole setup; `RainWalletConfig` tunes behaviour. Construct it, authenticate on it (a one-time code to an email or phone, or, with `RainWalletConfig.passkeyDomain` set, a passkey: `signUpWithPasskey` creates the account and `loginWithPasskey` returns to it), then register it and resolve `rain.provider(ProviderId.RAIN)`. Resolving before a session is live throws `RainError.TokenExpired` (`RAIN_201`). The wallet backend's configuration is one-shot per app launch, applied by the first authentication call: a backend the app configured itself, or another provider in this process configured with a different backend identity, makes every authentication call throw `RainError.InvalidConfig` (`RAIN_102`) until the app relaunches, and a failed backend initialization makes them throw `RainError.InternalError` (`RAIN_502`) until then.
 
-The embedded identity is Rain's sandbox wallet backend; this release has no host-facing environment switch. What the module sends and stores: the email address or phone number passed to `sendLoginCode` or `sendContactVerificationCode` goes to the wallet backend, which delivers the code and keys the account on it (on confirm of an attach, the verified contact and its verification token go to the backend's user update); on a passkey sign-up the passkey's attestation, the passkey name `passkey-<unix seconds>` and a temporary session key go to the backend, on a passkey sign-in the passkey's assertion, on `addPasskey` a new passkey's attestation; the session the backend issues stays on the device in storage the backend SDK owns; wallet keys live in the wallet backend and reach the device only through the two export methods. This module sends nothing else. Sends are supported on Ethereum, Optimism, BNB Smart Chain, Polygon, Monad, Tempo, Robinhood Chain, Base and Arbitrum One, each with its test network, and on Solana mainnet and devnet; a send on any other configured chain throws `RainError.ChainNotSupported` (`RAIN_104`) before any network work, while reads work on every chain with an RPC endpoint.
+The embedded identity is Rain's sandbox wallet backend; there is no host-facing environment switch. What the module sends and stores: the email address or phone number passed to `sendLoginCode` or `sendContactVerificationCode` goes to the wallet backend, which delivers the code and keys the account on it (on confirm of an attach, the verified contact and its verification token go to the backend's user update); on a passkey sign-up the passkey's attestation, the passkey name `passkey-<unix seconds>` and a temporary session key go to the backend, on a passkey sign-in the passkey's assertion, on `addPasskey` a new passkey's attestation; the session the backend issues stays on the device in storage the backend SDK owns; wallet keys live in the wallet backend and reach the device only through the two export methods. This module sends nothing else. Sends are supported on Ethereum, Optimism, BNB Smart Chain, Polygon, Monad, Tempo, Robinhood Chain, Base and Arbitrum One, each with its test network, and on Solana mainnet and devnet; a send on any other configured chain throws `RainError.ChainNotSupported` (`RAIN_104`) before any network work, while reads work on every chain with an RPC endpoint.
 
 | Config | Description |
 |--------|-------------|
-| `RainWalletConfig(sessionPolicy: RainWalletSessionPolicy = RainWalletSessionPolicy(), onSessionExpired: (() -> Unit)? = null, sponsorGas: Boolean = true, passkeyDomain: String? = null)` | No address override: a Rain wallet holds one Ethereum account, the one the SDK provisions on first login, and the SDK signs with it and reads for it; `onSessionExpired` fires once per session death that cannot be refreshed, on any thread, and a deliberate `logout()` never fires it; `sponsorGas` makes every send on a supported chain fee-sponsored, with fee estimates of zero and `GAS_SPONSORSHIP` advertised; rent for a first-time recipient's Solana token account is a separate backend setting that stays with the sender, and a sponsored send runs no client-side revert preflight, so a failure surfaces as the backend's failed status after broadcast; `passkeyDomain` is a registrable domain of at least two labels the partner controls (`passkeys.example.com`) whose `/.well-known/assetlinks.json` carries both statements of Google's passkey example, one for the site itself and one for the app with its package name and every signing-certificate fingerprint (shape under [Passkeys](TURNKEY_SUPPORT.md#passkeys); the app statement alone is refused at the sheet); null or blank turns `loginWithPasskey`, `signUpWithPasskey` and `addPasskey` off (`RAIN_102` when called), a scheme, port, path or a single label such as `localhost` throws `RAIN_102` from the `RainProvider` constructor, and the domain is permanent, since every passkey created against it stops working when it changes; partners host their own file, Rain runs no shared domain. |
+| `RainWalletConfig(sessionPolicy: RainWalletSessionPolicy = RainWalletSessionPolicy(), onSessionExpired: (() -> Unit)? = null, sponsorGas: Boolean = true, passkeyDomain: String? = null)` | No address override: a Rain wallet holds one Ethereum account, the one the SDK provisions on first login, and the SDK signs with it and reads for it; `onSessionExpired` fires once per session death that cannot be refreshed, on any thread, and a deliberate `logout()` never fires it; `sponsorGas` makes every send on a supported chain fee-sponsored, with `GAS_SPONSORSHIP` advertised and fee estimates that quote what the wallet would pay itself; rent for a first-time recipient's Solana token account is a separate backend setting that stays with the sender, and a sponsored send runs no client-side revert preflight, so a failure surfaces as the backend's failed status after broadcast; `passkeyDomain` is a registrable domain of at least two labels the partner controls (`passkeys.example.com`) whose `/.well-known/assetlinks.json` carries both statements of Google's passkey example, one for the site itself and one for the app with its package name and every signing-certificate fingerprint (shape under [Passkeys](TURNKEY_SUPPORT.md#passkeys); the app statement alone is refused at the sheet); null or blank turns `loginWithPasskey`, `signUpWithPasskey` and `addPasskey` off (`RAIN_102` when called), a scheme, port, path or a single label such as `localhost` throws `RAIN_102` from the `RainProvider` constructor, and the domain is permanent, since every passkey created against it stops working when it changes; partners host their own file, Rain runs no shared domain. |
 | `RainWalletSessionPolicy(refreshBufferSeconds: Long = 60, autoRefresh: Boolean = true, refreshExpirationSeconds: Long? = null, maxTransientRetries: Int = 2, initialRetryDelayMs: Long = 500, maxRetryDelayMs: Long = 4_000)` | Expiry, refresh and retry behaviour for the session guarding every wallet call; `refreshExpirationSeconds` is the lifetime requested for refreshed sessions, null for the backend default of 900. Out-of-range values throw `IllegalArgumentException` at construction: a programming error, not a runtime failure. |
 
 | Member | Signature | Notes |
@@ -226,9 +240,8 @@ The embedded identity is Rain's sandbox wallet backend; this release has no host
 | `id` / `capabilities` | `ProviderId.RAIN` / `Set<Capability>` | `EXPORT`, `MULTI_CHAIN`, plus `GAS_SPONSORSHIP` while `sponsorGas` is on; never `BIOMETRIC_GATE`, because no biometric prompt gates signing (gate export yourself). |
 | `awaitSessionRestore` | `suspend fun awaitSessionRestore(timeoutMs: Long = 5_000)` | Waits for the asynchronous restore of a persisted session; a timeout returns normally with `authState` at `Loading`. As the first authentication call of a launch it also runs the backend's one-shot initialization, which `timeoutMs` does not bound. `RAIN_102` on a configuration conflict; `RAIN_502` when initialization failed. |
 | `hasActiveSession` | `fun hasActiveSession(): Boolean` | True when a live session has more than 30 seconds left, so the code step can be skipped. Local expiry only: a session revoked server-side reads as active until its first call fails. False until the first authentication call has configured the backend. |
-| `authState` / `currentAuthState()` | `val authState: Flow<RainWalletAuthState>` / `fun currentAuthState(): RainWalletAuthState` | `Loading` until the first authentication call has configured the backend and its restore settled, `Authenticated` while a session is live, `Unauthenticated` otherwise. The hierarchy is open by design: a `when` over it needs an `else` branch. |
-| `sendLoginCode` | `suspend fun sendLoginCode(contact: RainWalletContact)` | Sends a one-time code to a `RainWalletContact.Email` or `.Sms`; touches no existing session. Calling it again for the same contact replaces the pending code (codes expire after 5 minutes, lock after 3 wrong attempts, at most 3 active per user); another contact or channel retires the pending code first. An email is trimmed; a phone number is trimmed, stripped of spaces, dots, hyphens and parentheses, and must then be E.164 (`+`, country code and number, at most 15 digits); a parenthesised trunk zero is refused. `RAIN_102` for a blank email, a phone number outside E.164, a configuration conflict, or a closed provider; `RAIN_502` when the backend's initialization failed for this launch. |
-| `sendLoginCode` | `suspend fun sendLoginCode(email: String)` | The email channel: `sendLoginCode(RainWalletContact.Email(email))`. It sends any string as an email address, so route a phone number through `RainWalletContact.Sms`. Same codes as the contact overload: `RAIN_102`, `RAIN_502`. |
+| `authState` / `currentAuthState()` | `val authState: Flow<RainWalletAuthState>` / `fun currentAuthState(): RainWalletAuthState` | `Loading` until the first authentication call has configured the backend and its restore settled, `Authenticated` while a session is live, `Unauthenticated` otherwise. A `when` over it is exhaustive; a new state is a breaking change shipped in a major version. |
+| `sendLoginCode` | `suspend fun sendLoginCode(contact: RainWalletContact)` | Sends a one-time code to a `RainWalletContact.Email` or `.Phone`; touches no existing session. Calling it again for the same contact replaces the pending code (codes expire after 5 minutes, lock after 3 wrong attempts, at most 3 active per user); another contact or channel retires the pending code first. An email is trimmed; a phone number is trimmed, stripped of spaces, dots, hyphens and parentheses, and must then be E.164 (`+`, country code and number, at most 15 digits); a parenthesised trunk zero is refused. `RAIN_102` for a blank email, a phone number outside E.164, a configuration conflict, or a closed provider; `RAIN_502` when the backend's initialization failed for this launch. |
 | `confirmLoginCode` | `suspend fun confirmLoginCode(code: String)` | Sign-up or login. A first login creates one wallet holding an Ethereum and a Solana account inside the sign-up request; a returning login backfills a missing account. A rejected code throws `RainError.InvalidLoginCode` (`RAIN_203`) and keeps the challenge for a retry; a rejection the backend wraps in an HTTP 500 arrives as `RainError.ProviderError` (`RAIN_501`) with the challenge kept too, so treat it the same way. A failure after the code was accepted drops the challenge; if it is the switch to the new session the device is signed out without firing `onSessionExpired`, while a provisioning failure keeps the new session and heals at resolution. A successful login revokes the user's other sessions on every device; the signed-out device's hook fires at its next call. `RAIN_102` when no code was requested, the code is blank, or the provider was closed; `RAIN_502` when the backend's initialization failed for this launch. |
 | `logout` | `suspend fun logout()` | Clears the stored session, after a restore in flight settles, without firing `onSessionExpired`; a pending login code and a pending contact verification are dropped. `hasActiveSession()` and `currentAuthState()` read unauthenticated as soon as it returns. No-op when no session is selected, but it runs the same readiness checks as every authentication call: `RAIN_102` on a closed provider or a configuration conflict, `RAIN_502` when the backend's initialization failed. |
 | `loginWithPasskey` | `suspend fun loginWithPasskey(activity: Activity)` | Signs an existing user in with a passkey bound to `RainWalletConfig.passkeyDomain`, through the system passkey sheet presented from `activity`; the call suspends until the sheet closes, and cancelling the caller ends it with the cancellation, never a mapped error. The same session handling as `confirmLoginCode`: a fresh key, an explicit select over a live session, the previous session cleared, the user's other sessions revoked, a missing account backfilled. A dismissed sheet or no passkey for the domain throws `RainError.UserRejected` (`RAIN_401`) and leaves the current session untouched; no `passkeyDomain` throws `RainError.InvalidConfig` (`RAIN_102`) before anything is sent, and so does an association file that does not vouch for this build; any other refusal by the device or the backend, an HTTP status inside the ceremony included (no session exists yet, so it is never `RAIN_201` or `RAIN_202`), is `RainError.ProviderError` (`RAIN_501`); after a successful ceremony the session switch and the account backfill can still throw `RAIN_201` or `RAIN_202` (a backfill failure keeps the session, which heals at resolution); `RAIN_102` on a closed provider or a configuration conflict; `RAIN_502` when the backend's initialization failed or the backend answered the ceremony with an unusable response. |
@@ -236,7 +249,7 @@ The embedded identity is Rain's sandbox wallet backend; this release has no host
 | `addPasskey` | `suspend fun addPasskey(activity: Activity)` | Registers a passkey bound to `RainWalletConfig.passkeyDomain` on the signed-in account, so the next sign-in can use it. The session is checked (and refreshed when near its expiry) before the sheet, so `RainError.TokenExpired` (`RAIN_201`) fires before any biometric prompt; a session revoked server-side between that check and the registration still surfaces as `RAIN_201` after the prompt, with `onSessionExpired` firing, and a registration the backend refused leaves a passkey on the device that signs into nothing. The passkey request asks the credential provider for user verification as preferred, not required, so gate the call as you gate export. No new account and no session change; other authentication calls wait while the sheet is open. Each call registers another passkey. A dismissed sheet is `RAIN_401`; the backend refusing the registration is `RainError.Unauthorized` (`RAIN_202`); a ceremony the device refused, or a registration the backend failed (its per-user limit included), is `RAIN_501`; `RAIN_102` without a `passkeyDomain`, on an association file that does not vouch for this build, on a closed provider or a configuration conflict; `RAIN_502` when the backend's initialization failed. |
 | `sendContactVerificationCode` | `suspend fun sendContactVerificationCode(contact: RainWalletContact)` | Sends a verification code to a contact the signed-in user wants to attach to this account as a login method; distinct from `sendLoginCode`, which starts a login. Requires a live session (`RAIN_201` before anything is sent). The SDK adds no user-presence check before the attach beyond that session, which can be one restored at launch, so gate the call as you gate export (a biometric prompt or a fresh login) and show the user which contacts sign in to the account; the passkey requests ask for user verification as preferred, not required, so gate `addPasskey` the same way. The contact is canonicalized like a login contact and that string is what the account stores; calling it again for the same contact replaces the pending code, a call for another contact or channel retires it before anything is sent, and a login or a `logout` drops it. Accounts are never merged: a contact another account already owns does not move wallets, and the backend's answer surfaces on confirm. `RAIN_102` for a blank email, a phone number outside E.164, a closed provider or a configuration conflict; `RAIN_501` when the code request is refused; `RAIN_502` when the backend's initialization failed. |
 | `confirmContactVerification` | `suspend fun confirmContactVerification(code: String)` | Confirms the code from `sendContactVerificationCode` and attaches the verified contact. The session is checked before the code is spent (`RAIN_201` otherwise). A rejected code throws `RainError.InvalidLoginCode` (`RAIN_203`) and keeps the challenge; a rejection the backend wraps in an HTTP 500 arrives as `RAIN_501` with the challenge kept too, so treat it the same way. A failure after the code was accepted drops the challenge: `RAIN_201` when the session died meanwhile, `RAIN_202` when the backend refused the update, `RAIN_501` when the update failed; request a new code. `RAIN_102` when no code was requested, the code is blank, the provider was closed or on a configuration conflict; `RAIN_502` when the backend's initialization failed. |
-| `sessionState` / `currentSessionState()` | `val sessionState: Flow<RainWalletSessionState>` / `fun currentSessionState(): RainWalletSessionState` | `Loading`, `Active(expiresAtEpochSeconds: Double)`, `Expired` or `Unauthenticated`; emits on every authentication or session change and when an active session passes its expiry. The hierarchy is open by design: a `when` over it needs an `else` branch. |
+| `sessionState` / `currentSessionState()` | `val sessionState: Flow<RainWalletSessionState>` / `fun currentSessionState(): RainWalletSessionState` | `Loading`, `Active(expiresAtEpochSeconds: Double)`, `Expired` or `Unauthenticated`; emits on every authentication or session change and when an active session passes its expiry. A `when` over it is exhaustive; a new state is a breaking change shipped in a major version. |
 | `refreshSession` | `suspend fun refreshSession()` | Forces a refresh regardless of remaining lifetime. `RAIN_201` when the session cannot be refreshed; re-authenticate. `RAIN_102` when this provider was closed. |
 | `exportRecoveryPhrase` | `suspend fun exportRecoveryPhrase(): String` | The wallet's 12-word BIP-39 phrase, decrypted on the device and returned once; never logged, cached or persisted. One 12-word seed covers both accounts, Ethereum at `m/44'/60'/0'/0/0` and Solana at `m/44'/501'/0'/0'`, so one phrase restores both in any wallet deriving those paths. Needs a live session (`RAIN_201`). `RAIN_202` when the backend refuses the export, `RAIN_404` when the account has no wallet yet, `RAIN_102` when the provider was closed, `RAIN_501` when the export is still pending after about four seconds or its bundle is rejected on the device. A transient failure is retried with a new request. |
 | `exportPrivateKey` | `suspend fun exportPrivateKey(account: RainWalletKeyAccount): String` | `ETHEREUM`: the 32-byte secp256k1 key as `0x` plus 64 lowercase hex characters. `SOLANA`: the 64-byte keypair, seed then public key, in plain Base58, the string Solana wallets import. The SDK checks the key is 32 bytes and derives the account's address before returning anything; a failed check is `RAIN_502` with nothing returned. `RAIN_201`, `RAIN_202`, `RAIN_102` and `RAIN_501` as for the phrase, plus `RAIN_501` when the bundle names another account, and `RAIN_404` when the wallet has no account of that family, which a new login provisions, or when that account sits on another curve than the family's. The formats are a cross-platform contract shared by Rain's SDKs. |
@@ -256,36 +269,14 @@ Public API, on `TurnkeyProvider` in bring-your-own and managed mode alike. It li
 | `exportPrivateKey` | `suspend fun exportPrivateKey(family: TurnkeyKeyFamily): String` | `ETHEREUM`: the 32-byte secp256k1 key as `0x` plus 64 lowercase hex characters. `SOLANA`: the 64-byte keypair, the seed followed by the public key, in plain Base58, the string Solana wallets import. Checked against the account's address before it is returned. Errors: [Key export errors](TURNKEY_SUPPORT.md#key-export-errors). |
 | `TurnkeyKeyFamily` | `enum class TurnkeyKeyFamily { ETHEREUM, SOLANA }` | Which of the wallet's keys to export. The SDK uses one account per family: the first the organization lists, or for Ethereum the account at `walletAddress`. Families may be added; prefer an `else` branch over an exhaustive `when`. |
 
-The formats are a cross-platform contract shared by Rain's SDKs.
-
 #### Turnkey managed authentication
 
-Internal API: every member below is marked `@InternalRainTurnkeyApi` (a `@RequiresOptIn` marker at error level) and compiles only with `-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi` or `@OptIn`; host apps get a compile error. It is the building block of the Rain wallet provider, which exposes the same flow under Rain's names; see [Rain wallet provider](#rain-wallet-provider). Available on `TurnkeyProvider` when it was built with the managed `TurnkeyConfig(application, organizationId, authProxyConfigId)`; in bring-your-own mode the managed members (`sendLoginCode` / `confirmLoginCode`, the passkey and contact-attach methods, `logout`) throw `RainError.InvalidConfig`, `hasActiveSession()` is `false`, `authState` is `Unauthenticated`, and `awaitSessionRestore` is a no-op. The auth surface lives on the descriptor because it exists before resolution: construct the provider, authenticate on it, then build the SDK and resolve.
-
-| Member | Signature | Notes |
-|--------|-----------|-------|
-| `managedOrganizationId` / `managedAuthProxyConfigId` / `managedPasskeyDomain` | `val managedOrganizationId: String?` / `val managedAuthProxyConfigId: String?` / `val managedPasskeyDomain: String?` on `TurnkeyConfig` | The managed ids and the passkey relying-party domain as configured (the domain trimmed; null when passkeys are off); all null in bring-your-own mode. Read accessors so the Rain wallet's tests can pin its embedded identity and its domain mapping; they configure nothing. |
-| `sendLoginCode` | `suspend fun sendLoginCode(contact: LoginContact)` | Sends a one-time code by email or by SMS, according to the contact's type. Applies the one-shot Turnkey configuration when it is the first auth call; touches no existing session. Calling it again for the same contact replaces the pending challenge on success and keeps it on failure, which is how a code is resent (Turnkey codes expire after 5 minutes by default, lock after 3 wrong attempts, at most 3 active per user); calling it for another contact or channel retires the pending challenge before the request, so a failed switch leaves nothing confirmable. The contact is canonicalized once and the same string is sent on confirm: an email is trimmed; a phone number is trimmed, stripped of spaces, dots, hyphens and parentheses, and must then be E.164 (`+`, country code and number, digits only, at most 15); a parenthesised trunk zero such as `+44 (0) 20 ...` is refused rather than folded into a different number. Throws `RainError.InvalidConfig` for a blank email or a phone number outside E.164. SMS needs SMS OTP enabled on the auth-proxy configuration; a request the proxy refuses arrives with only its HTTP status, because Turnkey's Kotlin SDK drops the response body. |
-| `sendLoginCode` | `suspend fun sendLoginCode(email: String)` | The email channel: `sendLoginCode(LoginContact.Email(email))`. |
-| `confirmLoginCode` | `suspend fun confirmLoginCode(code: String)` | Confirms the code from `sendLoginCode`, whichever channel it went to. Sign-up or login (Turnkey decides). A sign-up creates one wallet holding an Ethereum and a Solana account inside the signup request; a login backfills a missing account onto the existing wallet. Stores the session under a fresh key and selects it. A rejected code throws `RainError.InvalidLoginCode` (`RAIN_203`) and keeps the challenge for a retry; so does any other failure inside the code check itself (for example a rejection the auth proxy wraps in an HTTP 500, which surfaces as `ProviderError`); the current session is untouched. A failure after the code was accepted drops the challenge; if that failure is the switch to the new session, the device is signed out as well (the login already revoked the previous session server-side) without firing `onSessionExpired`, while a provisioning failure keeps the new session. A successful login revokes the user's other Turnkey sessions on every device (`invalidateExisting`) and clears the previous local session. Throws `RainError.InvalidConfig` when no code was requested or the code is blank. |
-| `loginWithPasskey` | `suspend fun loginWithPasskey(activity: Activity)` | Signs an existing user in with a passkey bound to the configured `passkeyDomain`, through the system passkey sheet presented from `activity`; the call suspends until the sheet closes, and cancelling the caller ends it with the cancellation, never a mapped error. The same session handling as `confirmLoginCode`: a fresh key, an explicit select over a live session, the previous session cleared, the user's other sessions revoked (`invalidateExisting`), a missing account backfilled. A dismissed sheet or no passkey for the domain throws `RainError.UserRejected` (`RAIN_401`) and leaves the current session untouched; no `passkeyDomain` throws `RainError.InvalidConfig` (`RAIN_102`) before any vendor call, and so does an association file that does not vouch for this build; any other refusal by the device or the backend, an HTTP status inside the ceremony included (no session exists yet, so it is never `RAIN_201` or `RAIN_202`), is `RainError.ProviderError` (`RAIN_501`); an unusable backend response inside the ceremony is `RainError.InternalError` (`RAIN_502`). After a successful ceremony the session switch and the account backfill can still throw `RAIN_201` or `RAIN_202`; a backfill failure keeps the session, which heals at resolution. Managed mode only. |
-| `signUpWithPasskey` | `suspend fun signUpWithPasskey(activity: Activity)` | Creates a new account with a passkey as its only login method and one wallet holding an Ethereum and a Solana account inside the same request, then signs it in as `loginWithPasskey` does. Every call mints a fresh account: returning users sign in or add a passkey, and accounts never merge. Refused with `RainError.InvalidConfig` (`RAIN_102`) while a live session is stored as this device's current one (an expired one is cleared first, with `onSessionExpired` silent, and the sign-up proceeds), so call `logout()` first when `hasActiveSession()` is true: the vendor swaps its process-wide client for the whole ceremony and a wallet call made meanwhile would read the live session as dead. If the sign-up request succeeded but the login that followed failed, the account exists and `loginWithPasskey` reaches it; if the sign-up request itself failed, no account exists and the passkey the sheet created signs into nothing. Both arrive as `RAIN_501`. Codes as for `loginWithPasskey`. Managed mode only. |
-| `addPasskey` | `suspend fun addPasskey(activity: Activity)` | Registers a passkey bound to the configured `passkeyDomain` on the signed-in account, so the next sign-in can use it. The session is checked (and refreshed when near its expiry) before the sheet, so `RainError.TokenExpired` (`RAIN_201`) fires before any biometric prompt; a session revoked server-side between that check and the registration still surfaces as `RAIN_201` after the prompt, with `onSessionExpired` firing, and a registration the backend refused leaves a passkey on the device that signs into nothing. The passkey request asks the credential provider for user verification as preferred, not required, so gate the call as you gate export. No new account and no session change; other authentication calls wait while the sheet is open. Each call registers another passkey with the credential provider. A dismissed sheet is `RAIN_401`; the backend refusing the registration is `RainError.Unauthorized` (`RAIN_202`); a ceremony the device refused, or a registration the backend failed (its per-user limit included), is `RAIN_501`. Managed mode only. |
-| `sendContactVerificationCode` | `suspend fun sendContactVerificationCode(contact: LoginContact)` | Sends a verification code to a contact the signed-in user wants to attach to this account as a login method; distinct from `sendLoginCode`, which starts a login. Requires a live session (`RAIN_201` before anything is sent). The SDK adds no user-presence check before the attach beyond that session, which can be one restored at launch, so gate the call as you gate export (a biometric prompt or a fresh login) and show the user which contacts sign in to the account; the passkey requests ask for user verification as preferred, not required, so gate `addPasskey` the same way. The contact is canonicalized like a login contact and that string is what the account stores; calling it again for the same contact replaces the pending code, a call for another contact or channel retires it before anything is sent, and a login or a `logout` drops it. Accounts are never merged: a contact another account already owns does not move wallets, and the backend's answer surfaces on confirm. `RAIN_102` for a blank or malformed contact; `RAIN_501` when the code request is refused. Managed mode only. |
-| `confirmContactVerification` | `suspend fun confirmContactVerification(code: String)` | Confirms the code from `sendContactVerificationCode` and attaches the verified contact. The session is checked before the code is spent (`RAIN_201` otherwise). A rejected code throws `RainError.InvalidLoginCode` (`RAIN_203`) and keeps the challenge; a rejection the backend wraps in an HTTP 500 arrives as `RAIN_501` with the challenge kept too. A failure after the code was accepted drops the challenge: `RAIN_201` when the session died meanwhile, `RAIN_202` when the backend refused the update, `RAIN_501` when the update failed; request a new code. `RAIN_102` when no code was requested or the code is blank. Managed mode only. |
-| `logout` | `suspend fun logout()` | Clears the selected session (after waiting for a restore in flight to settle) without firing `onSessionExpired`; cached accounts are evicted and a pending login code and a pending contact verification are dropped. No-op when no session is selected. |
-| `awaitSessionRestore` | `suspend fun awaitSessionRestore(timeoutMs: Long = 5_000)` | Waits for the vendor's asynchronous restore of a persisted session; a timeout returns normally and leaves `authState` at `Loading`. As the first auth call of a launch it also runs Turnkey's one-shot initialization first, which `timeoutMs` does not bound. Throws `RainError.InvalidConfig` on a configuration conflict (blank or different ids, a different `passkeyDomain`, or a `TurnkeyContext` initialized outside the SDK) and `RainError.InternalError` when Turnkey's initialization failed. |
-| `hasActiveSession` | `fun hasActiveSession(): Boolean` | True when a live session has more than 30 seconds left — the code step can be skipped. Local expiry only: a session revoked server-side reads as active until its first call fails. |
-| `authState` / `currentAuthState()` | `val authState: Flow<TurnkeyAuthState>` / `fun currentAuthState(): TurnkeyAuthState` | `Loading` / `Authenticated` / `Unauthenticated`; a view over `sessionState` with `Expired` collapsed into `Unauthenticated`. Reads `Loading` until the first auth call has configured Turnkey and its restore has settled. |
-| `LoginContact` | `sealed interface LoginContact { val value: String }` with `data class Email(value)` and `data class Sms(value)` | Where the code goes and the identity the account is keyed on: a first login signs the user up under this contact; a later login finds the account by email for `Email` and by phone number for `Sms`. The same person arriving through the other channel is a new account, with its own sub-organization and wallet, unless the contacts were linked outside the SDK. `value` is the string as given; `toString()` hides it. Marked `@InternalRainTurnkeyApi`. |
-
-Resolving a managed provider before a session is live throws `RainError.TokenExpired`; resolution re-checks the account set, so a login whose provisioning failed heals itself. The Turnkey configuration is one-shot per app launch, applied by the first auth call or by resolution: blank ids, ids that differ from the ones this launch was configured with, or a `TurnkeyContext` the app initialized itself make every auth call throw `RainError.InvalidConfig`; a failed Turnkey initialization makes them throw `RainError.InternalError` until the app relaunches.
+Internal API behind `@InternalRainTurnkeyApi`, the building block of the [Rain wallet provider](#rain-wallet-provider): documented member by member under [Managed mode (internal API)](TURNKEY_SUPPORT.md#managed-mode-internal-api).
 
 ## RainClient
 
 Operations Rain exposes against a single, already-resolved wallet provider. Obtained from
-`rain.provider(id)` / `rain.first { … }`; bound to one provider for its lifetime, so it carries no
-`initialize*` methods and never references a concrete vendor type.
+`rain.provider(id)` / `rain.first { … }`; bound to one provider for its lifetime, and never references a concrete vendor type.
 
 Money APIs are `BigDecimal`-first.
 
@@ -306,16 +297,6 @@ Full withdrawal flow: builds the transaction, signs via the backing provider, su
 returns the transaction hash. Use [prepareWithdrawal](#preparewithdrawalchainid-addresses-amount-decimals-adminsignature-nonce)
 to build without broadcasting.
 
-> **Migrating from 1.0.x — this method always broadcasts now.** In 1.0.x the same name took an
-> `autoSend: Boolean = false` trailing parameter, so a call that left it out only *prepared* the
-> transaction and returned `RainWithdrawResult.transactionData`. That flag and that type are gone:
-> `withdrawCollateral` signs and submits, and the prepare-only path is `prepareWithdrawal`.
-> Old call sites mostly fail to compile — passing `autoSend` is an unknown parameter, reading
-> `.transactionHash` / `.transactionData` off the `String` result is an error, and builds that took
-> `amount: Double` no longer accept a `Double` — but a call that omitted `autoSend` **and discards
-> the result** compiles unchanged and moves funds. Audit every `withdrawCollateral` call when
-> upgrading; the ones meant to prepare must become `prepareWithdrawal`.
-
 On EVM chains this calls `withdrawAsset` on the Rain coordinator contract (EIP-712 admin
 signature + the Rain API signature). On Solana chains it drives Rain's on-chain collateral
 program instead: the SDK reads the collateral account (program id, coordinator, nonce) from the
@@ -326,10 +307,11 @@ verification of Rain's coordinator signature followed by the program's
 accounts are supported; the wallet must be the account's owner.
 
 - **Returns:** `String` — the transaction hash (EVM) or transaction signature (Solana).
-- **Throws:** `RainError` if construction, signing, or submission fails. On Turnkey, a chain outside
-  its managed-broadcast coverage throws `RainError.ChainNotSupported` (`RAIN_104`) before anything
-  is read or signed. A fee-sponsored withdrawal skips the self-paid dry run; a revert the provider
-  reports after broadcast still surfaces as `WithdrawalRevertedByNetwork`. On Solana, a recipient
+- **Throws:** `RainError` if construction, signing, or submission fails. A chain the provider cannot
+  broadcast on throws `RainError.ChainNotSupported` (`RAIN_104`) before anything is read or signed. A fee-sponsored withdrawal skips the self-paid dry run; a status the provider
+  reports with decoded revert details, failed before inclusion or included and reverted, surfaces as
+  `WithdrawalRevertedByNetwork` (the transaction hash rides on `transactionId`, and in the cause's message, once included), and a
+  failed status without them is `ProviderError`. On Solana, a recipient
   without a token account costs the owner rent, checked up front (`InsufficientFunds`). A raw
   provider failure during the Solana wallet-address read or send passes through the adapter's
   session coordinator on Turnkey and Privy and arrives as its mapping: `ProviderError` (`RAIN_501`), `Unauthorized`
@@ -357,9 +339,18 @@ This is **not** an offline build: it still prompts the wallet to sign EIP-712 (E
 collateral's admin set on chain. On Solana it additionally fetches a recent blockhash and simulates
 the transaction (the simulation is skipped when the provider sponsors fees).
 
+Not gated on the provider's broadcast chains: preparing signs and composes but never broadcasts, so
+it works on a chain the provider cannot send on (Avalanche with the Turnkey and Rain wallet
+providers). The EVM result is an unsigned envelope whose `data` carries the typed-data signature; a
+host signs it with the wallet's key and submits it through its own RPC there. `withdrawCollateral`
+on the same chain still throws `RAIN_104`. On Solana the fee check and the dry run always run, whatever
+the provider sponsors, because the prepared transaction is the host's own self-paid submission.
+
 - **Returns:** `RainPreparedWithdrawal` — `Evm(RainTransactionParameters)` carrying a complete,
   submittable transaction (`from` / `to` / `value` / `data`), or `Solana(UnsignedSolanaTransfer)`
-  carrying the serialized unsigned transaction plus its `recentBlockhash`.
+  carrying the serialized unsigned transaction (`transaction`, or `transactionHex`), its
+  `recentBlockhash`, and `createsRecipientAccount`, true when the transfer creates the recipient's
+  token account, whose rent the sender pays even when the fee is sponsored.
 - **Throws:** `RainError` if construction or signing fails. On Solana, the wallet-address read passes
   through the adapter's session coordinator on Turnkey and Privy, so a raw provider failure there
   arrives as its mapping: `ProviderError` (`RAIN_501`), `Unauthorized` (`RAIN_202`) for a Turnkey
@@ -367,7 +358,8 @@ the transaction (the simulation is skipped when the provider sponsors fees).
   (`RAIN_502`).
 - **Suspend:** Yes
 
-> A Solana blockhash is valid for roughly 150 slots (60–90 seconds). Submit promptly or re-prepare.
+> A Solana blockhash lives for roughly 150 slots, 60 to 90 seconds. The SDK fetches it at `finalized`
+> commitment, so about 13 seconds have passed when the preparation returns. Submit promptly or prepare again.
 
 Use `evmParameters` / `solanaTransfer` to read the payload without writing a `when`.
 
@@ -402,8 +394,8 @@ distinction and return the hex address.
 
 Estimates the gas fee required for a transaction.
 
-On Turnkey with `sponsorGas` enabled, EVM estimates on broadcast-supported chains return `0`:
-every EVM send (transfers, withdrawals, approvals) is sponsored, so zero is the honest quote.
+On a provider that sponsors fees the quote is what the wallet would pay itself; a sponsor pays instead
+and its own cost is not quoted, so a host can show what sponsorship saves (see [Capabilities](#capabilities)).
 
 - **Returns:** `BigDecimal` — estimated gas fee in the chain's native token (e.g. AVAX).
 - **Throws:** `RainError` if estimation fails. A node revert arrives as `TransactionSimulationFailed` (RAIN_403) on every adapter. Anything else depends on the adapter: Portal maps through its session coordinator, prose rules included, so an unrecognized Portal failure is `ProviderError` (RAIN_501) and one whose text names a funds shortfall is `InsufficientFunds`; Privy's own RPC client also maps a funds shortfall to `InsufficientFunds` and floors at `InternalError` (RAIN_502); Turnkey's self-paid estimate runs through core's RPC client and floors at `InternalError`. A raw exception from the estimate call that nothing mapped floors at `InternalError` as well.
@@ -427,15 +419,16 @@ caller-supplied and embedded in the estimated calldata.
 Internally builds the EIP-712 payload, signs it with the wallet, then runs `eth_estimateGas`
 against the withdrawal controller. Nothing is broadcast.
 
-On a provider that sponsors the fee on that chain (Turnkey with `sponsorGas`, the default, on its
-broadcast chains) the result is `0` and nothing is signed or estimated: the withdrawal will be
-sponsored, so zero is the honest quote.
+On a provider that sponsors the fee the quote is what the wallet would pay itself, as for `estimateGas`;
+the withdrawal is built and signed once to price it, as on a self-paid chain.
 
 > **Signing side effect.** The estimated calldata embeds a wallet signature the controller
 > verifies (a placeholder would revert the estimate), so estimate-then-withdraw signs twice.
+> To quote without a second signature, call `prepareWithdrawal` once and pass the result to
+> `estimateWithdrawalFee(chainId, prepared)` below.
 
 - **Returns:** `BigDecimal`, the estimated withdrawal fee in the chain's native token.
-- **Throws:** `RainError` if estimation fails. A node revert arrives as `WithdrawalRevertedByNetwork` (RAIN_405) on every adapter, the withdrawal flow's rewrap of a simulation failure. Anything else depends on the adapter: Portal maps through its session coordinator, prose rules included, so an unrecognized Portal failure is `ProviderError` (RAIN_501) and one whose text names a funds shortfall is `InsufficientFunds`; Privy's own RPC client also maps a funds shortfall to `InsufficientFunds` and floors at `InternalError` (RAIN_502); Turnkey's self-paid estimate runs through core's RPC client and floors at `InternalError`. A raw exception from the estimate call that nothing mapped floors at `InternalError` as well.
+- **Throws:** `RainError` if estimation fails. A node revert arrives as `WithdrawalRevertedByNetwork` (RAIN_405), the withdrawal flow's rewrap of a simulation failure; everything else maps as under `estimateGas`.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |
@@ -447,7 +440,24 @@ sponsored, so zero is the honest quote.
 | `adminSignature` | `RainAdminSignature` | Rain's withdrawal authorization, fetched by the host from the Rain API. |
 | `nonce` | `BigInteger?` | Optional; pin the estimate to the nonce the withdrawal will sign. |
 
-EVM only — throws on a Solana chain id.
+EVM only. A Solana chain id throws `InternalError` (`RAIN_502`), as it does on the overload below.
+
+---
+
+### estimateWithdrawalFee(chainId, prepared)
+
+Estimates the fee of a withdrawal already built by `prepareWithdrawal`, running `eth_estimateGas` on
+the prepared parameters. Builds and signs nothing, so the flow is: prepare once (one signature),
+quote the fee on the preparation, then submit.
+
+- **Returns:** `BigDecimal`, the estimated withdrawal fee in the chain's native token.
+- **Throws:** `RainError` if estimation fails; `InternalError` (`RAIN_502`) for a Solana preparation or chain id (EVM only, like the building overload); a node revert arrives as `WithdrawalRevertedByNetwork` (`RAIN_405`), as for the building overload.
+- **Suspend:** Yes
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `chainId` | `Int` | Target network chain ID. EVM only. Not checked against `prepared`; pass the chain id `prepareWithdrawal` was called with. |
+| `prepared` | `RainPreparedWithdrawal` | The withdrawal built by `prepareWithdrawal`. |
 
 ---
 
@@ -461,9 +471,7 @@ coverage (Avalanche, Celo, ZKsync, Plasma, and Ink are read-only there); this ap
 
 On Monad (`143`, `10143`) Turnkey's sponsorship runs through EIP-7702 delegation, and Monad reverts
 any delegated-account transaction that would leave the balance under 10 MON. A sponsored native MON
-send from a wallet below that quotes `0` and then fails on chain; token sends are unaffected.
-
-> `sendNativeToken(chainId, toAddress, amount)` is a deprecated alias that delegates to this method.
+send from a wallet below that fails on chain even when the estimate succeeds; token sends are unaffected.
 
 - **Returns:** `RainTokenTransferResult` — containing the transaction hash.
 - **Throws:** `RainError` if send fails.
@@ -534,7 +542,7 @@ per-chain token targets. The SDK rejects any different chain, token, or spender 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `chainId` | `Int` | Target EVM network chain ID. Must be an Auth Pull chain for the configured `RainAuthPullConfig`. |
-| `contractAddress` | `String` | ERC-20 token contract (USDC for Auth Pull today). |
+| `contractAddress` | `String` | ERC-20 token contract (USDC for Auth Pull). |
 | `spender` | `String` | Address being approved — Rain's operator. Source it from Rain; it differs between sandbox and production. |
 | `amount` | `BigDecimal?` | Human-readable allowance (e.g. `BigDecimal("250")`). `null` (the default) approves an unlimited (`uint256` max) allowance; `BigDecimal.ZERO` revokes. |
 
@@ -579,17 +587,14 @@ approving (to skip a redundant transaction). To confirm an approval was mined, u
 | `spender` | `String` | Address whose allowance is being read — Rain's operator. |
 | `owner` | `String?` | Wallet whose balance is approved. `null` (the default) reads this client's own wallet, which is the only case that touches the wallet provider at all. |
 
-> `spender` precedes `owner` so the optional parameters land last and Kotlin's default arguments
-> work.
-
 ---
 
 ### estimateApprovalFee(chainId, contractAddress, spender, amount?)
 
 Estimates the total fee (estimated gas x gas price) to submit the approval, in the chain's native
 token. Nothing is broadcast and no signature is requested; the fee is priced against the exact
-calldata `approveTokenAllowance` would send. On Turnkey with `sponsorGas` enabled (the default) the
-result is `0` on Turnkey's broadcast chains, because the approval will be sponsored.
+calldata `approveTokenAllowance` would send. On a provider that sponsors fees the quote is what the
+wallet would pay itself, as for `estimateGas`.
 
 - **Returns:** `BigDecimal` — fee in the chain's native currency (e.g. ETH).
 - **Throws:** `RainError`.
@@ -695,8 +700,7 @@ Fetches a single balance (native or a contract token) for the current wallet.
 ### getTokenBalances(chainId)
 
 Fetches all non-zero balances for the current wallet on the given network. The native
-balance is always included; zero-balance contract tokens are omitted. Supersedes the
-deprecated `getBalances(chainId)`, which returned a lossy `Map<String, Double>`.
+balance is always included; zero-balance contract tokens are omitted.
 
 - **Returns:** `List<Balance>` — one per non-zero token plus the native balance.
 - **Throws:** `RainError` if the request fails.
@@ -728,11 +732,9 @@ on-chain enrichment call. Retained across `reset()`, since the store is shared b
 registry tokens are trusted and cannot be overridden: a registration naming one is ignored with a
 warning.
 
-- **Throws:** `RainError.InvalidConfig` (`RAIN_102`) when an entry's address is malformed for its chain
-  family (EVM: `0x` followed by 40 hex characters with a correct EIP-55 checksum when mixed-case; Solana:
-  base58 decoding to 32 bytes) or its `decimals` lies outside `0..77`; the whole list is validated first,
-  so nothing is registered. The entries are stored before the call returns, so a lookup that follows
-  sees them.
+- **Throws:** `RainError.InvalidConfig` (`RAIN_102`) on a malformed entry, validated exactly as
+  `RainSdk.registerTokens` validates; the whole list is checked first, so nothing is registered. The
+  entries are stored before the call returns, so a lookup that follows sees them.
 - **Returns:** `Unit`
 - **Suspend:** No
 
@@ -782,40 +784,9 @@ Fetches transaction history for the current wallet on the given network.
 Clears this client's own state only. Idempotent. Tokens registered through this client live in the
 store the `RainSdk` shares with every resolved client, so they survive `reset()`, and so does the
 chain configuration the `RainSdk` owns. One client resetting must not deconfigure the others. Prefer
-`RainSdk.reset()` to tear down the whole SDK.
+`RainSdk.close()` to tear down the whole SDK.
 
 - **Suspend:** No
-
----
-
-## Deprecated (compatibility shims)
-
-Default-method shims retained so code written against older releases keeps compiling and
-binary-linking. Each delegates to the precise current API and collapses the result to the
-old shape. Slated for removal in the next major version.
-
-| Deprecated method | Replacement | Notes |
-|-------------------|-------------|-------|
-| `getAddress(): String` | `getWalletAddress()` | Renamed; shim delegates directly. |
-| `sendToken(chainId, contractAddress, toAddress, amount: Double, decimals: Int)` | `sendToken(chainId, contractAddress, toAddress, amount)` | `decimals` now optional; the SDK resolves it. |
-| `getBalances(chainId): Map<String, Double>` | `getTokenBalances(chainId)` | Lossy `Double` map keyed by contract address (as returned by the provider); native under the `""` key. |
-| `getERC20Balances(chainId): Map<String, Double>` | `getTokenBalances(chainId)` | Drops the native entry; non-zero ERC-20s only, as `Double`. |
-| `getNativeBalance(chainId): Double` | `getBalance(chainId, Token.Native)` | Read `.decimalAmount` for exact precision. |
-| `getERC20Balance(chainId, tokenAddress, decimals?): Double` | `getBalance(chainId, Token.contract(tokenAddress))` | `decimals` argument ignored; SDK resolves decimals itself. |
-| `generateAddressQRCode(address, width, height)` | `generateAddressQRCode(address, dimension)` | A QR code is square; the two dimensions were always equal in practice. |
-| `composeTransactionParameters(walletAddress, contractAddress, transactionData)` | `RainSdk.buildTransactionParameters(...)` | Pure composition needs no resolved client; moved to `RainSdk`. |
-
-### Removed without a shim
-
-| 1.0.x signature | Replacement | Why no shim |
-|-----------------|-------------|-------------|
-| `RainSdk.isRainApiConfigured`, `configureRainApi(apiKey, userId)`, `fetchCollateralContracts()`, `fetchCollateralContract()`, `fetchAdminSignature(...)` | Your backend calls the Rain API and hands the SDK `RainWithdrawAddresses` and `RainAdminSignature` (README section 7); `tokenMetadata(chainId, address)` replaces the token enrichment those calls did | The SDK no longer holds a program Api-Key, so a shim would have nothing to call |
-| `RainSdk.Builder.rainApiEnvironment(environment)`, `rainApiCredentials(apiKey, userId)` | None: the SDK has no Rain environment setting; the `RainAuthPullConfig` factory you call (`sandbox`, `production`, `custom`) names the environment for Auth Pull | Same |
-| `RainAuthPullChains.supported(environment)`, `isSupported(chainId, environment)` | `RainAuthPullChains.SANDBOX` / `PRODUCTION` before an SDK exists; `authPullChainIds` on a built SDK | `RainApiEnvironment` no longer exists |
-| Models `RainApiEnvironment` (`Dev`, `Production`, `Custom`), `RainCollateralContract`, `RainCollateralToken` | Your own response types for the two endpoints; README section 7 lists the fields the SDK consumes, and `tokenMetadata` supplies a token's `name`, `symbol` and `decimals` | They described the SDK's own Rain API calls, which no longer exist |
-| `RainError.ApiNotConfigured`, `RainError.ApiError`, `RainError.SignatureNotReady`, `RainError.NoCollateralContracts` | Your backend client's own errors: it decides when to poll again on `status` and `retryAfter`, and how to report a rejected key or an empty contract list | The SDK no longer makes the calls that raised them |
-| `RainErrorCode.API_NOT_CONFIGURED`, `API_ERROR`, `NO_COLLATERAL_CONTRACTS`; `RainErrorCode.SIGNATURE_NOT_READY` | None for the first three (`RAIN_104` and `RAIN_302` now mean `ChainNotSupported` and `TransactionPending`); `SIGNATURE_NOT_READY` is renamed `TRANSACTION_PENDING` (`RAIN_302`), the constant `TransactionPending` always carried | An enum constant cannot be deprecated in place without keeping the removed case alive |
-| `withdrawCollateral(chainId, addresses, amount, decimals, adminSignature, nonce, autoSend = false): RainWithdrawResult` | `withdrawCollateral(...)` to broadcast, `prepareWithdrawal(...)` to build only | The current method shares the leading parameters, so a shim with a defaulted `autoSend` would never be selected for calls that omit it — Kotlin prefers the overload using fewer defaults — and could not restore the old prepare-only default. See the migration note under [withdrawCollateral](#withdrawcollateralchainid-addresses-amount-decimals-adminsignature-nonce). |
 
 ---
 
@@ -835,7 +806,7 @@ on the Rain wallet's `RainProvider`, see [Turnkey key export](#turnkey-key-expor
 | `RECOVERY` | The wallet supports a recovery ceremony. |
 | `MULTI_CHAIN` | The provider holds accounts across multiple chain families (e.g. EVM + Solana). |
 | `BIOMETRIC_GATE` | Signing is gated behind a device biometric / passkey prompt. No bundled provider advertises it; it is available to host-supplied providers. |
-| `GAS_SPONSORSHIP` | The provider's sends are fee-sponsored (a third party pays the network fee), so core skips self-paid preflights such as the Solana withdrawal dry run and the signing step of a withdrawal fee estimate. Core's operative, per-chain check is `WalletProvider.sponsorsFees(chainId)`, which defaults to this capability. |
+| `GAS_SPONSORSHIP` | The provider's sends are fee-sponsored (a third party pays the network fee), so core skips the self-paid preflight that would charge the fee to the wallet, the Solana withdrawal dry run on `withdrawCollateral` (`prepareWithdrawal` always runs it, since the host submits and pays); fee estimates are not affected and quote what the wallet would pay itself. Core's operative, per-chain check is `WalletProvider.sponsorsFees(chainId)`, which defaults to this capability. |
 
 Bundled providers: **Portal** → `EXPORT`, `RECOVERY`. **Turnkey** → `EXPORT`, `MULTI_CHAIN`, plus
 `GAS_SPONSORSHIP` while `sponsorGas` is on (the default). **Rain wallet** →
@@ -949,23 +920,24 @@ pre-set to `"0x0"`. Hosts can hand the result to any provider for signing / broa
 | **`ProviderDescriptor`** | Registrable provider descriptor: `id`, `capabilities`, and a suspend `create(context)` that materializes the `WalletProvider`. Implemented by `PortalProvider`, `TurnkeyProvider`, `PrivyProvider`, `RainProvider`, and host-supplied providers. |
 | **`RainWalletConfig`** | Behaviour of the Rain wallet provider: `sessionPolicy`, `onSessionExpired`, `sponsorGas`, `passkeyDomain`. No address override. See [Rain wallet provider](#rain-wallet-provider). |
 | **`RainWalletSessionPolicy`** | Expiry, refresh and retry behaviour of the Rain wallet session; `refreshExpirationSeconds` is a `Long?`. Out-of-range values throw `IllegalArgumentException` at construction. |
-| **`RainWalletSessionState`** | Sealed and open by design: `Loading`, `Active(expiresAtEpochSeconds: Double)`, `Expired`, `Unauthenticated`, plus one internal case, so a `when` over it needs an `else` branch and a state can be added later without a source break. Compared by value. |
-| **`RainWalletAuthState`** | Sealed and open by design: `Loading`, `Authenticated`, `Unauthenticated`, plus one internal case, so a `when` over it needs an `else` branch. |
-| **`RainWalletContact`** | Sealed: `Email(value)` or `Sms(value)`, the contact a login code goes to and the identity the account is keyed on. `toString()` hides the value. |
+| **`RainWalletSessionState`** | Sealed: `Loading`, `Active(expiresAtEpochSeconds: Double)`, `Expired`, `Unauthenticated`. A `when` over it is exhaustive; a new state is a breaking change shipped in a major version. Compared by value. |
+| **`RainWalletAuthState`** | Sealed: `Loading`, `Authenticated`, `Unauthenticated`. A `when` over it is exhaustive; a new state is a breaking change shipped in a major version. |
+| **`RainWalletContact`** | Sealed: `Email(value)` or `Phone(value)`, the contact a login code goes to and the identity the account is keyed on. `toString()` hides the value. |
 | **`RainWalletKeyAccount`** | Enum: `ETHEREUM`, `SOLANA`. Which of the Rain wallet's keys `RainProvider.exportPrivateKey` returns. |
 | **`WalletProvider`** | The port each adapter implements. Public so hosts can ship their own wallet stack. |
 | **`TokenInfo`** | A token the SDK reads balances for and scales amounts by: `chainId` (numeric; EIP-155 for EVM chains, 900 to 902 for the Solana clusters), `address` (the ERC-20 contract, or the SPL mint on Solana), `symbol: String?`, `decimals: Int`, `name: String?`. Returned by `tokenMetadata`, accepted by the three `registerTokens` methods. |
 | **`RainWithdrawAddresses`** | `proxyAddress`, `controllerAddress`, `tokenAddress`, `recipientAddress`. Has `validated()` method for address checksumming. |
 | **`RainAdminSignature`** | Rain's authorization for one withdrawal, passed through unchanged: `salt` (base64, 32 bytes on every chain), `signature` (EVM: 0x-hex, 65 bytes; Solana: base64, 64 bytes), `expiresAt` (unix seconds, or an ISO-8601 instant with Z or a numeric offset). |
 | **`RainPreparedWithdrawal`** | Sealed: `Evm(parameters: RainTransactionParameters)` or `Solana(transfer: UnsignedSolanaTransfer)`. Has `evmParameters` / `solanaTransfer` accessors. |
+| **`UnsignedSolanaTransfer`** | The Solana half of a prepared withdrawal: `transaction` (the serialized unsigned transaction, a defensive copy), `transactionHex` (the same bytes as hex without `0x`), `recentBlockhash` (base58; see the blockhash note under `prepareWithdrawal`), `createsRecipientAccount` (true when the transfer creates the recipient's token account, whose rent the sender pays even when the fee is sponsored). |
 | **`RainTokenTransferResult`** | `transactionHash` (String). Returned by `sendNative` and `sendToken`. |
 | **`RainTokenApprovalResult`** | `transactionHash` (String): hash of the ERC-20 `approve` call. Returned by `approveTokenAllowance`. |
 | **`RainTokenAllowance`** | Exact allowance value type; see [RainTokenAllowance value type](#raintokenallowance-value-type). |
 | **`RainAuthPullConfig`** | Trusted Auth Pull targets: `operatorAddress` plus a `chainId → token contract` map. `sandbox(...)` and `production(...)` bind the canonical USDC contracts and chains; `custom(...)` names both explicitly and may draw on either environment's chains. Passed to `RainSdk.Builder.authPullConfig(...)`. |
-| **`RainAuthPullChains`** | The Auth Pull chain sets by environment: `SANDBOX` (Base Sepolia, Arbitrum Sepolia), `PRODUCTION` (Base, Arbitrum). They answer for an *environment*; gate UI on `authPullChainIds`, which answers for the built SDK. |
-| **`NetworkConfig`** | `chainId`, `rpcUrl`, `networkName?`; `eip155ChainId` renders `eip155:<chainId>`, and `NetworkConfig.fromEip155(...)` parses that form. Accepted by `Builder.rpcEndpoints(List<NetworkConfig>)`. |
+| **`RainAuthPullChains`** | The Auth Pull chain sets by environment: `SANDBOX` (Base Sepolia, Arbitrum Sepolia), `PRODUCTION` (Base, Arbitrum); gate UI on [authPullChainIds](#authpullchainids). |
+| **`NetworkConfig`** | `chainId`, `rpcUrl`, `networkName?`; `eip155ChainId` renders the CAIP-2 id, `eip155:<chainId>` for an EVM chain or `solana:<genesis>` for a Solana sentinel; `NetworkConfig.fromEip155(...)` parses the `eip155:` form. Accepted by `Builder.rpcEndpoints(List<NetworkConfig>)`. |
 | **`RainTransactionParameters`** | `from`, `to`, `value` (hex wei), `data` (hex calldata). Wallet-agnostic transaction parameter bag returned by `RainSdk.buildTransactionParameters`. |
-| **`RainTransaction`** | Transaction record: `hash`, `uniqueId`, `blockNumber`, `timestamp`, `from`, `to`, `value`, `asset`, `tokenAddress`, `rawValue`, `decimals`, `category`, `chainId`, `metadata`. Identical in shape to the iOS type. |
+| **`RainTransaction`** | Transaction record: `hash`, `uniqueId`, `blockNumber`, `timestamp`, `from`, `to`, `value`, `asset`, `tokenAddress`, `rawValue`, `decimals`, `category`, `chainId`, `metadata`. |
 | **`RainTransactionCategory`** | Extensible constant: `External`, `Token`, `Erc20`, `Erc721`, `Erc1155`, `ContractInternal`. |
 | **`RainTransactionOrder`** | Enum: `.ASC`, `.DESC`. Used in `getTransactions(..., order:)`. |
 | **`RainChain`** | Constants: `AVALANCHE_MAINNET` (43114), `AVALANCHE_TESTNET` (43113), `BASE_MAINNET` (8453), `BASE_SEPOLIA` (84532), `ARBITRUM_MAINNET` (42161), `ARBITRUM_SEPOLIA` (421614), plus the Solana sentinels. |
@@ -974,37 +946,32 @@ pre-set to `"0x0"`. Hosts can hand the result to any provider for signing / broa
 
 ## Errors
 
-All methods can throw `RainError` (sealed class). Each error includes an `errorCode` property for programmatic handling.
+All methods can throw `com.rain.sdk.error.RainError` (sealed class). Each error carries a `code` string (`RAIN_xxx`) for programmatic handling and a typed `errorCode`.
 
 Format: `"RainSDK Error [CODE]: message"`
 
 | Code | Class | Meaning |
 |------|-------|---------|
-| `RAIN_101` | `RainError.SdkNotInitialized` | Operation called before the SDK's chain configuration was set up (i.e. before `build()`), or on a `RainSdk` after `close()`. |
-| `RAIN_102` | `RainError.InvalidConfig` / `RainError.ProviderNotRegistered` / `RainError.TokenNotFound` / `RainError.InvalidRecipient` | Invalid RPC URL, chain ID, or address format; a token whose decimals could not be established when a money path needed them (`TokenNotFound`); a recipient that cannot receive the transfer (`InvalidRecipient`); a malformed withdrawal salt, signature or expiry handed to a withdrawal method; a token registration with a malformed address or mint or `decimals` outside `0..77`; a `tokenMetadata` lookup with a malformed address or a chain the SDK has no RPC endpoint for; a blank email or a phone number outside E.164 handed to `sendLoginCode` or `sendContactVerificationCode`; a passkey method called without a `passkeyDomain`, or a `passkeyDomain` with a scheme, port or path at construction; a passkey request the device refused because the domain's association file does not list this build's package name and signing certificate, or carries the app statement without the site's own statement; `signUpWithPasskey` while a live session is selected on the device; `confirmContactVerification` before a code was requested; for a Turnkey key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors); a closed `TurnkeyProvider` or `RainProvider` asked to authenticate or export; the Rain wallet provider and the Turnkey provider registered on one `RainSdk` (`build()` refuses the pair); no provider registered for the requested id; or no provider matched a capability. |
+| `RAIN_101` | `RainError.SdkNotInitialized` | A `RainSdk` used after `close()`, or `PortalProvider.refreshSession()` / `updateSessionToken()` called before the provider was resolved. |
+| `RAIN_102` | `RainError.InvalidConfig` / `RainError.ProviderNotRegistered` / `RainError.TokenNotFound` / `RainError.InvalidRecipient` | Invalid RPC URL, chain ID, or address format; a token whose decimals could not be established when a money path needed them (`TokenNotFound`); a recipient that cannot receive the transfer (`InvalidRecipient`); a malformed withdrawal salt, signature or expiry handed to a withdrawal method; a token registration with a malformed address or mint or `decimals` outside `0..77`; a `tokenMetadata` lookup with a malformed address or a chain the SDK has no RPC endpoint for; a blank email or a phone number outside E.164 handed to `sendLoginCode` or `sendContactVerificationCode`; a passkey method called without a `passkeyDomain`, or a `passkeyDomain` with a scheme, port, path or a single label at construction; a passkey request the device refused because the domain's association file does not list this build's package name and signing certificate, or carries the app statement without the site's own statement; `signUpWithPasskey` while a live session is selected on the device; `confirmContactVerification` before a code was requested; for a Turnkey key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors); a closed `TurnkeyProvider` or `RainProvider` asked to authenticate or export; the Rain wallet provider and the Turnkey provider registered on one `RainSdk` (`build()` refuses the pair); no provider registered for the requested id; or no provider matched a capability. |
 | `RAIN_103` | `RainError.InvalidRpcUrl` | RPC URL could not be parsed as a valid URL. |
-| `RAIN_104` | `RainError.ChainNotSupported` | The active wallet provider cannot broadcast transactions on this chain (e.g. Turnkey-managed sends do not cover Avalanche); carries `chainId`. Thrown before any network or wallet work on every send, withdrawals and approvals included (core asks the provider first, and the provider's broadcast funnel checks again). Reads — balances, history, estimates — are never gated. |
+| `RAIN_104` | `RainError.ChainNotSupported` | The active wallet provider cannot broadcast transactions on this chain (e.g. Turnkey-managed sends do not cover Avalanche); carries `chainId`. Thrown before any network or wallet work on every send, withdrawals and approvals included (core asks the provider first, and the provider's broadcast funnel checks again). Reads (balances, history, estimates) and `prepareWithdrawal` are never gated. |
 | `RAIN_201` | `RainError.TokenExpired` | Provider session token expired or invalid; `addPasskey`, `sendContactVerificationCode` or `confirmContactVerification` without a live session. |
 | `RAIN_202` | `RainError.Unauthorized` | Wallet backends: a request refused with HTTP 403, such as a feature the organization lacks, the registration behind `addPasskey` or the contact update behind `confirmContactVerification` included, or an empty Portal session token. |
-| `RAIN_203` | `RainError.InvalidLoginCode` | The one-time login code was refused (mistyped, expired, or already used) — the Rain wallet's and Turnkey's managed login only. Ask the user to re-enter it or request a new one; the existing session, if any, is untouched. A wrong code on `confirmContactVerification` arrives the same way, with the challenge kept. **Differs from iOS.** A rejection the auth proxy wraps in an HTTP 500 cannot be classified on Android, because Turnkey's Kotlin SDK drops the response body that carries the real status. The same wrong code is `RAIN_501` here and `RAIN_203` on iOS. A host that shares login logic across platforms must treat `RAIN_501` from `confirmLoginCode` as retryable on Android. The challenge is kept, so the same remedies apply. This note stays until Turnkey's Kotlin SDK forwards the body. An expired code (5 minutes by default) or one locked after 3 wrong attempts arrives the same way; only `sendLoginCode` again gets the user past those. |
+| `RAIN_203` | `RainError.InvalidLoginCode` | The one-time login code was refused (mistyped, expired, or already used) — the Rain wallet's and Turnkey's managed login only. Ask the user to re-enter it or request a new one; the existing session, if any, is untouched. A wrong code on `confirmContactVerification` arrives the same way, with the challenge kept. A rejection the auth proxy wraps in an HTTP 500 cannot be classified, because Turnkey's Kotlin SDK drops the response body that carries the real status, so the same wrong code arrives as `RAIN_501`; treat `RAIN_501` from `confirmLoginCode` as retryable. The challenge is kept, so the same remedies apply. An expired code (5 minutes by default) or one locked after 3 wrong attempts arrives the same way; only `sendLoginCode` again gets the user past those. |
 | `RAIN_301` | `RainError.NetworkError` | Network/connectivity failure. |
 | `RAIN_302` | `RainError.TransactionPending` | Submitted, not yet confirmed. `statusId` is what to resume from (status id, UserOperation hash, or transaction hash). Do not resend. |
 | `RAIN_401` | `RainError.UserRejected` | User cancelled the signing request in the wallet, or ended the passkey sheet without a passkey (dismissed it, or the device holds none for the domain). |
-| `RAIN_402` | `RainError.InsufficientFunds` / `RainError.InsufficientTokenBalance` / `RainError.TokenAccountNotFound` | Balance too low for the requested amount or gas; a token balance below the requested amount (`InsufficientTokenBalance`); a Solana sender with no token account for the mint (`TokenAccountNotFound`). |
-| `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight `eth_call` simulation failed (e.g. contract revert, insufficient funds), or the provider reported that the broadcast transaction reverted (Turnkey's decoded failure status). |
+| `RAIN_402` | `RainError.InsufficientFunds` / `RainError.InsufficientTokenBalance` / `RainError.TokenAccountNotFound` | Balance too low for the requested amount or gas; a token balance below the requested amount (`InsufficientTokenBalance`, with `requested` and `available` as `BigDecimal` in the token's units); a Solana sender with no token account for the mint (`TokenAccountNotFound`). `InsufficientFunds` carries `required` and `available` as `BigDecimal?` in the native currency's human units: the Solana preflight fills them (fee plus token-account rent, or rent alone when the fee is sponsored), and every EVM path, which maps vendor prose without amounts, leaves them null. `currency` names the unit when the amounts are known (`SOL`). A Solana send the wallet backend refused for a fee or rent shortfall arrives here too, with `required`, `available` and `currency` null. |
+| `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight `eth_call` simulation failed (e.g. contract revert, insufficient funds), or the wallet backend's send status carried decoded revert details (an EVM revert chain, whether the transaction failed before inclusion or was included and reverted, or a Solana `InstructionError` or the runtime's `Program <id> failed` log line), with `transactionId` set once the transaction was included; a failed status without them is `ProviderError`, and a Solana fee or rent shortfall is `InsufficientFunds`. |
 | `RAIN_404` | `RainError.WalletUnavailable` | The backing provider returned no usable wallet address (e.g. Turnkey context has no Ethereum account), or, for a Turnkey or Rain wallet key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors). |
-| `RAIN_405` | `RainError.WithdrawalRevertedByNetwork` | Withdrawal reverted on-chain (e.g. duplicate withdrawal, already-used signature). A fee-sponsored withdrawal skips the dry run; a revert the provider reports after broadcast maps here too. |
+| `RAIN_405` | `RainError.WithdrawalRevertedByNetwork` | Withdrawal reverted on-chain (e.g. duplicate withdrawal, already-used signature). A fee-sponsored withdrawal skips the dry run; a send status carrying decoded revert details maps here too, with the transaction hash on `transactionId` (and in the cause's message) once the transaction was included, and one without them is `RAIN_501`. |
 | `RAIN_406` | `RainError.InvalidAmount` | The amount is invalid for the token — negative, more decimal places than the token supports, or past `uint256` max. |
 | `RAIN_407` | `RainError.WalletNotAuthorized` | The wallet is not an admin of the collateral contract; checked before a withdrawal is signed. |
 | `RAIN_501` | `RainError.ProviderError` | Portal, Turnkey, or other provider error; for a Turnkey or Rain wallet key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors); a passkey ceremony, login or sign-up the device or the backend refused for another reason, an HTTP status inside a passkey login or sign-up included (no session exists yet, so it is never `RAIN_201` or `RAIN_202`); a contact code request or contact update the backend refused. |
 | `RAIN_502` | `RainError.InternalError` | EIP-712 encoding, ABI encoding, or internal processing error; for a Turnkey or Rain wallet key export, the case under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors); a passkey login or sign-up the backend answered with an unusable response (no session token, an occupied session key). |
 
-The map was compacted once, when the Rain issuing API cases left the SDK: `ChainNotSupported` moved from
-`RAIN_105` to `RAIN_104` and `TransactionPending` from `RAIN_303` to `RAIN_302`, so the table has no gaps.
-`RAIN_104` and `RAIN_302` belonged to the removed `ApiNotConfigured` and `ApiError` cases, so a host that
-switched on either string must revisit that branch. `RAIN_304` was retired with the issuing API, and `RAIN_105`
-and `RAIN_303` were vacated by the moves; none of the three is reused, a new 1xx code starts at `RAIN_106` and
-a new 3xx code at `RAIN_305`. `RainErrorCodeParityTest` pins this table.
+The code strings are a published contract hosts switch on; `RainErrorCodeParityTest` pins every value.
 
 ### Error handling example
 
@@ -1018,7 +985,7 @@ try {
         is RainError.InvalidConfig -> { /* Bad config / unknown provider: ${e.message} */ }
         is RainError.InsufficientFunds -> { /* Not enough balance */ }
         is RainError.NetworkError -> { /* Network issue: ${e.cause} */ }
-        else -> { /* Other error: ${e.errorCode.code} — ${e.message} */ }
+        else -> { /* Other error: ${e.code} — ${e.message} */ }
     }
 }
 ```

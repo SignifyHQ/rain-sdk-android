@@ -1,7 +1,7 @@
 package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.turnkey.core.models.errors.TurnkeyKotlinError
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runCurrent
@@ -49,7 +49,7 @@ class TurnkeyManagedAuthSmsTest {
     )
 
     /** Turnkey's documented sandbox number, never a real person's. */
-    private val smsContact = LoginContact.Sms("+19999999999")
+    private val smsContact = LoginContact.Phone("+19999999999")
     private val smsCall = MockTurnkey.SendOtpCall("+19999999999", OtpChannel.SMS)
 
     @Test
@@ -88,7 +88,7 @@ class TurnkeyManagedAuthSmsTest {
         turnkey.onCompleteOtp = { turnkey.authenticate() }
         val controller = controller(turnkey)
 
-        controller.sendLoginCode(LoginContact.Sms("  +1 (999) 999-9999 "))
+        controller.sendLoginCode(LoginContact.Phone("  +1 (999) 999-9999 "))
         controller.confirmLoginCode("123456")
 
         assertThat(turnkey.sendOtpCalls).containsExactly(smsCall)
@@ -110,7 +110,7 @@ class TurnkeyManagedAuthSmsTest {
         )
 
         malformed.forEach { number ->
-            val thrown = expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(LoginContact.Sms(number)) }
+            val thrown = expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(LoginContact.Phone(number)) }
             assertThat(thrown).hasMessageThat().contains("E.164")
             assertThat(thrown).hasMessageThat().doesNotContain(number)
         }
@@ -125,7 +125,7 @@ class TurnkeyManagedAuthSmsTest {
         val turnkey = MockTurnkey(session = null)
         val controller = controller(turnkey)
 
-        val thrown = expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(LoginContact.Sms("   ")) }
+        val thrown = expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(LoginContact.Phone("   ")) }
 
         assertThat(thrown).hasMessageThat().contains("blank")
         assertThat(turnkey.sendOtpCalls).isEmpty()
@@ -147,7 +147,7 @@ class TurnkeyManagedAuthSmsTest {
         turnkey.onCompleteOtp = { turnkey.authenticate() }
         val controller = controller(turnkey)
 
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
         turnkey.stubbedOtpChallenge = OtpChallenge(
             otpId = "otp-2",
             encryptionTargetBundle = "bundle-2",
@@ -166,7 +166,7 @@ class TurnkeyManagedAuthSmsTest {
     fun `a failed send for another contact retires the pending challenge`() = runTest {
         val turnkey = MockTurnkey(session = null)
         val controller = controller(turnkey)
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
 
         turnkey.sendOtpError = RuntimeException("HTTP error from /v1/otp_init_v2: 400")
         expectThrows<RainError> { controller.sendLoginCode(smsContact) }
@@ -184,7 +184,7 @@ class TurnkeyManagedAuthSmsTest {
         controller.sendLoginCode(smsContact)
 
         turnkey.sendOtpError = RuntimeException("HTTP error from /v1/otp_init_v2: 500")
-        expectThrows<RainError> { controller.sendLoginCode(LoginContact.Sms("+1 (999) 999-9999")) }
+        expectThrows<RainError> { controller.sendLoginCode(LoginContact.Phone("+1 (999) 999-9999")) }
         turnkey.sendOtpError = null
 
         // The first code is still typable.
@@ -199,7 +199,7 @@ class TurnkeyManagedAuthSmsTest {
         val controller = controller(turnkey)
         controller.sendLoginCode(smsContact)
 
-        expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(LoginContact.Sms("999-999-9999")) }
+        expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(LoginContact.Phone("999-999-9999")) }
 
         controller.confirmLoginCode("123456")
         assertThat(turnkey.completeOtpCalls.single().contact).isEqualTo("+19999999999")

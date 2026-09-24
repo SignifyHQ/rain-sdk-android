@@ -1,7 +1,7 @@
 package com.rain.sdk.internal.core
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers

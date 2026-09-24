@@ -1,11 +1,11 @@
 package com.rain.sdk.internal.provider
 
-import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
+import com.rain.sdk.error.RainError
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
+import com.rain.sdk.models.UnsignedSolanaTransfer
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderId
 import java.math.BigDecimal
@@ -20,16 +20,16 @@ import java.math.BigDecimal
  *
  * Public so host apps can ship their own implementations and register them via a
  * [com.rain.sdk.provider.ProviderDescriptor]. The interface lives in the `internal.provider`
- * package for historical reasons but is part of the public API surface.
+ * package and is public API meant for hosts to implement.
  *
- * Error contract: a failure leaves an implementation as a [com.rain.sdk.internal.error.RainError],
+ * Error contract: a failure leaves an implementation as a [com.rain.sdk.error.RainError],
  * never as a vendor exception. Core passes a `RainError` through with its code, the withdrawal
  * paths' rewrap of a simulation failure as `WithdrawalRevertedByNetwork` aside. Anything else it
  * wraps as `ProviderError` after its shared prose heuristics, with two exceptions: on
  * `estimateGas`, `estimateWithdrawalFee` and the Solana `withdrawCollateral` and
  * `prepareWithdrawal` paths a raw exception floors at `InternalError`, and the hooks core calls
- * before it enters a wrapper (the EVM wallet-address read, [requireSendSupport] on
- * `withdrawCollateral` and `prepareWithdrawal`, and [sponsorsFees] on `estimateWithdrawalFee`)
+ * before it enters a wrapper (the EVM wallet-address read and [requireSendSupport] on
+ * `withdrawCollateral`)
  * are not wrapped at all, so a raw exception there reaches the host as thrown. Either way an
  * adapter that lets a vendor type escape loses the specific code a host branches on,
  * `TokenExpired` above all. Rain's adapters convert in their session coordinator, which every
@@ -57,6 +57,7 @@ interface WalletProvider {
      * cannot broadcast on fails closed before the contract reads and the signing prompt rather
      * than after them. A provider that can broadcast on every configured chain keeps the no-op
      * default; an adapter whose vendor broadcasts on a fixed set consults its own chain registry.
+     * Preparing a withdrawal is not gated: it never broadcasts.
      *
      * @throws RainError.ChainNotSupported when this provider cannot broadcast on [chainId].
      */
@@ -64,8 +65,8 @@ interface WalletProvider {
 
     /**
      * True when this provider pays the network fee for sends on [chainId], so core skips the
-     * self-paid preflights that would charge the fee to the wallet: the Solana withdrawal dry run,
-     * and the withdrawal fee estimate that would sign only to quote a fee the user never pays.
+     * self-paid preflight that would charge the fee to the wallet: the Solana withdrawal dry run.
+     * Fee estimates are not affected; they quote what the wallet would pay itself whether or not a sponsor pays.
      * The per-chain refinement of [Capability.GAS_SPONSORSHIP]: a provider may sponsor only where
      * it can broadcast. Defaults to advertising the capability.
      */

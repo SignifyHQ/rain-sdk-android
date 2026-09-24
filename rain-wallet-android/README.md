@@ -27,7 +27,7 @@ val wallet = RainProvider(application, RainWalletConfig(passkeyDomain = "passkey
 wallet.awaitSessionRestore()
 if (!wallet.hasActiveSession()) {
     wallet.sendLoginCode(RainWalletContact.Email("user@example.com"))
-    // or RainWalletContact.Sms("+15551234567") for a code by SMS
+    // or RainWalletContact.Phone("+15551234567") for a code by SMS
     wallet.confirmLoginCode(code) // sign-up or login, plus wallet provisioning
     // or a passkey through the system sheet, presented from the foreground Activity:
     // wallet.loginWithPasskey(activity), or wallet.signUpWithPasskey(activity) for a new account
@@ -74,7 +74,7 @@ Notes:
 - The wallet backend's configuration is one-shot per app launch; the first authentication call
   applies it, `passkeyDomain` included, so a second provider with a different domain in the same
   launch makes every authentication call throw `RainError.InvalidConfig` until the app relaunches.
-- The embedded backend identity is Rain's sandbox wallet backend; this release has no host-facing
+- The embedded backend identity is Rain's sandbox wallet backend; there is no host-facing
   environment switch.
 - What leaves the device: the email address or phone number passed to `sendLoginCode` or
   `sendContactVerificationCode`, sent to the wallet backend to deliver the code and key the account
@@ -99,10 +99,7 @@ Notes:
   It lands in your whole R8 configuration, so a reference of your own to that class stops warning.
 - Sends work on the chains the wallet backend broadcasts to; other configured chains are read-only,
   and a send there throws `RainError.ChainNotSupported` (`RAIN_104`) before any network work.
-- `RainWalletSessionState` and `RainWalletAuthState` are open by design: each carries one internal
-  case, so a `when` over them needs an `else` branch and a state can be added later without a
-  source break.
+- `RainWalletSessionState` and `RainWalletAuthState` are exhaustive: a `when` over them needs no
+  `else` branch, and a new state is a breaking change shipped in a major version.
 - Every public signature of this module stays free of wallet-backend types, and the backend adapter
   is an `implementation` dependency, so your compile classpath never sees it.
-- The module embeds Rain's sandbox identity, so `checkNotSandboxIdentity` refuses every publish task
-  except `publishToMavenLocal` until a production identity lands.

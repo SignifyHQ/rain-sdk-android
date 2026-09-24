@@ -1,19 +1,18 @@
 package com.rain.sdk.internal.core
 
 import android.graphics.Bitmap
+import com.rain.sdk.error.RainError
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.interfaces.RainTransactionBuilder
 import com.rain.sdk.internal.abi.Erc20Abi
 import com.rain.sdk.internal.constants.SolanaChains
 import com.rain.sdk.internal.error.ErrorMapper
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.chainreader.ChainReader
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.network.chainreader.MinedReceipt
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.solana.SolanaCollateralWithdrawComposer
 import com.rain.sdk.internal.solana.SolanaRpcClient
-import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
 import com.rain.sdk.internal.tokenstore.TokenInfoValidation
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.internal.transaction.TransactionCoordinator
@@ -35,6 +34,7 @@ import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
+import com.rain.sdk.models.UnsignedSolanaTransfer
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.utils.QRGenerator
@@ -63,7 +63,7 @@ import java.math.BigInteger
  * @param tokenStore Shared metadata store used to resolve ERC-20 decimals when callers omit them.
  *                   May be null for providers that do their own metadata resolution.
  * @param providerId Identity the registered [com.rain.sdk.provider.ProviderDescriptor] advertises.
- *                   Sourced from the descriptor so `RainSdk.descriptors` and a resolved client can
+ *                   Sourced from the descriptor so `RainSdk.providers` and a resolved client can
  *                   never disagree; defaults to the wallet provider's own value.
  * @param capabilities Capabilities the descriptor advertises, for the same reason as [providerId].
  * @param transactionBuilder Withdrawal-building primitives bound to the same chain configuration.
@@ -151,7 +151,16 @@ internal class RainSdkManager(
             // the self-paid dry run; a revert it reports after broadcast arrives as the same
             // TransactionSimulationFailed, so the mapping holds on both paths.
             return transactionCoordinator.withWithdrawalErrors("Withdraw collateral") {
-                val unsigned = composeSolanaWithdrawal(chainId, addresses, amount, decimals, adminSignature)
+                val unsigned = composeSolanaWithdrawal(
+                    chainId,
+                    addresses,
+                    amount,
+                    decimals,
+                    adminSignature,
+                    // A fee-sponsored provider (Turnkey with sponsorGas) pays the network fee, so the composer
+                    // must not dry-run as if the owner paid: a zero-SOL wallet would false-fail before the send.
+                    sponsoredFees = walletProvider.sponsorsFees(chainId)
+                )
                 walletProvider.sendSolanaTransaction(chainId, unsigned)
             }
         }
@@ -169,12 +178,14 @@ internal class RainSdkManager(
         adminSignature: RainAdminSignature,
         nonce: BigInteger?
     ): RainPreparedWithdrawal {
-        // Preparing signs too, so it is gated like the broadcast.
-        walletProvider.requireSendSupport(chainId)
+        // Not gated on requireSendSupport: preparing signs (EVM) or composes (Solana) and never
+        // broadcasts, the provider signs on every chain, and the prepared transaction is the host's
+        // own-RPC path on a chain the provider cannot broadcast on. For the same reason a Solana
+        // preparation always runs the fee check and the dry run: the host submits it and pays.
         if (SolanaChains.isSolanaChain(chainId)) {
             return transactionCoordinator.withWithdrawalErrors("Prepare withdrawal") {
                 RainPreparedWithdrawal.Solana(
-                    composeSolanaWithdrawal(chainId, addresses, amount, decimals, adminSignature)
+                    composeSolanaWithdrawal(chainId, addresses, amount, decimals, adminSignature, sponsoredFees = false)
                 )
             }
         }
@@ -189,13 +200,18 @@ internal class RainSdkManager(
     /**
      * Composes a Solana collateral withdrawal. The withdrawal is authorized by Rain's coordinator
      * executor signing a keccak message off chain, so core composes and the provider only signs.
+     *
+     * @param sponsoredFees true when the provider pays the fee of the send that follows, which skips
+     *   the self-paid fee check and dry run; false for a preparation, which the host submits and pays.
      */
+    @Suppress("LongParameterList") // the withdrawal's own fields plus who pays the fee
     private suspend fun composeSolanaWithdrawal(
         chainId: Int,
         addresses: RainWithdrawAddresses,
         amount: BigDecimal,
         decimals: Int,
-        adminSignature: RainAdminSignature
+        adminSignature: RainAdminSignature,
+        sponsoredFees: Boolean
     ): UnsignedSolanaTransfer {
         // The EVM path validates inside the coordinator; Solana composes here, so it validates here.
         validator.validateWithdrawRequest(chainId, amount, decimals)
@@ -217,9 +233,7 @@ internal class RainSdkManager(
             recipientAddress = addresses.recipientAddress,
             amountBaseUnits = amountBaseUnits,
             adminSignature = adminSignature,
-            // A fee-sponsored provider (Turnkey with sponsorGas) pays the network fee, so the composer
-            // must not dry-run as if the owner paid: a zero-SOL wallet would false-fail before the send.
-            sponsoredFees = walletProvider.sponsorsFees(chainId)
+            sponsoredFees = sponsoredFees
         )
     }
 
@@ -262,18 +276,24 @@ internal class RainSdkManager(
         adminSignature: RainAdminSignature,
         nonce: BigInteger?
     ): BigDecimal {
-        // TODO(v2.1): a Solana estimate is the flat per-signature fee plus token-account rent when
+        // Follow-up: a Solana estimate is the flat per-signature fee plus token-account rent when
         // `UnsignedSolanaTransfer.createsRecipientAccount` is true.
         if (SolanaChains.isSolanaChain(chainId)) {
             throw RainError.InternalError("Withdrawal fee estimation is not supported on Solana")
         }
-        // A provider that sponsors the fee on this chain charges the user nothing, so zero is the
-        // honest quote, and building the withdrawal just to price it would sign for nothing.
-        if (walletProvider.sponsorsFees(chainId)) return BigDecimal.ZERO
-
         return transactionCoordinator.estimateWithdrawalFee(
             withdrawRequest(chainId, addresses, amount, decimals, adminSignature, nonce)
         )
+    }
+
+    override suspend fun estimateWithdrawalFee(chainId: Int, prepared: RainPreparedWithdrawal): BigDecimal {
+        // The same refusal as the building overload: a Solana chain id, or a Solana preparation on
+        // any chain id, has no fee estimate yet.
+        val parameters = prepared.evmParameters
+        if (SolanaChains.isSolanaChain(chainId) || parameters == null) {
+            throw RainError.InternalError("Withdrawal fee estimation is not supported on Solana")
+        }
+        return transactionCoordinator.estimatePreparedWithdrawalFee(chainId, parameters)
     }
 
     /**

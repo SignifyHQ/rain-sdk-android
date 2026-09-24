@@ -32,7 +32,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.rain.sdk.sample.ContactChannel
 import com.rain.sdk.sample.R
 import com.rain.sdk.sample.RainSampleApp
-import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.SampleEnvironment
 import com.rain.sdk.sample.Screen
 import com.rain.sdk.sample.SessionHealth
@@ -99,11 +98,9 @@ private fun HomeUiState.connectedSubtitle(): String {
     return if (account.isBlank()) mode.displayName else "${mode.displayName} · $account"
 }
 
-@Suppress("LongParameterList") // Navigation entry point: the NavHost injects the session, chain, and callbacks.
 @Composable
 fun HomeScreen(
     innerPadding: PaddingValues,
-    session: RainSession,
     selectedChain: WalletChain,
     onChainSelected: (WalletChain) -> Unit,
     onNavigate: (Screen) -> Unit,

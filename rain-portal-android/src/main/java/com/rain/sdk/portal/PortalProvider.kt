@@ -1,7 +1,7 @@
 package com.rain.sdk.portal
 
 import com.rain.sdk.RainChain
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext

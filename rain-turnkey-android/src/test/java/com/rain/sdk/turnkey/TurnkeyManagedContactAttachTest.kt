@@ -2,7 +2,7 @@ package com.rain.sdk.turnkey
 
 import android.app.Activity
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
@@ -60,14 +60,14 @@ class TurnkeyManagedContactAttachTest {
         val controller = controller(turnkey)
 
         controller.sendContactVerificationCode(LoginContact.Email("  User@Example.com "))
-        controller.sendContactVerificationCode(LoginContact.Sms("+1 (321) 456-7890"))
+        controller.sendContactVerificationCode(LoginContact.Phone("+1 (321) 456-7890"))
 
         assertThat(turnkey.sendOtpCalls.map { it.contact }).containsExactly("User@Example.com", "+13214567890").inOrder()
         assertThat(turnkey.sendOtpCalls.map { it.channel }).containsExactly(OtpChannel.EMAIL, OtpChannel.SMS).inOrder()
 
         expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Email("   ")) }
-        expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Sms("+44 (0) 20 1234 5678")) }
-        expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Sms("1234")) }
+        expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Phone("+44 (0) 20 1234 5678")) }
+        expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Phone("1234")) }
         assertThat(turnkey.sendOtpCalls).hasSize(2)
     }
 
@@ -76,7 +76,7 @@ class TurnkeyManagedContactAttachTest {
         val turnkey = MockTurnkey()
         val controller = controller(turnkey)
         turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-login", encryptionTargetBundle = "b1", channel = OtpChannel.EMAIL)
-        controller.sendLoginCode("login@example.com")
+        controller.sendLoginCode(LoginContact.Email("login@example.com"))
         turnkey.stubbedOtpChallenge = OtpChallenge(otpId = "otp-attach", encryptionTargetBundle = "b2", channel = OtpChannel.EMAIL)
         controller.sendContactVerificationCode(LoginContact.Email("attach@example.com"))
 
@@ -219,7 +219,7 @@ class TurnkeyManagedContactAttachTest {
     fun `confirming a phone number sets the phone number`() = runTest {
         val turnkey = MockTurnkey()
         val controller = controller(turnkey)
-        controller.sendContactVerificationCode(LoginContact.Sms("+1 999 999 9999"))
+        controller.sendContactVerificationCode(LoginContact.Phone("+1 999 999 9999"))
 
         controller.confirmContactVerification("000000")
 
@@ -326,7 +326,7 @@ class TurnkeyManagedContactAttachTest {
         val code = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()))
         val codeController = controller(code)
         codeController.sendContactVerificationCode(LoginContact.Email("user@example.com"))
-        codeController.sendLoginCode("other@example.com")
+        codeController.sendLoginCode(LoginContact.Email("other@example.com"))
 
         codeController.confirmLoginCode("123456")
 

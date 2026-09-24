@@ -1,7 +1,7 @@
 package com.rain.sdk.portal
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.NativeCurrency

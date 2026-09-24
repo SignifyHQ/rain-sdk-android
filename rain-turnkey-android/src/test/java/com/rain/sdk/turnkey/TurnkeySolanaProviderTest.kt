@@ -2,22 +2,23 @@ package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.RainChain
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.constants.SolanaPrograms
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.chainreader.SolanaChainReader
 import com.rain.sdk.internal.solana.Base58
 import com.rain.sdk.internal.solana.SolanaAddresses
 import com.rain.sdk.internal.solana.SolanaInstructions
 import com.rain.sdk.internal.solana.SolanaLamportPreflight
 import com.rain.sdk.internal.solana.SolanaTransactionBuilder
-import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransactionCategory
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
+import com.rain.sdk.models.UnsignedSolanaTransfer
 import com.turnkey.types.V1AssetBalance
+import com.turnkey.types.V1SolanaFailureDetails
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.json.JSONArray
@@ -575,12 +576,12 @@ class TurnkeySolanaProviderTest {
 
     @Test
     fun `sendNativeToken on solana surfaces a failed status with details as TransactionSimulationFailed`() {
-        // Turnkey decoded the execution failure into txError: the chain rejected the transaction,
+        // Turnkey decoded the program failure into error.solana: the chain rejected the transaction,
         // so it maps like a failed dry run (a withdrawal turns it into RAIN_405).
         stubBlockhash()
         val client = MockTurnkeyClient().apply {
             sendTransactionStatusQueue = mutableListOf(
-                MockTurnkeyClient.StatusFixture.failed(message = "custom program error: 0x1")
+                MockTurnkeyClient.StatusFixture.solanaRevertedOnChain(message = "custom program error: 0x1")
             )
         }
         val provider = makeProvider(client = client, sponsorGas = true)
@@ -590,6 +591,51 @@ class TurnkeySolanaProviderTest {
         }
 
         assertThat(ex.cause?.message).contains("custom program error")
+    }
+
+    @Test
+    fun `sendNativeToken on solana classifies an included transaction that failed on chain before reading its signature`() {
+        // The signature and the decoded failure arrive on one INCLUDED status. The failure wins and
+        // the signature rides on the error; a loop that read the signature first would report a send.
+        stubBlockhash()
+        val signature = "5" + "7".repeat(86)
+        val client = MockTurnkeyClient().apply {
+            sendTransactionStatusQueue = mutableListOf(
+                MockTurnkeyClient.StatusFixture(
+                    solanaSignature = signature,
+                    txStatus = "TX_STATUS_INCLUDED",
+                    errorMessage = "custom program error: 0x1",
+                    solanaFailure = V1SolanaFailureDetails(transactionErrorJson = "{\"InstructionError\":[0,{\"Custom\":1}]}")
+                )
+            )
+        }
+        val provider = makeProvider(client = client, sponsorGas = true)
+
+        val ex = assertThrows(RainError.TransactionSimulationFailed::class.java) {
+            runBlocking { provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5")) }
+        }
+
+        assertThat(ex.transactionId).isEqualTo(signature)
+        assertThat(ex.cause?.message).contains(signature)
+    }
+
+    @Test
+    fun `sendNativeToken on solana surfaces a failed status with only txError as ProviderError`() {
+        // A bare txError is a broadcast-or-confirm failure with nothing decoded, so it stays the
+        // provider's error rather than a revert.
+        stubBlockhash()
+        val client = MockTurnkeyClient().apply {
+            sendTransactionStatusQueue = mutableListOf(
+                MockTurnkeyClient.StatusFixture.failed(message = "blockhash not found")
+            )
+        }
+        val provider = makeProvider(client = client, sponsorGas = true)
+
+        val ex = assertThrows(RainError.ProviderError::class.java) {
+            runBlocking { provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5")) }
+        }
+
+        assertThat(ex.cause?.message).contains("blockhash not found")
     }
 
     @Test
@@ -814,7 +860,7 @@ class TurnkeySolanaProviderTest {
                 SolanaPrograms.TOKEN
             )
         )
-        val unsignedTx = SolanaTransactionBuilder.buildUnsignedHex(
+        val unsignedTx = unsignedHex(
             feePayer = Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS),
             recentBlockhash = MockTurnkey.DEFAULT_SOLANA_ADDRESS,
             instructions = listOf(
@@ -889,7 +935,7 @@ class TurnkeySolanaProviderTest {
                 SolanaPrograms.TOKEN
             )
         )
-        val unsignedTx = SolanaTransactionBuilder.buildUnsignedHex(
+        val unsignedTx = unsignedHex(
             feePayer = Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS),
             recentBlockhash = MockTurnkey.DEFAULT_SOLANA_ADDRESS,
             instructions = listOf(
@@ -935,7 +981,7 @@ class TurnkeySolanaProviderTest {
             Base58.decode(mint),
             SolanaPrograms.TOKEN
         )
-        val unsignedTx = SolanaTransactionBuilder.buildUnsignedHex(
+        val unsignedTx = unsignedHex(
             feePayer = Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS),
             recentBlockhash = MockTurnkey.DEFAULT_SOLANA_ADDRESS,
             instructions = listOf(
@@ -995,7 +1041,7 @@ class TurnkeySolanaProviderTest {
             data[1 + i] = (amount and 0xFF).toByte()
             amount = amount ushr 8
         }
-        val unsignedTx = SolanaTransactionBuilder.buildUnsignedHex(
+        val unsignedTx = unsignedHex(
             feePayer = Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS),
             recentBlockhash = MockTurnkey.DEFAULT_SOLANA_ADDRESS,
             instructions = listOf(
@@ -1121,8 +1167,8 @@ class TurnkeySolanaProviderTest {
         val error = assertThrows(RainError.InsufficientTokenBalance::class.java) {
             runBlocking { makeProvider().sendToken(devnet, mint, recipient, BigDecimal("2.5"), decimals = 6) }
         }
-        assertThat(error.requested).isEqualTo("2.5")
-        assertThat(error.available).isEqualTo("1")
+        assertThat(error.requested.compareTo(BigDecimal("2.5"))).isEqualTo(0)
+        assertThat(error.available.compareTo(BigDecimal.ONE)).isEqualTo(0)
     }
 
     @Test
@@ -1247,10 +1293,13 @@ class TurnkeySolanaProviderTest {
     fun `sendToken on solana rejects a wallet that cannot cover the fee`(): Unit = runBlocking {
         splFixture(recipientAccountExists = true, lamports = 100L)
 
-        assertThrows(RainError.InsufficientFunds::class.java) {
+        val error = assertThrows(RainError.InsufficientFunds::class.java) {
             runBlocking { makeProvider().sendToken(devnet, mint, recipient, BigDecimal("1"), decimals = 6) }
         }
-        Unit
+
+        // Self-paid with the recipient account in place: the 5000-lamport fee alone against 100 lamports, in SOL.
+        assertThat(error.required?.compareTo(BigDecimal("0.000005"))).isEqualTo(0)
+        assertThat(error.available?.compareTo(BigDecimal("0.0000001"))).isEqualTo(0)
     }
 
     // ---------- EVM-only entry points ----------
@@ -1457,6 +1506,14 @@ class TurnkeySolanaProviderTest {
                 )
             )
         )
+
+    /** Lowercase hex of an unsigned transaction, the form the vendor's unsigned-transaction field carries. */
+    private fun unsignedHex(
+        feePayer: ByteArray,
+        recentBlockhash: String,
+        instructions: List<com.rain.sdk.internal.solana.Instruction>
+    ): String = SolanaTransactionBuilder.buildUnsignedTransaction(feePayer, recentBlockhash, instructions)
+        .joinToString("") { byte -> (byte.toInt() and 0xFF).toString(16).padStart(2, '0') }
 
     /** The static account keys of a serialized unsigned transaction, in table order. */
     private fun decodeAccountKeys(unsignedTransactionHex: String): List<String> {

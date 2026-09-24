@@ -1,7 +1,7 @@
 package com.rain.sdk.utils
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.math.BigDecimal
@@ -71,17 +71,6 @@ class EthereumConverterTest {
             .isEqualToIgnoringScale(java.math.BigDecimal("1.000000000000000001"))
     }
 
-    @Suppress("DEPRECATION")
-    @Test
-    fun `parseHexToBigInteger preserves full uint256 precision`() {
-        assertThat(EthereumConverter.parseHexToBigInteger("0x0de0b6b3a7640000"))
-            .isEqualTo(BigInteger("1000000000000000000"))
-        assertThat(EthereumConverter.parseHexToBigInteger("de0b6b3a7640000"))
-            .isEqualTo(BigInteger("1000000000000000000"))
-        assertThat(EthereumConverter.parseHexToBigInteger("0x")).isEqualTo(BigInteger.ZERO)
-        assertThat(EthereumConverter.parseHexToBigInteger("0xzz")).isEqualTo(BigInteger.ZERO)
-    }
-
     @Test
     fun `parseHexToBigIntegerStrict parses well-formed payloads exactly`() {
         assertThat(EthereumConverter.parseHexToBigIntegerStrict("0x0")).isEqualTo(BigInteger.ZERO)
@@ -99,18 +88,20 @@ class EthereumConverterTest {
     }
 
     @Test
-    fun `parseHexToInt parses decimals responses`() {
-        assertThat(EthereumConverter.parseHexToInt("0x" + "6".padStart(64, '0'))).isEqualTo(6)
-        assertThat(EthereumConverter.parseHexToInt("0x12")).isEqualTo(18)
-        assertThat(EthereumConverter.parseHexToInt("0x")).isEqualTo(0)
+    fun `parseHexToIntStrict parses decimals responses`() {
+        assertThat(EthereumConverter.parseHexToIntStrict("0x" + "6".padStart(64, '0'))).isEqualTo(6)
+        assertThat(EthereumConverter.parseHexToIntStrict("0x12")).isEqualTo(18)
     }
 
     @Test
-    fun `parseHexToInt rejects out-of-range values instead of narrowing to a negative Int`() {
-        // A hostile/malformed decimals() must never produce a negative decimals (which would
-        // flip Balance.decimalAmount from a divide into a multiply). Clamp to 0 instead.
-        assertThat(EthereumConverter.parseHexToInt("0xffffffff")).isEqualTo(0)
-        assertThat(EthereumConverter.parseHexToInt("0x" + "f".repeat(64))).isEqualTo(0)
+    fun `parseHexToIntStrict throws InternalError instead of narrowing to a negative Int`() {
+        // A hostile or malformed decimals() must never produce a negative decimals, which would
+        // flip Balance.decimalAmount from a divide into a multiply. The strict parser throws.
+        listOf("0xffffffff", "0x" + "f".repeat(64)).forEach { bad ->
+            val error = runCatching { EthereumConverter.parseHexToIntStrict(bad) }.exceptionOrNull()
+            assertThat(error).isInstanceOf(RainError.InternalError::class.java)
+            assertThat(error).hasMessageThat().contains("does not fit in a non-negative Int")
+        }
     }
 
     @Test

@@ -1,7 +1,7 @@
 package com.rain.sdk.internal.core
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.helpers.MockChainReader
 import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
@@ -44,30 +44,8 @@ class RainSdkManagerSendTokenTest {
         assertThat(call.amount).isEqualTo(1.5)
     }
 
-    @Suppress("DEPRECATION")
     @Test
-    fun `deprecated sendNativeToken shim delegates to sendNative`(): Unit = runBlocking {
-        val (manager, stub) = TestManagers.stubProviderManager()
-        val expectedHash = "0x" + "c".repeat(64)
-        stub.sendNativeTokenHashToReturn = expectedHash
-
-        val result = manager.sendNativeToken(
-            chainId = 1,
-            toAddress = TestFixtures.RECIPIENT_ADDRESS,
-            amount = BigDecimal("0.5")
-        )
-
-        assertThat(result.transactionHash).isEqualTo(expectedHash)
-        val call = stub.sendNativeTokenCalls.single()
-        assertThat(call.toAddress).isEqualTo(TestFixtures.RECIPIENT_ADDRESS_CHECKSUMMED)
-        assertThat(call.amount).isEqualTo(0.5)
-    }
-
-    @Suppress("DEPRECATION")
-    @Test
-    fun `deprecated sendToken(Int) overload forwards explicit decimals to the provider`(): Unit = runBlocking {
-        // Locks in binary/source back-compat: callers compiled against the old `decimals: Int`
-        // signature still work, delegating to the nullable version with the given decimals.
+    fun `sendToken forwards explicit decimals to the provider`(): Unit = runBlocking {
         val (manager, stub) = TestManagers.stubProviderManager()
         val expectedHash = "0x" + "b".repeat(64)
         stub.sendTokenHashToReturn = expectedHash

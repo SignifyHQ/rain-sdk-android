@@ -2,7 +2,7 @@ package com.rain.sdk.turnkey
 
 import android.app.Activity
 import android.app.Application
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.turnkey.core.TurnkeyContext
 import com.turnkey.core.models.AuthConfig
 import com.turnkey.core.models.AuthState
@@ -247,9 +247,6 @@ internal class TurnkeyManagedAuthController(
             awaitRestoreSettled(timeoutMs)
         }
     }
-
-    /** The email channel: `sendLoginCode(LoginContact.Email(email))`. */
-    suspend fun sendLoginCode(email: String) = sendLoginCode(LoginContact.Email(email))
 
     /**
      * Sends a one-time code to [contact] on its channel. Touches no session. A second call for the
@@ -579,7 +576,7 @@ internal class TurnkeyManagedAuthController(
             val email = contact.value.trim().ifEmpty { throw RainError.InvalidConfig("email must not be blank") }
             email to OtpChannel.EMAIL
         }
-        is LoginContact.Sms -> requirePhoneNumber(contact.value) to OtpChannel.SMS
+        is LoginContact.Phone -> requirePhoneNumber(contact.value) to OtpChannel.SMS
     }
 
     /**

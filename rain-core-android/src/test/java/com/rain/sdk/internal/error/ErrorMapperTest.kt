@@ -1,6 +1,7 @@
 package com.rain.sdk.internal.error
 
 import com.google.common.truth.Truth.assertThat
+import com.rain.sdk.error.RainError
 import org.junit.Test
 import java.io.IOException
 import java.util.concurrent.CancellationException
@@ -66,6 +67,16 @@ class ErrorMapperTest {
         // Vendors often spell the reason only in the class and leave the message generic.
         assertThat(mapper.mapSigningError(UserRejectedRequestException()))
             .isInstanceOf(RainError.UserRejected::class.java)
+    }
+
+    @Test
+    fun `InsufficientFunds from vendor prose carries no amounts`() {
+        val mapped = mapper.mapTransactionError(RuntimeException("insufficient funds for gas * price + value"))
+
+        val error = mapped as RainError.InsufficientFunds
+        assertThat(error.required).isNull()
+        assertThat(error.available).isNull()
+        assertThat(error.message).contains("required unknown, available unknown")
     }
 
     @Test

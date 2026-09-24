@@ -82,17 +82,10 @@ class RainWalletSessionPolicy(
 
 /**
  * The wallet session as seen at the SDK boundary. Observable via [RainProvider.sessionState] so a
- * host can react to a session dying without waiting for a wallet call to fail. States may be added
- * in a later release, so a `when` over this hierarchy needs an `else` branch; the compiler enforces
- * it, because one case is not public.
+ * host can react to a session dying without waiting for a wallet call to fail. A `when` over this
+ * hierarchy is exhaustive; adding a state is a breaking change that ships in a major version.
  */
 sealed class RainWalletSessionState {
-    /**
-     * Never emitted. Exists so a `when` over this hierarchy outside the module cannot be exhaustive
-     * without an `else` branch, which is what lets a state be added later without a source break.
-     */
-    internal data object Reserved : RainWalletSessionState()
-
     /** The SDK is still restoring persisted sessions (app launch). */
     data object Loading : RainWalletSessionState()
 
@@ -126,13 +119,10 @@ internal fun TurnkeySessionState.toRainWallet(): RainWalletSessionState = when (
  * [RainWalletSessionState.Expired] and [RainWalletSessionState.Unauthenticated] both read as
  * [Unauthenticated] here, because a login screen only needs to know whether a one-time code is
  * required. Observable via [RainProvider.authState]; snapshot via [RainProvider.currentAuthState].
- * States may be added in a later release, so a `when` over this hierarchy needs an `else` branch;
- * the compiler enforces it, because one case is not public.
+ * A `when` over this hierarchy is exhaustive; adding a state is a breaking change that ships in a
+ * major version.
  */
 sealed class RainWalletAuthState {
-    /** Never emitted; see [RainWalletSessionState.Reserved]. */
-    internal data object Reserved : RainWalletAuthState()
-
     /**
      * The wallet backend is not configured yet (no auth call has run), or the SDK is still
      * restoring a possible previous session from secure storage.

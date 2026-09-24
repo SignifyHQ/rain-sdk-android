@@ -1,12 +1,13 @@
 package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.internal.error.RainErrorCode
+import com.rain.sdk.error.RainError
+import com.rain.sdk.error.RainErrorCode
 import com.rain.sdk.models.Token
 import com.rain.sdk.provider.Capability
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertThrows
 import org.junit.Before
@@ -211,12 +212,12 @@ class TurnkeyAdapterTest {
 
     @Test
     fun `sendTransaction surfaces a failed status with revert details as TransactionSimulationFailed`() {
-        // Turnkey decoded the execution failure (txError): the chain rejected the transaction,
+        // Turnkey decoded the revert (error.revertChain): the chain rejected the transaction,
         // the same fact a self-paid preflight catches, so withdrawals map it to RAIN_405.
         stubSendTransactionRPCs()
         val turnkey = MockTurnkey()
         (turnkey.turnkeyClient as MockTurnkeyClient).sendTransactionStatusQueue =
-            mutableListOf(MockTurnkeyClient.StatusFixture.failed(message = "reverted"))
+            mutableListOf(MockTurnkeyClient.StatusFixture.revertedOnChain(message = "reverted"))
         val provider = makeProvider(turnkey)
 
         val ex = runCatching {
@@ -232,6 +233,59 @@ class TurnkeyAdapterTest {
         }.exceptionOrNull()
         assertThat(ex).isInstanceOf(RainError.TransactionSimulationFailed::class.java)
         assertThat(ex?.cause?.message).contains("reverted")
+    }
+
+    @Test
+    fun `sendTransaction surfaces a failed status with only txError as ProviderError`() {
+        // A bare txError is any broadcast-or-confirm failure, not proof that the chain executed and
+        // rejected the transaction, so it stays the provider's error (a withdrawal reads RAIN_501).
+        stubSendTransactionRPCs()
+        val turnkey = MockTurnkey()
+        (turnkey.turnkeyClient as MockTurnkeyClient).sendTransactionStatusQueue =
+            mutableListOf(MockTurnkeyClient.StatusFixture.failed(message = "nonce too low"))
+        val provider = makeProvider(turnkey)
+
+        val ex = runCatching {
+            runBlocking {
+                provider.sendTransaction(
+                    chainId = 1,
+                    from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
+                    to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
+                    data = "0x",
+                    value = "0x0"
+                )
+            }
+        }.exceptionOrNull()
+        assertThat(ex).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(ex?.cause?.message).contains("nonce too low")
+    }
+
+    @Test
+    fun `sendTransaction surfaces an included transaction that reverted on chain as TransactionSimulationFailed`() {
+        // Turnkey reports an on-chain revert on an INCLUDED status, hash and decoded revert together:
+        // the revert wins over the hash, and the hash rides in the message so the host can look it up.
+        stubSendTransactionRPCs()
+        val hash = "0x" + "d".repeat(64)
+        val turnkey = MockTurnkey()
+        (turnkey.turnkeyClient as MockTurnkeyClient).sendTransactionStatusQueue =
+            mutableListOf(MockTurnkeyClient.StatusFixture.includedButReverted(hash, message = "execution reverted"))
+        val provider = makeProvider(turnkey)
+
+        val ex = runCatching {
+            runBlocking {
+                provider.sendTransaction(
+                    chainId = 1,
+                    from = MockTurnkey.DEFAULT_WALLET_ADDRESS,
+                    to = TurnkeyTestFixtures.RECIPIENT_ADDRESS,
+                    data = "0x",
+                    value = "0x0"
+                )
+            }
+        }.exceptionOrNull()
+        assertThat(ex).isInstanceOf(RainError.TransactionSimulationFailed::class.java)
+        assertThat(ex?.cause?.message).contains("execution reverted")
+        assertThat(ex?.cause?.message).contains(hash)
+        assertThat((ex as RainError.TransactionSimulationFailed).transactionId).isEqualTo(hash)
     }
 
     @Test
@@ -587,9 +641,11 @@ class TurnkeyAdapterTest {
     }
 
     @Test
-    fun `sponsored fee estimate is zero and makes no RPC calls`(): Unit = runBlocking {
-        // No RPC stubs on purpose: estimating as if the sender paid would both misquote a
-        // sponsored transfer and fail for zero-balance wallets. Passing proves no RPCs ran.
+    fun `sponsored fee estimate quotes the chain cost through eth_estimateGas and eth_gasPrice`(): Unit = runBlocking {
+        // The estimate is what the send would cost on chain, so a host can show what sponsorship
+        // saves; the sponsored send itself never charges the wallet.
+        rpc.stub(method = "eth_estimateGas", result = "0x5208") // 21000
+        rpc.stub(method = "eth_gasPrice", result = "0x4a817c800") // 20 gwei
         val provider = makeProvider(sponsorGas = true)
 
         val fee = provider.estimateTransactionFee(
@@ -600,8 +656,13 @@ class TurnkeyAdapterTest {
             value = "0x0"
         )
 
-        assertThat(fee.compareTo(java.math.BigDecimal.ZERO)).isEqualTo(0)
-        assertThat(rpc.recordedMethods).isEmpty()
+        assertThat(fee.compareTo(java.math.BigDecimal("0.00042"))).isEqualTo(0) // 21000 * 20 gwei
+        assertThat(rpc.recordedMethods).containsAtLeast("eth_estimateGas", "eth_gasPrice")
+        // The call object carries no fee field: nodes skip the fee-affordability check when no gas
+        // price is sent, which is what keeps a zero-balance wallet's quote alive.
+        val estimateBody = JSONObject(rpc.recordedBodies.last { it.contains("eth_estimateGas") })
+        val estimateParams = estimateBody.getJSONArray("params").getJSONObject(0)
+        assertThat(estimateParams.keys().asSequence().toList()).containsExactly("from", "to", "value")
     }
 
     @Test

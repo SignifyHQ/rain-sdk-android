@@ -1,6 +1,6 @@
 package com.rain.sdk.privy
 
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import io.privy.auth.AuthState
 import io.privy.network.NoNetworkException
 import io.privy.network.PrivyApiException

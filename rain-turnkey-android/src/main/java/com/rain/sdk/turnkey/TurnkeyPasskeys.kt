@@ -1,6 +1,6 @@
 package com.rain.sdk.turnkey
 
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 
 /**
  * The pure pieces of the passkey flows, kept out of the controller so they can be read and tested

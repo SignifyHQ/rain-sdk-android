@@ -1,13 +1,11 @@
-package com.rain.sdk.internal.error
+package com.rain.sdk.error
+
+import java.math.BigDecimal
 
 /**
  * The `RAIN_*` codes every [RainError] carries. The values are a published contract hosts switch on, and
- * `RainErrorCodeParityTest` pins them: changing one is a breaking change. The map was compacted once, when
- * the Rain issuing API cases left the SDK: [CHAIN_NOT_SUPPORTED] moved from RAIN_105 to RAIN_104 and
- * [TRANSACTION_PENDING] from RAIN_303 to RAIN_302, so the sequence has no gaps. RAIN_104 and RAIN_302
- * belonged to the removed `ApiNotConfigured` and `ApiError` cases; RAIN_304 was retired with them, and
- * RAIN_105 and RAIN_303 were vacated by the moves. None of the three is reused: a new 1xx code starts at
- * RAIN_106 and a new 3xx code at RAIN_305.
+ * `RainErrorCodeParityTest` pins them: changing one is a breaking change. RAIN_105, RAIN_303 and RAIN_304 are
+ * unassigned and stay so: a new 1xx code starts at RAIN_106 and a new 3xx code at RAIN_305.
  */
 enum class RainErrorCode(val code: String) {
     SDK_NOT_INITIALIZED("RAIN_101"),
@@ -31,7 +29,7 @@ enum class RainErrorCode(val code: String) {
     WALLET_NOT_AUTHORIZED("RAIN_407"),
 
     PROVIDER_ERROR("RAIN_501"),
-    INTERNAL_LOGIC_ERROR("RAIN_502")
+    INTERNAL_ERROR("RAIN_502")
 }
 
 /**
@@ -43,6 +41,9 @@ sealed class RainError(
     message: String? = null,
     cause: Throwable? = null
 ) : Exception("RainSDK Error [${errorCode.code}]: ${message ?: "See docs for details"}", cause) {
+
+    /** The published `RAIN_xxx` string, `errorCode.code`; a cross-platform contract shared by Rain's SDKs. */
+    val code: String get() = errorCode.code
 
     // --- 1xx Initialization ---
     class SdkNotInitialized : RainError(RainErrorCode.SDK_NOT_INITIALIZED)
@@ -64,7 +65,8 @@ sealed class RainError(
     /**
      * The active wallet provider cannot broadcast transactions on this chain, so the send was
      * refused up front instead of failing opaquely mid-flight (e.g. Turnkey-managed broadcast
-     * does not cover Avalanche). Reads — balances, history, fee estimates — are not gated.
+     * does not cover Avalanche). Reads (balances, history, fee estimates) and `prepareWithdrawal`
+     * are not gated.
      */
     class ChainNotSupported(val chainId: Int, details: String) :
         RainError(RainErrorCode.CHAIN_NOT_SUPPORTED, "Sends not supported on chain $chainId: $details")
@@ -109,9 +111,30 @@ sealed class RainError(
     // --- 4xx User Action ---
     class UserRejected : RainError(RainErrorCode.USER_REJECTED)
 
-    class InsufficientFunds : RainError(RainErrorCode.INSUFFICIENT_FUNDS)
+    /**
+     * The wallet holds less of the chain's native currency than the amount, the network fee or the
+     * account rent needs. [required] and [available] are in the currency's human units and
+     * [currency] names that unit: the Solana preflight fills all three (`SOL`); the wallet backend's
+     * report of a shortfall after a sponsored Solana send, and every EVM path, which maps vendor
+     * prose without amounts, leave them null.
+     */
+    class InsufficientFunds(
+        val required: BigDecimal? = null,
+        val available: BigDecimal? = null,
+        val currency: String? = null
+    ) : RainError(
+        RainErrorCode.INSUFFICIENT_FUNDS,
+        "Insufficient funds for the amount, the network fee or account rent: " +
+            "required ${amountText(required, currency)}, available ${amountText(available, currency)}"
+    )
 
-    class TransactionSimulationFailed(cause: Throwable?) :
+    /**
+     * The chain refused the transaction: the dry run reverted before anything was signed, or the
+     * provider reported a transaction that failed or reverted after broadcast. [transactionId] is the
+     * hash or signature of a transaction the network included and reverted, when the provider named
+     * one; null for a dry run.
+     */
+    class TransactionSimulationFailed(cause: Throwable?, val transactionId: String? = null) :
         RainError(
             RainErrorCode.TRANSACTION_SIMULATION_FAILED,
             "Transaction simulation failed: ${cause?.message}",
@@ -127,11 +150,14 @@ sealed class RainError(
 
     /**
      * Withdrawal transaction reverted on-chain (e.g. duplicate withdrawal in a short window,
-     * already-used signature, contract guard tripped).
+     * already-used signature, contract guard tripped). [transactionId] is the hash or signature of
+     * a withdrawal the network included and reverted, when the provider named one; null when the
+     * dry run caught it.
      */
     class WithdrawalRevertedByNetwork(
         details: String = "Withdrawal reverted by the network",
-        cause: Throwable? = null
+        cause: Throwable? = null,
+        val transactionId: String? = null
     ) :
         RainError(RainErrorCode.WITHDRAWAL_REVERTED_BY_NETWORK, details, cause)
 
@@ -164,12 +190,12 @@ sealed class RainError(
      * chain's native currency.
      */
     class InsufficientTokenBalance(
-        val requested: String,
-        val available: String,
+        val requested: BigDecimal,
+        val available: BigDecimal,
         val token: String
     ) : RainError(
         RainErrorCode.INSUFFICIENT_FUNDS,
-        "Insufficient balance for $token: requested $requested, available $available"
+        "Insufficient balance for $token: requested ${requested.toPlainString()}, available ${available.toPlainString()}"
     )
 
     /**
@@ -195,9 +221,13 @@ sealed class RainError(
         RainError(RainErrorCode.PROVIDER_ERROR, "Provider Error: ${cause?.message}", cause)
 
     class InternalError(details: String, cause: Throwable? = null) :
-        RainError(RainErrorCode.INTERNAL_LOGIC_ERROR, details, cause)
+        RainError(RainErrorCode.INTERNAL_ERROR, details, cause)
 }
 
 /** The one message for a chain the SDK was not built with, shared by the RPC-backed paths. */
 internal fun noRpcEndpointConfigured(chainId: Int): RainError.InvalidConfig =
     RainError.InvalidConfig("No RPC endpoint configured for chainId=$chainId")
+
+/** `0.002 SOL`; `0.002` when the currency is unknown; `unknown` when the amount is. */
+private fun amountText(amount: BigDecimal?, currency: String?): String =
+    amount?.let { it.toPlainString() + currency?.let { unit -> " $unit" }.orEmpty() } ?: "unknown"

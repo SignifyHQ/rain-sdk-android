@@ -1,10 +1,10 @@
 package com.rain.sdk.internal.network.chainreader
 
-import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.error.RainError
+import com.rain.sdk.error.noRpcEndpointConfigured
 import com.rain.sdk.internal.RainAdapterApi
+import com.rain.sdk.internal.constants.RainConstants
 import com.rain.sdk.internal.constants.TokenRegistry
-import com.rain.sdk.internal.error.RainError
-import com.rain.sdk.internal.error.noRpcEndpointConfigured
 import com.rain.sdk.internal.utils.isValidEthereumAddress
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
@@ -87,7 +87,7 @@ class EvmChainReader(
         )
         return EthereumConverter.convertHexToDecimal(
             hex,
-            decimals ?: RainClient.DEFAULT_ERC20_DECIMALS
+            decimals ?: RainConstants.DEFAULT_ERC20_DECIMALS
         )
     }
 
@@ -139,7 +139,7 @@ class EvmChainReader(
                     chainId = chainId,
                     address = token.address,
                     symbol = null,
-                    decimals = RainClient.DEFAULT_ERC20_DECIMALS
+                    decimals = RainConstants.DEFAULT_ERC20_DECIMALS
                 )
                 tokenBalance(chainId, info, hex)
             }

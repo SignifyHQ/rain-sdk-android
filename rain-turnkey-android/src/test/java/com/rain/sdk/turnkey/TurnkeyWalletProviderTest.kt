@@ -2,7 +2,7 @@ package com.rain.sdk.turnkey
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.RainChain
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
 import com.turnkey.types.V1AssetBalance
@@ -96,6 +96,20 @@ class TurnkeyWalletProviderTest {
         assertThat(call.payload).isEqualTo(typed)
         assertThat(call.encoding).isEqualTo(V1PayloadEncoding.PAYLOAD_ENCODING_EIP712)
         assertThat(call.hashFunction).isEqualTo(V1HashFunction.HASH_FUNCTION_NO_OP)
+    }
+
+    @Test
+    fun `signTypedData signs on a chain Turnkey cannot broadcast on and sends nothing`() = runBlocking {
+        // prepareWithdrawal on Avalanche is the host's own-RPC path: the signature comes back and no
+        // send starts, however the adapter gates its sends.
+        val turnkey = MockTurnkey()
+        val provider = makeProvider(turnkey = turnkey)
+
+        val signature = provider.signTypedData(chainId = 43114, walletAddress = "0xabc", typedDataJson = """{"types":{}}""")
+
+        assertThat(signature).startsWith("0x")
+        assertThat(turnkey.signRawPayloadCalls).hasSize(1)
+        assertThat((turnkey.turnkeyClient as MockTurnkeyClient).ethSendTransactionCalls).isEmpty()
     }
 
     @Test

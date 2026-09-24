@@ -1,8 +1,8 @@
 package com.rain.sdk.portal
 
 import com.rain.sdk.RainChain
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.abi.Erc20Abi
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.models.Balance

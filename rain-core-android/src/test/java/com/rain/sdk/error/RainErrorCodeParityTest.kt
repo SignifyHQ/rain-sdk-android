@@ -1,7 +1,8 @@
-package com.rain.sdk.internal.error
+package com.rain.sdk.error
 
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
+import java.math.BigDecimal
 
 /**
  * Pins the published `RAIN_*` error codes. These are a public contract host apps switch on,
@@ -29,11 +30,11 @@ class RainErrorCodeParityTest {
             RainErrorCode.INVALID_AMOUNT to "RAIN_406",
             RainErrorCode.WALLET_NOT_AUTHORIZED to "RAIN_407",
             RainErrorCode.PROVIDER_ERROR to "RAIN_501",
-            RainErrorCode.INTERNAL_LOGIC_ERROR to "RAIN_502",
+            RainErrorCode.INTERNAL_ERROR to "RAIN_502",
         )
         expected.forEach { (code, value) -> assertThat(code.code).isEqualTo(value) }
         assertThat(RainErrorCode.entries).hasSize(expected.size)
-        // Vacated and retired codes stay unassigned unless a release says otherwise.
+        // RAIN_105, RAIN_303 and RAIN_304 stay unassigned.
         assertThat(RainErrorCode.entries.map { it.code }).containsNoneOf("RAIN_105", "RAIN_303", "RAIN_304")
     }
 
@@ -60,7 +61,7 @@ class RainErrorCodeParityTest {
             RainError.InvalidAmount("1.005", "too many decimals") to "RAIN_406",
             RainError.WalletNotAuthorized("0x1", "0x2") to "RAIN_407",
             // Token-transfer failures reuse existing codes on purpose — see RainError.
-            RainError.InsufficientTokenBalance("2", "1", "mint") to "RAIN_402",
+            RainError.InsufficientTokenBalance(BigDecimal("2"), BigDecimal.ONE, "mint") to "RAIN_402",
             RainError.TokenAccountNotFound("wallet", "mint") to "RAIN_402",
             RainError.TokenNotFound("mint", 103) to "RAIN_102",
             RainError.InvalidRecipient("addr", "because") to "RAIN_102",
@@ -70,6 +71,7 @@ class RainErrorCodeParityTest {
 
         cases.forEach { (error, code) ->
             assertThat(error.errorCode.code).isEqualTo(code)
+            assertThat(error.code).isEqualTo(code)
         }
 
         // A case added to the sealed hierarchy but not listed above fails here.

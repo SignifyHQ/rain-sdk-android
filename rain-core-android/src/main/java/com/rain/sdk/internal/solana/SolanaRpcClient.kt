@@ -1,8 +1,8 @@
 package com.rain.sdk.internal.solana
 
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.constants.SolanaPrograms
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.chainreader.JsonRpcClient
 import org.json.JSONObject
 import timber.log.Timber

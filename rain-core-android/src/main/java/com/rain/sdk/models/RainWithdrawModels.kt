@@ -1,6 +1,6 @@
 package com.rain.sdk.models
 
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.utils.RainHexUtils
 
 /**

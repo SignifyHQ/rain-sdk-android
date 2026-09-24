@@ -70,9 +70,9 @@ provider to shape.
   The Rain issuing API is the host's call; the SDK consumes its results.
 - **`RainClient`** — everything bound to one resolved wallet: addresses and QR, balances, transfers,
   `withdrawCollateral`, fee/gas estimation, history, `registerTokens`.
-- **`RainTransactionBuilder`** — for hosts signing with their own wallet: `getLatestNonce`,
-  `isCollateralAdmin`, `buildEIP712Message`, `buildWithdrawTransactionData`. Reached via
-  `RainSdk` directly, so it needs no resolved provider.
+- **The wallet-agnostic builder methods on `RainSdk`** — for hosts signing with their own wallet:
+  `getLatestNonce`, `isCollateralAdmin`, `buildEIP712Message`, `buildWithdrawTransactionData`. They
+  live on `RainSdk` itself, so they need no resolved provider.
 
 Full parameter tables live in [docs/METHODS.md](../docs/METHODS.md).
 
@@ -99,6 +99,7 @@ RainSdk.builder()
 ```
 
 `registerTokens(...)` names tokens the SDK cannot discover on chain: an SPL mint carries no
-on-chain symbol, and the built-in registry covers mainnet only. Available on the builder, on
+on-chain symbol, and the built-in registry covers the mainnets plus the two Auth Pull sandbox
+testnets (Base Sepolia, Arbitrum Sepolia). Available on the builder, on
 `RainSdk` after `build()`, and on a resolved `RainClient`; every entry is validated (address shape and
 checksum, `decimals` in `0..77`).

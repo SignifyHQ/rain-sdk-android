@@ -1,7 +1,7 @@
 package com.rain.sdk.internal.transaction
 
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.provider.WalletProvider
 import io.mockk.coEvery
 import io.mockk.mockk

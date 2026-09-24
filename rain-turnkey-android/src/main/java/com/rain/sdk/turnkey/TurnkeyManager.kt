@@ -1,12 +1,11 @@
 package com.rain.sdk.turnkey
 
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.constants.SolanaChains
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.chainreader.JsonRpcClient
 import com.rain.sdk.internal.solana.SolanaConverter
 import com.rain.sdk.internal.solana.SolanaRpcClient
 import com.rain.sdk.internal.solana.SolanaTransactionDecoder
-import com.rain.sdk.internal.solana.UnsignedSolanaTransfer
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
 import com.rain.sdk.internal.utils.ChainIdFormat
 import com.rain.sdk.internal.utils.strippingHexPrefix
@@ -16,12 +15,12 @@ import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionCategory
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
+import com.rain.sdk.models.UnsignedSolanaTransfer
 import com.rain.sdk.utils.EthereumConverter
 import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TGetActivitiesBody
 import com.turnkey.types.TGetNoncesBody
 import com.turnkey.types.TGetSendTransactionStatusBody
-import com.turnkey.types.TGetSendTransactionStatusResponse
 import com.turnkey.types.TGetWalletAddressBalancesBody
 import com.turnkey.types.TListEthTransactionHistoryBody
 import com.turnkey.types.TListSolTransactionHistoryBody
@@ -912,10 +911,10 @@ internal class TurnkeyManager(
         if (sponsorGas) {
             // Sponsored sends are minimal payloads. Turnkey's Gas Station builds and fee-covers
             // the outer EIP-7702 transaction, so this wallet's account nonce and self-estimated
-            // fees are the wrong values to pin (the outer tx is not this account's). Estimating
-            // gas as if the sender paid would also reject the zero-balance wallets sponsorship
-            // exists for. Null fields are omitted from the wire payload and auto-filled by
-            // Turnkey.
+            // fees are the wrong values to pin (the outer tx is not this account's). The quote a
+            // host asks for goes to the RPC separately, with no fee field in the call, so a
+            // zero-balance wallet still gets one (see estimateTransactionFee). Null fields are
+            // omitted from the wire payload and auto-filled by Turnkey.
             //
             // Replay protection is the gas-station nonce, and Turnkey's one-transaction-per-
             // request guarantee holds only when the request carries it. Turnkey's other SDKs
@@ -1018,15 +1017,12 @@ internal class TurnkeyManager(
                 throw RainError.TransactionPending(sendTransactionStatusId)
             }
 
+            // Classified before the hash is read: an included transaction that reverted on chain
+            // carries both its hash and the decoded revert, and the revert wins.
+            TurnkeySendFailures.sendFailure(status, "Wallet backend transaction submission failed")?.let { throw it }
+
             val txHash = status.eth?.txHash
             if (!txHash.isNullOrEmpty()) return txHash
-
-            val normalized = status.txStatus.uppercase()
-            val failed = normalized.contains("FAILED") ||
-                normalized.contains("REJECTED") ||
-                status.txError != null ||
-                status.error?.message != null
-            if (failed) throw statusFailure(status, "Wallet backend transaction submission failed")
 
             if (attempt + 1 < DEFAULT_POLLING_ATTEMPTS) {
                 delay(pollingIntervalMs)
@@ -1037,24 +1033,6 @@ internal class TurnkeyManager(
         // may still confirm. Carrying the status id lets the host resume polling instead of
         // resending, which would risk a duplicate transfer.
         throw RainError.TransactionPending(sendTransactionStatusId)
-    }
-
-    /**
-     * The error for a terminal failed status. A decoded execution failure (Turnkey's `txError`,
-     * or per-chain revert details) is the chain rejecting the transaction, the same fact a
-     * self-paid preflight would have caught, so it is the simulation error and withdrawals map
-     * it to [RainError.WithdrawalRevertedByNetwork] on both the self-paid and sponsored paths.
-     * A failure without those details (a policy rejection, a submission that never reached the
-     * chain) stays a provider error.
-     */
-    private fun statusFailure(status: TGetSendTransactionStatusResponse, fallback: String): RainError {
-        val message = status.txError ?: status.error?.message ?: fallback
-        val reverted = status.txError != null || status.error?.eth != null || status.error?.solana != null
-        return if (reverted) {
-            RainError.TransactionSimulationFailed(IllegalStateException(message))
-        } else {
-            RainError.ProviderError(IllegalStateException(message))
-        }
     }
 
     // ---------- Solana send ----------
@@ -1163,12 +1141,8 @@ internal class TurnkeyManager(
                 return null
             }
 
+            TurnkeySendFailures.sendFailure(status, "Wallet backend Solana transaction submission failed")?.let { throw it }
             val normalized = status.txStatus.uppercase()
-            val failed = status.txError != null ||
-                status.error?.message != null ||
-                normalized.contains("FAILED") ||
-                normalized.contains("REJECTED")
-            if (failed) throw statusFailure(status, "Wallet backend Solana transaction submission failed")
 
             // Turnkey SDK 2.0 populates solana.signature once the tx is Included.
             status.solana?.signature?.takeIf { it.isNotEmpty() }?.let { return it }

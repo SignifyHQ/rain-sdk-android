@@ -66,7 +66,6 @@ fun SampleApp() {
             composable(Screen.Home.route) {
                 HomeScreen(
                     innerPadding = innerPadding,
-                    session = session,
                     selectedChain = selectedChain,
                     onChainSelected = { selectedChain = it },
                     onNavigate = { screen ->

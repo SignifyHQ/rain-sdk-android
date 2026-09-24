@@ -1,5 +1,6 @@
 package com.rain.sdk.internal.error
 
+import com.rain.sdk.error.RainError
 import timber.log.Timber
 
 /**

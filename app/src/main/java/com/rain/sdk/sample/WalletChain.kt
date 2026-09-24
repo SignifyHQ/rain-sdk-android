@@ -144,7 +144,7 @@ enum class WalletChain(
     val tokenAddressLabel: String get() = if (isSolana) "Token mint address" else "Token contract address"
 
     // Naming for [defaultTokenAddress], registered with the SDK at build time. An SPL mint has
-    // no on-chain symbol and the built-in EVM registry is mainnet-only.
+    // no on-chain symbol and the built-in registry has no entry for Fuji USDC or the devnet mint.
     val defaultTokenInfo: TokenInfo
         get() = TokenInfo(
             chainId,

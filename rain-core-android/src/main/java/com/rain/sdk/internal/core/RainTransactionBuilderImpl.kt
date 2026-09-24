@@ -1,8 +1,8 @@
 package com.rain.sdk.internal.core
 
+import com.rain.sdk.error.RainError
 import com.rain.sdk.interfaces.RainTransactionBuilder
 import com.rain.sdk.internal.constants.RainConstants
-import com.rain.sdk.internal.error.RainError
 import com.rain.sdk.internal.network.Web3jProvider
 import com.rain.sdk.internal.utils.RainAmountUtils
 import com.rain.sdk.internal.utils.RainEip712Utils

@@ -2,7 +2,7 @@ package com.rain.sdk.models
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.RainChain
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import org.junit.Assert.assertThrows
 import org.junit.Test
 

@@ -2,7 +2,7 @@ package com.rain.sdk.turnkey
 
 import android.app.Activity
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.turnkey.core.models.AuthState
 import com.turnkey.core.models.OtpType
 import com.turnkey.core.models.errors.TurnkeyKotlinError
@@ -65,7 +65,7 @@ class TurnkeyManagedAuthTest {
     )
 
     /** Turnkey's documented sandbox number, never a real person's. SMS-specific tests live in [TurnkeyManagedAuthSmsTest]. */
-    private val smsContact = LoginContact.Sms("+19999999999")
+    private val smsContact = LoginContact.Phone("+19999999999")
 
     // ---------- one-time-code channel ----------
 
@@ -84,7 +84,7 @@ class TurnkeyManagedAuthTest {
         val turnkey = MockTurnkey(session = null)
         val controller = controller(turnkey)
 
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
 
         assertThat(turnkey.sendOtpCalls).containsExactly(MockTurnkey.SendOtpCall("user@example.com", OtpChannel.EMAIL))
         assertThat(turnkey.awaitReadyCallCount).isEqualTo(1)
@@ -108,7 +108,7 @@ class TurnkeyManagedAuthTest {
         turnkey.onCompleteOtp = { turnkey.authenticate() }
         val controller = controller(turnkey)
 
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
         controller.confirmLoginCode("123456")
 
         val call = turnkey.completeOtpCalls.single()
@@ -148,7 +148,7 @@ class TurnkeyManagedAuthTest {
         val deathsBefore = coordinator.deathEpoch
         val controller = controller(turnkey, coordinator = coordinator)
 
-        controller.sendLoginCode("other@example.com")
+        controller.sendLoginCode(LoginContact.Email("other@example.com"))
         controller.confirmLoginCode("123456")
 
         val fresh = turnkey.completeOtpCalls.single().sessionKey
@@ -169,7 +169,7 @@ class TurnkeyManagedAuthTest {
         turnkey.onCompleteOtp = { turnkey.authenticate() }
         val controller = controller(turnkey)
 
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
         controller.confirmLoginCode("123456")
 
         // Added to the wallet Rain resolves, not minted as a second wallet (a second mnemonic).
@@ -189,7 +189,7 @@ class TurnkeyManagedAuthTest {
         turnkey.onCompleteOtp = { turnkey.authenticate() }
         val controller = controller(turnkey)
 
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
         controller.confirmLoginCode("123456")
 
         val created = turnkey.createWalletCalls.single()
@@ -210,7 +210,7 @@ class TurnkeyManagedAuthTest {
         val turnkey = MockTurnkey()
         turnkey.completeOtpError = rejectedCode()
         val controller = controller(turnkey)
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
 
         expectThrows<RainError.InvalidLoginCode> { controller.confirmLoginCode("000000") }
 
@@ -233,7 +233,7 @@ class TurnkeyManagedAuthTest {
         turnkey.onCompleteOtp = { turnkey.authenticate() }
         turnkey.createWalletError = TurnkeyKotlinError.FailedToCreateWallet(RuntimeException("server 500"))
         val controller = controller(turnkey)
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
 
         val thrown = expectThrows<RainError> { controller.confirmLoginCode("123456") }
 
@@ -255,7 +255,7 @@ class TurnkeyManagedAuthTest {
             TurnkeyKotlinError.FailedToCreateSession(RuntimeException("io"))
         )
         val controller = controller(turnkey)
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
 
         val thrown = expectThrows<RainError> { controller.confirmLoginCode("123456") }
 
@@ -274,7 +274,7 @@ class TurnkeyManagedAuthTest {
             TurnkeyKotlinError.FailedToVerifyOtp(RuntimeException("HTTP error from /v1/otp_verify_v2: 500"))
         )
         val controller = controller(turnkey)
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
 
         val thrown = expectThrows<RainError> { controller.confirmLoginCode("123456") }
         assertThat(thrown).isInstanceOf(RainError.ProviderError::class.java)
@@ -295,7 +295,7 @@ class TurnkeyManagedAuthTest {
             TurnkeyKotlinError.FailedToVerifyOtp(java.io.IOException("unreachable"))
         )
         val controller = controller(turnkey)
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
 
         expectThrows<RainError> { controller.confirmLoginCode("123456") }
 
@@ -311,7 +311,7 @@ class TurnkeyManagedAuthTest {
     fun `a blank code is a caller error, not a rejected code`() = runTest {
         val turnkey = MockTurnkey(session = null)
         val controller = controller(turnkey)
-        controller.sendLoginCode("  user@example.com ")
+        controller.sendLoginCode(LoginContact.Email("  user@example.com "))
 
         expectThrows<RainError.InvalidConfig> { controller.confirmLoginCode("   ") }
 
@@ -341,7 +341,7 @@ class TurnkeyManagedAuthTest {
         val controller = controller(turnkey, coordinator = coordinator)
         coordinator.startMonitoring(backgroundScope)
         runCurrent()
-        controller.sendLoginCode("other@example.com")
+        controller.sendLoginCode(LoginContact.Email("other@example.com"))
 
         expectThrows<RainError> { controller.confirmLoginCode("123456") }
         runCurrent()
@@ -377,7 +377,7 @@ class TurnkeyManagedAuthTest {
         val controller = controller(turnkey, coordinator = coordinator)
         coordinator.startMonitoring(backgroundScope)
         runCurrent()
-        controller.sendLoginCode("other@example.com")
+        controller.sendLoginCode(LoginContact.Email("other@example.com"))
 
         expectThrows<RainError> { controller.confirmLoginCode("123456") }
 
@@ -397,7 +397,7 @@ class TurnkeyManagedAuthTest {
         turnkey.selectSessionAppliesBeforeThrowing = true
         turnkey.selectSessionError = TurnkeyKotlinError.FailedToSetSelectedSession(RuntimeException("refresh 503"))
         val controller = controller(turnkey)
-        controller.sendLoginCode("other@example.com")
+        controller.sendLoginCode(LoginContact.Email("other@example.com"))
 
         expectThrows<RainError> { controller.confirmLoginCode("123456") }
 
@@ -417,7 +417,7 @@ class TurnkeyManagedAuthTest {
         )
         val activity = mockk<Activity>(relaxed = true)
 
-        expectThrows<RainError.InvalidConfig> { controller.sendLoginCode("user@example.com") }
+        expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(LoginContact.Email("user@example.com")) }
         expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(smsContact) }
         expectThrows<RainError.InvalidConfig> { controller.confirmLoginCode("123456") }
         expectThrows<RainError.InvalidConfig> { controller.loginWithPasskey(activity) }
@@ -507,7 +507,7 @@ class TurnkeyManagedAuthTest {
         val controller = controller(turnkey)
 
         expectThrows<RainError.InternalError> { controller.awaitSessionRestore(timeoutMs = 100) }
-        expectThrows<RainError.InternalError> { controller.sendLoginCode("user@example.com") }
+        expectThrows<RainError.InternalError> { controller.sendLoginCode(LoginContact.Email("user@example.com")) }
     }
 
     @Test
@@ -519,7 +519,7 @@ class TurnkeyManagedAuthTest {
         val controller = controller(turnkey)
 
         expectThrows<RainError.InternalError> { controller.awaitSessionRestore(timeoutMs = 100) }
-        expectThrows<RainError.InternalError> { controller.sendLoginCode("user@example.com") }
+        expectThrows<RainError.InternalError> { controller.sendLoginCode(LoginContact.Email("user@example.com")) }
     }
 
     @Test
@@ -528,7 +528,7 @@ class TurnkeyManagedAuthTest {
         turnkey.awaitReadyGate = CompletableDeferred()
         val controller = controller(turnkey)
 
-        expectThrows<RainError.InternalError> { controller.sendLoginCode("user@example.com") }
+        expectThrows<RainError.InternalError> { controller.sendLoginCode(LoginContact.Email("user@example.com")) }
         assertThat(turnkey.sendOtpCalls).isEmpty()
     }
 
@@ -543,7 +543,7 @@ class TurnkeyManagedAuthTest {
         // would keep runTest advancing virtual time forever once the test body finishes.
         coordinator.startMonitoring(backgroundScope)
         runCurrent()
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
 
         controller.logout()
         // Read before the scheduler runs anything else. The vendor flips its auth state, selected
@@ -576,7 +576,7 @@ class TurnkeyManagedAuthTest {
         val controller = controller(turnkey, coordinator = coordinator)
         coordinator.startMonitoring(backgroundScope)
         runCurrent()
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
 
         expectThrows<RainError> { controller.logout() }
 
@@ -617,17 +617,17 @@ class TurnkeyManagedAuthTest {
         val controller = controller(turnkey)
 
         turnkey.sendOtpError = RuntimeException("boom")
-        expectThrows<RainError> { controller.sendLoginCode("user@example.com") }
+        expectThrows<RainError> { controller.sendLoginCode(LoginContact.Email("user@example.com")) }
         expectThrows<RainError> { controller.sendLoginCode(smsContact) }
         turnkey.sendOtpError = null
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
 
         turnkey.completeOtpError = RuntimeException("boom")
         expectThrows<RainError> { controller.confirmLoginCode("123456") }
         turnkey.completeOtpError = null
 
         // That failure spent the code, so a new challenge is needed before provisioning can run.
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
         turnkey.onCompleteOtp = { turnkey.authenticate() }
         turnkey.createWalletError = RuntimeException("boom")
         expectThrows<RainError> { controller.confirmLoginCode("123456") }
@@ -642,7 +642,7 @@ class TurnkeyManagedAuthTest {
         val gate = CompletableDeferred<Unit>()
         turnkey.onCompleteOtp = { gate.await() }
         val controller = controller(turnkey)
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
 
         var caught: Throwable? = null
         val job = launch {
@@ -665,7 +665,7 @@ class TurnkeyManagedAuthTest {
         val turnkey = MockTurnkey(session = null)
         turnkey.completeOtpError = TurnkeyKotlinError.FailedToLoginOrSignUpWithOtp(CancellationException("inner job"))
         val controller = controller(turnkey)
-        controller.sendLoginCode("user@example.com")
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
 
         val thrown = expectThrows<RainError> { controller.confirmLoginCode("123456") }
 
@@ -682,7 +682,7 @@ class TurnkeyManagedAuthTest {
 
         controller.close()
 
-        expectThrows<RainError.InvalidConfig> { controller.sendLoginCode("user@example.com") }
+        expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(LoginContact.Email("user@example.com")) }
         expectThrows<RainError.InvalidConfig> { controller.sendLoginCode(smsContact) }
         expectThrows<RainError.InvalidConfig> { controller.confirmLoginCode("123456") }
         expectThrows<RainError.InvalidConfig> { controller.loginWithPasskey(activity) }

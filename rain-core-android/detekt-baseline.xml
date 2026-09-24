@@ -145,14 +145,12 @@
     <ID>TooGenericExceptionThrown:RainSdkManagerSendTokenTest.kt:RainSdkManagerSendTokenTest.&lt;no name provided>$throw RuntimeException("rpc 503")</ID>
     <ID>TooGenericExceptionThrown:RainSdkManagerWalletInfoTest.kt:RainSdkManagerWalletInfoTest.&lt;no name provided>$throw RuntimeException("network down")</ID>
     <ID>TooGenericExceptionThrown:RainSdkManagerWalletInfoTest.kt:RainSdkManagerWalletInfoTest.&lt;no name provided>$throw RuntimeException("service unavailable")</ID>
-    <ID>TooManyFunctions:EthereumConverter.kt:EthereumConverter</ID>
     <ID>TooManyFunctions:EvmChainReader.kt:EvmChainReader : ChainReader</ID>
     <ID>TooManyFunctions:RainClient.kt:RainClient</ID>
     <ID>TooManyFunctions:RainSdkManager.kt:RainSdkManager : RainClient</ID>
     <ID>TooManyFunctions:SolanaChainReader.kt:SolanaChainReader : ChainReader</ID>
     <ID>TooManyFunctions:SolanaRpcClient.kt:SolanaRpcClient</ID>
     <ID>TooManyFunctions:WalletProvider.kt:WalletProvider</ID>
-    <ID>UseOrEmpty:RainClient.kt:RainClient$(balance.token as? Token.Contract)?.address ?: ""</ID>
     <ID>UseOrEmpty:SolanaRpcClient.kt:SolanaRpcClient$value.optJSONArray("logs")?.let { array -> (0 until array.length()).mapNotNull { array.optString(it, "").ifEmpty { null } } } ?: emptyList()</ID>
     <ID>UseOrEmpty:TokenRegistry.kt:TokenRegistry$tokensByChainId[chainId] ?: emptyList()</ID>
     <ID>VariableNaming:RainAuthPullConfigTest.kt:RainAuthPullConfigTest$/** A real EVM chain that is not an Auth Pull chain in either environment. */ private val ETHEREUM_MAINNET = 1</ID>

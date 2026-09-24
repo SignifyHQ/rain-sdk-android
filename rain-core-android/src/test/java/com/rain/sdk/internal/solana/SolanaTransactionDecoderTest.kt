@@ -120,7 +120,7 @@ class SolanaTransactionDecoderTest {
             data[1 + i] = (amount and 0xFF).toByte()
             amount = amount ushr 8
         }
-        val hex = SolanaTransactionBuilder.buildUnsignedHex(
+        val hex = unsignedHex(
             feePayer = fromBytes,
             recentBlockhash = blockhash,
             instructions = listOf(
@@ -195,8 +195,13 @@ class SolanaTransactionDecoderTest {
                 )
             )
         }
-        return SolanaTransactionBuilder.buildUnsignedHex(fromBytes, blockhash, instructions)
+        return unsignedHex(fromBytes, blockhash, instructions)
     }
+
+    private fun unsignedHex(feePayer: ByteArray, recentBlockhash: String, instructions: List<Instruction>): String =
+        SolanaTransactionBuilder.hexEncode(
+            SolanaTransactionBuilder.buildUnsignedTransaction(feePayer, recentBlockhash, instructions)
+        )
 
     private fun hexToBytes(hex: String): ByteArray =
         ByteArray(hex.length / 2) { i ->

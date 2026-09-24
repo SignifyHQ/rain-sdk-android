@@ -1,8 +1,8 @@
 package com.rain.sdk.turnkey
 
 import com.rain.sdk.RainChain
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.constants.SolanaChains
-import com.rain.sdk.internal.error.RainError
 
 /**
  * The chains Turnkey's managed transaction path can broadcast (and gas-sponsor) on.
@@ -13,12 +13,14 @@ import com.rain.sdk.internal.error.RainError
  * call, so [requireSendSupport] refuses it up front with [RainError.ChainNotSupported].
  *
  * Reads (balances, history, fee estimation) are deliberately NOT gated here; they need an RPC
- * endpoint registered for the chain (some balances also come from Turnkey's own indexer).
+ * endpoint registered for the chain (some balances also come from Turnkey's own indexer). Nor is
+ * `prepareWithdrawal`, which signs (EVM) or composes (Solana) but never broadcasts: its result is
+ * what a host submits itself.
  * Avalanche, for example, is read-only but fully readable.
  *
  * Source of truth: Turnkey's transaction-management broadcasting documentation
  * (https://docs.turnkey.com/features/transaction-management). When Turnkey adds a network,
- * extend this list and mirror the change in rain-sdk-ios.
+ * extend this list; the chain set is a cross-platform contract shared by Rain's SDKs.
  *
  * This list is the VENDOR's capability, not Rain's product offering — those are different
  * questions. Rain's supported chains and tokens live at

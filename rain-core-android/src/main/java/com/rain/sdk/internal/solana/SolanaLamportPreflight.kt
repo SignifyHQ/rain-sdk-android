@@ -1,7 +1,7 @@
 package com.rain.sdk.internal.solana
 
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.RainAdapterApi
-import com.rain.sdk.internal.error.RainError
 import timber.log.Timber
 import java.math.BigInteger
 
@@ -49,7 +49,11 @@ object SolanaLamportPreflight {
                 lamports.toString(),
                 required
             )
-            throw RainError.InsufficientFunds()
+            throw RainError.InsufficientFunds(
+                required = SolanaConverter.lamportsToSol(BigInteger.valueOf(required)),
+                available = SolanaConverter.lamportsToSol(lamports),
+                currency = "SOL"
+            )
         }
     }
 }

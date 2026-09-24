@@ -2,7 +2,7 @@ package com.rain.sdk.wallet
 
 import android.app.Application
 import com.google.common.truth.Truth.assertThat
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.turnkey.LoginContact
 import com.rain.sdk.turnkey.TurnkeyAuthState
 import com.rain.sdk.turnkey.TurnkeySessionPolicy
@@ -91,18 +91,18 @@ class RainWalletMappingTest {
     fun `contacts map to the matching backing contact with the value unchanged`() {
         assertThat(RainWalletContact.Email("User@Example.com").toBacking())
             .isEqualTo(LoginContact.Email("User@Example.com"))
-        assertThat(RainWalletContact.Sms("+1 (555) 123-4567").toBacking())
-            .isEqualTo(LoginContact.Sms("+1 (555) 123-4567"))
+        assertThat(RainWalletContact.Phone("+1 (555) 123-4567").toBacking())
+            .isEqualTo(LoginContact.Phone("+1 (555) 123-4567"))
     }
 
     @Test
     fun `contacts compare by value and hide it in toString`() {
         assertThat(RainWalletContact.Email("a@b.c")).isEqualTo(RainWalletContact.Email("a@b.c"))
         assertThat(RainWalletContact.Email("a@b.c").hashCode()).isEqualTo(RainWalletContact.Email("a@b.c").hashCode())
-        assertThat(RainWalletContact.Email("a@b.c")).isNotEqualTo(RainWalletContact.Sms("a@b.c"))
-        assertThat(RainWalletContact.Email("a@b.c").hashCode()).isNotEqualTo(RainWalletContact.Sms("a@b.c").hashCode())
+        assertThat(RainWalletContact.Email("a@b.c")).isNotEqualTo(RainWalletContact.Phone("a@b.c"))
+        assertThat(RainWalletContact.Email("a@b.c").hashCode()).isNotEqualTo(RainWalletContact.Phone("a@b.c").hashCode())
         assertThat(RainWalletContact.Email("a@b.c").toString()).doesNotContain("a@b.c")
-        assertThat(RainWalletContact.Sms("+15551234567").toString()).doesNotContain("555")
+        assertThat(RainWalletContact.Phone("+15551234567").toString()).doesNotContain("555")
     }
 
     @Test

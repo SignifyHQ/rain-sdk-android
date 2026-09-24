@@ -13,7 +13,7 @@ import androidx.credentials.exceptions.domerrors.NotAllowedError
 import androidx.credentials.exceptions.domerrors.SecurityError
 import androidx.credentials.exceptions.publickeycredential.CreatePublicKeyCredentialDomException
 import androidx.credentials.exceptions.publickeycredential.GetPublicKeyCredentialDomException
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.error.VendorErrorClassifier
 import com.turnkey.core.models.errors.TurnkeyKotlinError
 import com.turnkey.passkey.utils.TurnkeyPasskeyError

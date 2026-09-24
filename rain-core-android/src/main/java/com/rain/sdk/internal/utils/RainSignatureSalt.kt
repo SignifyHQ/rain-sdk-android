@@ -1,6 +1,6 @@
 package com.rain.sdk.internal.utils
 
-import com.rain.sdk.internal.error.RainError
+import com.rain.sdk.error.RainError
 import java.util.Base64
 
 /**
