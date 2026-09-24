@@ -15,6 +15,7 @@ import com.rain.sdk.sample.SampleLog
 import com.rain.sdk.sample.WalletChain
 import com.rain.sdk.sample.WithdrawalSignatureRequest
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,11 +33,15 @@ class CollateralWithdrawViewModel(
     private val _state = MutableStateFlow(CollateralWithdrawUiState())
     val state: StateFlow<CollateralWithdrawUiState> = _state.asStateFlow()
 
+    /** The contract load in flight, so a second call (a chain switch) supersedes the first instead of racing it. */
+    private var loadJob: Job? = null
+
     fun loadContractInfo(chain: WalletChain = WalletChain.EVM) {
         SampleLog.i("Withdraw.contract", "loading contract info chain=${chain.displayName}")
         _state.update { it.withoutResults().copy(isLoadingContract = true, errorText = null) }
 
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             try {
                 val walletAddress = rainClient.getWalletAddress(chain.chainId)
                 SampleLog.d("Withdraw.contract", "wallet address=$walletAddress")
@@ -168,8 +173,9 @@ class CollateralWithdrawViewModel(
      */
     fun estimateFee(amountOverride: BigDecimal? = null) {
         runWithdrawFlow(amountOverride, "Withdraw.estimate") { addresses, amountBd, decimals, adminSig ->
+            val chainId = _state.value.chainId
             val fee = rainClient.estimateWithdrawalFee(
-                chainId = _state.value.chainId,
+                chainId = chainId,
                 addresses = addresses,
                 amount = amountBd,
                 decimals = decimals,
@@ -178,7 +184,7 @@ class CollateralWithdrawViewModel(
             _state.update {
                 it.copy(
                     isWithdrawing = false,
-                    estimatedFee = feeDisplay(fee),
+                    estimatedFee = feeDisplay(fee, chainId),
                     feeNote = feeNote(sponsored = sponsorsFees(), fromPrepared = false)
                 )
             }
@@ -211,7 +217,7 @@ class CollateralWithdrawViewModel(
             _state.update {
                 it.copy(
                     isWithdrawing = false,
-                    estimatedFee = feeDisplay(fee),
+                    estimatedFee = feeDisplay(fee, current.chainId),
                     feeNote = feeNote(sponsored = sponsorsFees(), fromPrepared = true)
                 )
             }
@@ -221,13 +227,15 @@ class CollateralWithdrawViewModel(
     /** The provider-wide capability; the SDK's per-chain refinement is not on `RainClient`. */
     private fun sponsorsFees(): Boolean = Capability.GAS_SPONSORSHIP in rainClient.capabilities
 
-    private fun feeDisplay(fee: BigDecimal): String = "${fee.stripTrailingZeros().toPlainString()} ${nativeSymbol()}"
+    /** Labelled with the chain the quote was made for, not the chain on screen when it returns. */
+    private fun feeDisplay(fee: BigDecimal, chainId: Int): String =
+        "${fee.stripTrailingZeros().toPlainString()} ${nativeSymbol(chainId)}"
 
     private fun truncate(value: String): String =
         if (value.length > 40) "${value.take(24)}…${value.takeLast(12)}" else value
 
-    private fun nativeSymbol(): String =
-        WalletChain.entries.firstOrNull { it.chainId == _state.value.chainId }?.nativeSymbol ?: ""
+    private fun nativeSymbol(chainId: Int): String =
+        WalletChain.entries.firstOrNull { it.chainId == chainId }?.nativeSymbol.orEmpty()
 
     /**
      * Executes a collateral withdrawal. Gas estimation is handled internally by the SDK as

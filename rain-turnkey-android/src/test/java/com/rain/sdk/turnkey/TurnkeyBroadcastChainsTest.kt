@@ -14,7 +14,8 @@ import org.junit.Test
  * so unlike the adapter tests this runs on any JDK.
  *
  * A failure here after editing the list means the send gate's coverage changed: confirm the
- * change against Turnkey's broadcasting docs and mirror it in the iOS SDK before fixing.
+ * change against Turnkey's broadcasting docs before fixing; the chain set is a cross-platform
+ * contract shared by Rain's SDKs.
  */
 class TurnkeyBroadcastChainsTest {
 
@@ -113,7 +114,7 @@ class TurnkeyBroadcastChainsTest {
         // mainnet Turnkey constructs, signs, broadcasts, and sponsors on, with its test network.
         // A failure here means the registry dropped a documented network. This list cannot notice
         // Turnkey adding one: re-check the page when they announce coverage changes, then update
-        // the registry, this list, and the iOS mirror together.
+        // the registry and this list together.
         val documented = mapOf(
             "Ethereum" to listOf(1, 11155111),
             "Optimism" to listOf(10, 11155420),

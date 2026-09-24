@@ -57,6 +57,12 @@ interface RainClient {
      * @param adminSignature Rain's authorization for this withdrawal, fetched by the host from the Rain API
      * @param nonce Optional nonce; resolved from the contract when null
      * @return The transaction hash (EVM) or transaction signature (Solana)
+     * @throws RainError.ChainNotSupported (`RAIN_104`) when the provider cannot broadcast on [chainId]
+     * @throws RainError.WithdrawalRevertedByNetwork (`RAIN_405`) when the network rejected the withdrawal,
+     *   in the dry run or after broadcast
+     * @throws RainError.InsufficientFunds (`RAIN_402`) when the wallet cannot pay the amount, the fee or the rent
+     * @throws RainError.ProviderError (`RAIN_501`) for a provider failure; [RainError.InternalError] (`RAIN_502`)
+     *   for one nothing mapped
      */
     @Throws(RainError::class)
     suspend fun withdrawCollateral(
@@ -70,8 +76,11 @@ interface RainClient {
 
     /**
      * Builds a collateral withdrawal without broadcasting it. Takes the same parameters as
-     * [withdrawCollateral]. See [RainPreparedWithdrawal] for what this does and does not do
-     * offline, and for the Solana blockhash lifetime.
+     * [withdrawCollateral]. Not gated on the provider's broadcast chains: preparing never broadcasts,
+     * so it works where [withdrawCollateral] throws [RainError.ChainNotSupported]. On Solana the fee
+     * check and the dry run always run, because the prepared transaction is the host's own self-paid
+     * submission. See [RainPreparedWithdrawal] for what this does and does not do offline, and for
+     * the Solana blockhash lifetime.
      */
     @Throws(RainError::class)
     suspend fun prepareWithdrawal(
@@ -113,7 +122,7 @@ interface RainClient {
      * @param from The sender address
      * @param to The target contract address
      * @param data The transaction data (hex-encoded)
-     * @return Estimated gas fee in ETH
+     * @return Estimated gas fee in the chain's native token
      * @throws RainError if estimation fails
      */
     @Throws(RainError::class)
@@ -313,7 +322,8 @@ interface RainClient {
     /**
      * Estimates the total fee (estimated gas x gas price) to submit the approval, in the chain's
      * native token. Same parameters as [approveTokenAllowance]; nothing is broadcast and no
-     * signature is requested.
+     * signature is requested. On a provider that sponsors fees the quote is what the wallet would
+     * pay itself; a sponsor pays instead and its own cost is not quoted.
      */
     @Throws(RainError::class)
     suspend fun estimateApprovalFee(

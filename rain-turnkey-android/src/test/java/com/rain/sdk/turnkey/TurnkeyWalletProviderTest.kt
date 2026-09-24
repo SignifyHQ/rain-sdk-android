@@ -99,6 +99,20 @@ class TurnkeyWalletProviderTest {
     }
 
     @Test
+    fun `signTypedData signs on a chain Turnkey cannot broadcast on and sends nothing`() = runBlocking {
+        // prepareWithdrawal on Avalanche is the host's own-RPC path: the signature comes back and no
+        // send starts, however the adapter gates its sends.
+        val turnkey = MockTurnkey()
+        val provider = makeProvider(turnkey = turnkey)
+
+        val signature = provider.signTypedData(chainId = 43114, walletAddress = "0xabc", typedDataJson = """{"types":{}}""")
+
+        assertThat(signature).startsWith("0x")
+        assertThat(turnkey.signRawPayloadCalls).hasSize(1)
+        assertThat((turnkey.turnkeyClient as MockTurnkeyClient).ethSendTransactionCalls).isEmpty()
+    }
+
+    @Test
     fun `signTypedData formats signature as 0x-prefixed 65 bytes`() = runBlocking {
         val turnkey = MockTurnkey(
             mockSignature = V1SignRawPayloadResult(

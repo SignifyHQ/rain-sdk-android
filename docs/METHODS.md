@@ -189,8 +189,7 @@ vendor-shaped details are worth knowing:
 - **`chainId`.** `PortalConfig.chainId` feeds portal-android's **required** `legacyEthChainId`
   constructor parameter, so the adapter must supply one; the field lets the host pick it instead of
   guessing. Omit it and the adapter falls back to Avalanche mainnet when configured, else the first
-  configured chain. PortalSwift 7.x takes no such parameter, so iOS's `PortalConfig` has no
-  `chainId` — an intentional, vendor-imposed divergence, not a parity gap.
+  configured chain.
 
 **Bring your own provider:** implement the `WalletProvider` port and a `ProviderDescriptor`
 (with your own `ProviderId`), then `register(...)` it; only `rain-core-android` is needed, and the root
@@ -317,7 +316,7 @@ accounts are supported; the wallet must be the account's owner.
   its managed-broadcast coverage throws `RainError.ChainNotSupported` (`RAIN_104`) before anything
   is read or signed. A fee-sponsored withdrawal skips the self-paid dry run; a status the provider
   reports with decoded revert details, failed before inclusion or included and reverted, surfaces as
-  `WithdrawalRevertedByNetwork` (the transaction hash rides in the message once included), and a
+  `WithdrawalRevertedByNetwork` (the transaction hash rides on `transactionId` and in the message once included), and a
   failed status without them is `ProviderError`. On Solana, a recipient
   without a token account costs the owner rent, checked up front (`InsufficientFunds`). A raw
   provider failure during the Solana wallet-address read or send passes through the adapter's
@@ -350,11 +349,14 @@ Not gated on the provider's broadcast chains: preparing signs and composes but n
 it works on a chain the provider cannot send on (Avalanche with the Turnkey and Rain wallet
 providers). The EVM result is an unsigned envelope whose `data` carries the typed-data signature; a
 host signs it with the wallet's key and submits it through its own RPC there. `withdrawCollateral`
-on the same chain still throws `RAIN_104`.
+on the same chain still throws `RAIN_104`. On Solana the fee check and the dry run always run, whatever
+the provider sponsors, because the prepared transaction is the host's own self-paid submission.
 
 - **Returns:** `RainPreparedWithdrawal` — `Evm(RainTransactionParameters)` carrying a complete,
   submittable transaction (`from` / `to` / `value` / `data`), or `Solana(UnsignedSolanaTransfer)`
-  carrying the serialized unsigned transaction plus its `recentBlockhash`.
+  carrying the serialized unsigned transaction (`transaction`, or `transactionHex`), its
+  `recentBlockhash`, and `createsRecipientAccount`, true when the transfer creates the recipient's
+  token account, whose rent the sender pays even when the fee is sponsored.
 - **Throws:** `RainError` if construction or signing fails. On Solana, the wallet-address read passes
   through the adapter's session coordinator on Turnkey and Privy, so a raw provider failure there
   arrives as its mapping: `ProviderError` (`RAIN_501`), `Unauthorized` (`RAIN_202`) for a Turnkey
@@ -362,7 +364,8 @@ on the same chain still throws `RAIN_104`.
   (`RAIN_502`).
 - **Suspend:** Yes
 
-> A Solana blockhash is valid for roughly 150 slots (60–90 seconds). Submit promptly or re-prepare.
+> A Solana blockhash lives for roughly 150 slots, 60 to 90 seconds. The SDK fetches it at `finalized`
+> commitment, so about 13 seconds have passed when the preparation returns. Submit promptly or prepare again.
 
 Use `evmParameters` / `solanaTransfer` to read the payload without writing a `when`.
 
@@ -818,7 +821,7 @@ on the Rain wallet's `RainProvider`, see [Turnkey key export](#turnkey-key-expor
 | `RECOVERY` | The wallet supports a recovery ceremony. |
 | `MULTI_CHAIN` | The provider holds accounts across multiple chain families (e.g. EVM + Solana). |
 | `BIOMETRIC_GATE` | Signing is gated behind a device biometric / passkey prompt. No bundled provider advertises it; it is available to host-supplied providers. |
-| `GAS_SPONSORSHIP` | The provider's sends are fee-sponsored (a third party pays the network fee), so core skips the self-paid preflight that would charge the fee to the wallet, the Solana withdrawal dry run; fee estimates are not affected and quote what the wallet would pay itself. Core's operative, per-chain check is `WalletProvider.sponsorsFees(chainId)`, which defaults to this capability. |
+| `GAS_SPONSORSHIP` | The provider's sends are fee-sponsored (a third party pays the network fee), so core skips the self-paid preflight that would charge the fee to the wallet, the Solana withdrawal dry run on `withdrawCollateral` (`prepareWithdrawal` always runs it, since the host submits and pays); fee estimates are not affected and quote what the wallet would pay itself. Core's operative, per-chain check is `WalletProvider.sponsorsFees(chainId)`, which defaults to this capability. |
 
 Bundled providers: **Portal** → `EXPORT`, `RECOVERY`. **Turnkey** → `EXPORT`, `MULTI_CHAIN`, plus
 `GAS_SPONSORSHIP` while `sponsorGas` is on (the default). **Rain wallet** →
@@ -941,6 +944,7 @@ pre-set to `"0x0"`. Hosts can hand the result to any provider for signing / broa
 | **`RainWithdrawAddresses`** | `proxyAddress`, `controllerAddress`, `tokenAddress`, `recipientAddress`. Has `validated()` method for address checksumming. |
 | **`RainAdminSignature`** | Rain's authorization for one withdrawal, passed through unchanged: `salt` (base64, 32 bytes on every chain), `signature` (EVM: 0x-hex, 65 bytes; Solana: base64, 64 bytes), `expiresAt` (unix seconds, or an ISO-8601 instant with Z or a numeric offset). |
 | **`RainPreparedWithdrawal`** | Sealed: `Evm(parameters: RainTransactionParameters)` or `Solana(transfer: UnsignedSolanaTransfer)`. Has `evmParameters` / `solanaTransfer` accessors. |
+| **`UnsignedSolanaTransfer`** | The Solana half of a prepared withdrawal: `transaction` (the serialized unsigned transaction, a defensive copy), `transactionHex` (the same bytes as hex without `0x`), `recentBlockhash` (base58; see the blockhash note under `prepareWithdrawal`), `createsRecipientAccount` (true when the transfer creates the recipient's token account, whose rent the sender pays even when the fee is sponsored). |
 | **`RainTokenTransferResult`** | `transactionHash` (String). Returned by `sendNative` and `sendToken`. |
 | **`RainTokenApprovalResult`** | `transactionHash` (String): hash of the ERC-20 `approve` call. Returned by `approveTokenAllowance`. |
 | **`RainTokenAllowance`** | Exact allowance value type; see [RainTokenAllowance value type](#raintokenallowance-value-type). |
@@ -948,7 +952,7 @@ pre-set to `"0x0"`. Hosts can hand the result to any provider for signing / broa
 | **`RainAuthPullChains`** | The Auth Pull chain sets by environment: `SANDBOX` (Base Sepolia, Arbitrum Sepolia), `PRODUCTION` (Base, Arbitrum). They answer for an *environment*; gate UI on `authPullChainIds`, which answers for the built SDK. |
 | **`NetworkConfig`** | `chainId`, `rpcUrl`, `networkName?`; `eip155ChainId` renders `eip155:<chainId>`, and `NetworkConfig.fromEip155(...)` parses that form. Accepted by `Builder.rpcEndpoints(List<NetworkConfig>)`. |
 | **`RainTransactionParameters`** | `from`, `to`, `value` (hex wei), `data` (hex calldata). Wallet-agnostic transaction parameter bag returned by `RainSdk.buildTransactionParameters`. |
-| **`RainTransaction`** | Transaction record: `hash`, `uniqueId`, `blockNumber`, `timestamp`, `from`, `to`, `value`, `asset`, `tokenAddress`, `rawValue`, `decimals`, `category`, `chainId`, `metadata`. Identical in shape to the iOS type. |
+| **`RainTransaction`** | Transaction record: `hash`, `uniqueId`, `blockNumber`, `timestamp`, `from`, `to`, `value`, `asset`, `tokenAddress`, `rawValue`, `decimals`, `category`, `chainId`, `metadata`. |
 | **`RainTransactionCategory`** | Extensible constant: `External`, `Token`, `Erc20`, `Erc721`, `Erc1155`, `ContractInternal`. |
 | **`RainTransactionOrder`** | Enum: `.ASC`, `.DESC`. Used in `getTransactions(..., order:)`. |
 | **`RainChain`** | Constants: `AVALANCHE_MAINNET` (43114), `AVALANCHE_TESTNET` (43113), `BASE_MAINNET` (8453), `BASE_SEPOLIA` (84532), `ARBITRUM_MAINNET` (42161), `ARBITRUM_SEPOLIA` (421614), plus the Solana sentinels. |
@@ -957,7 +961,7 @@ pre-set to `"0x0"`. Hosts can hand the result to any provider for signing / broa
 
 ## Errors
 
-All methods can throw `RainError` (sealed class). Each error carries a `code` string (`RAIN_xxx`) for programmatic handling and a typed `errorCode`.
+All methods can throw `com.rain.sdk.error.RainError` (sealed class). Each error carries a `code` string (`RAIN_xxx`) for programmatic handling and a typed `errorCode`.
 
 Format: `"RainSDK Error [CODE]: message"`
 
@@ -973,10 +977,10 @@ Format: `"RainSDK Error [CODE]: message"`
 | `RAIN_301` | `RainError.NetworkError` | Network/connectivity failure. |
 | `RAIN_302` | `RainError.TransactionPending` | Submitted, not yet confirmed. `statusId` is what to resume from (status id, UserOperation hash, or transaction hash). Do not resend. |
 | `RAIN_401` | `RainError.UserRejected` | User cancelled the signing request in the wallet, or ended the passkey sheet without a passkey (dismissed it, or the device holds none for the domain). |
-| `RAIN_402` | `RainError.InsufficientFunds` / `RainError.InsufficientTokenBalance` / `RainError.TokenAccountNotFound` | Balance too low for the requested amount or gas; a token balance below the requested amount (`InsufficientTokenBalance`); a Solana sender with no token account for the mint (`TokenAccountNotFound`). `InsufficientFunds` carries `required` and `available` as `BigDecimal?` in the native currency's human units: the Solana preflight fills them (fee plus token-account rent, or rent alone when the fee is sponsored), and every EVM path, which maps vendor prose without amounts, leaves them null. A Solana send the wallet backend refused for a fee or rent shortfall arrives here too. |
-| `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight `eth_call` simulation failed (e.g. contract revert, insufficient funds), or the wallet backend's send status carried decoded revert details (an EVM revert chain, whether the transaction failed before inclusion or was included and reverted, or a Solana `InstructionError`); a failed status without them is `ProviderError`, and a Solana fee or rent shortfall is `InsufficientFunds`. |
+| `RAIN_402` | `RainError.InsufficientFunds` / `RainError.InsufficientTokenBalance` / `RainError.TokenAccountNotFound` | Balance too low for the requested amount or gas; a token balance below the requested amount (`InsufficientTokenBalance`, with `requested` and `available` as `BigDecimal` in the token's units); a Solana sender with no token account for the mint (`TokenAccountNotFound`). `InsufficientFunds` carries `required` and `available` as `BigDecimal?` in the native currency's human units: the Solana preflight fills them (fee plus token-account rent, or rent alone when the fee is sponsored), and every EVM path, which maps vendor prose without amounts, leaves them null. `currency` names the unit when the amounts are known (`SOL`). A Solana send the wallet backend refused for a fee or rent shortfall arrives here too, with `required`, `available` and `currency` null. |
+| `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight `eth_call` simulation failed (e.g. contract revert, insufficient funds), or the wallet backend's send status carried decoded revert details (an EVM revert chain, whether the transaction failed before inclusion or was included and reverted, or a Solana `InstructionError` or the runtime's `Program <id> failed` log line), with `transactionId` set once the transaction was included; a failed status without them is `ProviderError`, and a Solana fee or rent shortfall is `InsufficientFunds`. |
 | `RAIN_404` | `RainError.WalletUnavailable` | The backing provider returned no usable wallet address (e.g. Turnkey context has no Ethereum account), or, for a Turnkey or Rain wallet key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors). |
-| `RAIN_405` | `RainError.WithdrawalRevertedByNetwork` | Withdrawal reverted on-chain (e.g. duplicate withdrawal, already-used signature). A fee-sponsored withdrawal skips the dry run; a send status carrying decoded revert details maps here too, with the transaction hash in the message once the transaction was included, and one without them is `RAIN_501`. |
+| `RAIN_405` | `RainError.WithdrawalRevertedByNetwork` | Withdrawal reverted on-chain (e.g. duplicate withdrawal, already-used signature). A fee-sponsored withdrawal skips the dry run; a send status carrying decoded revert details maps here too, with the transaction hash on `transactionId` and in the message once the transaction was included, and one without them is `RAIN_501`. |
 | `RAIN_406` | `RainError.InvalidAmount` | The amount is invalid for the token — negative, more decimal places than the token supports, or past `uint256` max. |
 | `RAIN_407` | `RainError.WalletNotAuthorized` | The wallet is not an admin of the collateral contract; checked before a withdrawal is signed. |
 | `RAIN_501` | `RainError.ProviderError` | Portal, Turnkey, or other provider error; for a Turnkey or Rain wallet key export, the cases under [Key export errors](TURNKEY_SUPPORT.md#key-export-errors); a passkey ceremony, login or sign-up the device or the backend refused for another reason, an HTTP status inside a passkey login or sign-up included (no session exists yet, so it is never `RAIN_201` or `RAIN_202`); a contact code request or contact update the backend refused. |

@@ -78,7 +78,7 @@ internal class TransactionCoordinator(
         try {
             block()
         } catch (e: RainError.TransactionSimulationFailed) {
-            throw RainError.WithdrawalRevertedByNetwork(cause = e)
+            throw RainError.WithdrawalRevertedByNetwork(cause = e, transactionId = e.transactionId)
         } catch (e: RainError) {
             throw e
         } catch (e: Exception) {

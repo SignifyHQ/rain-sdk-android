@@ -113,18 +113,28 @@ sealed class RainError(
 
     /**
      * The wallet holds less of the chain's native currency than the amount, the network fee or the
-     * account rent needs. [required] and [available] are in the currency's human units (ETH, SOL):
-     * the Solana preflight fills them, and every EVM path, which maps vendor prose without amounts,
-     * leaves them null.
+     * account rent needs. [required] and [available] are in the currency's human units and
+     * [currency] names that unit: the Solana preflight fills all three (`SOL`); the wallet backend's
+     * report of a shortfall after a sponsored Solana send, and every EVM path, which maps vendor
+     * prose without amounts, leave them null.
      */
-    class InsufficientFunds(val required: BigDecimal? = null, val available: BigDecimal? = null) :
-        RainError(
-            RainErrorCode.INSUFFICIENT_FUNDS,
-            "Insufficient funds for the amount, the network fee or account rent: " +
-                "required ${required?.toPlainString() ?: "unknown"}, available ${available?.toPlainString() ?: "unknown"}"
-        )
+    class InsufficientFunds(
+        val required: BigDecimal? = null,
+        val available: BigDecimal? = null,
+        val currency: String? = null
+    ) : RainError(
+        RainErrorCode.INSUFFICIENT_FUNDS,
+        "Insufficient funds for the amount, the network fee or account rent: " +
+            "required ${amountText(required, currency)}, available ${amountText(available, currency)}"
+    )
 
-    class TransactionSimulationFailed(cause: Throwable?) :
+    /**
+     * The chain refused the transaction: the dry run reverted before anything was signed, or the
+     * provider reported a transaction that failed or reverted after broadcast. [transactionId] is the
+     * hash or signature of a transaction the network included and reverted, when the provider named
+     * one; null for a dry run.
+     */
+    class TransactionSimulationFailed(cause: Throwable?, val transactionId: String? = null) :
         RainError(
             RainErrorCode.TRANSACTION_SIMULATION_FAILED,
             "Transaction simulation failed: ${cause?.message}",
@@ -140,11 +150,14 @@ sealed class RainError(
 
     /**
      * Withdrawal transaction reverted on-chain (e.g. duplicate withdrawal in a short window,
-     * already-used signature, contract guard tripped).
+     * already-used signature, contract guard tripped). [transactionId] is the hash or signature of
+     * a withdrawal the network included and reverted, when the provider named one; null when the
+     * dry run caught it.
      */
     class WithdrawalRevertedByNetwork(
         details: String = "Withdrawal reverted by the network",
-        cause: Throwable? = null
+        cause: Throwable? = null,
+        val transactionId: String? = null
     ) :
         RainError(RainErrorCode.WITHDRAWAL_REVERTED_BY_NETWORK, details, cause)
 
@@ -177,12 +190,12 @@ sealed class RainError(
      * chain's native currency.
      */
     class InsufficientTokenBalance(
-        val requested: String,
-        val available: String,
+        val requested: BigDecimal,
+        val available: BigDecimal,
         val token: String
     ) : RainError(
         RainErrorCode.INSUFFICIENT_FUNDS,
-        "Insufficient balance for $token: requested $requested, available $available"
+        "Insufficient balance for $token: requested ${requested.toPlainString()}, available ${available.toPlainString()}"
     )
 
     /**
@@ -214,3 +227,7 @@ sealed class RainError(
 /** The one message for a chain the SDK was not built with, shared by the RPC-backed paths. */
 internal fun noRpcEndpointConfigured(chainId: Int): RainError.InvalidConfig =
     RainError.InvalidConfig("No RPC endpoint configured for chainId=$chainId")
+
+/** `0.002 SOL`; `0.002` when the currency is unknown; `unknown` when the amount is. */
+private fun amountText(amount: BigDecimal?, currency: String?): String =
+    amount?.let { it.toPlainString() + currency?.let { unit -> " $unit" }.orEmpty() } ?: "unknown"

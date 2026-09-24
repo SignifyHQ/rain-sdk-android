@@ -96,7 +96,6 @@ dependencies {
 
     // Networking
     implementation(libs.okhttp)
-    // implementation(libs.okhttp.logging)  // Will be enabled in Phase 4
     
     // Utilities
     implementation(libs.zxing.core)

@@ -7,10 +7,11 @@ import java.math.BigDecimal
 import java.math.BigInteger
 
 /**
- * Wallet-agnostic withdrawal-building primitives. These need no resolved provider — only the
- * configured RPC endpoints — and are exposed directly on [com.rain.sdk.RainSdk].
+ * Wallet-agnostic withdrawal-building primitives. These need no resolved provider, only the
+ * configured RPC endpoints; hosts reach them as methods on [com.rain.sdk.RainSdk], which is why the
+ * interface itself is internal.
  */
-interface RainTransactionBuilder {
+internal interface RainTransactionBuilder {
 
     /**
      * Reads the collateral's current admin nonce — the value [buildEIP712Message] binds when

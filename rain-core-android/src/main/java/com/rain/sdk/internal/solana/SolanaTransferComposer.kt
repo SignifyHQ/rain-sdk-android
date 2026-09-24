@@ -110,9 +110,8 @@ class SolanaTransferComposer(
             ?: throw RainError.TokenAccountNotFound(fromAddress, mintAddress)
         if (source.amount < baseUnits) {
             throw RainError.InsufficientTokenBalance(
-                requested = amount.stripTrailingZeros().toPlainString(),
-                available = BigDecimal(source.amount).movePointLeft(mint.decimals)
-                    .stripTrailingZeros().toPlainString(),
+                requested = amount.stripTrailingZeros(),
+                available = BigDecimal(source.amount).movePointLeft(mint.decimals).stripTrailingZeros(),
                 token = mintAddress
             )
         }

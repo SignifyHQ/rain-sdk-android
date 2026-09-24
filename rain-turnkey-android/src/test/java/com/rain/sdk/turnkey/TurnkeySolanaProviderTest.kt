@@ -18,6 +18,7 @@ import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
 import com.rain.sdk.models.UnsignedSolanaTransfer
 import com.turnkey.types.V1AssetBalance
+import com.turnkey.types.V1SolanaFailureDetails
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.json.JSONArray
@@ -593,6 +594,32 @@ class TurnkeySolanaProviderTest {
     }
 
     @Test
+    fun `sendNativeToken on solana classifies an included transaction that failed on chain before reading its signature`() {
+        // The signature and the decoded failure arrive on one INCLUDED status. The failure wins and
+        // the signature rides on the error; a loop that read the signature first would report a send.
+        stubBlockhash()
+        val signature = "5" + "7".repeat(86)
+        val client = MockTurnkeyClient().apply {
+            sendTransactionStatusQueue = mutableListOf(
+                MockTurnkeyClient.StatusFixture(
+                    solanaSignature = signature,
+                    txStatus = "TX_STATUS_INCLUDED",
+                    errorMessage = "custom program error: 0x1",
+                    solanaFailure = V1SolanaFailureDetails(transactionErrorJson = "{\"InstructionError\":[0,{\"Custom\":1}]}")
+                )
+            )
+        }
+        val provider = makeProvider(client = client, sponsorGas = true)
+
+        val ex = assertThrows(RainError.TransactionSimulationFailed::class.java) {
+            runBlocking { provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5")) }
+        }
+
+        assertThat(ex.transactionId).isEqualTo(signature)
+        assertThat(ex.cause?.message).contains(signature)
+    }
+
+    @Test
     fun `sendNativeToken on solana surfaces a failed status with only txError as ProviderError`() {
         // A bare txError is a broadcast-or-confirm failure with nothing decoded, so it stays the
         // provider's error rather than a revert.
@@ -1140,8 +1167,8 @@ class TurnkeySolanaProviderTest {
         val error = assertThrows(RainError.InsufficientTokenBalance::class.java) {
             runBlocking { makeProvider().sendToken(devnet, mint, recipient, BigDecimal("2.5"), decimals = 6) }
         }
-        assertThat(error.requested).isEqualTo("2.5")
-        assertThat(error.available).isEqualTo("1")
+        assertThat(error.requested.compareTo(BigDecimal("2.5"))).isEqualTo(0)
+        assertThat(error.available.compareTo(BigDecimal.ONE)).isEqualTo(0)
     }
 
     @Test

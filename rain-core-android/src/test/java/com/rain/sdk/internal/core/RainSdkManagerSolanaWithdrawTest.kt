@@ -8,6 +8,7 @@ import com.rain.sdk.internal.helpers.SolanaWithdrawFixtures
 import com.rain.sdk.internal.helpers.StubWalletProvider
 import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.helpers.TestManagers
+import com.rain.sdk.models.RainPreparedWithdrawal
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.provider.Capability
 import kotlinx.coroutines.runBlocking
@@ -107,6 +108,45 @@ class RainSdkManagerSolanaWithdrawTest {
 
         assertThat(rpc.recordedMethods).contains("simulateTransaction")
         assertThat(stub.sendSolanaTransactionCalls).containsExactly(RainChain.SOLANA_DEVNET)
+    }
+
+    @Test
+    fun `prepareWithdrawal keeps the Solana fee check and dry run when the provider sponsors fees`(): Unit = runBlocking {
+        // A prepared transaction is the host's own self-paid submission, so the sponsor never pays
+        // its fee: the owner's balance and the dry run are checked as for a self-paid provider.
+        SolanaWithdrawFixtures.stubHappyPath(rpc)
+        val (manager, stub) = fixtureManager(sponsored = true)
+
+        val prepared = manager.prepareWithdrawal(
+            chainId = RainChain.SOLANA_DEVNET,
+            addresses = fixtureAddresses,
+            amount = BigDecimal("0.000001"),
+            decimals = 6,
+            adminSignature = SolanaWithdrawFixtures.adminSignature
+        )
+
+        assertThat(rpc.recordedMethods).containsAtLeast("getBalance", "simulateTransaction")
+        assertThat((prepared as RainPreparedWithdrawal.Solana).transfer.transactionHex)
+            .isEqualTo(SolanaWithdrawFixtures.GOLDEN_WITHDRAW_TX_HEX)
+        assertThat(stub.sendSolanaTransactionCalls).isEmpty()
+    }
+
+    @Test
+    fun `prepareWithdrawal on Solana ignores the provider's broadcast gate`(): Unit = runBlocking {
+        SolanaWithdrawFixtures.stubHappyPath(rpc)
+        val (manager, stub) = fixtureManager(sponsored = false)
+        stub.requireSendSupportError = RainError.ChainNotSupported(RainChain.SOLANA_DEVNET, "read-only here")
+
+        val prepared = manager.prepareWithdrawal(
+            chainId = RainChain.SOLANA_DEVNET,
+            addresses = fixtureAddresses,
+            amount = BigDecimal("0.000001"),
+            decimals = 6,
+            adminSignature = SolanaWithdrawFixtures.adminSignature
+        )
+
+        assertThat(prepared).isInstanceOf(RainPreparedWithdrawal.Solana::class.java)
+        assertThat(stub.sendSolanaTransactionCalls).isEmpty()
     }
 
     @Test

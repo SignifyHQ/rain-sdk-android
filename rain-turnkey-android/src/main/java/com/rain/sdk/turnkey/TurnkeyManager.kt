@@ -911,10 +911,10 @@ internal class TurnkeyManager(
         if (sponsorGas) {
             // Sponsored sends are minimal payloads. Turnkey's Gas Station builds and fee-covers
             // the outer EIP-7702 transaction, so this wallet's account nonce and self-estimated
-            // fees are the wrong values to pin (the outer tx is not this account's). Estimating
-            // gas as if the sender paid would also reject the zero-balance wallets sponsorship
-            // exists for. Null fields are omitted from the wire payload and auto-filled by
-            // Turnkey.
+            // fees are the wrong values to pin (the outer tx is not this account's). The quote a
+            // host asks for goes to the RPC separately, with no fee field in the call, so a
+            // zero-balance wallet still gets one (see estimateTransactionFee). Null fields are
+            // omitted from the wire payload and auto-filled by Turnkey.
             //
             // Replay protection is the gas-station nonce, and Turnkey's one-transaction-per-
             // request guarantee holds only when the request carries it. Turnkey's other SDKs

@@ -2,6 +2,7 @@ package com.rain.sdk.error
 
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
+import java.math.BigDecimal
 
 /**
  * Pins the published `RAIN_*` error codes. These are a public contract host apps switch on,
@@ -33,7 +34,7 @@ class RainErrorCodeParityTest {
         )
         expected.forEach { (code, value) -> assertThat(code.code).isEqualTo(value) }
         assertThat(RainErrorCode.entries).hasSize(expected.size)
-        // Vacated and retired codes stay unassigned unless a release says otherwise.
+        // RAIN_105, RAIN_303 and RAIN_304 stay unassigned.
         assertThat(RainErrorCode.entries.map { it.code }).containsNoneOf("RAIN_105", "RAIN_303", "RAIN_304")
     }
 
@@ -60,7 +61,7 @@ class RainErrorCodeParityTest {
             RainError.InvalidAmount("1.005", "too many decimals") to "RAIN_406",
             RainError.WalletNotAuthorized("0x1", "0x2") to "RAIN_407",
             // Token-transfer failures reuse existing codes on purpose — see RainError.
-            RainError.InsufficientTokenBalance("2", "1", "mint") to "RAIN_402",
+            RainError.InsufficientTokenBalance(BigDecimal("2"), BigDecimal.ONE, "mint") to "RAIN_402",
             RainError.TokenAccountNotFound("wallet", "mint") to "RAIN_402",
             RainError.TokenNotFound("mint", 103) to "RAIN_102",
             RainError.InvalidRecipient("addr", "because") to "RAIN_102",

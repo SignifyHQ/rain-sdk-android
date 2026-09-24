@@ -31,8 +31,8 @@ interface ChainReader {
     suspend fun getNativeBalance(chainId: Int, walletAddress: String): BigDecimal
 
     /**
-     * Single ERC-20 balance via `balanceOf(address)`. [decimals] defaults to
-     * [com.rain.sdk.internal.constants.RainConstants.DEFAULT_ERC20_DECIMALS] when null.
+     * Single ERC-20 balance via `balanceOf(address)`. [decimals] defaults to 18 when null, the
+     * SDK's display-path default.
      */
     suspend fun getERC20Balance(
         chainId: Int,

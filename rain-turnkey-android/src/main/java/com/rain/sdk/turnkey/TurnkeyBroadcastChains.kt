@@ -20,7 +20,7 @@ import com.rain.sdk.internal.constants.SolanaChains
  *
  * Source of truth: Turnkey's transaction-management broadcasting documentation
  * (https://docs.turnkey.com/features/transaction-management). When Turnkey adds a network,
- * extend this list and mirror the change in rain-sdk-ios.
+ * extend this list; the chain set is a cross-platform contract shared by Rain's SDKs.
  *
  * This list is the VENDOR's capability, not Rain's product offering — those are different
  * questions. Rain's supported chains and tokens live at

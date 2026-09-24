@@ -122,7 +122,7 @@ val client = rain.provider(ProviderId.TURNKEY)
 wallet list and throws `RainError.WalletUnavailable` if no usable Ethereum account is available
 (in managed mode, resolving before a session is live throws `RainError.TokenExpired`).
 You can register other adapters (e.g. `PortalProvider`) on the same builder and resolve each
-independently; providers no longer replace one another.
+independently; each provider resolves on its own.
 
 ## Managed mode (internal API)
 
@@ -227,7 +227,7 @@ After the Turnkey-backed `client` is resolved, every wallet operation routes thr
 | `client.getBalance(chainId, Token.Contract(...))` | RPC `eth_call` (`balanceOf`) |
 | `client.getTokenBalances(chainId)` | `TurnkeyClient.getWalletAddressBalances` (CAIP-19) on supported chains; Multicall3 / parallel `eth_call` otherwise |
 | `client.sendNative(...)` / `client.sendToken(...)` | `TurnkeyClient.ethSendTransaction` + `getSendTransactionStatus` polling. Only on Turnkey's managed-broadcast chains — other chains (Avalanche, Celo, ZKsync, Plasma, Ink) are read-only and sends throw `RAIN_104` up front. By default (`sponsorGas = true`), every EVM send (transfers, withdrawals, approvals, raw sends) is sponsored by Turnkey Gas Station (minimal payload carrying Turnkey's gas-station nonce for replay protection; fee estimates quote what the wallet would pay itself), and Solana network fees are sponsored too (a zero-SOL sender skips the fee check and dry run; rent for a new recipient token account is a separate Turnkey toggle and stays with the sender). `TurnkeyConfig(sponsorGas = false)` returns to self-paid sends, and is required on a Turnkey organization without sponsorship enabled. Monad caveat: Turnkey sponsors through EIP-7702 delegation and Monad reverts any delegated-account transaction that would leave the balance under 10 MON, so a sponsored native MON send from a small wallet fails on chain even when the estimate succeeds (token sends are unaffected). |
-| `client.withdrawCollateral(...)` | EVM: `TurnkeyContext.signRawPayload` (EIP-712) + `ethSendTransaction`. Solana: core composes the withdrawal, skipping its self-paid dry run while the adapter sponsors the fee, then `solSendTransaction`. Either chain: a chain outside Turnkey's coverage is refused with `RAIN_104` before anything is read or signed (`prepareWithdrawal` is not refused, because it never broadcasts), and a status carrying decoded revert details (`error.revertChain` or `error.eth.revertChain`, whether the transaction failed before inclusion or was included and reverted, or a Solana `InstructionError`) surfaces as `WithdrawalRevertedByNetwork`, the same as a failed dry run, with the transaction hash in the message once included; a failed status without them (a broadcast, policy or blockhash failure) is `ProviderError`, and a Solana fee or rent shortfall is `InsufficientFunds`. |
+| `client.withdrawCollateral(...)` | EVM: `TurnkeyContext.signRawPayload` (EIP-712) + `ethSendTransaction`. Solana: core composes the withdrawal, skipping its self-paid dry run while the adapter sponsors the fee, then `solSendTransaction`. Either chain: a chain outside Turnkey's coverage is refused with `RAIN_104` before anything is read or signed (`prepareWithdrawal` is not refused, because it never broadcasts), and a status carrying decoded revert details (`error.revertChain` or `error.eth.revertChain`, whether the transaction failed before inclusion or was included and reverted, or a Solana `InstructionError` or the runtime's `Program <id> failed` log line) surfaces as `WithdrawalRevertedByNetwork`, the same as a failed dry run, with the transaction hash on `transactionId` and in the message once included; a failed status without them (a broadcast, policy or blockhash failure) is `ProviderError`, and a Solana fee or rent shortfall is `InsufficientFunds`. |
 | `client.getTransactions(...)` | `TurnkeyClient.listEthTransactionHistory`, the indexed history (receives and externally submitted transactions included, EVM addresses in EIP-55 form), when the transaction history feature is enabled for the organization; otherwise `TurnkeyClient.getActivities` filtered to `ACTIVITY_TYPE_ETH_SEND_TRANSACTION`, sends only. The fallback runs only when Turnkey refuses the indexed query (HTTP 403 for an organization without the feature, logged once per provider); a dead session, a transport failure or a page that could not be decoded surfaces as its own error. |
 | `client.estimateGas(...)` | RPC `eth_estimateGas` + `eth_gasPrice` on every chain. On a sponsored chain the quote is what the wallet would pay itself; a sponsor pays instead and its own cost is not quoted |
 
@@ -274,7 +274,7 @@ chain ids (`RainChain.SOLANA_MAINNET` 900 / `SOLANA_DEVNET` 901 / `SOLANA_TESTNE
   message, then the program's `withdraw_single_signer_collateral_asset` — reading the collateral
   account, its coordinator's executors, and the mint's token program from chain, and deriving the
   collateral-authority PDA and token accounts locally. It simulates (self-paid only; a fee-sponsored
-  provider skips the dry run), then hands the bytes to the
+  provider skips the dry run on `withdrawCollateral`, never on `prepareWithdrawal`), then hands the bytes to the
   adapter, which signs them **as-is**: re-serializing would invalidate the embedded signature.
   `proxyAddress` is the collateral account, `tokenAddress` the SPL mint; single-signer collateral
   only. `prepareWithdrawal` returns the prepared unsigned transaction with its blockhash.
@@ -319,8 +319,7 @@ val solanaKey = provider.exportPrivateKey(TurnkeyKeyFamily.SOLANA)       // plai
 
 ## Accessing the Turnkey instance
 
-Rain exposes no vendor getters (the old `RainSdk.turnkey` / `client.turnkey` are gone — core
-references no concrete vendor type). In bring-your-own mode you already own the `TurnkeyContext`
+Rain exposes no vendor getters (core references no concrete vendor type). In bring-your-own mode you already own the `TurnkeyContext`
 you authenticated and passed to `TurnkeyConfig`. In managed mode the SDK configured that same
 process-wide `TurnkeyContext` object; it is reachable because it is a public vendor type, but treat
 it as read-only — creating, selecting or clearing sessions behind Rain's back is unsupported, and
@@ -341,6 +340,7 @@ Turnkey-specific errors are mapped into the standard `RainError` hierarchy. Whic
 | `TurnkeyKotlinError.FailedToExportWallet`, and the checks the adapter runs around an export | [Key export errors](#key-export-errors) below: one table, in the order the checks run |
 | Config / setup errors (`MissingRpId`, which managed mode cannot raise, since the SDK passes the domain on every passkey call and refuses the flow with `RAIN_102` when none is configured; `MissingConfigParam`, `ClientNotInitialized`, `InvalidParameter`, `InvalidResponse`, `InvalidMessage`, `InvalidRefreshTTL`, `OAuthStateMismatch`, `KeyAlreadyExists`, `KeyNotFound`) | `RainError.InternalError` |
 | Wrapper errors whose underlying cause is a user cancellation | `RainError.UserRejected` |
+| A failed `getSendTransactionStatus` after a send | `RainError.WithdrawalRevertedByNetwork` (withdrawals) or `RainError.TransactionSimulationFailed` (transfers) with decoded revert details, `RainError.InsufficientFunds` for a Solana fee or rent shortfall, `RainError.ProviderError` otherwise; see the `withdrawCollateral` row in the mapping table above |
 | Anything else | `RainError.ProviderError` |
 
 The Turnkey Kotlin SDK throws a plain `RuntimeException` for HTTP failures and carries the status
@@ -459,7 +459,7 @@ The one pair that cannot share a builder is `TurnkeyProvider` and the Rain walle
 `RainError.InvalidConfig` when both are registered, and an app that configured one of them in a
 launch cannot switch to the other without a relaunch.
 
-Turnkey and Portal are no longer mutually exclusive. Register both adapters on the same builder and
+Turnkey and Portal can share one builder. Register both adapters on the same builder and
 resolve each to its own `RainClient` — one SDK instance, two independent provider-bound clients:
 
 ```kotlin

@@ -24,6 +24,13 @@ class RainErrorDocsParityTest {
     private val errorsSection: String =
         methods.substringAfter("\n## Errors").substringBefore("\n### Error handling example")
 
+    init {
+        // A renamed heading would widen the section to the whole document and every check below would pass.
+        check(methods.contains("\n## Errors") && methods.contains("\n### Error handling example")) {
+            "docs/METHODS.md lost the Errors section anchors this test scopes by"
+        }
+    }
+
     @Test
     fun `the Errors table names every code`() {
         RainErrorCode.entries.forEach { code ->

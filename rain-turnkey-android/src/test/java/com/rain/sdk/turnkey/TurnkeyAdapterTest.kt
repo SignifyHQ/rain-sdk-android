@@ -7,6 +7,7 @@ import com.rain.sdk.models.Token
 import com.rain.sdk.provider.Capability
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertThrows
 import org.junit.Before
@@ -284,6 +285,7 @@ class TurnkeyAdapterTest {
         assertThat(ex).isInstanceOf(RainError.TransactionSimulationFailed::class.java)
         assertThat(ex?.cause?.message).contains("execution reverted")
         assertThat(ex?.cause?.message).contains(hash)
+        assertThat((ex as RainError.TransactionSimulationFailed).transactionId).isEqualTo(hash)
     }
 
     @Test
@@ -656,6 +658,11 @@ class TurnkeyAdapterTest {
 
         assertThat(fee.compareTo(java.math.BigDecimal("0.00042"))).isEqualTo(0) // 21000 * 20 gwei
         assertThat(rpc.recordedMethods).containsAtLeast("eth_estimateGas", "eth_gasPrice")
+        // The call object carries no fee field: nodes skip the fee-affordability check when no gas
+        // price is sent, which is what keeps a zero-balance wallet's quote alive.
+        val estimateBody = JSONObject(rpc.recordedBodies.last { it.contains("eth_estimateGas") })
+        val estimateParams = estimateBody.getJSONArray("params").getJSONObject(0)
+        assertThat(estimateParams.keys().asSequence().toList()).containsExactly("from", "to", "value")
     }
 
     @Test

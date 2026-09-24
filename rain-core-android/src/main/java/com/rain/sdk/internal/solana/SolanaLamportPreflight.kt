@@ -51,7 +51,8 @@ object SolanaLamportPreflight {
             )
             throw RainError.InsufficientFunds(
                 required = SolanaConverter.lamportsToSol(BigInteger.valueOf(required)),
-                available = SolanaConverter.lamportsToSol(lamports)
+                available = SolanaConverter.lamportsToSol(lamports),
+                currency = "SOL"
             )
         }
     }

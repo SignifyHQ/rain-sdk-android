@@ -43,7 +43,6 @@
     <ID>TooManyFunctions:CollateralWithdrawViewModel.kt:CollateralWithdrawViewModel : ViewModel</ID>
     <ID>TooManyFunctions:HomeViewModel.kt:HomeViewModel : ViewModel</ID>
     <ID>UseOrEmpty:AuthPullViewModel.kt:AuthPullUiState$WalletChain.firstAuthPullChain?.defaultTokenAddress ?: ""</ID>
-    <ID>UseOrEmpty:CollateralWithdrawViewModel.kt:CollateralWithdrawViewModel$WalletChain.entries.firstOrNull { it.chainId == _state.value.chainId }?.nativeSymbol ?: ""</ID>
     <ID>UseOrEmpty:CollateralWithdrawViewModel.kt:CollateralWithdrawViewModel$contract.adminAddresses.firstOrNull() ?: ""</ID>
     <ID>UseOrEmpty:SessionStore.kt:SessionStore.&lt;no name provided>$prefs?.getString(key, "") ?: ""</ID>
   </CurrentIssues>

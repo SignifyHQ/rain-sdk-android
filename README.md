@@ -177,8 +177,8 @@ The registry is designed for the multi-provider case; a single-provider app is j
 your own signing backend) plugs in through core alone: implement the `WalletProvider` port, wrap it
 in a `ProviderDescriptor`, and register that. Only `rain-core-android` is needed.
 
-`WalletProvider` lives in the package `com.rain.sdk.internal.provider` for historical reasons; it is
-public API meant for hosts to implement. Nine members are required, the rest have defaults, and an
+`WalletProvider` lives in the package `com.rain.sdk.internal.provider` and is public API meant for
+hosts to implement. Nine members are required, the rest have defaults, and an
 EVM-only wallet keeps the default `sendSolanaTransaction`, which refuses with `RAIN_102`.
 
 ```kotlin
@@ -484,14 +484,14 @@ On a provider that sponsors fees the estimate is still what the wallet would pay
 ```kotlin
 import com.rain.sdk.models.RainTransactionOrder
 
-val result = client.getTransactions(
+val transactions = client.getTransactions(
     chainId = 43114,
     limit = 20,
     offset = 0,
     order = RainTransactionOrder.DESC
 )
 
-result.transactions.forEach { tx ->
+transactions.forEach { tx ->
     println("${tx.hash} — ${tx.from} → ${tx.to}: ${tx.value}")
 }
 ```
