@@ -16,8 +16,8 @@
 ## Code style & static analysis
 
 Every PR runs a `checks` matrix in CI: detekt (including ktlint formatting rules),
-Android Lint, Dokka, and a minified release build of the sample app. Run the same
-things locally before pushing:
+Android Lint, Dokka, a minified release build of the sample app, and the vendor-free classpath
+check. Run the same things locally before pushing:
 
 ```bash
 ./gradlew detektMain detektTest                       # what the CI detekt leg runs

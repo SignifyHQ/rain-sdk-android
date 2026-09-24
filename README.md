@@ -58,14 +58,14 @@ choice of wallet provider at runtime. The one pair that cannot share a `RainSdk`
 `rain-wallet-android` and `rain-turnkey-android`: both drive one process-wide wallet backend, so
 `build()` refuses a registry holding both.
 
-All Rain modules share one version number and release together. Use the same version for every
-Rain module in one app; a core from one release with an adapter from another is not supported.
+All Rain modules share one version number. Use the same version for every Rain module in one app;
+mixing versions is not supported.
 
 | Module        | Contains                                                                 |
 |---------------|--------------------------------------------------------------------------|
 | `rain-core-android`   | The `WalletProvider` port, capability model, provider registry, and all Rain domain logic. No wallet vendor SDK. |
 | `rain-turnkey-android` | The Turnkey adapter (`TurnkeyProvider`, `com.rain.sdk.turnkey`); depends on `rain-core-android` + the Turnkey Kotlin SDK. |
-| `rain-wallet-android` | The Rain wallet (`RainProvider`, `com.rain.sdk.wallet`): SDK-owned login by code or passkey, provisioning, sessions and key export under Rain's names; depends on `rain-core-android` + `rain-turnkey-android`. Not registrable beside `TurnkeyProvider` on one `RainSdk`. |
+| `rain-wallet-android` | The Rain wallet (`RainProvider`, `com.rain.sdk.wallet`): SDK-owned login by code or passkey, provisioning, sessions and key export under Rain's names; depends on `rain-core-android` + `rain-turnkey-android`. |
 | `rain-portal-android` | The Portal MPC adapter (`PortalProvider`); depends on `rain-core-android` + `portal-android`. |
 | `rain-privy-android`  | The Privy embedded-key adapter (`PrivyProvider`); depends on `rain-core-android` + `privy-core`. |
 
@@ -120,55 +120,11 @@ val phrase = provider.exportRecoveryPhrase()
 val solanaKey = provider.exportPrivateKey(TurnkeyKeyFamily.SOLANA)
 ```
 
-**Managed mode (internal API)** — the SDK owns authentication (a one-time code by email or SMS, or a
-passkey, via Turnkey's auth proxy) and provisions Ethereum + Solana accounts on first login. It ships to hosts as
-the Rain wallet provider, `RainProvider` in `rain-wallet-android`, under Rain's names; on
-`TurnkeyProvider` itself it is marked `@InternalRainTurnkeyApi`, so a host app gets a compile error
-and, outside the declaring module, only the wallet module opts in with
-`-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi`. Shown
-here for completeness:
-
-```kotlin
-import com.rain.sdk.RainSdk
-import com.rain.sdk.provider.ProviderId
-import com.rain.sdk.turnkey.LoginContact
-import com.rain.sdk.turnkey.TurnkeyConfig
-import com.rain.sdk.turnkey.TurnkeyProvider
-
-val provider = TurnkeyProvider(
-    TurnkeyConfig(
-        application = application,           // android.app.Application
-        organizationId = "<org-id>",
-        authProxyConfigId = "<auth-proxy-config-id>",
-        // sponsorGas defaults to true: sends are gas-sponsored, which needs sponsorship enabled
-        // on the Turnkey organization. Pass sponsorGas = false to have users pay their own gas.
-    )
-)
-
-provider.awaitSessionRestore()
-if (!provider.hasActiveSession()) {
-    provider.sendLoginCode(LoginContact.Email("user@example.com"))
-    // or provider.sendLoginCode(LoginContact.Phone("+15551234567")) for a code by SMS
-    provider.confirmLoginCode(code)          // sign-up or login
-}
-
-val rain = RainSdk.builder()
-    .rpcEndpoints(
-        mapOf(
-            8453 to "https://mainnet.base.org",
-            84532 to "https://sepolia.base.org"
-        )
-    )
-    .register(provider)
-    .build()
-
-val client = rain.provider(ProviderId.TURNKEY)
-```
-
-See [docs/TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md) for both modes in full, including
-`authState`, `logout()`, and the one-shot configuration rule. Hosts use this flow through the Rain
-wallet: `RainProvider(application)` in [rain-wallet-android/README.md](rain-wallet-android/README.md)
-exposes the same steps with no vendor type or name.
+See [docs/TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md) for the bring-your-own mode in full, including
+`authState`, `logout()`, and the one-shot configuration rule. The SDK also carries a managed mode behind
+`@InternalRainTurnkeyApi`; hosts reach it as the Rain wallet, `RainProvider(application)` in
+[rain-wallet-android/README.md](rain-wallet-android/README.md), which exposes the same steps with no
+vendor type or name. Internals: [Managed mode (internal API)](docs/TURNKEY_SUPPORT.md#managed-mode-internal-api).
 
 ### 3. Bring your own provider, or resolve by capability
 
@@ -337,7 +293,7 @@ val result = client.sendNative(
 println("Tx Hash: ${result.transactionHash}")
 
 // Send ERC-20 token (e.g. USDC). Omit decimals to let the SDK resolve them.
-val result = client.sendToken(
+val tokenResult = client.sendToken(
     chainId = 8453,
     contractAddress = "0x...",
     to = "0x...",
@@ -408,7 +364,7 @@ val addresses = RainWithdrawAddresses(
 val adminSignature = RainAdminSignature(
     salt = "...",
     signature = "...",
-    expiresAt = "2024-12-31T23:59:59Z"
+    expiresAt = "..."   // unix seconds or an ISO-8601 instant, from the Rain API response (section 7)
 )
 
 // Sign and submit via the backing provider, returns the tx hash.

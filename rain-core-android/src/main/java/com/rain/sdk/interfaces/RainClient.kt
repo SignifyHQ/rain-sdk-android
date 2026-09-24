@@ -25,8 +25,7 @@ private const val AUTH_PULL_NOT_SUPPORTED = "Auth Pull is not supported by this 
  * Operations Rain exposes against a single, already-resolved wallet provider.
  *
  * A `RainClient` is obtained from [com.rain.sdk.RainSdk.provider] / [com.rain.sdk.RainSdk.first];
- * it is bound to one provider for its lifetime, so it carries no `initialize*` methods and never
- * references a concrete vendor type. Which provider backs it is described by [providerId] and
+ * it is bound to one provider for its lifetime and never references a concrete vendor type. Which provider backs it is described by [providerId] and
  * [capabilities].
  */
 interface RainClient {
@@ -285,7 +284,7 @@ interface RainClient {
      *
      * @param chainId EVM chain the token lives on. Solana chain IDs throw — SPL has no
      *                ERC-20-style allowance.
-     * @param contractAddress The ERC-20 token contract (USDC for Auth Pull today).
+     * @param contractAddress The ERC-20 token contract (USDC for Auth Pull).
      * @param spender The address being approved. Source Rain's operator address from Rain rather
      *                than hardcoding it — it differs between sandbox and production.
      * @param amount Human-readable allowance (e.g. `250` for 250 USDC). `null` (the default)
@@ -387,7 +386,7 @@ interface RainClient {
     /**
      * Clears this client's own state only. The shared token store and the chain configuration the
      * `RainSdk` owns survive, so one client resetting does not deconfigure the others. Idempotent.
-     * Prefer `RainSdk.reset()` to tear down the whole SDK.
+     * Prefer `RainSdk.close()` to tear down the whole SDK.
      */
     fun reset()
 

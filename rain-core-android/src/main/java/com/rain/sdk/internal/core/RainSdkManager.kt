@@ -276,7 +276,7 @@ internal class RainSdkManager(
         adminSignature: RainAdminSignature,
         nonce: BigInteger?
     ): BigDecimal {
-        // TODO(v2.1): a Solana estimate is the flat per-signature fee plus token-account rent when
+        // Follow-up: a Solana estimate is the flat per-signature fee plus token-account rent when
         // `UnsignedSolanaTransfer.createsRecipientAccount` is true.
         if (SolanaChains.isSolanaChain(chainId)) {
             throw RainError.InternalError("Withdrawal fee estimation is not supported on Solana")

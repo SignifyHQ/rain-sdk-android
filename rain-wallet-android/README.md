@@ -74,7 +74,7 @@ Notes:
 - The wallet backend's configuration is one-shot per app launch; the first authentication call
   applies it, `passkeyDomain` included, so a second provider with a different domain in the same
   launch makes every authentication call throw `RainError.InvalidConfig` until the app relaunches.
-- The embedded backend identity is Rain's sandbox wallet backend; this release has no host-facing
+- The embedded backend identity is Rain's sandbox wallet backend; there is no host-facing
   environment switch.
 - What leaves the device: the email address or phone number passed to `sendLoginCode` or
   `sendContactVerificationCode`, sent to the wallet backend to deliver the code and key the account
@@ -103,5 +103,3 @@ Notes:
   `else` branch, and a new state is a breaking change shipped in a major version.
 - Every public signature of this module stays free of wallet-backend types, and the backend adapter
   is an `implementation` dependency, so your compile classpath never sees it.
-- The module embeds Rain's sandbox identity, so `checkNotSandboxIdentity` refuses every publish task
-  except `publishToMavenLocal` until a production identity lands.

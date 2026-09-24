@@ -99,6 +99,7 @@ RainSdk.builder()
 ```
 
 `registerTokens(...)` names tokens the SDK cannot discover on chain: an SPL mint carries no
-on-chain symbol, and the built-in registry covers mainnet only. Available on the builder, on
+on-chain symbol, and the built-in registry covers the mainnets plus the two Auth Pull sandbox
+testnets (Base Sepolia, Arbitrum Sepolia). Available on the builder, on
 `RainSdk` after `build()`, and on a resolved `RainClient`; every entry is validated (address shape and
 checksum, `decimals` in `0..77`).
