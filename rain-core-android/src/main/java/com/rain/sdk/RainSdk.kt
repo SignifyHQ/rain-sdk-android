@@ -3,7 +3,6 @@ package com.rain.sdk
 import com.rain.sdk.error.RainError
 import com.rain.sdk.error.noRpcEndpointConfigured
 import com.rain.sdk.interfaces.RainClient
-import com.rain.sdk.interfaces.RainTransactionBuilder
 import com.rain.sdk.internal.core.ConfigManager
 import com.rain.sdk.internal.core.RainSdkManager
 import com.rain.sdk.internal.core.RainTransactionBuilderImpl
@@ -122,16 +121,6 @@ class RainSdk private constructor(
 
     /** The registered provider descriptors in registration order, for capability resolution. */
     val providers: List<ProviderDescriptor> get() = registered.values.toList()
-
-    /**
-     * Wallet-agnostic transaction-building helpers (EIP-712 typed-data + withdraw calldata).
-     */
-    @Deprecated(
-        message = "The builder methods are now on RainSdk itself. Call rain.buildEIP712Message(...) " +
-            "/ rain.buildWithdrawTransactionData(...) directly.",
-        replaceWith = ReplaceWith("this")
-    )
-    val transactionBuilder: RainTransactionBuilder get() = builderImpl
 
     // --- Wallet-agnostic transaction building ---------------------------------------------
     // These need no wallet provider — only the configured RPC endpoints — so they're available

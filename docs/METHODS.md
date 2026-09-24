@@ -37,7 +37,6 @@ module isn't on the classpath simply can't be registered.
 |----------|------|-------------|
 | `providerIds` | `Set<ProviderId>` | Ids of every provider the host registered. |
 | `providers` | `List<ProviderDescriptor>` | The registered provider descriptors in registration order, for capability resolution. |
-| `transactionBuilder` | `RainTransactionBuilder` | **Deprecated** — the builder methods are now on `RainSdk` itself. |
 | `authPullChainIds` | `Set<Int>` | Chains Auth Pull is enabled on for this instance: the configured `RainAuthPullConfig`'s chains intersected with the chains that have an RPC endpoint. Empty when no `authPullConfig(...)` was supplied. Also exposed on `RainClient`; see [authPullChainIds](#authpullchainids). |
 
 ### Methods
@@ -811,22 +810,11 @@ chain configuration the `RainSdk` owns. One client resetting must not deconfigur
 
 ---
 
-## Deprecated (compatibility shims)
+## Removed API
 
-Default-method shims retained so code written against older releases keeps compiling and
-binary-linking. Each delegates to the precise current API and collapses the result to the
-old shape. Slated for removal in the next major version.
-
-| Deprecated method | Replacement | Notes |
-|-------------------|-------------|-------|
-| `getAddress(): String` | `getWalletAddress()` | Renamed; shim delegates directly. |
-| `sendToken(chainId, contractAddress, toAddress, amount: Double, decimals: Int)` | `sendToken(chainId, contractAddress, toAddress, amount)` | `decimals` now optional; the SDK resolves it. |
-| `getBalances(chainId): Map<String, Double>` | `getTokenBalances(chainId)` | Lossy `Double` map keyed by contract address (as returned by the provider); native under the `""` key. |
-| `getERC20Balances(chainId): Map<String, Double>` | `getTokenBalances(chainId)` | Drops the native entry; non-zero ERC-20s only, as `Double`. |
-| `getNativeBalance(chainId): Double` | `getBalance(chainId, Token.Native)` | Read `.decimalAmount` for exact precision. |
-| `getERC20Balance(chainId, tokenAddress, decimals?): Double` | `getBalance(chainId, Token.contract(tokenAddress))` | `decimals` argument ignored; SDK resolves decimals itself. |
-| `generateAddressQRCode(address, width, height)` | `generateAddressQRCode(address, dimension)` | A QR code is square; the two dimensions were always equal in practice. |
-| `composeTransactionParameters(walletAddress, contractAddress, transactionData)` | `RainSdk.buildTransactionParameters(...)` | Pure composition needs no resolved client; moved to `RainSdk`. |
+No compatibility shims remain. The 1.0.x names below were removed without a replacement stub, a
+decision shared by Rain's SDKs while the SDK has no external users; each row names what to call
+instead.
 
 ### Removed without a shim
 
@@ -847,6 +835,18 @@ old shape. Slated for removal in the next major version.
 | `LoginContact.Sms(value)` (opt-in wallet-backend API) | `LoginContact.Phone(value)` | The same rename at the backend layer, so both layers name the channel alike. |
 | `sendLoginCode(email: String)` on `RainProvider` and `TurnkeyProvider` | `sendLoginCode(RainWalletContact.Email(email))` and `sendLoginCode(LoginContact.Email(email))` | The String overload sent any string as an email address; the typed contact is the one way to name the channel. |
 | `RainWalletSessionState.Reserved`, `RainWalletAuthState.Reserved` (internal sentinels) | None: a `when` over either hierarchy is exhaustive | The sentinels forced an `else` branch so a state could be added without a source break; a new state now ships in a major version. |
+| `getAddress(): String` | `getWalletAddress()` | Renamed; the shim only delegated. |
+| `sendNativeToken(chainId, toAddress, amount): RainTokenTransferResult` | `sendNative(chainId, to, amount)` | Renamed; the shim only delegated. |
+| `sendToken(chainId, contractAddress, toAddress, amount: Double, decimals: Int)` | `sendToken(chainId, contractAddress, to, amount: BigDecimal, decimals?)` | `Double` loses precision, and `decimals` is optional: the SDK resolves it. |
+| `getNativeBalance(chainId): Double` | `getBalance(chainId, Token.Native).decimalAmount` | An exact `BigDecimal` instead of a lossy `Double`. |
+| `getERC20Balance(chainId, tokenAddress, decimals?): Double` | `getBalance(chainId, Token.contract(tokenAddress)).decimalAmount` | The same; the `decimals` argument was ignored. |
+| `getERC20Balances(chainId): Map<String, Double>` | `getTokenBalances(chainId)` | The same; the list carries the native balance too. |
+| `getBalances(chainId): Map<String, Double>` | `getTokenBalances(chainId)` | The same; no empty-string key for the native balance. |
+| `generateAddressQRCode(address, width, height)` | `generateAddressQRCode(address, dimension)` | A QR code is square. |
+| `composeTransactionParameters(walletAddress, contractAddress, transactionData)` | `RainSdk.buildTransactionParameters(...)` | Pure composition needs no resolved client. |
+| `RainSdk.transactionBuilder` | `buildEIP712Message(...)` and `buildWithdrawTransactionData(...)` on `RainSdk` itself | The builder methods moved onto `RainSdk`. |
+| `RainClient.DEFAULT_ERC20_DECIMALS` | None; the display-path default is an internal constant | It backed the ignored `decimals` argument of `getERC20Balance`; money paths never guess decimals. |
+| `EthereumConverter.convertWeiHexToDouble`, `convertWeiToEth`, `convertHexToDouble`, `parseHexToBigInteger` | `convertWeiHexToDecimal`, `convertWeiToEthDecimal`, `convertHexToDecimal`, `parseHexToBigIntegerStrict` | `Double` loses precision, and the lenient parser zeroed a malformed payload. |
 
 ---
 

@@ -32,7 +32,7 @@ interface ChainReader {
 
     /**
      * Single ERC-20 balance via `balanceOf(address)`. [decimals] defaults to
-     * [com.rain.sdk.interfaces.RainClient.Companion.DEFAULT_ERC20_DECIMALS] when null.
+     * [com.rain.sdk.internal.constants.RainConstants.DEFAULT_ERC20_DECIMALS] when null.
      */
     suspend fun getERC20Balance(
         chainId: Int,

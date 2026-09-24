@@ -73,6 +73,19 @@ class RainErrorDocsParityTest {
             "LoginContact.Phone",
             "sendLoginCode(email",
             "Reserved",
+            "getAddress",
+            "sendNativeToken",
+            "amount: Double",
+            "getNativeBalance",
+            "getERC20Balance",
+            "getERC20Balances",
+            "getBalances",
+            "generateAddressQRCode(address, width, height)",
+            "composeTransactionParameters",
+            "RainSdk.transactionBuilder",
+            "DEFAULT_ERC20_DECIMALS",
+            "convertWeiHexToDouble",
+            "parseHexToBigInteger",
         ).forEach { name ->
             assertWithMessage(name).that(removedSection).contains(name)
         }

@@ -5,6 +5,7 @@ import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.RainSdk
 import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.helpers.StubWalletProvider
+import com.rain.sdk.internal.helpers.TestFixtures
 import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
@@ -63,13 +64,14 @@ class RainSdkBuilderTest {
 
     @Test
     fun `build succeeds with zero providers (wallet-agnostic mode)`() {
-        // transactionBuilder + tokenMetadata work without any wallet provider.
+        // The builder methods and tokenMetadata work without any wallet provider.
         val sdk = RainSdk.builder()
             .rpcEndpoints(mapOf(1 to "https://rpc.test"))
             .build()
 
         assertThat(sdk.providerIds).isEmpty()
-        assertThat(sdk.transactionBuilder).isNotNull()
+        val parameters = sdk.buildTransactionParameters(TestFixtures.WALLET_ADDRESS, TestFixtures.CONTROLLER_ADDRESS, "0x")
+        assertThat(parameters.to).isEqualTo(TestFixtures.CONTROLLER_ADDRESS)
     }
 
     @Test

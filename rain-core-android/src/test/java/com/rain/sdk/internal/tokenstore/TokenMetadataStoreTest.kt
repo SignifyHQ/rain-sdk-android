@@ -2,7 +2,7 @@ package com.rain.sdk.internal.tokenstore
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.error.RainError
-import com.rain.sdk.interfaces.RainClient
+import com.rain.sdk.internal.constants.RainConstants
 import com.rain.sdk.internal.helpers.MockChainReader
 import com.rain.sdk.models.TokenInfo
 import kotlinx.coroutines.CancellationException
@@ -400,7 +400,7 @@ class TokenMetadataStoreTest {
         val reader = MockChainReader(decimals = 78, symbol = "BAD")
         val store = TokenMetadataStore(reader)
 
-        assertThat(store.tokenInfo(chainId = 1, address = unknown).decimals).isEqualTo(RainClient.DEFAULT_ERC20_DECIMALS)
+        assertThat(store.tokenInfo(chainId = 1, address = unknown).decimals).isEqualTo(RainConstants.DEFAULT_ERC20_DECIMALS)
         store.tokenInfo(chainId = 1, address = unknown)
         assertThat(reader.decimalsCalls).hasSize(2)
     }

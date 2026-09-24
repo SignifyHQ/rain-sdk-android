@@ -10,7 +10,6 @@ import com.rain.sdk.models.RainTokenApprovalResult
 import com.rain.sdk.models.RainTokenTransferResult
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
-import com.rain.sdk.models.RainTransactionParameters
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
@@ -93,19 +92,6 @@ interface RainClient {
     suspend fun getWalletAddress(): String
 
     /**
-     * Gets the current wallet address from the underlying provider.
-     *
-     * @return Hex-encoded wallet address.
-     * @throws RainError if the address cannot be retrieved.
-     */
-    @Deprecated(
-        message = "Renamed to getWalletAddress(). This shim delegates to it.",
-        replaceWith = ReplaceWith("getWalletAddress()")
-    )
-    @Throws(RainError::class)
-    suspend fun getAddress(): String = getWalletAddress()
-
-    /**
      * Gets the wallet address for a specific chain. For EVM chains this matches [getWalletAddress]
      * (a hex address). A provider that also holds non-EVM accounts (one advertising
      * [Capability.MULTI_CHAIN]) returns the address matching [chainId]'s family — e.g. a base58
@@ -182,27 +168,6 @@ interface RainClient {
     suspend fun estimateWithdrawalFee(chainId: Int, prepared: RainPreparedWithdrawal): BigDecimal
 
     /**
-     * Composes wallet-agnostic transaction parameters for a contract call.
-     *
-     * Pure composition — no wallet provider and no RPC — so it belongs on [com.rain.sdk.RainSdk],
-     * not on a resolved client.
-     */
-    @Deprecated(
-        message = "Pure composition needs no resolved client. Call RainSdk.buildTransactionParameters(...).",
-        replaceWith = ReplaceWith("rain.buildTransactionParameters(walletAddress, contractAddress, transactionData)")
-    )
-    fun composeTransactionParameters(
-        walletAddress: String,
-        contractAddress: String,
-        transactionData: String
-    ): RainTransactionParameters = RainTransactionParameters(
-        from = walletAddress,
-        to = contractAddress,
-        value = "0x0",
-        data = transactionData
-    )
-
-    /**
      * Sends the chain's native token (e.g. ETH, AVAX).
      *
      * @param chainId Network ID
@@ -216,25 +181,6 @@ interface RainClient {
         to: String,
         amount: BigDecimal
     ): RainTokenTransferResult
-
-    /**
-     * Sends the chain's native token (e.g. ETH, AVAX).
-     *
-     * @param chainId Network ID
-     * @param toAddress Recipient's wallet address
-     * @param amount Amount of token to send
-     * @return RainTokenTransferResult containing the transaction hash
-     */
-    @Deprecated(
-        message = "Renamed to sendNative(chainId, to, amount). This shim delegates to it.",
-        replaceWith = ReplaceWith("sendNative(chainId, toAddress, amount)")
-    )
-    @Throws(RainError::class)
-    suspend fun sendNativeToken(
-        chainId: Int,
-        toAddress: String,
-        amount: BigDecimal
-    ): RainTokenTransferResult = sendNative(chainId, toAddress, amount)
 
     /**
      * Sends an ERC-20 token.
@@ -263,37 +209,6 @@ interface RainClient {
     ): RainTokenTransferResult
 
     /**
-     * Sends an ERC-20 token with an explicit, non-null [decimals].
-     *
-     * Backward-compatibility shim for callers compiled against the pre-1.1 signature
-     * (`decimals: Int`). It delegates to [sendToken] with a nullable `decimals`; new code can
-     * simply omit `decimals` and let the SDK resolve it. Retained so an SDK upgrade doesn't
-     * break already-compiled consumers (the `Int` and `Int?` parameters have different JVM
-     * descriptors).
-     *
-     * @param decimals Number of decimals the token uses (e.g. 6 for USDC, 18 for most tokens).
-     */
-    @Deprecated(
-        message = "decimals is now optional; the SDK resolves it from its registry or an " +
-            "on-chain decimals() read. Call sendToken(chainId, contractAddress, toAddress, " +
-            "amount) and omit decimals.",
-        replaceWith = ReplaceWith("sendToken(chainId, contractAddress, toAddress, amount)")
-    )
-    @Throws(RainError::class)
-    suspend fun sendToken(
-        chainId: Int,
-        contractAddress: String,
-        toAddress: String,
-        amount: Double,
-        decimals: Int
-    ): RainTokenTransferResult {
-        if (!amount.isFinite()) {
-            throw RainError.InvalidAmount(amount.toString(), "amount must be a finite number")
-        }
-        return sendToken(chainId, contractAddress, toAddress, amount.toBigDecimal(), decimals as Int?)
-    }
-
-    /**
      * Fetches a single balance (native or a contract token) for the current wallet.
      *
      * @param chainId The numeric chain ID (e.g. 1 for Ethereum, 43114 for Avalanche).
@@ -308,8 +223,6 @@ interface RainClient {
     /**
      * Fetches all non-zero balances for the current wallet on the given network. The native
      * balance is always included; zero-balance contract tokens are omitted.
-     *
-     * Supersedes the deprecated [getBalances], which returned a lossy `Map<String, Double>`.
      *
      * @param chainId The numeric chain ID.
      * @return One [Balance] per non-zero token plus the native balance.
@@ -331,107 +244,6 @@ interface RainClient {
      */
     @Throws(RainError::class)
     suspend fun getAllBalances(): List<Balance>
-
-    // ---------------------------------------------------------------------------------------
-    // Deprecated balance API (pre-balance-consolidation, i.e. before #38's follow-up work).
-    // Kept as default-method shims so existing call sites keep compiling and linking against
-    // newer releases. Each delegates to the precise [Balance] API and collapses the result to
-    // the old lossy `Double` shape. Slated for removal in the next major version.
-    // ---------------------------------------------------------------------------------------
-
-    /**
-     * Gets the native token balance (e.g. AVAX) for the current wallet.
-     *
-     * @param chainId The numeric chain ID (e.g. 43114 for Avalanche Mainnet).
-     * @return Native token balance in Ether units (Double).
-     * @throws RainError if the balance cannot be retrieved.
-     */
-    @Deprecated(
-        message = "Use getBalance(chainId, Token.Native) and read .decimalAmount for exact " +
-            "precision. This shim collapses the balance to a lossy Double.",
-        replaceWith = ReplaceWith(
-            "getBalance(chainId, Token.Native).decimalAmount.toDouble()",
-            "com.rain.sdk.models.Token"
-        )
-    )
-    @Throws(RainError::class)
-    suspend fun getNativeBalance(chainId: Int): Double =
-        getBalance(chainId, Token.Native).decimalAmount.toDouble()
-
-    /**
-     * Gets the balance of a specific ERC-20 token for the current wallet.
-     *
-     * The [decimals] argument is ignored: the SDK now resolves token decimals itself (from its
-     * token store or on-chain). It is retained only for source compatibility.
-     *
-     * @param chainId The numeric chain ID (e.g. 43114 for Avalanche Mainnet).
-     * @param tokenAddress The contract address of the ERC-20 token.
-     * @param decimals Ignored. Previously the assumed token decimals.
-     * @return Token balance as a Double (with decimals already applied).
-     * @throws RainError if the balance cannot be retrieved.
-     */
-    @Deprecated(
-        message = "Use getBalance(chainId, Token.contract(tokenAddress)) and read .decimalAmount " +
-            "for exact precision. The decimals argument is ignored; the SDK resolves decimals itself.",
-        replaceWith = ReplaceWith(
-            "getBalance(chainId, Token.contract(tokenAddress)).decimalAmount.toDouble()",
-            "com.rain.sdk.models.Token"
-        )
-    )
-    @Throws(RainError::class)
-    suspend fun getERC20Balance(
-        chainId: Int,
-        tokenAddress: String,
-        decimals: Int? = DEFAULT_ERC20_DECIMALS
-    ): Double = getBalance(chainId, Token.contract(tokenAddress)).decimalAmount.toDouble()
-
-    /**
-     * Gets all ERC-20 token balances for the current wallet on the given network, keyed by
-     * contract address.
-     *
-     * Note: built on [getTokenBalances], which omits zero-balance contract tokens and includes the
-     * native balance; this shim drops the native entry, so the result is non-zero ERC-20s only.
-     *
-     * @param chainId The numeric chain ID.
-     * @return Map of token contract address to balance (Double).
-     * @throws RainError if balances cannot be retrieved.
-     */
-    @Deprecated(
-        message = "Use getTokenBalances(chainId), which returns List<Balance> (native + contract " +
-            "tokens) with exact precision. This shim drops the native entry and collapses to Double.",
-        replaceWith = ReplaceWith("getTokenBalances(chainId)")
-    )
-    @Throws(RainError::class)
-    suspend fun getERC20Balances(chainId: Int): Map<String, Double> =
-        getTokenBalances(chainId)
-            .mapNotNull { balance ->
-                (balance.token as? Token.Contract)?.let { contract ->
-                    contract.address to balance.decimalAmount.toDouble()
-                }
-            }
-            .toMap()
-
-    /**
-     * Gets all balances for the current wallet on the given network, keyed by contract address,
-     * with the native balance stored under the empty-string key `""`.
-     *
-     * @param chainId The numeric chain ID.
-     * @return Map of token contract address to balance (Double), plus native balance under `""`.
-     * @throws RainError if balances cannot be retrieved.
-     */
-    @Deprecated(
-        message = "Use getTokenBalances(chainId), which returns List<Balance> (native + contract " +
-            "tokens) with exact precision. This shim collapses to a lossy Double map keyed by " +
-            "contract address (as returned by the provider), with the native balance under the " +
-            "empty-string key \"\".",
-        replaceWith = ReplaceWith("getTokenBalances(chainId)")
-    )
-    @Throws(RainError::class)
-    suspend fun getBalances(chainId: Int): Map<String, Double> =
-        getTokenBalances(chainId).associate { balance ->
-            val key = (balance.token as? Token.Contract)?.address ?: ""
-            key to balance.decimalAmount.toDouble()
-        }
 
     // ---------------------------------------------------------------------------------------
     // Token approvals (Auth Pull)
@@ -585,22 +397,6 @@ interface RainClient {
     ): Bitmap
 
     /**
-     * Generates a QR code with independent width and height.
-     *
-     * A QR code is square, so the two dimensions were always set to the same value in practice.
-     */
-    @Deprecated(
-        message = "A QR code is square. Call generateAddressQRCode(address, dimension).",
-        replaceWith = ReplaceWith("generateAddressQRCode(address, width)")
-    )
-    @Throws(RainError::class)
-    suspend fun generateAddressQRCode(
-        address: String?,
-        width: Int,
-        height: Int
-    ): Bitmap = generateAddressQRCode(address, width)
-
-    /**
      * Retrieves the transaction history for the specified chain.
      *
      * @param chainId The numeric chain ID
@@ -617,11 +413,4 @@ interface RainClient {
         offset: Int? = null,
         order: RainTransactionOrder? = null
     ): List<RainTransaction>
-
-    companion object {
-        /**
-         * Default number of decimals for ERC20 tokens if not specified.
-         */
-        const val DEFAULT_ERC20_DECIMALS = 18
-    }
 }

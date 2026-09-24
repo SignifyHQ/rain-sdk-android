@@ -31,33 +31,11 @@ object EthereumConverter {
         return BigInteger(cleanedHex, 16).toBigDecimal().movePointLeft(18).toDouble()
     }
 
-    /**
-     * Converts a Wei hex string to its unit-less Double value.
-     */
-    @Deprecated(
-        message = "Double loses precision for large wei values. Use parseHexToBigIntegerStrict for " +
-            "the exact base-unit value, or convertWeiHexToDecimal for the ETH-unit BigDecimal.",
-        replaceWith = ReplaceWith("parseHexToBigIntegerStrict(ethBalanceHexValue)")
-    )
-    fun convertWeiHexToDouble(ethBalanceHexValue: String): Double {
-        val cleanedHex = ethBalanceHexValue.removePrefix("0x").ifEmpty { "0" }
-        return BigInteger(cleanedHex, 16).toDouble()
-    }
-
     /** Converts a Wei hex string to an exact ETH-unit [BigDecimal] (18 decimals). */
     fun convertWeiHexToDecimal(weiHexValue: String): BigDecimal {
         val cleanedHex = weiHexValue.removePrefix("0x").ifEmpty { "0" }
         return BigInteger(cleanedHex, 16).toBigDecimal().movePointLeft(18)
     }
-
-    /** Converts a Wei BigInteger to ETH (Double). */
-    @Deprecated(
-        message = "Double loses precision for large wei values. Use convertWeiToEthDecimal for an " +
-            "exact BigDecimal.",
-        replaceWith = ReplaceWith("convertWeiToEthDecimal(wei)")
-    )
-    fun convertWeiToEth(wei: BigInteger): Double =
-        wei.toBigDecimal().movePointLeft(18).toDouble()
 
     /** Converts a Wei BigInteger to an exact ETH-unit [BigDecimal] (18 decimals). */
     fun convertWeiToEthDecimal(wei: BigInteger): BigDecimal =
@@ -81,22 +59,6 @@ object EthereumConverter {
         return "0x${wei.toString(16)}"
     }
 
-    /**
-     * Converts a hex string to a Double with the specified number of decimals.
-     *
-     * @param hex The hex string (e.g. "0x...")
-     * @param decimals The number of decimal places
-     */
-    @Deprecated(
-        message = "Double loses precision for large balances. Use convertHexToDecimal for an " +
-            "exact BigDecimal.",
-        replaceWith = ReplaceWith("convertHexToDecimal(hex, decimals)")
-    )
-    fun convertHexToDouble(hex: String, decimals: Int): Double {
-        val cleanedHex = hex.removePrefix("0x").ifEmpty { "0" }
-        return BigInteger(cleanedHex, 16).toBigDecimal().movePointLeft(decimals).toDouble()
-    }
-
     /** Converts a hex string to an exact [BigDecimal] with the specified number of decimals. */
     fun convertHexToDecimal(hex: String, decimals: Int): BigDecimal {
         val cleanedHex = hex.removePrefix("0x").ifEmpty { "0" }
@@ -104,31 +66,9 @@ object EthereumConverter {
     }
 
     /**
-     * Converts a hex-encoded uint256 string to an exact [BigInteger] (no precision loss).
-     *
-     * Lenient: returns [BigInteger.ZERO] on a malformed or empty payload rather than
-     * throwing, which silently turns a garbage RPC response into a zero value. Money paths
-     * (balance and fee reads) must use [parseHexToBigIntegerStrict] instead; this stays only
-     * for source compatibility.
-     */
-    @Deprecated(
-        message = "Returns ZERO on a malformed payload, silently zeroing balances/fees. Use " +
-            "parseHexToBigIntegerStrict, which throws RainError.InternalError instead.",
-        replaceWith = ReplaceWith("parseHexToBigIntegerStrict(hex)")
-    )
-    fun parseHexToBigInteger(hex: String): BigInteger {
-        val cleaned = hex.removePrefix("0x").removePrefix("0X").ifEmpty { "0" }
-        return try {
-            BigInteger(cleaned, 16)
-        } catch (e: NumberFormatException) {
-            BigInteger.ZERO
-        }
-    }
-
-    /**
      * Converts a hex-encoded uint256 string to an exact [BigInteger], throwing on malformed input.
      *
-     * The strict variant of [parseHexToBigInteger] for money paths (`eth_getBalance`,
+     * The parser for money paths (`eth_getBalance`,
      * `eth_call balanceOf`, gas reads), where a garbage RPC response must surface as an error
      * rather than a silent zero balance or fee. Accepts an optional `0x`/`0X` prefix; `"0x0"`
      * parses to [BigInteger.ZERO].
@@ -218,7 +158,7 @@ object EthereumConverter {
     /**
      * Reconstructs an exact base-unit [BigInteger] from a human-readable decimal string.
      *
-     * The inverse of [convertHexToDouble]: multiplies by `10^decimals` and truncates any
+     * The inverse of [convertHexToDecimal]: multiplies by `10^decimals` and truncates any
      * remaining fractional part (round-down). Used where a provider only exposes a formatted
      * decimal balance (e.g. Portal's `getAssets`, Turnkey's supported-chain API) rather than
      * raw hex. Returns [BigInteger.ZERO] on parse failure or a non-positive result.

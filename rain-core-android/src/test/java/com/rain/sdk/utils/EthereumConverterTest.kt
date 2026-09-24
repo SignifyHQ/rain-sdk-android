@@ -71,17 +71,6 @@ class EthereumConverterTest {
             .isEqualToIgnoringScale(java.math.BigDecimal("1.000000000000000001"))
     }
 
-    @Suppress("DEPRECATION")
-    @Test
-    fun `parseHexToBigInteger preserves full uint256 precision`() {
-        assertThat(EthereumConverter.parseHexToBigInteger("0x0de0b6b3a7640000"))
-            .isEqualTo(BigInteger("1000000000000000000"))
-        assertThat(EthereumConverter.parseHexToBigInteger("de0b6b3a7640000"))
-            .isEqualTo(BigInteger("1000000000000000000"))
-        assertThat(EthereumConverter.parseHexToBigInteger("0x")).isEqualTo(BigInteger.ZERO)
-        assertThat(EthereumConverter.parseHexToBigInteger("0xzz")).isEqualTo(BigInteger.ZERO)
-    }
-
     @Test
     fun `parseHexToBigIntegerStrict parses well-formed payloads exactly`() {
         assertThat(EthereumConverter.parseHexToBigIntegerStrict("0x0")).isEqualTo(BigInteger.ZERO)
