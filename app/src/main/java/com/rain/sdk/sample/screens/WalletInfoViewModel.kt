@@ -98,14 +98,7 @@ data class WalletInfoUiState(
     val collateralQrBitmap: Bitmap? = null,
     val isLoading: Boolean = false,
     val errorText: String? = null
-) {
-    fun isAddressValid(address: String): Boolean {
-        if (address.isBlank()) return false
-        return address.startsWith("0x") &&
-            address.length == 42 &&
-            address.substring(2).all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
-    }
-}
+)
 
 class WalletInfoViewModelFactory(
     private val session: RainSession,

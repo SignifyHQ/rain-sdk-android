@@ -833,7 +833,7 @@ class TurnkeySolanaProviderTest {
                 SolanaPrograms.TOKEN
             )
         )
-        val unsignedTx = SolanaTransactionBuilder.buildUnsignedHex(
+        val unsignedTx = unsignedHex(
             feePayer = Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS),
             recentBlockhash = MockTurnkey.DEFAULT_SOLANA_ADDRESS,
             instructions = listOf(
@@ -908,7 +908,7 @@ class TurnkeySolanaProviderTest {
                 SolanaPrograms.TOKEN
             )
         )
-        val unsignedTx = SolanaTransactionBuilder.buildUnsignedHex(
+        val unsignedTx = unsignedHex(
             feePayer = Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS),
             recentBlockhash = MockTurnkey.DEFAULT_SOLANA_ADDRESS,
             instructions = listOf(
@@ -954,7 +954,7 @@ class TurnkeySolanaProviderTest {
             Base58.decode(mint),
             SolanaPrograms.TOKEN
         )
-        val unsignedTx = SolanaTransactionBuilder.buildUnsignedHex(
+        val unsignedTx = unsignedHex(
             feePayer = Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS),
             recentBlockhash = MockTurnkey.DEFAULT_SOLANA_ADDRESS,
             instructions = listOf(
@@ -1014,7 +1014,7 @@ class TurnkeySolanaProviderTest {
             data[1 + i] = (amount and 0xFF).toByte()
             amount = amount ushr 8
         }
-        val unsignedTx = SolanaTransactionBuilder.buildUnsignedHex(
+        val unsignedTx = unsignedHex(
             feePayer = Base58.decode(MockTurnkey.DEFAULT_SOLANA_ADDRESS),
             recentBlockhash = MockTurnkey.DEFAULT_SOLANA_ADDRESS,
             instructions = listOf(
@@ -1479,6 +1479,14 @@ class TurnkeySolanaProviderTest {
                 )
             )
         )
+
+    /** Lowercase hex of an unsigned transaction, the form the vendor's unsigned-transaction field carries. */
+    private fun unsignedHex(
+        feePayer: ByteArray,
+        recentBlockhash: String,
+        instructions: List<com.rain.sdk.internal.solana.Instruction>
+    ): String = SolanaTransactionBuilder.buildUnsignedTransaction(feePayer, recentBlockhash, instructions)
+        .joinToString("") { byte -> (byte.toInt() and 0xFF).toString(16).padStart(2, '0') }
 
     /** The static account keys of a serialized unsigned transaction, in table order. */
     private fun decodeAccountKeys(unsignedTransactionHex: String): List<String> {

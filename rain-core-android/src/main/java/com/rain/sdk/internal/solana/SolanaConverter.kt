@@ -11,7 +11,6 @@ import java.math.BigInteger
 @RainAdapterApi
 object SolanaConverter {
     const val SOL_DECIMALS = 9
-    const val LAMPORTS_PER_SOL = 1_000_000_000L
 
     /**
      * Converts a human-readable SOL amount to whole lamports, exactly: an amount finer than one

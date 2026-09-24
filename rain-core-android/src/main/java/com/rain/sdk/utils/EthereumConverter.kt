@@ -22,15 +22,6 @@ object EthereumConverter {
     fun normalizedHexString(hex: String?): String =
         hex?.takeIf { it.startsWith("0x") && it.length > 2 } ?: "0x0"
 
-    /**
-     * Converts a Wei hex string to ETH (Double). Falls back to manual BigInteger parsing
-     * if the input has odd formatting.
-     */
-    fun convertWeiHexToEth(ethBalanceHexValue: String): Double {
-        val cleanedHex = ethBalanceHexValue.removePrefix("0x").ifEmpty { "0" }
-        return BigInteger(cleanedHex, 16).toBigDecimal().movePointLeft(18).toDouble()
-    }
-
     /** Converts a Wei hex string to an exact ETH-unit [BigDecimal] (18 decimals). */
     fun convertWeiHexToDecimal(weiHexValue: String): BigDecimal {
         val cleanedHex = weiHexValue.removePrefix("0x").ifEmpty { "0" }
@@ -84,25 +75,6 @@ object EthereumConverter {
             BigInteger(cleaned, 16)
         } catch (e: NumberFormatException) {
             throw RainError.InternalError("Malformed hex payload: \"$hex\"", e)
-        }
-    }
-
-    /**
-     * Converts a hex-encoded uint256 string to an [Int] (e.g. for ERC-20 `decimals()`
-     * responses). Returns 0 on a malformed payload.
-     */
-    fun parseHexToInt(hex: String): Int {
-        val cleaned = hex.removePrefix("0x").removePrefix("0X")
-        if (cleaned.isEmpty()) return 0
-        return try {
-            val value = BigInteger(cleaned, 16)
-            // ERC-20 decimals are small non-negative numbers. Reject negative or
-            // out-of-Int-range values: a malformed/hostile `decimals()` could otherwise
-            // narrow to a negative Int and silently flip `Balance.decimalAmount` from a
-            // divide into a multiply.
-            if (value.signum() < 0 || value.bitLength() > 31) 0 else value.toInt()
-        } catch (e: NumberFormatException) {
-            0
         }
     }
 

@@ -91,6 +91,8 @@ class RainErrorDocsParityTest {
             "DEFAULT_ERC20_DECIMALS",
             "convertWeiHexToDouble",
             "parseHexToBigInteger",
+            "convertWeiHexToEth",
+            "parseHexToInt",
         ).forEach { name ->
             assertWithMessage(name).that(removedSection).contains(name)
         }

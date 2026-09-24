@@ -94,9 +94,6 @@ dependencies {
     // Timber
     implementation(libs.timber)
 
-    // AndroidX Annotations (for @VisibleForTesting)
-    implementation(libs.androidx.annotation)
-
     // Networking
     implementation(libs.okhttp)
     // implementation(libs.okhttp.logging)  // Will be enabled in Phase 4

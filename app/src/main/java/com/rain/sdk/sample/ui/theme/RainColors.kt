@@ -13,13 +13,8 @@ import androidx.compose.ui.graphics.Color
 object RainColors {
     // Pink system — tints and shades of the brand colour.
     val Pink = Color(0xFFFF2FB6)
-    val PinkBerry = Color(0xFFC41385)
-    val PinkLilac = Color(0xFFF66EF2)
     val PinkBlush = Color(0xFFFFAEFD)
     val PinkPale = Color(0xFFFFD7FE)
-    val PinkMist = Color(0xFFFFEBFE)
-    val PinkWine = Color(0xFF752259)
-    val PinkBurgundy = Color(0xFF311514)
 
     // Neutral ramp.
     val White = Color(0xFFFFFFFF)
@@ -30,8 +25,6 @@ object RainColors {
     val Gray30 = Color(0xFFCABDDD) // lilac
     val Gray40 = Color(0xFFABA6B8)
     val Gray50 = Color(0xFF787185) // slate lilac
-    val Gray60 = Color(0xFF4A4E54)
-    val Gray70 = Color(0xFF303030) // charcoal
     val OffBlack = Color(0xFF121212) // ink
 
     // Functional state colours: small status elements (badges, dots) only, never fills.

@@ -76,7 +76,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.timber)
-    implementation(libs.androidx.annotation)
     // Own JSON-RPC read path: core's JsonRpcClient/ChainReader are @RainAdapterApi seams this module
     // does not opt in to yet, so it keeps its own client. Privy's EIP-1193 provider handles custody
     // (sign/send) only.

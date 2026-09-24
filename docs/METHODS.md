@@ -850,6 +850,7 @@ instead.
 | `RainSdk.transactionBuilder` | `buildEIP712Message(...)` and `buildWithdrawTransactionData(...)` on `RainSdk` itself | The builder methods moved onto `RainSdk`. |
 | `RainClient.DEFAULT_ERC20_DECIMALS` | None; the display-path default is an internal constant | It backed the ignored `decimals` argument of `getERC20Balance`; money paths never guess decimals. |
 | `EthereumConverter.convertWeiHexToDouble`, `convertWeiToEth`, `convertHexToDouble`, `parseHexToBigInteger` | `convertWeiHexToDecimal`, `convertWeiToEthDecimal`, `convertHexToDecimal`, `parseHexToBigIntegerStrict` | `Double` loses precision, and the lenient parser zeroed a malformed payload. |
+| `EthereumConverter.convertWeiHexToEth`, `parseHexToInt` | `convertWeiHexToDecimal`, `parseHexToIntStrict` | The same two reasons: a `Double` result, and a lenient parser that read a malformed payload as 0. |
 
 ---
 

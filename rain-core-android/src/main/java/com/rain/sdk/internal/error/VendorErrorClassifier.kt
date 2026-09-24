@@ -13,9 +13,6 @@ import java.util.concurrent.CancellationException
  */
 object VendorErrorClassifier {
 
-    /** EIP-1193 `userRejectedRequest`; the Solana wallet standard reuses the same code. */
-    const val USER_REJECTED_CODE = 4001
-
     val USER_REJECTED_PHRASES = listOf(
         "user rejected", "user denied", "user cancelled", "user canceled", "user declined",
         "rejected by user", "denied by user", "cancelled by user", "canceled by user",
@@ -31,8 +28,12 @@ object VendorErrorClassifier {
         "found no record of a prior credit"
     )
 
-    /** How providers spell the EIP-1193 code: `code: 4001`, `code=4001`, `[4001]`, `(4001)`. */
-    private val USER_REJECTED_CODE_REGEX = Regex("""\bcode\W{0,3}4001\b|[\[(]4001[\])]""")
+    /** EIP-1193 `userRejectedRequest`; the Solana wallet standard reuses the same code. */
+    private const val USER_REJECTED_CODE = 4001
+
+    /** How providers spell the code: `code: 4001`, `code=4001`, `[4001]`, `(4001)`. */
+    private val USER_REJECTED_CODE_REGEX =
+        Regex("""\bcode\W{0,3}$USER_REJECTED_CODE\b|[\[(]$USER_REJECTED_CODE[\])]""")
 
     /**
      * Classifies vendor prose into [RainError.UserRejected] / [RainError.InsufficientFunds], or

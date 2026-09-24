@@ -186,9 +186,6 @@ data class CollateralTokenBalance(
 ) {
     val displayAddress: String
         get() = if (address.length > 12) "${address.take(6)}...${address.takeLast(4)}" else address
-
-    val usdValue: BigDecimal
-        get() = balance.multiply(exchangeRate.toBigDecimal())
 }
 
 data class BalancesUiState(

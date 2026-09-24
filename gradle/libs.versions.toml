@@ -58,7 +58,6 @@ coroutines = "1.11.0"
 zxing = "3.5.4"
 
 # -- AndroidX & Compose --
-androidx-annotation = "1.10.0"
 androidx-core-ktx = "1.18.0"
 androidx-lifecycle = "2.10.0"
 androidx-activity-compose = "1.13.0"
@@ -71,8 +70,6 @@ androidx-credentials = "1.5.0"
 
 # -- Testing --
 junit = "4.13.2"
-androidx-junit = "1.3.0"
-androidx-espresso = "3.7.0"
 mockk = "1.14.11"
 truth = "1.4.5"
 json = "20260814"
@@ -115,7 +112,6 @@ kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-t
 kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect", version.ref = "kotlin" }
 
 # -- AndroidX --
-androidx-annotation = { module = "androidx.annotation:annotation", version.ref = "androidx-annotation" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core-ktx" }
 androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "androidx-security-crypto" }
 androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "androidx-credentials" }
@@ -127,7 +123,6 @@ androidx-activity-compose = { module = "androidx.activity:activity-compose", ver
 # -- Compose (Managed by BOM) --
 androidx-compose-bom = { module = "androidx.compose:compose-bom", version.ref = "androidx-compose-bom" }
 androidx-compose-ui = { module = "androidx.compose.ui:ui" }
-androidx-compose-ui-graphics = { module = "androidx.compose.ui:ui-graphics" }
 androidx-compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 androidx-compose-material3 = { module = "androidx.compose.material3:material3" }
@@ -139,10 +134,6 @@ detekt-ktlint-wrapper = { module = "dev.detekt:detekt-rules-ktlint-wrapper", ver
 
 # -- Testing --
 junit = { module = "junit:junit", version.ref = "junit" }
-androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidx-junit" }
-androidx-test-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "androidx-espresso" }
-androidx-compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
-androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
 truth = { module = "com.google.truth:truth", version.ref = "truth" }
 sol4k = { module = "org.sol4k:sol4k", version.ref = "sol4k" }

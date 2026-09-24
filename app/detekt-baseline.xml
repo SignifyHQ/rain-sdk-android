@@ -25,7 +25,6 @@
     <ID>MagicNumber:WalletChain.kt:WalletChain$32</ID>
     <ID>MagicNumber:WalletChain.kt:WalletChain$42</ID>
     <ID>MagicNumber:WalletChain.kt:WalletChain$44</ID>
-    <ID>MagicNumber:WalletInfoViewModel.kt:WalletInfoUiState$42</ID>
     <ID>NoNameShadowing:MainActivity.kt:{ selectedChain = it }</ID>
     <ID>ReturnCount:AuthPullViewModel.kt:AuthPullViewModel$private fun resolvedAmount: AmountSelection</ID>
     <ID>ReturnCount:AuthPullViewModel.kt:AuthPullViewModel$private fun validate: Boolean</ID>
@@ -43,7 +42,6 @@
     <ID>TooGenericExceptionThrown:CollateralWithdrawViewModel.kt:CollateralWithdrawViewModel$throw Exception(friendlySignatureError(e))</ID>
     <ID>TooManyFunctions:CollateralWithdrawViewModel.kt:CollateralWithdrawViewModel : ViewModel</ID>
     <ID>TooManyFunctions:HomeViewModel.kt:HomeViewModel : ViewModel</ID>
-    <ID>UnusedParameter:HomeScreen.kt:session: RainSession</ID>
     <ID>UseOrEmpty:AuthPullViewModel.kt:AuthPullUiState$WalletChain.firstAuthPullChain?.defaultTokenAddress ?: ""</ID>
     <ID>UseOrEmpty:CollateralWithdrawViewModel.kt:CollateralWithdrawViewModel$WalletChain.entries.firstOrNull { it.chainId == _state.value.chainId }?.nativeSymbol ?: ""</ID>
     <ID>UseOrEmpty:CollateralWithdrawViewModel.kt:CollateralWithdrawViewModel$contract.adminAddresses.firstOrNull() ?: ""</ID>

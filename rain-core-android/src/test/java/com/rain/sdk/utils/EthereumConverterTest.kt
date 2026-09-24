@@ -88,18 +88,20 @@ class EthereumConverterTest {
     }
 
     @Test
-    fun `parseHexToInt parses decimals responses`() {
-        assertThat(EthereumConverter.parseHexToInt("0x" + "6".padStart(64, '0'))).isEqualTo(6)
-        assertThat(EthereumConverter.parseHexToInt("0x12")).isEqualTo(18)
-        assertThat(EthereumConverter.parseHexToInt("0x")).isEqualTo(0)
+    fun `parseHexToIntStrict parses decimals responses`() {
+        assertThat(EthereumConverter.parseHexToIntStrict("0x" + "6".padStart(64, '0'))).isEqualTo(6)
+        assertThat(EthereumConverter.parseHexToIntStrict("0x12")).isEqualTo(18)
     }
 
     @Test
-    fun `parseHexToInt rejects out-of-range values instead of narrowing to a negative Int`() {
-        // A hostile/malformed decimals() must never produce a negative decimals (which would
-        // flip Balance.decimalAmount from a divide into a multiply). Clamp to 0 instead.
-        assertThat(EthereumConverter.parseHexToInt("0xffffffff")).isEqualTo(0)
-        assertThat(EthereumConverter.parseHexToInt("0x" + "f".repeat(64))).isEqualTo(0)
+    fun `parseHexToIntStrict throws InternalError instead of narrowing to a negative Int`() {
+        // A hostile or malformed decimals() must never produce a negative decimals, which would
+        // flip Balance.decimalAmount from a divide into a multiply. The strict parser throws.
+        listOf("0xffffffff", "0x" + "f".repeat(64)).forEach { bad ->
+            val error = runCatching { EthereumConverter.parseHexToIntStrict(bad) }.exceptionOrNull()
+            assertThat(error).isInstanceOf(RainError.InternalError::class.java)
+            assertThat(error).hasMessageThat().contains("does not fit in a non-negative Int")
+        }
     }
 
     @Test

@@ -70,15 +70,11 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.timber)
-    implementation(libs.androidx.annotation)
-    implementation(libs.okhttp)
 
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
     testImplementation(libs.truth)
-    testImplementation(libs.okhttp.mockwebserver)
-    testImplementation(libs.json)
     testImplementation(libs.kotlinx.coroutines.test)
 }
 
