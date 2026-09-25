@@ -80,7 +80,9 @@ dependencies {
         exclude(group = "com.squareup.okhttp3", module = "logging-interceptor")
     }
 
-    implementation(libs.kotlinx.coroutines.core)
+    // `Flow` appears in this module's public signatures (session state), so the coroutines library is
+    // part of its contract with hosts.
+    api(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.timber)
     // Own JSON-RPC read path: core's JsonRpcClient/ChainReader are @RainAdapterApi seams this module

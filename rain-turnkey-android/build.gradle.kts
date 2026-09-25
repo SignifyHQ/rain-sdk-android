@@ -106,7 +106,9 @@ dependencies {
     // every consumer's runtime classpath; declaring it here only brings the types to compile time.
     implementation(libs.androidx.credentials)
 
-    implementation(libs.kotlinx.coroutines.core)
+    // `Flow` appears in this module's public signatures (session and auth state), so the coroutines library is
+    // part of its contract with hosts.
+    api(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.timber)
     implementation(libs.okhttp)
