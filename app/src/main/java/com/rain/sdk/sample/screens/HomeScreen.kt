@@ -428,7 +428,7 @@ private const val PREVIEW_HOME_TURNKEY_ORG = "a1b2c3d4-5e6f-7890-abcd-ef12345678
 private const val PREVIEW_HOME_TURNKEY_PROXY = "9f8e7d6c-5b4a-3210-fedc-ba0987654321"
 private const val PREVIEW_HOME_EMAIL = "dev@rain.xyz"
 private const val PREVIEW_HOME_PHONE = "+15551234567"
-private const val PREVIEW_HOME_API_KEY = "rain_sk_live_9f2c4b7a1d8e35604c2fa9b7"
+private const val PREVIEW_HOME_API_KEY = "review_api_key_9f2c4b7a1d8e35604c287888"
 private const val PREVIEW_HOME_USER_ID = "usr_7HqL2mNp9RtVx4Kd"
 private const val PREVIEW_HOME_PORTAL_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.portal.session.token"
 
