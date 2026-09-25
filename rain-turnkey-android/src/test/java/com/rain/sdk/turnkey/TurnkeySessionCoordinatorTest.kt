@@ -130,6 +130,18 @@ class TurnkeySessionCoordinatorTest {
     }
 
     @Test
+    fun `default policy refreshes with Turnkey's default lifetime`() = runBlocking {
+        val turnkey = MockTurnkey(session = MockTurnkey.expiredSession())
+        turnkey.onRefreshSession = { turnkey.session = MockTurnkey.defaultSession() }
+        val coordinator = coordinator(turnkey)
+
+        coordinator.executeRead { s, c -> c.getActivities(activitiesBody(s.organizationId)) }
+
+        // A missing value, not the string "null": Turnkey applies its default only when none is sent.
+        assertThat(turnkey.refreshSessionCalls).isEqualTo(listOf<String?>(null))
+    }
+
+    @Test
     fun `failed refresh surfaces TokenExpired and fires the expiry hook once`() {
         val turnkey = MockTurnkey(session = MockTurnkey.expiredSession())
         turnkey.refreshSessionError = RuntimeException("refresh rejected")

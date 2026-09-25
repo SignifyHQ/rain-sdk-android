@@ -401,7 +401,7 @@ TurnkeyProvider(
         sessionPolicy = TurnkeySessionPolicy(
             refreshBufferSeconds = 60,        // refresh when < 60s of lifetime remain
             autoRefresh = true,               // let Rain call Turnkey's refreshSession itself
-            refreshExpirationSeconds = null,  // TTL for refreshed sessions (null = Turnkey default)
+            refreshExpirationSeconds = null,  // seconds for refreshed sessions, > 0 (null = Turnkey's 900)
             maxTransientRetries = 2,          // backoff retries for 5xx/429/network on reads
             initialRetryDelayMs = 500,
             maxRetryDelayMs = 4_000,
@@ -414,6 +414,10 @@ TurnkeyProvider(
     )
 )
 ```
+
+`refreshExpirationSeconds` is a `Long` count of seconds and must be positive; `null` keeps Turnkey's
+default of 900 seconds. An out-of-range policy value throws `IllegalArgumentException` when the
+policy is constructed.
 
 What every wallet call does:
 

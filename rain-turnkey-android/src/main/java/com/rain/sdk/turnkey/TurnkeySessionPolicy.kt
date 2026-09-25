@@ -11,6 +11,8 @@ package com.rain.sdk.turnkey
  * on transient failures — only after a refresh that proves the original request was rejected
  * before execution.
  *
+ * Out-of-range values are a programming error and throw [IllegalArgumentException] at construction.
+ *
  * @param refreshBufferSeconds Refresh the session when it is within this window of expiring.
  * @param autoRefresh When true the SDK calls Turnkey's `refreshSession` itself; when false an
  *                    expired session surfaces as `RainError.TokenExpired` and re-auth is the
