@@ -11,15 +11,15 @@ import com.rain.sdk.internal.tokenstore.TokenMetadataStore
  * to each [ProviderDescriptor] when it materializes its [com.rain.sdk.provider.WalletProvider].
  *
  * Adapters use these shared pieces instead of constructing their own, so every provider sees one
- * token store and one RPC view. [tokenStore] and [solanaSupport] are public because every adapter
- * module needs them; the chain readers carry [com.rain.sdk.internal.RainAdapterApi] for the same
- * reason, which keeps them out of the contract with host apps.
+ * token store and one RPC view. Everything except [rpcEndpoints] carries
+ * [com.rain.sdk.internal.RainAdapterApi]: Rain's adapter modules need it, and the marker keeps it
+ * out of the contract with host apps. A host's own descriptor needs only [rpcEndpoints].
  */
 class ProviderContext @RainAdapterApi constructor(
     val rpcEndpoints: Map<Int, String>,
-    val tokenStore: TokenMetadataStore,
+    @property:RainAdapterApi val tokenStore: TokenMetadataStore,
     @property:RainAdapterApi val evmChainReader: EvmChainReader,
-    val solanaSupport: SolanaSupport,
+    @property:RainAdapterApi val solanaSupport: SolanaSupport,
 ) {
     @RainAdapterApi
     val solanaChainReader: SolanaChainReader get() = solanaSupport.chainReader

@@ -44,7 +44,12 @@ kotlin {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
         // This module implements WalletProvider and ProviderDescriptor, which need @ExperimentalRainApi
         // to implement, so it opts in as a whole; a host opts in on its own implementing class.
-        freeCompilerArgs.addAll("-opt-in=com.rain.sdk.ExperimentalRainApi")
+        freeCompilerArgs.addAll(
+            "-opt-in=com.rain.sdk.ExperimentalRainApi",
+            // Core's cross-module seams (token store, Solana support, ABI and error helpers) are marked
+            // @RainAdapterApi. Adapter modules are the intended callers, so this one opts in.
+            "-opt-in=com.rain.sdk.internal.RainAdapterApi",
+        )
     }
 }
 

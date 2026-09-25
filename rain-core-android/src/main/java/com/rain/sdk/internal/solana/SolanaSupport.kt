@@ -19,6 +19,7 @@ import java.math.BigDecimal
  * [SolanaTransferComposer]) and balance reads. Signing and broadcasting stay with the adapter,
  * which is the only vendor-specific step.
  */
+@RainAdapterApi
 class SolanaSupport internal constructor(
     rpcEndpoints: Map<Int, String>,
     @property:RainAdapterApi val rpc: SolanaRpcClient,

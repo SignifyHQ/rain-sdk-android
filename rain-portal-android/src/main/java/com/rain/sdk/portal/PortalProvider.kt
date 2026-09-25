@@ -160,8 +160,6 @@ class PortalProvider internal constructor(
 
         return PortalWalletProvider(manager, context.tokenStore, coordinator)
     }
-
-    private companion object {
-        const val EIP155_NAMESPACE = "eip155"
-    }
 }
+
+private const val EIP155_NAMESPACE = "eip155"
