@@ -31,6 +31,10 @@
 -keep class org.web3j.protocol.core.methods.response.EthCall { *; }
 -keep class org.web3j.protocol.core.DefaultBlockParameterName { *; }
 -keep class org.web3j.protocol.core.DefaultBlockParameter { *; }
+# Response$Error.data names this deserializer in @JsonDeserialize(using = ...), and Jackson creates it
+# through its no-argument constructor. Without this rule R8 drops that constructor, and an RPC error
+# whose data is an object no longer parses. The misspelled class name is web3j's own.
+-keep class org.web3j.protocol.deserializer.KeepAsJsonDeserialzier { <init>(); }
 
 # slf4j-api, pulled in by web3j, looks up a logging binder class that no Android app ships.
 # Without this line R8 stops a host's release build with "Missing class org.slf4j.impl.StaticLoggerBinder".
