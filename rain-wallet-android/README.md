@@ -10,7 +10,7 @@ configures nothing but behaviour.
 ```kotlin
 dependencies {
     // Pulls rain-core-android transitively; the wallet backend ships with it.
-    implementation("io.github.spartan-quanhongtran:rain-wallet-android:1.0.1")
+    implementation("xyz.rain:rain-wallet-android:5.0.0-beta.1")
 }
 ```
 

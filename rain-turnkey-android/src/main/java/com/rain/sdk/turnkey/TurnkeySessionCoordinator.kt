@@ -281,7 +281,7 @@ internal class TurnkeySessionCoordinator(
      */
     private suspend fun refreshOutcome(): RefreshOutcome {
         return try {
-            turnkey.refreshSession(policy.refreshExpirationSeconds)
+            turnkey.refreshSession(policy.refreshExpirationSeconds?.toString())
             turnkey.session?.let { RefreshOutcome.Fresh(it) } ?: RefreshOutcome.Dead(null)
         } catch (e: Exception) {
             // A cancellation leaves as itself, bare or wrapped: FailedToRefreshSession wraps whatever

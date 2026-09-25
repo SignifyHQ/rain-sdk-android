@@ -10,6 +10,9 @@ plugins {
     alias(libs.plugins.compose.compiler) apply false
     alias(libs.plugins.detekt) apply false
     alias(libs.plugins.dokka) apply false
+    // Declared here so the five library modules share one copy of the publishing plugin. Loaded per module
+    // instead, the plugin's shared upload service breaks once the modules' plugin sets differ.
+    alias(libs.plugins.vanniktech.maven.publish) apply false
 }
 
 // Two Bouncy Castle builds ship the same `org.bouncycastle.*` class names, so dex-ing both fails
@@ -36,11 +39,25 @@ subprojects {
     }
 }
 
-// Tests that are env-gated on purpose (live network) and therefore allowed to skip.
-val allowedSkippedTests = setOf(
-    "com.rain.sdk.internal.transaction.RainTransactionBuilderImplTest" +
-        ".getLatestNonce uses real network and returns nonce gt 0"
-)
+// Releases go out only through the Central Portal's Publish button. vanniktech registers
+// publishAndReleaseToMavenCentral in every publishing module whatever automaticRelease says, and that
+// task turns automatic release on through enableAutomaticMavenCentralPublishing. Failing that task fails
+// the build, and the plugin uploads nothing from a failed build.
+subprojects {
+    pluginManager.withPlugin("com.vanniktech.maven.publish") {
+        tasks.named { it == "enableAutomaticMavenCentralPublishing" }.configureEach {
+            doFirst {
+                throw GradleException(
+                    "Rain releases only through the Central Portal's Publish button. " +
+                        "Run publishToMavenCentral, then check the deployment in the Portal and publish it there."
+                )
+            }
+        }
+    }
+}
+
+// Tests that are env-gated on purpose (live network) and therefore allowed to skip. None today.
+val allowedSkippedTests = emptySet<String>()
 // Every module with JVM unit tests: the five SDK modules and the sample, whose tests pin its host reference code.
 val unitTestModules =
     listOf("rain-core-android", "rain-turnkey-android", "rain-portal-android", "rain-privy-android", "rain-wallet-android", "app")

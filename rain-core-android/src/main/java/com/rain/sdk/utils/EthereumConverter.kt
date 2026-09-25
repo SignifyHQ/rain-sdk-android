@@ -16,17 +16,21 @@ import java.math.RoundingMode
 object EthereumConverter {
 
     /**
-     * Normalizes an optional hex string by stripping invalid values down to `"0x0"`.
-     * Used by Portal/Turnkey adapters before parsing.
+     * Returns `"0x0"` for `null`, a value without the `0x` prefix, or a bare `"0x"`, and any other
+     * value unchanged. The digits are not checked, so a malformed value still fails in the parser
+     * that reads it. Used by the Portal adapter before parsing.
      */
     fun normalizedHexString(hex: String?): String =
         hex?.takeIf { it.startsWith("0x") && it.length > 2 } ?: "0x0"
 
-    /** Converts a Wei hex string to an exact ETH-unit [BigDecimal] (18 decimals). */
-    fun convertWeiHexToDecimal(weiHexValue: String): BigDecimal {
-        val cleanedHex = weiHexValue.removePrefix("0x").ifEmpty { "0" }
-        return BigInteger(cleanedHex, 16).toBigDecimal().movePointLeft(18)
-    }
+    /**
+     * Converts a Wei hex string to an exact ETH-unit [BigDecimal] (18 decimals). An empty payload
+     * (`""` or `"0x"`) reads as zero.
+     *
+     * @throws RainError.InternalError on non-hex input
+     */
+    fun convertWeiHexToDecimal(weiHexValue: String): BigDecimal =
+        lenientHexToBigInteger(weiHexValue).toBigDecimal().movePointLeft(18)
 
     /** Converts a Wei BigInteger to an exact ETH-unit [BigDecimal] (18 decimals). */
     fun convertWeiToEthDecimal(wei: BigInteger): BigDecimal =
@@ -42,18 +46,31 @@ object EthereumConverter {
      * the same guards as every other money path: a negative amount would produce malformed hex
      * ("0x-..."), and sub-base-unit precision would be truncated silently.
      *
-     * @throws RainError.InvalidAmount if [ethBalance] is negative or carries more than
-     *         [decimals] decimal places
+     * @throws RainError.InvalidAmount if [ethBalance] is negative, carries more than [decimals]
+     *         decimal places or exceeds uint256, or if [decimals] is outside 0..77
      */
     fun convertEthToWeiHex(ethBalance: BigDecimal, decimals: Int): String {
         val wei = RainAmountUtils.toBaseUnits(ethBalance, decimals)
         return "0x${wei.toString(16)}"
     }
 
-    /** Converts a hex string to an exact [BigDecimal] with the specified number of decimals. */
-    fun convertHexToDecimal(hex: String, decimals: Int): BigDecimal {
-        val cleanedHex = hex.removePrefix("0x").ifEmpty { "0" }
-        return BigInteger(cleanedHex, 16).toBigDecimal().movePointLeft(decimals)
+    /**
+     * Converts a hex string to an exact [BigDecimal] with the specified number of decimals. An empty
+     * payload (`""` or `"0x"`) reads as zero.
+     *
+     * @throws RainError.InternalError on non-hex input
+     */
+    fun convertHexToDecimal(hex: String, decimals: Int): BigDecimal =
+        lenientHexToBigInteger(hex).toBigDecimal().movePointLeft(decimals)
+
+    /** Reads [hex] for the two converters above: an empty payload is zero, non-hex input throws. */
+    private fun lenientHexToBigInteger(hex: String): BigInteger {
+        val cleaned = hex.removePrefix("0x").ifEmpty { "0" }
+        return try {
+            BigInteger(cleaned, 16)
+        } catch (e: NumberFormatException) {
+            throw RainError.InternalError("Malformed hex payload: \"$hex\"", e)
+        }
     }
 
     /**
@@ -102,16 +119,18 @@ object EthereumConverter {
         if (cleaned.length < 128) return null
 
         val lengthHex = cleaned.substring(64, 128)
-        val byteLength = try {
-            BigInteger(lengthHex, 16).toInt()
+        val length = try {
+            BigInteger(lengthHex, 16)
         } catch (e: NumberFormatException) {
             return null
         }
-        if (byteLength <= 0) return null
+        // Compared as a BigInteger before narrowing: toInt() would wrap a length word past Int range,
+        // and doubling a length of 0x40000000 or more overflows an Int.
+        val availableBytes = (cleaned.length - 128) / 2
+        if (length.signum() <= 0 || length > BigInteger.valueOf(availableBytes.toLong())) return null
+        val byteLength = length.toInt()
 
-        val dataEnd = 128 + byteLength * 2
-        if (cleaned.length < dataEnd) return null
-        val dataHex = cleaned.substring(128, dataEnd)
+        val dataHex = cleaned.substring(128, 128 + byteLength * 2)
 
         val bytes = ByteArray(byteLength)
         var i = 0

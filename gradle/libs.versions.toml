@@ -9,7 +9,7 @@ targetSdk = "37"
 minCompileSdk = "36"
 
 # -- Project --
-rain-sdk = "1.0.1"
+rain-sdk = "5.0.0-beta.1"
 
 # -- Plugins --
 android-gradle-plugin = "9.4.1"
@@ -44,9 +44,11 @@ bitcoinj = "0.17.1"
 # Floor only: bitcoinj 0.17.1 already resolves protobuf-javalite to 4.33.4; this documents the GHSA minimum.
 protobuf-javalite = "3.25.9"
 bouncycastle = "1.86"
-# Ceiling. 4.10.x is the line exercised on devices; later lines change the class-file level and the Jackson
-# major, so verify on a device before moving.
-web3j = "4.10.3"
+# Pinned to 4.10.1 on purpose, the newest release without a Java record. From 4.10.2, org.web3j:utils
+# ships one (Bloom$BloomValues), and AGP 8 debug builds of host apps fail to dex it ("global synthetic
+# for 'Record desugaring'"). Later lines also change the class-file level and the Jackson major, so
+# verify on a device and on AGP 8 before moving.
+web3j = "4.10.1"
 timber = "5.0.1"
 # Ceiling. 5.5.0's Android artifact declares minCompileSdk 37, which every partner app would inherit.
 okhttp = "5.4.0"

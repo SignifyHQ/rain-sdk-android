@@ -13,7 +13,7 @@ Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provide
 ```kotlin
 dependencies {
     // Pulls rain-core-android and the Turnkey artifacts transitively.
-    implementation("io.github.spartan-quanhongtran:rain-turnkey-android:1.0.1")
+    implementation("xyz.rain:rain-turnkey-android:5.0.0-beta.1")
 }
 ```
 
@@ -401,7 +401,7 @@ TurnkeyProvider(
         sessionPolicy = TurnkeySessionPolicy(
             refreshBufferSeconds = 60,        // refresh when < 60s of lifetime remain
             autoRefresh = true,               // let Rain call Turnkey's refreshSession itself
-            refreshExpirationSeconds = null,  // TTL for refreshed sessions (null = Turnkey default)
+            refreshExpirationSeconds = null,  // seconds for refreshed sessions, > 0 (null = Turnkey's 900)
             maxTransientRetries = 2,          // backoff retries for 5xx/429/network on reads
             initialRetryDelayMs = 500,
             maxRetryDelayMs = 4_000,
@@ -414,6 +414,10 @@ TurnkeyProvider(
     )
 )
 ```
+
+`refreshExpirationSeconds` is a `Long` count of seconds and must be positive; `null` keeps Turnkey's
+default of 900 seconds. An out-of-range policy value throws `IllegalArgumentException` when the
+policy is constructed.
 
 What every wallet call does:
 
@@ -522,7 +526,7 @@ configurations.all {
 Or, if you'd rather scope it to a specific dependency:
 
 ```kotlin
-implementation("org.web3j:core:4.10.3") {
+implementation("org.web3j:core:4.10.1") {
     exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
 }
 ```

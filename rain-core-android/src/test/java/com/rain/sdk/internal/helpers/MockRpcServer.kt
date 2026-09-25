@@ -31,7 +31,7 @@ import java.util.concurrent.ConcurrentHashMap
 internal class MockRpcServer {
     private val server = MockWebServer()
 
-    private data class Stub(val result: Any? = null, val networkFailure: Boolean = false)
+    private data class Stub(val result: Any? = null, val networkFailure: Boolean = false, val error: JSONObject? = null)
 
     private val stubs = ConcurrentHashMap<String, Stub>()
 
@@ -83,7 +83,9 @@ internal class MockRpcServer {
                 val payload = JSONObject().apply {
                     put("jsonrpc", "2.0")
                     put("id", 1)
-                    if (stub.result is Map<*, *> || stub.result is JSONObject) {
+                    if (stub.error != null) {
+                        put("error", stub.error)
+                    } else if (stub.result is Map<*, *> || stub.result is JSONObject) {
                         put("result", stub.result)
                     } else {
                         put("result", stub.result ?: JSONObject.NULL)
@@ -109,6 +111,16 @@ internal class MockRpcServer {
     /** Stub a successful response for [method]. [result] is placed under the `result` key. */
     fun stub(method: String, result: String) {
         stubs[method] = Stub(result = result)
+    }
+
+    /**
+     * Stub a JSON-RPC error for [method]: an HTTP 200 whose `error` object carries [code], [message]
+     * and, when given, [data], which may be a string or a structured value such as a [JSONObject].
+     */
+    fun stubError(method: String, code: Int, message: String, data: Any? = null) {
+        val error = JSONObject().put("code", code).put("message", message)
+        if (data != null) error.put("data", data)
+        stubs[method] = Stub(error = error)
     }
 
     /**

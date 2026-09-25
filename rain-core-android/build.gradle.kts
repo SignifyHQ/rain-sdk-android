@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.dokka)
@@ -43,9 +41,14 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
-        // Core's own cross-module seams are marked @RainAdapterApi. This module declares and
-        // uses them, so it opts in as a whole; host apps do not.
-        freeCompilerArgs.addAll("-opt-in=com.rain.sdk.internal.RainAdapterApi")
+        freeCompilerArgs.addAll(
+            // Core's own cross-module seams are marked @RainAdapterApi. This module declares and
+            // uses them, so it opts in as a whole; host apps do not.
+            "-opt-in=com.rain.sdk.internal.RainAdapterApi",
+            // Implementing RainClient, WalletProvider or ProviderDescriptor needs @ExperimentalRainApi.
+            // Core implements RainClient and its tests stub the other two, so it opts in as a whole.
+            "-opt-in=com.rain.sdk.ExperimentalRainApi",
+        )
     }
 }
 
@@ -85,6 +88,13 @@ dependencies {
     // Web3j for ABI Encoding. See note above about Bouncy Castle conflict.
     implementation(libs.web3j.core) {
         exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
+        // Desktop-only pieces web3j ships (Unix-socket IPC through jnr and its native libraries, ASM,
+        // a WebSocket client, OkHttp's logging interceptor). Nothing on Android uses them, and leaving
+        // them out makes a shrunk app about 250 KB smaller.
+        exclude(group = "com.github.jnr")
+        exclude(group = "org.ow2.asm")
+        exclude(group = "org.java-websocket")
+        exclude(group = "com.squareup.okhttp3", module = "logging-interceptor")
     }
 
     // Coroutines
@@ -125,35 +135,46 @@ dependencies {
 }
 
 mavenPublishing {
-    coordinates("io.github.spartan-quanhongtran", "rain-core-android", libs.versions.rain.sdk.get())
+    coordinates("xyz.rain", "rain-core-android", libs.versions.rain.sdk.get())
 
     pom {
         name.set("Rain SDK Android — Core")
-        description.set("Vendor-free core of the Rain Android SDK (port, registry, domain logic)")
+        description.set("Core of the Rain Android SDK: collateral withdrawals, balances and token reads through any wallet provider. Add a wallet module or bring your own.")
         url.set("https://github.com/SignifyHQ/rain-sdk-android")
         licenses {
             license {
                 name.set("The Apache License, Version 2.0")
-                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
             }
         }
         developers {
             developer {
-                id.set("spartan-quanhongtran")
-                name.set("spartan-quanhongtran")
-                email.set("engineering@signify.net")
+                id.set("rain")
+                name.set("Rain Engineering")
+                email.set("maven@rain.xyz")
+                organization.set("Rain")
+                organizationUrl.set("https://rain.xyz")
             }
         }
+        organization {
+            name.set("Rain")
+            url.set("https://rain.xyz")
+        }
         scm {
-            connection.set("scm:git:git://github.com/SignifyHQ/rain-sdk-android.git")
-            developerConnection.set("scm:git:ssh://github.com/SignifyHQ/rain-sdk-android.git")
+            connection.set("scm:git:https://github.com/SignifyHQ/rain-sdk-android.git")
+            developerConnection.set("scm:git:ssh://git@github.com/SignifyHQ/rain-sdk-android.git")
             url.set("https://github.com/SignifyHQ/rain-sdk-android")
         }
     }
 
-    // Configure publishing to Sonatype Central Portal (Standard for new accounts 2024+)
-    publishToMavenCentral()
+    // Uploads to the Sonatype Central Portal without releasing: after publishToMavenCentral, the deployment
+    // waits in the Portal until someone presses Publish there, even if the uploading machine sets
+    // mavenCentralAutomaticPublishing. The plugin's publishAndReleaseToMavenCentral would release at once,
+    // so the root build makes it fail. A published version can never be changed or deleted.
+    publishToMavenCentral(automaticRelease = false)
 
-    // Enable signing (will use memory keys from local.properties or env vars)
+    // Signs every published file. The key comes from the Gradle properties signingInMemoryKey and
+    // signingInMemoryKeyPassword (in ~/.gradle/gradle.properties, or as ORG_GRADLE_PROJECT_ env vars
+    // in CI); local.properties is not read.
     signAllPublications()
 }

@@ -10,7 +10,6 @@ import com.rain.sdk.internal.error.ErrorMapper
 import com.rain.sdk.internal.network.chainreader.ChainReader
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.network.chainreader.MinedReceipt
-import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.solana.SolanaCollateralWithdrawComposer
 import com.rain.sdk.internal.solana.SolanaRpcClient
 import com.rain.sdk.internal.tokenstore.TokenInfoValidation
@@ -37,6 +36,7 @@ import com.rain.sdk.models.TokenInfo
 import com.rain.sdk.models.UnsignedSolanaTransfer
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderId
+import com.rain.sdk.provider.WalletProvider
 import com.rain.sdk.utils.QRGenerator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -748,13 +748,13 @@ internal class RainSdkManager(
         const val APPROVAL_CONFIRMATION_INTERVAL_MS = 1_000L
     }
 
-    override fun registerTokens(tokens: List<TokenInfo>) {
+    override suspend fun registerTokens(tokens: List<TokenInfo>) {
         if (tokens.isEmpty()) return
         // The whole list is checked before anything is added, so a bad entry registers nothing.
         TokenInfoValidation.requireValid(tokens)
         registeredTokens.addAll(tokens)
         // Stored before this returns, so a lookup that follows sees the entries.
-        tokenStore?.registerNow(tokens)
+        tokenStore?.register(tokens)
     }
 
     override fun reset() {

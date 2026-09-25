@@ -208,7 +208,7 @@ vendor-shaped details are worth knowing:
   configured chain.
 
 **Bring your own provider:** implement the `WalletProvider` port and a `ProviderDescriptor`
-(with your own `ProviderId`), then `register(...)` it; only `rain-core-android` is needed, and the root
+(with your own `ProviderId`, and `@OptIn(ExperimentalRainApi::class)` on each implementing class), then `register(...)` it; only `rain-core-android` is needed, and the root
 README's section 3 carries a minimal adapter (descriptor, port, error boundary). Convert your vendor's exceptions to `RainError`
 before they leave your adapter, the way Rain's own adapters do in their session coordinators: core
 passes a `RainError` through with its code (the withdrawal paths alone rewrap a simulation failure
@@ -736,7 +736,7 @@ warning.
   `RainSdk.registerTokens` validates; the whole list is checked first, so nothing is registered. The
   entries are stored before the call returns, so a lookup that follows sees them.
 - **Returns:** `Unit`
-- **Suspend:** No
+- **Suspend:** Yes
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -924,7 +924,8 @@ pre-set to `"0x0"`. Hosts can hand the result to any provider for signing / broa
 | **`RainWalletAuthState`** | Sealed: `Loading`, `Authenticated`, `Unauthenticated`. A `when` over it is exhaustive; a new state is a breaking change shipped in a major version. |
 | **`RainWalletContact`** | Sealed: `Email(value)` or `Phone(value)`, the contact a login code goes to and the identity the account is keyed on. `toString()` hides the value. |
 | **`RainWalletKeyAccount`** | Enum: `ETHEREUM`, `SOLANA`. Which of the Rain wallet's keys `RainProvider.exportPrivateKey` returns. |
-| **`WalletProvider`** | The port each adapter implements. Public so hosts can ship their own wallet stack. |
+| **`ExperimentalRainApi`** | Opt-in marker (`@RequiresOptIn`, error level). On `WalletProvider`, `ProviderDescriptor` and `RainClient` it guards implementing them: Rain may add members to these interfaces in any release. On any other declaration it means the declaration may change in any release, with a CHANGELOG entry. Calling the SDK needs no opt-in. |
+| **`WalletProvider`** | The port each adapter implements, in `com.rain.sdk.provider`. Public so hosts can ship their own wallet stack; implementing it needs `@OptIn(ExperimentalRainApi::class)`, because Rain may add members in any release. |
 | **`TokenInfo`** | A token the SDK reads balances for and scales amounts by: `chainId` (numeric; EIP-155 for EVM chains, 900 to 902 for the Solana clusters), `address` (the ERC-20 contract, or the SPL mint on Solana), `symbol: String?`, `decimals: Int`, `name: String?`. Returned by `tokenMetadata`, accepted by the three `registerTokens` methods. |
 | **`RainWithdrawAddresses`** | `proxyAddress`, `controllerAddress`, `tokenAddress`, `recipientAddress`. Has `validated()` method for address checksumming. |
 | **`RainAdminSignature`** | Rain's authorization for one withdrawal, passed through unchanged: `salt` (base64, 32 bytes on every chain), `signature` (EVM: 0x-hex, 65 bytes; Solana: base64, 64 bytes), `expiresAt` (unix seconds, or an ISO-8601 instant with Z or a numeric offset). |
@@ -939,6 +940,7 @@ pre-set to `"0x0"`. Hosts can hand the result to any provider for signing / broa
 | **`RainTransactionParameters`** | `from`, `to`, `value` (hex wei), `data` (hex calldata). Wallet-agnostic transaction parameter bag returned by `RainSdk.buildTransactionParameters`. |
 | **`RainTransaction`** | Transaction record: `hash`, `uniqueId`, `blockNumber`, `timestamp`, `from`, `to`, `value`, `asset`, `tokenAddress`, `rawValue`, `decimals`, `category`, `chainId`, `metadata`. |
 | **`RainTransactionCategory`** | Extensible constant: `External`, `Token`, `Erc20`, `Erc721`, `Erc1155`, `ContractInternal`. |
+| **`EthereumConverter`** | Public helpers in `com.rain.sdk.utils` for wei and hex values. `convertWeiToEthDecimal(wei)` and `convertWeiHexToDecimal(hex)` return an exact 18-decimal `BigDecimal`; `convertHexToDecimal(hex, decimals)` scales by any decimals. Both hex converters read an empty payload (`"0x"`) as zero and throw `InternalError` on non-hex input. `convertEthToWeiHex(amount, decimals)` goes the other way and throws `InvalidAmount` on a negative amount, more decimal places than `decimals`, a value above uint256, or `decimals` outside 0..77. `decimalStringToBigInteger(value, decimals)` rounds down and returns zero on unparseable input. `parseHexToBigIntegerStrict` and `parseHexToIntStrict` throw `InternalError` on malformed hex; `parseHexToString` decodes an ABI-encoded string or returns `null`; `normalizedHexString` returns `"0x0"` for `null`, a value without the `0x` prefix or a bare `"0x"`, and any other value unchanged, without checking its digits. |
 | **`RainTransactionOrder`** | Enum: `.ASC`, `.DESC`. Used in `getTransactions(..., order:)`. |
 | **`RainChain`** | Constants: `AVALANCHE_MAINNET` (43114), `AVALANCHE_TESTNET` (43113), `BASE_MAINNET` (8453), `BASE_SEPOLIA` (84532), `ARBITRUM_MAINNET` (42161), `ARBITRUM_SEPOLIA` (421614), plus the Solana sentinels. |
 

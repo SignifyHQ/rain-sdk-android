@@ -49,7 +49,7 @@ class RainWalletSessionPolicy(
     internal fun toBacking(): TurnkeySessionPolicy = TurnkeySessionPolicy(
         refreshBufferSeconds = refreshBufferSeconds,
         autoRefresh = autoRefresh,
-        refreshExpirationSeconds = refreshExpirationSeconds?.toString(),
+        refreshExpirationSeconds = refreshExpirationSeconds,
         maxTransientRetries = maxTransientRetries,
         initialRetryDelayMs = initialRetryDelayMs,
         maxRetryDelayMs = maxRetryDelayMs,

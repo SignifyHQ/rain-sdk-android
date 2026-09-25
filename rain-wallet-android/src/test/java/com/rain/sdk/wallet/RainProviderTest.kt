@@ -4,10 +4,10 @@ import android.app.Activity
 import android.app.Application
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.error.RainError
-import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
 import com.rain.sdk.provider.ProviderId
+import com.rain.sdk.provider.WalletProvider
 import com.rain.sdk.turnkey.LoginContact
 import com.rain.sdk.turnkey.TurnkeyAuthState
 import com.rain.sdk.turnkey.TurnkeyKeyFamily
@@ -118,7 +118,7 @@ class RainProviderTest {
             TurnkeySessionPolicy(
                 refreshBufferSeconds = 61L,
                 autoRefresh = false,
-                refreshExpirationSeconds = "901",
+                refreshExpirationSeconds = 901L,
                 maxTransientRetries = 3,
                 initialRetryDelayMs = 501L,
                 maxRetryDelayMs = 4_001L,

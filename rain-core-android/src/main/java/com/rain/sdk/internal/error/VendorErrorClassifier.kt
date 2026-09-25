@@ -1,6 +1,7 @@
 package com.rain.sdk.internal.error
 
 import com.rain.sdk.error.RainError
+import com.rain.sdk.internal.RainAdapterApi
 import java.util.concurrent.CancellationException
 
 /**
@@ -11,6 +12,7 @@ import java.util.concurrent.CancellationException
  * nothing: "Transaction cancelled" is a chain outcome, "User doesn't have an embedded wallet" is
  * a wallet-availability failure, and neither is the user declining a prompt.
  */
+@RainAdapterApi
 object VendorErrorClassifier {
 
     val USER_REJECTED_PHRASES = listOf(
