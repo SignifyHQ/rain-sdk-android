@@ -1,11 +1,11 @@
 package com.rain.sdk
 
 /**
- * Marks Rain SDK API that may still change in a minor release.
+ * Marks Rain SDK API that may change in any release.
  *
  * Through [SubclassOptInRequired] on an interface, the marker guards implementing it: a host that
- * writes its own [com.rain.sdk.provider.WalletProvider] or
- * [com.rain.sdk.provider.ProviderDescriptor] adds `@OptIn(ExperimentalRainApi::class)` to that
+ * writes its own [com.rain.sdk.provider.WalletProvider], [com.rain.sdk.provider.ProviderDescriptor]
+ * or [com.rain.sdk.interfaces.RainClient] adds `@OptIn(ExperimentalRainApi::class)` to that
  * class and accepts that Rain may add members to the interface in any release, with a default body
  * wherever one makes sense. Calling the SDK through these interfaces needs no opt-in.
  *

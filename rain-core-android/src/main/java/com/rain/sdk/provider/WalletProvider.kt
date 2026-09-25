@@ -19,7 +19,7 @@ import java.math.BigDecimal
  *
  * Public so host apps can ship their own implementations and register them via a
  * [ProviderDescriptor]. Implementing it requires `@OptIn(ExperimentalRainApi::class)`: Rain may
- * add members in a minor release, with a default body wherever one makes sense, so an
+ * add members in any release, with a default body wherever one makes sense, so an
  * implementation should expect the interface to grow. Calling it needs no opt-in.
  *
  * Error contract: a failure leaves an implementation as a [com.rain.sdk.error.RainError],

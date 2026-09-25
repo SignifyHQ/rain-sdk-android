@@ -96,8 +96,10 @@ later betas:
   `else` branch.
 - Anything marked `@ExperimentalRainApi` may change in any release. Implementing `WalletProvider`,
   `ProviderDescriptor` or `RainClient` requires opting in to it, because Rain may add members to them.
+- `@RainAdapterApi` and `@InternalRainTurnkeyApi` mark code that Rain's own modules share. They carry
+  no compatibility guarantee, so code that opts in to them may break in any release.
 
-From `5.0.0` on, nothing outside `@ExperimentalRainApi` breaks before `6.0.0`.
+From `5.0.0` on, nothing outside these three opt-in markers breaks before `6.0.0`.
 
 ## Quick Start
 
@@ -159,7 +161,7 @@ in a `ProviderDescriptor`, and register that. Only `rain-core-android` is needed
 
 `WalletProvider` lives in `com.rain.sdk.provider`. Implementing it or `ProviderDescriptor` needs
 `@OptIn(ExperimentalRainApi::class)` on your class, as below: Rain may add members to these
-interfaces in a minor release, with a default body wherever one makes sense. Calling the SDK needs
+interfaces in any release, with a default body wherever one makes sense. Calling the SDK needs
 no opt-in. Nine members are required, the rest have defaults, and an EVM-only wallet keeps the
 default `sendSolanaTransaction`, which refuses with `RAIN_102`.
 
