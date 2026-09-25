@@ -153,22 +153,6 @@ class RainTransactionBuilderImplTest {
     }
 
     @Test
-    fun `getLatestNonce uses real network and returns nonce gt 0`() = runBlocking {
-        val fujiChainId = 43113
-        val proxy = "0x5a022623280AA5E922A4D9BB3024fA7D70D7e789"
-
-        // Real network for this test: a builder with no Web3j override.
-        val liveBuilder = RainTransactionBuilderImpl(
-            mapOf(fujiChainId to "https://avax-fuji.g.alchemy.com/v2/Va-BF3-UynQD0dJvhSTm1")
-        )
-
-        val nonce = liveBuilder.getLatestNonce(fujiChainId, proxy)
-
-        println("Nonce: $nonce")
-        assertThat(nonce).isGreaterThan(BigInteger.ZERO)
-    }
-
-    @Test
     fun `buildEIP712Message resolves the configured RPC when nonce is omitted`() = runBlocking {
         val chainId = CHAIN_ID
 

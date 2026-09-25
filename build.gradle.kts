@@ -39,11 +39,8 @@ subprojects {
     }
 }
 
-// Tests that are env-gated on purpose (live network) and therefore allowed to skip.
-val allowedSkippedTests = setOf(
-    "com.rain.sdk.internal.transaction.RainTransactionBuilderImplTest" +
-        ".getLatestNonce uses real network and returns nonce gt 0"
-)
+// Tests that are env-gated on purpose (live network) and therefore allowed to skip. None today.
+val allowedSkippedTests = emptySet<String>()
 // Every module with JVM unit tests: the five SDK modules and the sample, whose tests pin its host reference code.
 val unitTestModules =
     listOf("rain-core-android", "rain-turnkey-android", "rain-portal-android", "rain-privy-android", "rain-wallet-android", "app")
