@@ -10,6 +10,9 @@ plugins {
     alias(libs.plugins.compose.compiler) apply false
     alias(libs.plugins.detekt) apply false
     alias(libs.plugins.dokka) apply false
+    // Declared here so the five library modules share one copy of the publishing plugin. Loaded per module
+    // instead, the plugin's shared upload service breaks once the modules' plugin sets differ.
+    alias(libs.plugins.vanniktech.maven.publish) apply false
 }
 
 // Two Bouncy Castle builds ship the same `org.bouncycastle.*` class names, so dex-ing both fails

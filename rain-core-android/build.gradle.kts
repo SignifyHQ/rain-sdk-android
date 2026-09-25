@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.dokka)
@@ -125,35 +123,45 @@ dependencies {
 }
 
 mavenPublishing {
-    coordinates("io.github.spartan-quanhongtran", "rain-core-android", libs.versions.rain.sdk.get())
+    coordinates("xyz.rain", "rain-core-android", libs.versions.rain.sdk.get())
 
     pom {
         name.set("Rain SDK Android — Core")
-        description.set("Vendor-free core of the Rain Android SDK (port, registry, domain logic)")
+        description.set("Core of the Rain Android SDK: collateral withdrawals, balances and token reads through any wallet provider. Add a wallet module or bring your own.")
         url.set("https://github.com/SignifyHQ/rain-sdk-android")
         licenses {
             license {
                 name.set("The Apache License, Version 2.0")
-                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
             }
         }
         developers {
             developer {
-                id.set("spartan-quanhongtran")
-                name.set("spartan-quanhongtran")
-                email.set("engineering@signify.net")
+                id.set("rain")
+                name.set("Rain Engineering")
+                email.set("maven@rain.xyz")
+                organization.set("Rain")
+                organizationUrl.set("https://rain.xyz")
             }
         }
+        organization {
+            name.set("Rain")
+            url.set("https://rain.xyz")
+        }
         scm {
-            connection.set("scm:git:git://github.com/SignifyHQ/rain-sdk-android.git")
-            developerConnection.set("scm:git:ssh://github.com/SignifyHQ/rain-sdk-android.git")
+            connection.set("scm:git:https://github.com/SignifyHQ/rain-sdk-android.git")
+            developerConnection.set("scm:git:ssh://git@github.com/SignifyHQ/rain-sdk-android.git")
             url.set("https://github.com/SignifyHQ/rain-sdk-android")
         }
     }
 
-    // Configure publishing to Sonatype Central Portal (Standard for new accounts 2024+)
-    publishToMavenCentral()
+    // Uploads to the Sonatype Central Portal without releasing. automaticRelease = false keeps the
+    // deployment waiting in the Portal until someone presses Publish there, even if the uploading
+    // machine sets mavenCentralAutomaticPublishing. A published version can never be changed or deleted.
+    publishToMavenCentral(automaticRelease = false)
 
-    // Enable signing (will use memory keys from local.properties or env vars)
+    // Signs every published file. The key comes from the Gradle properties signingInMemoryKey and
+    // signingInMemoryKeyPassword (in ~/.gradle/gradle.properties, or as ORG_GRADLE_PROJECT_ env vars
+    // in CI); local.properties is not read.
     signAllPublications()
 }

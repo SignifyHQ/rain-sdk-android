@@ -79,7 +79,7 @@ dependencies {
 }
 
 mavenPublishing {
-    coordinates("io.github.spartan-quanhongtran", "rain-portal-android", libs.versions.rain.sdk.get())
+    coordinates("xyz.rain", "rain-portal-android", libs.versions.rain.sdk.get())
 
     pom {
         name.set("Rain SDK Android — Portal adapter")
@@ -88,23 +88,29 @@ mavenPublishing {
         licenses {
             license {
                 name.set("The Apache License, Version 2.0")
-                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
             }
         }
         developers {
             developer {
-                id.set("spartan-quanhongtran")
-                name.set("spartan-quanhongtran")
-                email.set("engineering@signify.net")
+                id.set("rain")
+                name.set("Rain Engineering")
+                email.set("maven@rain.xyz")
+                organization.set("Rain")
+                organizationUrl.set("https://rain.xyz")
             }
         }
+        organization {
+            name.set("Rain")
+            url.set("https://rain.xyz")
+        }
         scm {
-            connection.set("scm:git:git://github.com/SignifyHQ/rain-sdk-android.git")
-            developerConnection.set("scm:git:ssh://github.com/SignifyHQ/rain-sdk-android.git")
+            connection.set("scm:git:https://github.com/SignifyHQ/rain-sdk-android.git")
+            developerConnection.set("scm:git:ssh://git@github.com/SignifyHQ/rain-sdk-android.git")
             url.set("https://github.com/SignifyHQ/rain-sdk-android")
         }
     }
 
-    publishToMavenCentral()
+    publishToMavenCentral(automaticRelease = false)
     signAllPublications()
 }

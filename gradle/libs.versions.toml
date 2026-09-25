@@ -9,7 +9,7 @@ targetSdk = "37"
 minCompileSdk = "36"
 
 # -- Project --
-rain-sdk = "1.0.1"
+rain-sdk = "5.0.0-beta.1"
 
 # -- Plugins --
 android-gradle-plugin = "9.4.1"
