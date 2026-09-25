@@ -6,3 +6,4 @@
 -keepattributes Signature
 -keep class org.web3j.abi.datatypes.** { <init>(...); }
 -keep,allowobfuscation,allowshrinking class * extends org.web3j.abi.TypeReference
+-keep,allowobfuscation,allowshrinking class org.web3j.abi.TypeReference
