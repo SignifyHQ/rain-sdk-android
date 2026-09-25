@@ -65,6 +65,13 @@ dependencies {
     // Web3j for ABI encoding in Portal balance/transaction paths. See the BC note above.
     implementation(libs.web3j.core) {
         exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
+        // Desktop-only pieces web3j ships (Unix-socket IPC through jnr and its native libraries, ASM,
+        // a WebSocket client, OkHttp's logging interceptor). Nothing on Android uses them, and leaving
+        // them out makes a shrunk app about 250 KB smaller.
+        exclude(group = "com.github.jnr")
+        exclude(group = "org.ow2.asm")
+        exclude(group = "org.java-websocket")
+        exclude(group = "com.squareup.okhttp3", module = "logging-interceptor")
     }
 
     implementation(libs.kotlinx.coroutines.core)
