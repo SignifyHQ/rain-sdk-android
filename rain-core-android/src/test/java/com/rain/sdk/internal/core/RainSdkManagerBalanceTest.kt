@@ -122,7 +122,7 @@ class RainSdkManagerBalanceTest {
         val (manager, _) = TestManagers.stubProviderManager()
 
         assertThrows(RainError.InvalidConfig::class.java) {
-            manager.registerTokens(
+            manager.registerTokensBlocking(
                 listOf(TokenInfo(chainId = 1, address = "0x7f5c764c", symbol = "BAD", decimals = 6))
             )
         }
@@ -135,7 +135,7 @@ class RainSdkManagerBalanceTest {
 
         for (decimals in listOf(78, -1)) {
             assertThrows("decimals=$decimals", RainError.InvalidConfig::class.java) {
-                manager.registerTokens(
+                manager.registerTokensBlocking(
                     listOf(TokenInfo(chainId = 1, address = TestFixtures.TOKEN_ADDRESS, symbol = "BAD", decimals = decimals))
                 )
             }
@@ -147,7 +147,7 @@ class RainSdkManagerBalanceTest {
         val (manager, _) = TestManagers.stubProviderManager()
 
         assertThrows(RainError.InvalidConfig::class.java) {
-            manager.registerTokens(
+            manager.registerTokensBlocking(
                 listOf(
                     TokenInfo(
                         chainId = com.rain.sdk.RainChain.SOLANA_DEVNET,
@@ -167,7 +167,7 @@ class RainSdkManagerBalanceTest {
         val (manager, _) = TestManagers.stubProviderManager(tokenStore = store)
         val max = "0x00000000000000000000000000000000000000BB"
 
-        manager.registerTokens(
+        manager.registerTokensBlocking(
             listOf(
                 TokenInfo(chainId = 1, address = TestFixtures.TOKEN_ADDRESS, symbol = "ZERO", decimals = 0),
                 TokenInfo(chainId = 1, address = max, symbol = "MAX", decimals = 77)
@@ -184,7 +184,7 @@ class RainSdkManagerBalanceTest {
     fun `registerTokens accepts valid EVM and base58 solana addresses`() {
         val (manager, _) = TestManagers.stubProviderManager()
 
-        manager.registerTokens(
+        manager.registerTokensBlocking(
             listOf(
                 TokenInfo(chainId = 1, address = TestFixtures.USDC_ADDRESS, symbol = "USDC", decimals = 6),
                 TokenInfo(
@@ -197,3 +197,6 @@ class RainSdkManagerBalanceTest {
         )
     }
 }
+
+/** `registerTokens` suspends; these tests check only its validation, so they call it blocking. */
+private fun RainSdkManager.registerTokensBlocking(tokens: List<TokenInfo>) = runBlocking { registerTokens(tokens) }

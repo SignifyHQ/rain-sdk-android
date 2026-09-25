@@ -383,7 +383,7 @@ interface RainClient {
      *   is validated first, so nothing is registered.
      */
     @Throws(RainError::class)
-    fun registerTokens(tokens: List<TokenInfo>)
+    suspend fun registerTokens(tokens: List<TokenInfo>)
 
     /**
      * Clears this client's own state only. The shared token store and the chain configuration the

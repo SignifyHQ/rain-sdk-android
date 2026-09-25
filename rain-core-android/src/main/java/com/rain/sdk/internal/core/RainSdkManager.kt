@@ -748,13 +748,13 @@ internal class RainSdkManager(
         const val APPROVAL_CONFIRMATION_INTERVAL_MS = 1_000L
     }
 
-    override fun registerTokens(tokens: List<TokenInfo>) {
+    override suspend fun registerTokens(tokens: List<TokenInfo>) {
         if (tokens.isEmpty()) return
         // The whole list is checked before anything is added, so a bad entry registers nothing.
         TokenInfoValidation.requireValid(tokens)
         registeredTokens.addAll(tokens)
         // Stored before this returns, so a lookup that follows sees the entries.
-        tokenStore?.registerNow(tokens)
+        tokenStore?.register(tokens)
     }
 
     override fun reset() {
