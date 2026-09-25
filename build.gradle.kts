@@ -39,6 +39,23 @@ subprojects {
     }
 }
 
+// Releases go out only through the Central Portal's Publish button. vanniktech registers
+// publishAndReleaseToMavenCentral in every publishing module whatever automaticRelease says, and that
+// task turns automatic release on through enableAutomaticMavenCentralPublishing. Failing that task fails
+// the build, and the plugin uploads nothing from a failed build.
+subprojects {
+    pluginManager.withPlugin("com.vanniktech.maven.publish") {
+        tasks.named { it == "enableAutomaticMavenCentralPublishing" }.configureEach {
+            doFirst {
+                throw GradleException(
+                    "Rain releases only through the Central Portal's Publish button. " +
+                        "Run publishToMavenCentral, then check the deployment in the Portal and publish it there."
+                )
+            }
+        }
+    }
+}
+
 // Tests that are env-gated on purpose (live network) and therefore allowed to skip. None today.
 val allowedSkippedTests = emptySet<String>()
 // Every module with JVM unit tests: the five SDK modules and the sample, whose tests pin its host reference code.

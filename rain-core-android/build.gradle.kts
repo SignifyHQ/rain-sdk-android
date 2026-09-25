@@ -167,9 +167,10 @@ mavenPublishing {
         }
     }
 
-    // Uploads to the Sonatype Central Portal without releasing. automaticRelease = false keeps the
-    // deployment waiting in the Portal until someone presses Publish there, even if the uploading
-    // machine sets mavenCentralAutomaticPublishing. A published version can never be changed or deleted.
+    // Uploads to the Sonatype Central Portal without releasing: after publishToMavenCentral, the deployment
+    // waits in the Portal until someone presses Publish there, even if the uploading machine sets
+    // mavenCentralAutomaticPublishing. The plugin's publishAndReleaseToMavenCentral would release at once,
+    // so the root build makes it fail. A published version can never be changed or deleted.
     publishToMavenCentral(automaticRelease = false)
 
     // Signs every published file. The key comes from the Gradle properties signingInMemoryKey and
