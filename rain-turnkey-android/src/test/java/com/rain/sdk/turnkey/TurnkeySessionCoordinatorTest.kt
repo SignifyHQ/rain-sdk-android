@@ -121,7 +121,7 @@ class TurnkeySessionCoordinatorTest {
         turnkey.onRefreshSession = { turnkey.session = MockTurnkey.defaultSession() }
         val coordinator = coordinator(
             turnkey,
-            policy = TurnkeySessionPolicy(refreshExpirationSeconds = "1800")
+            policy = TurnkeySessionPolicy(refreshExpirationSeconds = 1800L)
         )
 
         coordinator.executeRead { s, c -> c.getActivities(activitiesBody(s.organizationId)) }

@@ -118,7 +118,7 @@ class RainProviderTest {
             TurnkeySessionPolicy(
                 refreshBufferSeconds = 61L,
                 autoRefresh = false,
-                refreshExpirationSeconds = "901",
+                refreshExpirationSeconds = 901L,
                 maxTransientRetries = 3,
                 initialRetryDelayMs = 501L,
                 maxRetryDelayMs = 4_001L,
