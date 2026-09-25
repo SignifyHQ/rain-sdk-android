@@ -136,4 +136,32 @@ class EthereumConverterTest {
         // Too short / malformed → null.
         assertThat(EthereumConverter.parseHexToString("0x1234")).isNull()
     }
+
+    @Test
+    fun `parseHexToString returns null when the length word does not fit the payload`() {
+        val offset = "20".padStart(64, '0')
+        // 0x40000000 bytes: doubling that length overflows an Int, which used to throw.
+        assertThat(EthereumConverter.parseHexToString("0x$offset" + "40000000".padStart(64, '0'))).isNull()
+        // 2^32 + 5 bytes: narrowing to Int would read it as 5 and decode the first five of 32 bytes.
+        val wrapped = "0x$offset" + "100000005".padStart(64, '0') + "55".repeat(32)
+        assertThat(EthereumConverter.parseHexToString(wrapped)).isNull()
+    }
+
+    @Test
+    fun `the hex converters throw InternalError on non-hex input and read an empty payload as zero`() {
+        assertThrows(RainError.InternalError::class.java) { EthereumConverter.convertWeiHexToDecimal("0xzz") }
+        assertThrows(RainError.InternalError::class.java) { EthereumConverter.convertHexToDecimal("0xzz", 6) }
+        assertThat(EthereumConverter.convertHexToDecimal("0x", 6)).isEqualToIgnoringScale(BigDecimal.ZERO)
+        assertThat(EthereumConverter.convertHexToDecimal("0x0f4240", 6)).isEqualToIgnoringScale(BigDecimal.ONE)
+    }
+
+    @Test
+    fun `normalizedHexString defaults only null, unprefixed and empty values`() {
+        assertThat(EthereumConverter.normalizedHexString(null)).isEqualTo("0x0")
+        assertThat(EthereumConverter.normalizedHexString("0x")).isEqualTo("0x0")
+        assertThat(EthereumConverter.normalizedHexString("1a")).isEqualTo("0x0")
+        assertThat(EthereumConverter.normalizedHexString("0x1a")).isEqualTo("0x1a")
+        // The digits are not checked here; the parser that reads the value rejects them.
+        assertThat(EthereumConverter.normalizedHexString("0xzz")).isEqualTo("0xzz")
+    }
 }
