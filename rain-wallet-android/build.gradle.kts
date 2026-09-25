@@ -47,6 +47,8 @@ kotlin {
             // in as a whole; the flag, rather than @OptIn annotations, also keeps the marker's name
             // out of the rendered API docs.
             "-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi",
+            // RainProvider implements ProviderDescriptor, which needs @ExperimentalRainApi to implement.
+            "-opt-in=com.rain.sdk.ExperimentalRainApi",
         )
     }
 }

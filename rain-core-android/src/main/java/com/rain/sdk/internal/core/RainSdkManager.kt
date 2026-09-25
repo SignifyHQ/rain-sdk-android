@@ -10,7 +10,6 @@ import com.rain.sdk.internal.error.ErrorMapper
 import com.rain.sdk.internal.network.chainreader.ChainReader
 import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.network.chainreader.MinedReceipt
-import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.solana.SolanaCollateralWithdrawComposer
 import com.rain.sdk.internal.solana.SolanaRpcClient
 import com.rain.sdk.internal.tokenstore.TokenInfoValidation
@@ -37,6 +36,7 @@ import com.rain.sdk.models.TokenInfo
 import com.rain.sdk.models.UnsignedSolanaTransfer
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderId
+import com.rain.sdk.provider.WalletProvider
 import com.rain.sdk.utils.QRGenerator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers

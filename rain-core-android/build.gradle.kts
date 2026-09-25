@@ -41,9 +41,14 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
-        // Core's own cross-module seams are marked @RainAdapterApi. This module declares and
-        // uses them, so it opts in as a whole; host apps do not.
-        freeCompilerArgs.addAll("-opt-in=com.rain.sdk.internal.RainAdapterApi")
+        freeCompilerArgs.addAll(
+            // Core's own cross-module seams are marked @RainAdapterApi. This module declares and
+            // uses them, so it opts in as a whole; host apps do not.
+            "-opt-in=com.rain.sdk.internal.RainAdapterApi",
+            // Implementing RainClient, WalletProvider or ProviderDescriptor needs @ExperimentalRainApi.
+            // Core implements RainClient and its tests stub the other two, so it opts in as a whole.
+            "-opt-in=com.rain.sdk.ExperimentalRainApi",
+        )
     }
 }
 

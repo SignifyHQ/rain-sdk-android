@@ -41,6 +41,9 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+        // This module implements WalletProvider and ProviderDescriptor, which need @ExperimentalRainApi
+        // to implement, so it opts in as a whole; a host opts in on its own implementing class.
+        freeCompilerArgs.addAll("-opt-in=com.rain.sdk.ExperimentalRainApi")
     }
 }
 

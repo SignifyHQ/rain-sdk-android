@@ -49,6 +49,9 @@ kotlin {
             // Core's cross-module seams (chain readers, RPC clients, Solana encoders) are marked
             // @RainAdapterApi. Adapter modules are the intended callers, so this one opts in.
             "-opt-in=com.rain.sdk.internal.RainAdapterApi",
+            // Implementing WalletProvider and ProviderDescriptor needs @ExperimentalRainApi, and this
+            // module implements both.
+            "-opt-in=com.rain.sdk.ExperimentalRainApi",
         )
     }
 }

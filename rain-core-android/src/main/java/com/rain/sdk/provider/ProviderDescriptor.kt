@@ -1,6 +1,6 @@
 package com.rain.sdk.provider
 
-import com.rain.sdk.internal.provider.WalletProvider
+import com.rain.sdk.ExperimentalRainApi
 
 /**
  * A registrable wallet-provider descriptor — the adapter side of the ports-and-adapters split.
@@ -13,6 +13,7 @@ import com.rain.sdk.internal.provider.WalletProvider
  * The descriptor advertises its [id] and [capabilities] up front (cheap, synchronous) and defers
  * the expensive vendor wiring to [create], which core invokes lazily on first use.
  */
+@SubclassOptInRequired(ExperimentalRainApi::class)
 interface ProviderDescriptor {
     /** Stable identifier used to resolve this provider via [com.rain.sdk.RainSdk.provider]. */
     val id: ProviderId

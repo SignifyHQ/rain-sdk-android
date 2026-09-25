@@ -18,7 +18,7 @@ import java.math.BigInteger
 
 /**
  * Manager-contract tests for the rich balance API — mode guards and routing through the
- * active [com.rain.sdk.internal.provider.WalletProvider]. Provider-specific success paths
+ * active [com.rain.sdk.provider.WalletProvider]. Provider-specific success paths
  * live in `PortalWalletProviderTest` / `TurnkeyWalletProviderTest`.
  *
  * Note: an un-initialized manager surfaces every balance call as

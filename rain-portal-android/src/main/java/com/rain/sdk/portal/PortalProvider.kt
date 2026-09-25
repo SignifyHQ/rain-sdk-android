@@ -2,11 +2,11 @@ package com.rain.sdk.portal
 
 import com.rain.sdk.RainChain
 import com.rain.sdk.error.RainError
-import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
 import com.rain.sdk.provider.ProviderDescriptor
 import com.rain.sdk.provider.ProviderId
+import com.rain.sdk.provider.WalletProvider
 import io.portalhq.android.Portal
 import io.portalhq.android.mpc.data.FeatureFlags
 import kotlinx.coroutines.CancellationException

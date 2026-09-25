@@ -3,12 +3,12 @@ package com.rain.sdk.turnkey
 import android.app.Activity
 import android.app.Application
 import com.rain.sdk.error.RainError
-import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.internal.utils.validateAndChecksumAddress
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
 import com.rain.sdk.provider.ProviderDescriptor
 import com.rain.sdk.provider.ProviderId
+import com.rain.sdk.provider.WalletProvider
 import com.turnkey.core.TurnkeyContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

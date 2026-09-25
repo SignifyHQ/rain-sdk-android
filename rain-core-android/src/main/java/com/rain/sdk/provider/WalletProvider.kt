@@ -1,13 +1,12 @@
-package com.rain.sdk.internal.provider
+package com.rain.sdk.provider
 
+import com.rain.sdk.ExperimentalRainApi
 import com.rain.sdk.error.RainError
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.UnsignedSolanaTransfer
-import com.rain.sdk.provider.Capability
-import com.rain.sdk.provider.ProviderId
 import java.math.BigDecimal
 
 /**
@@ -19,8 +18,9 @@ import java.math.BigDecimal
  * imports a provider.
  *
  * Public so host apps can ship their own implementations and register them via a
- * [com.rain.sdk.provider.ProviderDescriptor]. The interface lives in the `internal.provider`
- * package and is public API meant for hosts to implement.
+ * [ProviderDescriptor]. Implementing it requires `@OptIn(ExperimentalRainApi::class)`: Rain may
+ * add members in a minor release, with a default body wherever one makes sense, so an
+ * implementation should expect the interface to grow. Calling it needs no opt-in.
  *
  * Error contract: a failure leaves an implementation as a [com.rain.sdk.error.RainError],
  * never as a vendor exception. Core passes a `RainError` through with its code, the withdrawal
@@ -37,6 +37,7 @@ import java.math.BigDecimal
  * bypass it and raise core's error types directly. A creation-time probe converts at its own call
  * site, and managed authentication converts at its own boundary.
  */
+@SubclassOptInRequired(ExperimentalRainApi::class)
 interface WalletProvider {
     /**
      * Stable identifier for this provider. Defaults to a generated id for host-supplied providers

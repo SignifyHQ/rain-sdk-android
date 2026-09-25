@@ -11,7 +11,7 @@ import java.math.BigDecimal
 
 /**
  * Cross-module surface of the core Solana stack for out-of-module wallet adapters (Privy,
- * Portal). Public for the same reason as [com.rain.sdk.internal.provider.WalletProvider]:
+ * Portal). Public for the same reason as [com.rain.sdk.provider.WalletProvider]:
  * adapters live in separate Gradle modules, so Kotlin `internal` would wall them off. Not API
  * for host apps.
  *
