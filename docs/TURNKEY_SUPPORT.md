@@ -522,7 +522,7 @@ configurations.all {
 Or, if you'd rather scope it to a specific dependency:
 
 ```kotlin
-implementation("org.web3j:core:4.10.3") {
+implementation("org.web3j:core:4.10.1") {
     exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
 }
 ```
