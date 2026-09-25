@@ -25,7 +25,12 @@ balances and history, and estimate fees. Works on EVM chains and Solana.
 
 ## Installation
 
-The SDK is modular (ports & adapters): a vendor-free **`rain-core-android`** plus one adapter module per
+> **Beta.** `5.0.0-beta.1` is the first public beta. Pin the exact version, as below, and don't use
+> a range or `+`: Maven has no pre-release flag, so a range picks up every later beta, and a beta
+> may still change API between versions (see [Compatibility](#compatibility)).
+
+The modules are on Maven Central, so `mavenCentral()` is the only repository you need. The SDK is
+modular (ports & adapters): a vendor-free **`rain-core-android`** plus one adapter module per
 wallet provider. Link only the providers you use — an unselected provider's vendor SDK never enters
 your dependency graph.
 
@@ -37,19 +42,19 @@ dependencies {
     // The Rain wallet: SDK-owned login, sessions and key export under Rain's names. Pulls in
     // rain-turnkey-android and with it the Turnkey Kotlin SDK; no vendor type is on the surface
     // you compile against.
-    implementation("io.github.spartan-quanhongtran:rain-wallet-android:1.0.1")
+    implementation("xyz.rain:rain-wallet-android:5.0.0-beta.1")
 
     // Turnkey, bring-your-own: your app authenticates the TurnkeyContext.
-    // implementation("io.github.spartan-quanhongtran:rain-turnkey-android:1.0.1")
+    // implementation("xyz.rain:rain-turnkey-android:5.0.0-beta.1")
 
     // Portal MPC.
-    // implementation("io.github.spartan-quanhongtran:rain-portal-android:1.0.1")
+    // implementation("xyz.rain:rain-portal-android:5.0.0-beta.1")
 
     // Privy embedded wallets.
-    // implementation("io.github.spartan-quanhongtran:rain-privy-android:1.0.1")
+    // implementation("xyz.rain:rain-privy-android:5.0.0-beta.1")
 
     // Your own wallet or signer: core alone. See "Bring your own provider" below.
-    // implementation("io.github.spartan-quanhongtran:rain-core-android:1.0.1")
+    // implementation("xyz.rain:rain-core-android:5.0.0-beta.1")
 }
 ```
 
@@ -74,6 +79,25 @@ mixing versions is not supported.
 - minSdk 28 or higher (the wallet vendors require it)
 - compileSdk 36 or higher (the AARs declare minCompileSdk 36; the SDK itself compiles against 37)
 - Kotlin 2.2 recommended; Kotlin 2.1 compiles against the SDK's metadata through the compiler's one-version-ahead reading (the SDK is built with Kotlin 2.2.21 and ships Java 11 bytecode)
+- Android Gradle Plugin 8.11 or higher (tested with 8.11.2 and 9.4.0; older versions are untested)
+
+## Compatibility
+
+Rain treats the beta as a real release, so an app built on `5.0.0-beta.1` should keep building on
+later betas:
+
+- Rain avoids breaking changes. When one can't be avoided, the [CHANGELOG](CHANGELOG.md) lists it as
+  a **Breaking:** entry with a migration note.
+- A deprecated API stays for at least one release before it is removed.
+- `RAIN_xxx` error codes keep their meaning. Message text may change, so branch on the code or the
+  error type, never on the message.
+- Enums and sealed types may gain new cases in a minor release, unless their docs say a `when` over
+  them is exhaustive (the Rain wallet's session and auth states). Give any other `when` over them an
+  `else` branch.
+- Anything marked `@ExperimentalRainApi` may change in any release. Implementing `WalletProvider`,
+  `ProviderDescriptor` or `RainClient` requires opting in to it, because Rain may add members to them.
+
+From `5.0.0` on, nothing outside `@ExperimentalRainApi` breaks before `6.0.0`.
 
 ## Quick Start
 
@@ -133,14 +157,16 @@ The registry is designed for the multi-provider case; a single-provider app is j
 your own signing backend) plugs in through core alone: implement the `WalletProvider` port, wrap it
 in a `ProviderDescriptor`, and register that. Only `rain-core-android` is needed.
 
-`WalletProvider` lives in the package `com.rain.sdk.internal.provider` and is public API meant for
-hosts to implement. Nine members are required, the rest have defaults, and an
-EVM-only wallet keeps the default `sendSolanaTransaction`, which refuses with `RAIN_102`.
+`WalletProvider` lives in `com.rain.sdk.provider`. Implementing it or `ProviderDescriptor` needs
+`@OptIn(ExperimentalRainApi::class)` on your class, as below: Rain may add members to these
+interfaces in a minor release, with a default body wherever one makes sense. Calling the SDK needs
+no opt-in. Nine members are required, the rest have defaults, and an EVM-only wallet keeps the
+default `sendSolanaTransaction`, which refuses with `RAIN_102`.
 
 ```kotlin
+import com.rain.sdk.ExperimentalRainApi
 import com.rain.sdk.RainSdk
 import com.rain.sdk.error.RainError
-import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainTransaction
 import com.rain.sdk.models.RainTransactionOrder
@@ -149,10 +175,12 @@ import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
 import com.rain.sdk.provider.ProviderDescriptor
 import com.rain.sdk.provider.ProviderId
+import com.rain.sdk.provider.WalletProvider
 import java.math.BigDecimal
 import kotlinx.coroutines.CancellationException
 
 /** What you register. `create` runs once, on the first `rain.provider(id)`. */
+@OptIn(ExperimentalRainApi::class)
 class MyWalletDescriptor(private val wallet: MyWalletSdk) : ProviderDescriptor {
     override val id = ProviderId("my-wallet")
     override val capabilities = emptySet<Capability>() // add EXPORT, MULTI_CHAIN, ... as you support them
@@ -162,6 +190,7 @@ class MyWalletDescriptor(private val wallet: MyWalletSdk) : ProviderDescriptor {
 }
 
 /** The port. Every call on the resolved `RainClient` ends in one of these. */
+@OptIn(ExperimentalRainApi::class)
 class MyWalletProvider(
     private val wallet: MyWalletSdk, // your wallet SDK, whatever its shape
     private val rpcEndpoints: Map<Int, String>,
@@ -245,6 +274,7 @@ val address = client.getWalletAddress()
 ### 5. Check Balances
 
 ```kotlin
+import com.rain.sdk.models.Balance
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.TokenInfo
 

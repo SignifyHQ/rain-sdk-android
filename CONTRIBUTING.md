@@ -40,3 +40,6 @@ shrink, and CI fails the detekt leg if one grows.
 - Commits must be **signed**, and authored with an email linked to your GitHub account —
   the branch ruleset refuses to merge unsigned or unattributed commits.
 - If you changed the public API, update `docs/METHODS.md` to match.
+- A new member on `WalletProvider`, `ProviderDescriptor` or `RainClient` ships with a default body
+  wherever one makes sense. Hosts implement these interfaces behind `@ExperimentalRainApi`, and an
+  abstract member breaks every host implementation at compile time.

@@ -13,7 +13,7 @@ Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provide
 ```kotlin
 dependencies {
     // Pulls rain-core-android and the Turnkey artifacts transitively.
-    implementation("io.github.spartan-quanhongtran:rain-turnkey-android:1.0.1")
+    implementation("xyz.rain:rain-turnkey-android:5.0.0-beta.1")
 }
 ```
 
