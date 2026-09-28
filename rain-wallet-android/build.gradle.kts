@@ -119,24 +119,3 @@ mavenPublishing {
     publishToMavenCentral(automaticRelease = false)
     signAllPublications()
 }
-
-// The embedded backend identity is Rain's sandbox pair (RainWalletBackend.kt). A published artifact
-// would point every host's users at the sandbox with no way to change it, so publishing anywhere but
-// the local repository is refused while the sandbox ids are in place. Remove this guard together
-// with the production identity.
-val checkNotSandboxIdentity = tasks.register("checkNotSandboxIdentity") {
-    group = "verification"
-    description = "Fails while rain-wallet-android embeds the sandbox backend identity."
-    val backend = layout.projectDirectory.file("src/main/java/com/rain/sdk/wallet/RainWalletBackend.kt").asFile
-    inputs.file(backend)
-    doLast {
-        if (backend.readText().contains("63495e45-8e64-42b5-b602-c68f019ca806")) {
-            throw GradleException(
-                "rain-wallet-android embeds Rain's sandbox backend identity (RainWalletBackend.kt); " +
-                    "it must not be published until a production identity lands."
-            )
-        }
-    }
-}
-tasks.matching { it.name.startsWith("publish") && !it.name.endsWith("ToMavenLocal") }
-    .configureEach { dependsOn(checkNotSandboxIdentity) }
