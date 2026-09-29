@@ -28,7 +28,8 @@ import timber.log.Timber
  * round-trips.
  */
 @Suppress("TooManyFunctions") // one store: two lookups (display and strict), the registration entry points and their lock helpers
-class TokenMetadataStore @RainAdapterApi constructor(
+@RainAdapterApi
+class TokenMetadataStore(
     private val chainReader: ChainReader,
     seedTokens: List<TokenInfo> = emptyList()
 ) {

@@ -1,6 +1,7 @@
 package com.rain.sdk.interfaces
 
 import android.graphics.Bitmap
+import com.rain.sdk.ExperimentalRainApi
 import com.rain.sdk.error.RainError
 import com.rain.sdk.models.Balance
 import com.rain.sdk.models.RainAdminSignature
@@ -28,6 +29,7 @@ private const val AUTH_PULL_NOT_SUPPORTED = "Auth Pull is not supported by this 
  * it is bound to one provider for its lifetime and never references a concrete vendor type. Which provider backs it is described by [providerId] and
  * [capabilities].
  */
+@SubclassOptInRequired(ExperimentalRainApi::class)
 interface RainClient {
     /**
      * Checks if the SDK has been successfully initialized.
@@ -381,7 +383,7 @@ interface RainClient {
      *   is validated first, so nothing is registered.
      */
     @Throws(RainError::class)
-    fun registerTokens(tokens: List<TokenInfo>)
+    suspend fun registerTokens(tokens: List<TokenInfo>)
 
     /**
      * Clears this client's own state only. The shared token store and the chain configuration the

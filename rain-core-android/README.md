@@ -42,7 +42,7 @@ graph TD
     App[Android App] --> RainSdk[RainSdk registry]
     RainSdk --> RainClient[RainClient]
     RainClient --> Coord[TransactionCoordinator]
-    Coord --> Builder[RainTransactionBuilder]
+    Coord --> Builder["EIP-712 and calldata builder"]
     Coord --> Port[WalletProvider port]
     Port -.-> Turnkey["TurnkeyWalletProvider<br/>(rain-turnkey-android)"]
     Port -.-> Portal["PortalWalletProvider<br/>(rain-portal-android)"]

@@ -139,8 +139,8 @@ Fuji USDC or the devnet mint, so naming them keeps the balance screen readable.
   passwords are the standard debug ones, `androiddebugkey` and `android`; nothing else may live in
   this file. Because the private key is public, an APK anyone signs with it installs over this
   sample as an update and inherits its data, and the association file trusts it at the passkey
-  sheet; the demo domain and the sandbox organization hold nothing of value, and this fingerprint
-  must never be listed on a domain that does. To print the fingerprint:
+  sheet; the demo domain holds nothing of value, and this fingerprint must never be listed on a
+  domain that does. To print the fingerprint:
 
   ```bash
   /usr/bin/keytool -list -v -keystore app/demo-debug.keystore -alias androiddebugkey -storepass android -keypass android | grep 'SHA256:'

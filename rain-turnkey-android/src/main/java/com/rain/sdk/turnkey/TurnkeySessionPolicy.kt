@@ -11,12 +11,14 @@ package com.rain.sdk.turnkey
  * on transient failures — only after a refresh that proves the original request was rejected
  * before execution.
  *
+ * Out-of-range values are a programming error and throw [IllegalArgumentException] at construction.
+ *
  * @param refreshBufferSeconds Refresh the session when it is within this window of expiring.
  * @param autoRefresh When true the SDK calls Turnkey's `refreshSession` itself; when false an
  *                    expired session surfaces as `RainError.TokenExpired` and re-auth is the
  *                    host's job.
- * @param refreshExpirationSeconds TTL requested for refreshed sessions; null uses Turnkey's
- *                                 default (900 seconds).
+ * @param refreshExpirationSeconds Lifetime, in seconds, requested for refreshed sessions; null
+ *                                 uses Turnkey's default (900 seconds). Must be positive.
  * @param maxTransientRetries Retries (beyond the first attempt) for transient failures on
  *                            idempotent reads.
  * @param initialRetryDelayMs First backoff delay; doubles per retry up to [maxRetryDelayMs].
@@ -25,13 +27,16 @@ package com.rain.sdk.turnkey
 data class TurnkeySessionPolicy(
     val refreshBufferSeconds: Long = DEFAULT_REFRESH_BUFFER_SECONDS,
     val autoRefresh: Boolean = true,
-    val refreshExpirationSeconds: String? = null,
+    val refreshExpirationSeconds: Long? = null,
     val maxTransientRetries: Int = DEFAULT_MAX_TRANSIENT_RETRIES,
     val initialRetryDelayMs: Long = DEFAULT_INITIAL_RETRY_DELAY_MS,
     val maxRetryDelayMs: Long = DEFAULT_MAX_RETRY_DELAY_MS,
 ) {
     init {
         require(refreshBufferSeconds >= 0) { "refreshBufferSeconds must be >= 0" }
+        require(refreshExpirationSeconds == null || refreshExpirationSeconds > 0) {
+            "refreshExpirationSeconds must be > 0, was $refreshExpirationSeconds"
+        }
         require(maxTransientRetries >= 0) { "maxTransientRetries must be >= 0" }
         require(initialRetryDelayMs >= 0) { "initialRetryDelayMs must be >= 0" }
         require(maxRetryDelayMs >= initialRetryDelayMs) {

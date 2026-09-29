@@ -81,7 +81,7 @@ sealed class RainError(
      * The one-time login code was rejected — mistyped, expired, or already used. Ask the user to
      * re-enter it or request a new one. Distinct from [TokenExpired] on purpose: a login screen has
      * to tell a bad code from a dead session, and during code verification there is no session yet.
-     * Only raised by the Turnkey provider's managed authentication mode.
+     * Raised by the Rain wallet and by the Turnkey provider's managed authentication mode.
      */
     class InvalidLoginCode :
         RainError(

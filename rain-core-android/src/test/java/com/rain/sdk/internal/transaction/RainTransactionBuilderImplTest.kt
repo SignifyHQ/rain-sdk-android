@@ -3,12 +3,14 @@ package com.rain.sdk.internal.transaction
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.core.RainTransactionBuilderImpl
+import com.rain.sdk.internal.helpers.MockRpcServer
 import com.rain.sdk.internal.network.Web3jProvider
 import com.rain.sdk.models.RainWithdrawAddresses
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.unmockkAll
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -24,6 +26,10 @@ class RainTransactionBuilderImplTest {
     private companion object {
         const val CHAIN_ID = 1
         const val RPC_URL = "https://rpc.com"
+        const val PROXY = "0x1111111111111111111111111111111111111111"
+
+        // keccak256("adminNonce()"), first four bytes, computed outside the SDK.
+        const val ADMIN_NONCE_SELECTOR = "0x4ab3be98"
     }
 
     private lateinit var mockWeb3j: Web3j
@@ -50,7 +56,7 @@ class RainTransactionBuilderImplTest {
     }
 
     @Test
-    fun `getLatestNonce uses Web3jProvider and returns nonce`() = runBlocking {
+    fun `getLatestNonce decodes the nonce from the eth_call result`() = runBlocking {
         val proxy = "0x1111111111111111111111111111111111111111"
         val expectedNonce = BigInteger.TEN
 
@@ -82,6 +88,52 @@ class RainTransactionBuilderImplTest {
             org.junit.Assert.fail("Expected RainError.InternalError")
         } catch (e: Exception) {
             assertThat(e).isInstanceOf(RainError.InternalError::class.java)
+        }
+    }
+
+    @Test
+    fun `getLatestNonce sends adminNonce() to the proxy through the default web3j client`() = runBlocking {
+        // No web3j fake: the default factory builds the client through Web3jProvider, so the call is
+        // encoded, sent over HTTP and decoded the way it is in an app.
+        val rpc = MockRpcServer().also { it.start() }
+        try {
+            rpc.stub(method = "eth_call", result = "0x" + "a".padStart(64, '0'))
+            val liveBuilder = RainTransactionBuilderImpl(mapOf(CHAIN_ID to rpc.urlFor(CHAIN_ID)))
+
+            val nonce = liveBuilder.getLatestNonce(CHAIN_ID, PROXY)
+
+            assertThat(nonce).isEqualTo(BigInteger.TEN)
+            val params = JSONObject(rpc.recordedBodies.single()).getJSONArray("params")
+            assertThat(params.getJSONObject(0).getString("to")).isEqualTo(PROXY)
+            assertThat(params.getJSONObject(0).getString("data")).isEqualTo(ADMIN_NONCE_SELECTOR)
+            assertThat(params.getString(1)).isEqualTo("latest")
+        } finally {
+            rpc.shutdown()
+        }
+    }
+
+    @Test
+    fun `getLatestNonce reports a JSON-RPC error whose data is an object`() = runBlocking {
+        val rpc = MockRpcServer().also { it.start() }
+        try {
+            rpc.stubError(
+                method = "eth_call",
+                code = -32000,
+                message = "execution reverted",
+                data = JSONObject().put("reason", "paused"),
+            )
+            val liveBuilder = RainTransactionBuilderImpl(mapOf(CHAIN_ID to rpc.urlFor(CHAIN_ID)))
+
+            try {
+                liveBuilder.getLatestNonce(CHAIN_ID, PROXY)
+                org.junit.Assert.fail("Expected RainError.InternalError")
+            } catch (e: Exception) {
+                // The node's own error, not a NetworkError: the error object parsed, data included.
+                assertThat(e).isInstanceOf(RainError.InternalError::class.java)
+                assertThat(e).hasMessageThat().contains("execution reverted")
+            }
+        } finally {
+            rpc.shutdown()
         }
     }
 
@@ -150,22 +202,6 @@ class RainTransactionBuilderImplTest {
         )
 
         assertThat(result).isNull()
-    }
-
-    @Test
-    fun `getLatestNonce uses real network and returns nonce gt 0`() = runBlocking {
-        val fujiChainId = 43113
-        val proxy = "0x5a022623280AA5E922A4D9BB3024fA7D70D7e789"
-
-        // Real network for this test: a builder with no Web3j override.
-        val liveBuilder = RainTransactionBuilderImpl(
-            mapOf(fujiChainId to "https://avax-fuji.g.alchemy.com/v2/Va-BF3-UynQD0dJvhSTm1")
-        )
-
-        val nonce = liveBuilder.getLatestNonce(fujiChainId, proxy)
-
-        println("Nonce: $nonce")
-        assertThat(nonce).isGreaterThan(BigInteger.ZERO)
     }
 
     @Test

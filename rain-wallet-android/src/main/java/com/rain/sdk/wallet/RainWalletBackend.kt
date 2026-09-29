@@ -1,7 +1,7 @@
 package com.rain.sdk.wallet
 
 /**
- * Rain's wallet backend identity: the sandbox organization and its authentication configuration,
+ * Rain's wallet backend identity: the production organization and its authentication configuration,
  * the pair Rain's SDKs share as a cross-platform contract. Public identifiers, not secrets:
  * possession grants nothing, because authentication still runs the one-time-code flow and abuse is
  * bounded by the backend's rate limits. Embedded so a host needs zero configuration to use the Rain

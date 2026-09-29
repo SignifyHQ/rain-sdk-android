@@ -5,11 +5,11 @@ import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.error.RainError
 import com.rain.sdk.error.RainErrorCode
 import com.rain.sdk.internal.helpers.StubWalletProvider
-import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
 import com.rain.sdk.provider.ProviderDescriptor
 import com.rain.sdk.provider.ProviderId
+import com.rain.sdk.provider.WalletProvider
 import io.mockk.every
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll

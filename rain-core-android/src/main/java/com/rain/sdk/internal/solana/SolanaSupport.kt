@@ -11,7 +11,7 @@ import java.math.BigDecimal
 
 /**
  * Cross-module surface of the core Solana stack for out-of-module wallet adapters (Privy,
- * Portal). Public for the same reason as [com.rain.sdk.internal.provider.WalletProvider]:
+ * Portal). Public for the same reason as [com.rain.sdk.provider.WalletProvider]:
  * adapters live in separate Gradle modules, so Kotlin `internal` would wall them off. Not API
  * for host apps.
  *
@@ -19,6 +19,7 @@ import java.math.BigDecimal
  * [SolanaTransferComposer]) and balance reads. Signing and broadcasting stay with the adapter,
  * which is the only vendor-specific step.
  */
+@RainAdapterApi
 class SolanaSupport internal constructor(
     rpcEndpoints: Map<Int, String>,
     @property:RainAdapterApi val rpc: SolanaRpcClient,

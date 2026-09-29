@@ -49,6 +49,9 @@ kotlin {
             // Core's cross-module seams (chain readers, RPC clients, Solana encoders) are marked
             // @RainAdapterApi. Adapter modules are the intended callers, so this one opts in.
             "-opt-in=com.rain.sdk.internal.RainAdapterApi",
+            // Implementing WalletProvider and ProviderDescriptor needs @ExperimentalRainApi, and this
+            // module implements both.
+            "-opt-in=com.rain.sdk.ExperimentalRainApi",
         )
     }
 }
@@ -106,7 +109,9 @@ dependencies {
     // every consumer's runtime classpath; declaring it here only brings the types to compile time.
     implementation(libs.androidx.credentials)
 
-    implementation(libs.kotlinx.coroutines.core)
+    // `Flow` appears in this module's public signatures (session and auth state), so the coroutines library is
+    // part of its contract with hosts.
+    api(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.timber)
     implementation(libs.okhttp)
@@ -123,7 +128,7 @@ dependencies {
 }
 
 mavenPublishing {
-    coordinates("io.github.spartan-quanhongtran", "rain-turnkey-android", libs.versions.rain.sdk.get())
+    coordinates("xyz.rain", "rain-turnkey-android", libs.versions.rain.sdk.get())
 
     pom {
         name.set("Rain SDK Android — Turnkey adapter")
@@ -132,23 +137,29 @@ mavenPublishing {
         licenses {
             license {
                 name.set("The Apache License, Version 2.0")
-                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
             }
         }
         developers {
             developer {
-                id.set("spartan-quanhongtran")
-                name.set("spartan-quanhongtran")
-                email.set("engineering@signify.net")
+                id.set("rain")
+                name.set("Rain Engineering")
+                email.set("maven@rain.xyz")
+                organization.set("Rain")
+                organizationUrl.set("https://rain.xyz")
             }
         }
+        organization {
+            name.set("Rain")
+            url.set("https://rain.xyz")
+        }
         scm {
-            connection.set("scm:git:git://github.com/SignifyHQ/rain-sdk-android.git")
-            developerConnection.set("scm:git:ssh://github.com/SignifyHQ/rain-sdk-android.git")
+            connection.set("scm:git:https://github.com/SignifyHQ/rain-sdk-android.git")
+            developerConnection.set("scm:git:ssh://git@github.com/SignifyHQ/rain-sdk-android.git")
             url.set("https://github.com/SignifyHQ/rain-sdk-android")
         }
     }
 
-    publishToMavenCentral()
+    publishToMavenCentral(automaticRelease = false)
     signAllPublications()
 }

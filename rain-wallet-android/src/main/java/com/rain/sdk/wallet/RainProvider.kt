@@ -3,11 +3,11 @@ package com.rain.sdk.wallet
 import android.app.Activity
 import android.app.Application
 import com.rain.sdk.error.RainError
-import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
 import com.rain.sdk.provider.ProviderDescriptor
 import com.rain.sdk.provider.ProviderId
+import com.rain.sdk.provider.WalletProvider
 import com.rain.sdk.turnkey.TurnkeyProvider
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map

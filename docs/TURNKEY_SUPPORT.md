@@ -13,7 +13,7 @@ Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provide
 ```kotlin
 dependencies {
     // Pulls rain-core-android and the Turnkey artifacts transitively.
-    implementation("io.github.spartan-quanhongtran:rain-turnkey-android:1.0.1")
+    implementation("xyz.rain:rain-turnkey-android:5.0.0-beta.1")
 }
 ```
 
@@ -130,7 +130,7 @@ Managed mode is not a host-facing mode. Every member of it — the `TurnkeyConfi
 
 Before the first run, in the Turnkey dashboard: enable the **Auth Proxy** for your parent organization with **Email OTP** turned on, and **SMS OTP** as well when phone numbers are used (each auth method has its own toggle), copy its auth-proxy config id (it identifies the configuration and is safe to ship in the app; the Turnkey SDK sends it as the `X-Auth-Proxy-Config-ID` header on every proxy call), and set the code format (6–9 characters, numeric or alphanumeric; one setting shared by email and SMS) and the session lifetime (900 seconds by default) there. The SDK reads none of these settings; it obeys them. SMS authentication is a Turnkey Enterprise feature that Turnkey enables on request, off by default on top-level organizations. Leave the dashboard captcha off while this SDK pins Turnkey's Kotlin SDK 2.0.1: that SDK sends no captcha token, so an enabled captcha refuses every code request on both channels.
 
-For passkeys, turn **Passkey** on in the same auth-proxy configuration (the sandbox configuration lists email, SMS and passkey) and pass `passkeyDomain` to the constructor: a registrable domain of at least two labels you control, such as `passkeys.example.com`, that serves `https://<domain>/.well-known/assetlinks.json` as `application/json` with no redirect, in the shape of Google's passkey example (the file under [Passkeys](#passkeys)): a statement for the site itself granting `delegate_permission/common.get_login_creds`, and an `android_app` statement granting both `delegate_permission/common.handle_all_urls` and `delegate_permission/common.get_login_creds` that lists the app's package name and the SHA-256 fingerprint of every certificate that signs it (debug, upload and Play App Signing). Google Play services fetches the file from the device at every ceremony and judges it itself; a file carrying the app statement alone is refused with `RAIN_102`, even when Google's asset-links API reports the link as valid, so start from that shape. The domain is permanent, because every passkey created against it stops working when it changes, and a passkey made for one domain does not work in an app on another. Null or blank turns the passkey methods off (they throw `RainError.InvalidConfig` before any Turnkey call); a scheme, port, path or a single label such as `localhost` throws `RAIN_102` from the constructor. On the device the flows need Android 9 or later; on Android 9 to 13 Google Play services (the passkey provider the SDK's dependencies bring), on Android 14 and later any installed credential provider; a screen lock and a provider with a signed-in account. An emulator needs a Play image with a Google account added. When Turnkey has enabled the `WEBAUTHN_ORIGINS` feature on your parent organization, its allowed origins must include the Android origin `android:apk-key-hash:<base64url SHA-256 of the signing certificate>`, one per certificate.
+For passkeys, turn **Passkey** on in the same auth-proxy configuration (Rain's own configuration lists email, SMS and passkey) and pass `passkeyDomain` to the constructor: a registrable domain of at least two labels you control, such as `passkeys.example.com`, that serves `https://<domain>/.well-known/assetlinks.json` as `application/json` with no redirect, in the shape of Google's passkey example (the file under [Passkeys](#passkeys)): a statement for the site itself granting `delegate_permission/common.get_login_creds`, and an `android_app` statement granting both `delegate_permission/common.handle_all_urls` and `delegate_permission/common.get_login_creds` that lists the app's package name and the SHA-256 fingerprint of every certificate that signs it (debug, upload and Play App Signing). Google Play services fetches the file from the device at every ceremony and judges it itself; a file carrying the app statement alone is refused with `RAIN_102`, even when Google's asset-links API reports the link as valid, so start from that shape. The domain is permanent, because every passkey created against it stops working when it changes, and a passkey made for one domain does not work in an app on another. Null or blank turns the passkey methods off (they throw `RainError.InvalidConfig` before any Turnkey call); a scheme, port, path or a single label such as `localhost` throws `RAIN_102` from the constructor. On the device the flows need Android 9 or later; on Android 9 to 13 Google Play services (the passkey provider the SDK's dependencies bring), on Android 14 and later any installed credential provider; a screen lock and a provider with a signed-in account. An emulator needs a Play image with a Google account added. When Turnkey has enabled the `WEBAUTHN_ORIGINS` feature on your parent organization, its allowed origins must include the Android origin `android:apk-key-hash:<base64url SHA-256 of the signing certificate>`, one per certificate.
 
 The SDK configures Turnkey against your parent organization and auth-proxy configuration, runs the one-time-code flow, email or SMS, and the passkey flows on the provider itself, and provisions one wallet holding an Ethereum and a Solana account on first login:
 
@@ -401,7 +401,7 @@ TurnkeyProvider(
         sessionPolicy = TurnkeySessionPolicy(
             refreshBufferSeconds = 60,        // refresh when < 60s of lifetime remain
             autoRefresh = true,               // let Rain call Turnkey's refreshSession itself
-            refreshExpirationSeconds = null,  // TTL for refreshed sessions (null = Turnkey default)
+            refreshExpirationSeconds = null,  // seconds for refreshed sessions, > 0 (null = Turnkey's 900)
             maxTransientRetries = 2,          // backoff retries for 5xx/429/network on reads
             initialRetryDelayMs = 500,
             maxRetryDelayMs = 4_000,
@@ -414,6 +414,10 @@ TurnkeyProvider(
     )
 )
 ```
+
+`refreshExpirationSeconds` is a `Long` count of seconds and must be positive; `null` keeps Turnkey's
+default of 900 seconds. An out-of-range policy value throws `IllegalArgumentException` when the
+policy is constructed.
 
 What every wallet call does:
 
@@ -522,7 +526,7 @@ configurations.all {
 Or, if you'd rather scope it to a specific dependency:
 
 ```kotlin
-implementation("org.web3j:core:4.10.3") {
+implementation("org.web3j:core:4.10.1") {
     exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
 }
 ```

@@ -39,7 +39,7 @@ class RainWalletMappingTest {
 
         assertThat(backing.refreshBufferSeconds).isEqualTo(30L)
         assertThat(backing.autoRefresh).isFalse()
-        assertThat(backing.refreshExpirationSeconds).isEqualTo("1200")
+        assertThat(backing.refreshExpirationSeconds).isEqualTo(1_200L)
         assertThat(backing.maxTransientRetries).isEqualTo(5)
         assertThat(backing.initialRetryDelayMs).isEqualTo(1_000L)
         assertThat(backing.maxRetryDelayMs).isEqualTo(8_000L)

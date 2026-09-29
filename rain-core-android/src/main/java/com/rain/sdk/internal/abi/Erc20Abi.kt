@@ -1,6 +1,7 @@
 package com.rain.sdk.internal.abi
 
 import com.rain.sdk.error.RainError
+import com.rain.sdk.internal.RainAdapterApi
 import com.rain.sdk.internal.utils.RainAmountUtils
 import com.rain.sdk.internal.utils.RainHexUtils
 import org.web3j.abi.FunctionEncoder
@@ -19,6 +20,7 @@ import org.web3j.abi.datatypes.Function as Web3jFunction
  * Public (not Kotlin-`internal`) because the out-of-core adapter modules
  * (`rain-portal-android`, `rain-privy-android`) encode calldata too, mirroring [com.rain.sdk.utils.EthereumConverter].
  */
+@RainAdapterApi
 object Erc20Abi {
 
     /**

@@ -41,6 +41,14 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+        // This module implements WalletProvider and ProviderDescriptor, which need @ExperimentalRainApi
+        // to implement, so it opts in as a whole; a host opts in on its own implementing class.
+        freeCompilerArgs.addAll(
+            "-opt-in=com.rain.sdk.ExperimentalRainApi",
+            // Core's cross-module seams (token store, Solana support, ABI and error helpers) are marked
+            // @RainAdapterApi. Adapter modules are the intended callers, so this one opts in.
+            "-opt-in=com.rain.sdk.internal.RainAdapterApi",
+        )
     }
 }
 
@@ -71,9 +79,18 @@ dependencies {
     // Web3j for ERC-20 ABI encoding in sendToken calldata. Shares core's Bouncy Castle note.
     implementation(libs.web3j.core) {
         exclude(group = "org.bouncycastle", module = "bcprov-jdk18on")
+        // Desktop-only pieces web3j ships (Unix-socket IPC through jnr and its native libraries, ASM,
+        // a WebSocket client, OkHttp's logging interceptor). Nothing on Android uses them, and leaving
+        // them out makes a shrunk app about 250 KB smaller.
+        exclude(group = "com.github.jnr")
+        exclude(group = "org.ow2.asm")
+        exclude(group = "org.java-websocket")
+        exclude(group = "com.squareup.okhttp3", module = "logging-interceptor")
     }
 
-    implementation(libs.kotlinx.coroutines.core)
+    // `Flow` appears in this module's public signatures (session state), so the coroutines library is
+    // part of its contract with hosts.
+    api(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.timber)
     // Own JSON-RPC read path: core's JsonRpcClient/ChainReader are @RainAdapterApi seams this module
@@ -94,7 +111,7 @@ dependencies {
 }
 
 mavenPublishing {
-    coordinates("io.github.spartan-quanhongtran", "rain-privy-android", libs.versions.rain.sdk.get())
+    coordinates("xyz.rain", "rain-privy-android", libs.versions.rain.sdk.get())
 
     pom {
         name.set("Rain SDK Android — Privy adapter")
@@ -103,23 +120,29 @@ mavenPublishing {
         licenses {
             license {
                 name.set("The Apache License, Version 2.0")
-                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
             }
         }
         developers {
             developer {
-                id.set("spartan-quanhongtran")
-                name.set("spartan-quanhongtran")
-                email.set("engineering@signify.net")
+                id.set("rain")
+                name.set("Rain Engineering")
+                email.set("maven@rain.xyz")
+                organization.set("Rain")
+                organizationUrl.set("https://rain.xyz")
             }
         }
+        organization {
+            name.set("Rain")
+            url.set("https://rain.xyz")
+        }
         scm {
-            connection.set("scm:git:git://github.com/SignifyHQ/rain-sdk-android.git")
-            developerConnection.set("scm:git:ssh://github.com/SignifyHQ/rain-sdk-android.git")
+            connection.set("scm:git:https://github.com/SignifyHQ/rain-sdk-android.git")
+            developerConnection.set("scm:git:ssh://git@github.com/SignifyHQ/rain-sdk-android.git")
             url.set("https://github.com/SignifyHQ/rain-sdk-android")
         }
     }
 
-    publishToMavenCentral()
+    publishToMavenCentral(automaticRelease = false)
     signAllPublications()
 }

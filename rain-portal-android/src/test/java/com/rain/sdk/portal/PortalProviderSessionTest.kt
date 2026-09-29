@@ -2,8 +2,8 @@ package com.rain.sdk.portal
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.error.RainError
-import com.rain.sdk.internal.provider.WalletProvider
 import com.rain.sdk.provider.ProviderContext
+import com.rain.sdk.provider.WalletProvider
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
