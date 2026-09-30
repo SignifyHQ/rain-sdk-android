@@ -35,9 +35,12 @@ Rain plans to fix each of these in a later beta.
   Tell users that an attach replaces their current contact.
 - `getTokenBalances` and `getAllBalances` can leave out a token the wallet holds. On Ethereum, Base,
   Polygon and their test networks, the Turnkey provider and the Rain wallet build the list from the
-  wallet backend's balance service. On other EVM chains, and with Privy on every chain, the list
-  holds only the SDK's built-in tokens and those passed to `registerTokens`. Portal builds it from
-  Portal's own service. On Base Sepolia, for example, the Rain wallet leaves out Rain USD.
+  wallet backend's balance service. On other EVM chains, and with Privy on every EVM chain, the
+  list holds only the SDK's built-in tokens and those passed to `registerTokens`. Portal builds it
+  from Portal's own service. On Solana, the Turnkey provider and the Rain wallet ask the wallet
+  backend first and read the node when it fails or lists no tokens, and Privy reads the node, which
+  lists every token the wallet holds. On Base Sepolia, for example, the Rain wallet leaves out
+  Rain USD.
   `getBalance(chainId, Token.Contract(address))` reads a single token from the chain and works
   for any token.
 - At launch with a saved session, `RainProvider.authState` and `sessionState`, and

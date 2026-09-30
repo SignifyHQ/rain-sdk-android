@@ -7,6 +7,13 @@ first login), sessions and key export, and
 its public surface names no wallet vendor. The wallet backend's identity is embedded, so an app
 configures nothing but behaviour.
 
+> **Known issues in `5.0.0-beta.1`.** Solana `sendNative`, `sendToken` and `withdrawCollateral`
+> fail with `RAIN_501` and broadcast nothing. Attaching a contact through
+> `sendContactVerificationCode` and `confirmContactVerification` replaces the account's email
+> address or phone number instead of adding one, and succeeds for an email address that already
+> logs in to another account. `getTokenBalances` and `getAllBalances` can leave out a token the
+> wallet holds. See the [CHANGELOG](../CHANGELOG.md).
+
 ```kotlin
 dependencies {
     // Pulls rain-core-android transitively; the wallet backend ships with it.
