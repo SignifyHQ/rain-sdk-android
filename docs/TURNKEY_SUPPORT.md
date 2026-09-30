@@ -6,7 +6,7 @@ Rain SDK for Android supports [Turnkey](https://turnkey.com) as a wallet provide
 
 - `minSdk = 28` (matches Turnkey's requirement).
 - Managed mode: nothing to initialize — the SDK configures Turnkey itself; the passkey flows also need a relying-party domain, see [Passkeys](#passkeys). Bring-your-own mode: the Turnkey Kotlin SDK initialized in your `Application.onCreate()`, with the passkey/auth-proxy/OAuth/OTP flow completed by the host app.
-- Turnkey's artifacts are Java 24 class files; a JVM unit test in your app that loads them needs a JDK 24 launcher. Android builds are unaffected: R8/D8 dexes the bytecode regardless of the host JVM.
+- Of Turnkey's artifacts, `com.turnkey:encoding` ships Java 24 class files; a JVM unit test in your app that loads its classes needs a JDK 24 launcher. Android builds are unaffected: R8/D8 dexes the bytecode regardless of the host JVM.
 
 ## Adding the dependency
 
@@ -255,6 +255,11 @@ On Solana chain ids the same methods route to `TurnkeyClient.solSendTransaction`
 `getWalletAddressBalances` and the Solana account instead — see [Solana notes](#solana-notes).
 
 ## Solana notes
+
+> **Known issue in `5.0.0-beta.1`.** Every Solana send through the Turnkey adapter fails with
+> `RAIN_501` before anything reaches the chain, because Turnkey rejects the request with HTTP 400.
+> That covers `sendNative`, `sendToken` and `withdrawCollateral`. Solana reads and
+> `prepareWithdrawal` work. See the [CHANGELOG](../CHANGELOG.md).
 
 The Turnkey adapter is the SDK's multi-chain provider (it advertises `MULTI_CHAIN`): Solana sentinel
 chain ids (`RainChain.SOLANA_MAINNET` 900 / `SOLANA_DEVNET` 901 / `SOLANA_TESTNET` 902) route

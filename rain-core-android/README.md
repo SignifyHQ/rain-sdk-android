@@ -22,7 +22,8 @@ login, sessions and key export under Rain's names, with the adapter hidden from 
 classpath.
 
 Add a wallet provider by depending on its adapter, which pulls core transitively:
-`:rain-wallet-android`, `:rain-turnkey-android`, `:rain-portal-android` or `:rain-privy-android`.
+`xyz.rain:rain-wallet-android`, `rain-turnkey-android`, `rain-portal-android` or
+`rain-privy-android`, at `5.0.0-beta.1`.
 
 ```kotlin
 // Bring-your-own Turnkey, from :rain-turnkey-android — the host authenticated turnkeyContext.
