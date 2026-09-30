@@ -128,7 +128,7 @@ Fuji USDC or the devnet mint, so naming them keeps the balance screen readable.
 ## Notes
 
 - **Portal wallet recovery**: the sample has no Portal backup or recovery UI.
-- **Solana history** rows carry the wallet backend's activity id rather than a resolvable signature, so those
+- **Solana history** rows carry the wallet backend's status id (the activity id when the send recorded none) rather than a resolvable signature, so those
   rows are not linked to an explorer.
 - **Demo keystore.** `app/demo-debug.keystore` is committed on purpose and signs both the debug and
   the release build. The Rain Wallet card's passkeys are bound to this certificate's SHA-256

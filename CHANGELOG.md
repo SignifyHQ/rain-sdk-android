@@ -6,10 +6,20 @@ Notable changes to the Rain Android SDK, newest first. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Solana sends and collateral withdrawals through `rain-turnkey-android` and `rain-wallet-android`
+  reach the chain. On such a send, `RAIN_302` `TransactionPending` may carry the wallet backend's
+  activity id when the backend accepted the send without a readable status id, and the activity-log
+  history lists Solana sends under both of the backend's send activity types. The send request and
+  its guarantees are described in [TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md#solana-notes).
+
 ## [5.0.0-beta.1] - 2026-09-30
 
 First public beta, published to Maven Central under `xyz.rain`. Pin the exact version during the
-beta; see [Compatibility](README.md#compatibility).
+beta; see [Compatibility](README.md#compatibility). Known issue: Solana sends and collateral
+withdrawals through `rain-turnkey-android` and `rain-wallet-android` fail with `RAIN_501` before
+anything is signed; the fix is listed under Unreleased above.
 
 ### Added
 

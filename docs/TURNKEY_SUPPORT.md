@@ -31,7 +31,7 @@ androidx.credentials:credentials:1.5.0
 androidx.credentials:credentials-play-services-auth:1.5.0
 ```
 
-The module declares `androidx.credentials:credentials` itself, because its error mapping names the Credential Manager exception types by class; the other `androidx.credentials` artifact is the runtime passkey provider and arrives through Turnkey's passkey package, which puts the same version of both on every consumer's runtime classpath. No consumer sees a version change.
+The module declares `androidx.credentials:credentials` itself, because its error mapping names the Credential Manager exception types by class; the other `androidx.credentials` artifact is the runtime passkey provider and arrives through Turnkey's passkey package, which puts the same version of both on every consumer's runtime classpath. No consumer sees a version change. The module also declares `kotlinx-serialization-json` at the version Turnkey's `http` and `types` already put on every consumer's runtime classpath, so its own code compiles against the coordinates the vendor resolves at runtime; consumers resolve the same artifact at the same version as before, and the line leaves with `TurnkeySolanaSendRequest`.
 
 ## Two modes
 
@@ -247,11 +247,11 @@ After the Turnkey-backed `client` is resolved, every wallet operation routes thr
 | `client.getBalance(chainId, Token.Contract(...))` | RPC `eth_call` (`balanceOf`) |
 | `client.getTokenBalances(chainId)` | `TurnkeyClient.getWalletAddressBalances` (CAIP-19) on supported chains; Multicall3 / parallel `eth_call` otherwise |
 | `client.sendNative(...)` / `client.sendToken(...)` | `TurnkeyClient.ethSendTransaction` + `getSendTransactionStatus` polling. Only on Turnkey's managed-broadcast chains — other chains (Avalanche, Celo, ZKsync, Plasma, Ink) are read-only and sends throw `RAIN_104` up front. By default (`sponsorGas = true`), every EVM send (transfers, withdrawals, approvals, raw sends) is sponsored by Turnkey Gas Station (minimal payload carrying Turnkey's gas-station nonce for replay protection; fee estimates quote what the wallet would pay itself), and Solana network fees are sponsored too (a zero-SOL sender skips the fee check and dry run; rent for a new recipient token account is a separate Turnkey toggle and stays with the sender). `TurnkeyConfig(sponsorGas = false)` returns to self-paid sends, and is required on a Turnkey organization without sponsorship enabled. Monad caveat: Turnkey sponsors through EIP-7702 delegation and Monad reverts any delegated-account transaction that would leave the balance under 10 MON, so a sponsored native MON send from a small wallet fails on chain even when the estimate succeeds (token sends are unaffected). |
-| `client.withdrawCollateral(...)` | EVM: `TurnkeyContext.signRawPayload` (EIP-712) + `ethSendTransaction`. Solana: core composes the withdrawal, skipping its self-paid dry run while the adapter sponsors the fee, then `solSendTransaction`. Either chain: a chain outside Turnkey's coverage is refused with `RAIN_104` before anything is read or signed (`prepareWithdrawal` is not refused, because it never broadcasts), and a status carrying decoded revert details (`error.revertChain` or `error.eth.revertChain`, whether the transaction failed before inclusion or was included and reverted, or a Solana `InstructionError` or the runtime's `Program <id> failed` log line) surfaces as `WithdrawalRevertedByNetwork`, the same as a failed dry run, with the transaction hash on `transactionId` (and in the cause's message) once included; a failed status without them (a broadcast, policy or blockhash failure) is `ProviderError`, and a Solana fee or rent shortfall is `InsufficientFunds`. |
+| `client.withdrawCollateral(...)` | EVM: `TurnkeyContext.signRawPayload` (EIP-712) + `ethSendTransaction`. Solana: core composes the withdrawal, skipping its self-paid dry run while the adapter sponsors the fee, then the adapter's own `ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2` request (see [Solana notes](#solana-notes)). Either chain: a chain outside Turnkey's coverage is refused with `RAIN_104` before anything is read or signed (`prepareWithdrawal` is not refused, because it never broadcasts), and a status carrying decoded revert details (`error.revertChain` or `error.eth.revertChain`, whether the transaction failed before inclusion or was included and reverted, or a Solana `InstructionError` or the runtime's `Program <id> failed` log line) surfaces as `WithdrawalRevertedByNetwork`, the same as a failed dry run, with the transaction hash on `transactionId` (and in the cause's message) once included; a failed status without them (a broadcast, policy or blockhash failure) is `ProviderError`, and a Solana fee or rent shortfall is `InsufficientFunds`. |
 | `client.getTransactions(...)` | `TurnkeyClient.listEthTransactionHistory`, the indexed history (receives and externally submitted transactions included, EVM addresses in EIP-55 form), when the transaction history feature is enabled for the organization; otherwise `TurnkeyClient.getActivities` filtered to `ACTIVITY_TYPE_ETH_SEND_TRANSACTION`, sends only. The fallback runs only when Turnkey refuses the indexed query (HTTP 403 for an organization without the feature, logged once per provider); a dead session, a transport failure or a page that could not be decoded surfaces as its own error. |
 | `client.estimateGas(...)` | RPC `eth_estimateGas` + `eth_gasPrice` on every chain. On a sponsored chain the quote is what the wallet would pay itself; a sponsor pays instead and its own cost is not quoted |
 
-On Solana chain ids the same methods route to `TurnkeyClient.solSendTransaction` /
+On Solana chain ids the same methods route to the adapter's own Solana send request /
 `getWalletAddressBalances` and the Solana account instead — see [Solana notes](#solana-notes).
 
 ## Solana notes
@@ -279,13 +279,39 @@ is read-only and a send there throws `RAIN_104`. The broadcast chain list is und
   unless the mint is registered.
 - **History.** From Turnkey's indexed history (`list_sol_transaction_history`) when the transaction
   history feature is enabled for the organization: receives included, and the row's hash is the real
-  signature. Otherwise from the activity log (`ACTIVITY_TYPE_SOL_SEND_TRANSACTION`), sends only,
-  where the row's hash is the Turnkey status id, not an explorer-resolvable signature.
+  signature. Otherwise from the activity log, sends only, whichever of the two activity types Turnkey
+  recorded the send under (`ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2`, which the SDK posts, or
+  `ACTIVITY_TYPE_SOL_SEND_TRANSACTION`), where the row's hash is the Turnkey status id, not an
+  explorer-resolvable signature.
+- **The send request.** The broadcast is Turnkey's `sol_send_transaction` activity, posted as
+  `ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2` with `signWiths`, the one type Turnkey's reference lists for
+  the endpoint. The adapter posts it as a stamped request of its own, through the vendor's public
+  stamper and the session's key, because `com.turnkey:http` 2.1.0 posts the V1 type with the V2 body
+  and Turnkey refuses that envelope with HTTP 400 (`TurnkeySolanaSendRequest` names the defect and the
+  conditions for returning to the vendor's method). The request goes out on the provider's own HTTP
+  client, with timeouts on every phase and a 30-second bound on each attempt, and never follows a
+  redirect.
+- **Lost answers.** A request whose answer is lost, a dropped connection before or during the answer
+  or a gateway status (502, 503, 504), is replayed byte for byte, same timestamp and same stamp, which
+  Turnkey's idempotent submission answers with the same activity, never a second send. The replay is
+  bounded: two replays half a second apart after the first attempt, so a route that never answers
+  fails after about 90 seconds, and the last failure surfaces as `ProviderError` with the send's fate
+  unknown. A host that sees one after a gateway outage reads history before it sends again.
+- **After acceptance.** Once Turnkey has accepted the activity the call never reports a failure while
+  the send's fate is unknown: an activity Turnkey completed without a status id this build can read,
+  or one still pending after the vendor's poll, surfaces as `TransactionPending` carrying the activity
+  id (no call polls it; it matches `uniqueId` on the activity-log history row), and an activity that
+  no longer decodes in full is read for the fields the send needs, on the submit answer and on every
+  poll read. The failures it does report are settled ones: an activity Turnkey itself failed or
+  rejected before broadcasting anything (a policy denial, for example) is a `ProviderError` with
+  Turnkey's reason, and a send status Turnkey reports as failed maps as in the table above; both
+  leave the money where it was.
 - **Encoding.** Turnkey takes `unsignedTransaction` hex-encoded, the full wire format with zeroed
   signature placeholders, so Rain sends hex. Turnkey returns a status id rather than a signature; Rain polls for it, then
   recovers it from `getSignaturesForAddress` (newer than the pre-send baseline only) and verifies
   via `getTransaction` that the candidate is signed by this wallet (the fee payer on a self-paid
-  send; on a sponsored send Turnkey's payer model is undocumented, so the check is on signers) with
+  send; on a sponsored send Turnkey rebuilds the transaction with its own sponsor as the fee payer and
+  signs it with this wallet and the sponsor, so the check is on signers) with
   `err == null`. If the
   baseline read failed or nothing verifiable lands in time, the send surfaces as
   `TransactionPending` carrying the status id — the same contract as EVM — never the status id
