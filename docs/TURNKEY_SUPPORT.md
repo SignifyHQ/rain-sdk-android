@@ -288,7 +288,8 @@ is read-only and a send there throws `RAIN_104`. The broadcast chain list is und
   the endpoint. The adapter posts it as a stamped request of its own, through the vendor's public
   stamper and the session's key, because `com.turnkey:http` 2.1.0 posts the V1 type with the V2 body
   and Turnkey refuses that envelope with HTTP 400 (`TurnkeySolanaSendRequest` names the defect and the
-  conditions for returning to the vendor's method). The request goes out on the provider's own HTTP
+  conditions for returning to the vendor's method; a vendor release that only corrects the type needs
+  nothing here beyond the `turnkey-http` catalog version). The request goes out on the provider's own HTTP
   client, with timeouts on every phase and a 30-second bound on each attempt, and never follows a
   redirect.
 - **Lost answers.** A request whose answer is lost, a dropped connection before or during the answer

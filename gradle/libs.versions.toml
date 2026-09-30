@@ -25,8 +25,11 @@ detekt = "2.0.0-alpha.6"
 # -- Core SDK Dependencies --
 portal-android = "9.2.0"
 turnkey = "2.0.1"
-# sdk-kotlin 2.0.1 declares http and types at 2.1.0; they no longer share its version number.
-turnkey-http-types = "2.1.0"
+# sdk-kotlin 2.0.1 declares http and types at 2.1.0; they no longer share its version number, and the
+# vendor releases them apart from each other (an http patch can ship without types), so each has its
+# own key: an http fix is one line here, and a direct declaration outranks sdk-kotlin's transitive pin.
+turnkey-http = "2.1.0"
+turnkey-types = "2.1.0"
 # com.turnkey:crypto is versioned separately from sdk-kotlin, whose metadata requires this value
 # without pinning it, so a bump here would win: move it together with the sdk-kotlin version.
 turnkey-crypto = "1.0.1"
@@ -90,8 +93,8 @@ zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 # -- Rain SDK Core --
 portal-android = { module = "io.portalhq.android:portal-android", version.ref = "portal-android" }
 turnkey-sdk-kotlin = { module = "com.turnkey:sdk-kotlin", version.ref = "turnkey" }
-turnkey-http = { module = "com.turnkey:http", version.ref = "turnkey-http-types" }
-turnkey-types = { module = "com.turnkey:types", version.ref = "turnkey-http-types" }
+turnkey-http = { module = "com.turnkey:http", version.ref = "turnkey-http" }
+turnkey-types = { module = "com.turnkey:types", version.ref = "turnkey-types" }
 # Declared so the module names what it imports. sdk-kotlin already carries it transitively.
 turnkey-crypto = { module = "com.turnkey:crypto", version.ref = "turnkey-crypto" }
 turnkey-passkey = { module = "com.turnkey:passkey", version.ref = "turnkey-passkey-stamper" }

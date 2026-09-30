@@ -584,20 +584,30 @@ class TurnkeySolanaSendWireTest {
     }
 
     /**
-     * The defect this request exists for. When a vendor release posts the V2 type here, this test
-     * fails: delete [TurnkeySolanaSendRequest], its dependency line and this suite, and let the
-     * adapter call the vendor's method again.
+     * The condition the workaround waits for. The vendor's own `solSendTransaction` throws a bare
+     * `RuntimeException` when the activity is not completed after its poll (pending, failed or
+     * rejected), with no activity id in it, so a caller cannot tell an accepted send from a failed
+     * one. When a vendor release stops doing that, this test fails: check that the release also posts
+     * the V2 type (the fix proposed in tkhq/kotlin-sdk#96), then delete [TurnkeySolanaSendRequest],
+     * its dependency line and this suite, and let the adapter call the vendor's method again. A
+     * release that fixes the type alone changes nothing here beyond the `turnkey-http` version: the
+     * module's own request never depended on the type the vendor posts.
      */
     @Test
-    fun `the vendor client still posts the V1 activity type with the V2 body`() {
-        server.enqueue(MockResponse().setBody(completedActivity(V2_RESULT)))
+    fun `the vendor client still throws a bare exception on an activity without a result`() {
+        val vendor = TurnkeyClient(
+            apiBaseUrl = server.url("/").toString().trimEnd('/'),
+            stamper = stamper,
+            organizationId = "org-1",
+            activityPoller = ActivityPollerConfig(intervalMs = 0L, numRetries = 0),
+        )
+        repeat(4) { server.enqueue(MockResponse().setBody(activityJson("ACTIVITY_STATUS_PENDING", result = "{}"))) }
 
-        runBlocking { vendorClient.solSendTransaction(body()) }
+        val error = assertThrows(RuntimeException::class.java) { runBlocking { vendor.solSendTransaction(body()) } }
 
-        val envelope = JSONObject(server.takeRequest().body.readUtf8())
-        assertThat(envelope.getString("type")).isEqualTo(TurnkeySolanaSendRequest.VENDOR_ACTIVITY_TYPE)
-        assertThat(envelope.getJSONObject("parameters").has("signWiths")).isTrue()
-        assertThat(envelope.getJSONObject("parameters").has("signWith")).isFalse()
+        assertThat(error.javaClass).isEqualTo(RuntimeException::class.java)
+        assertThat(error.message).startsWith("No result found")
+        assertThat(error.message).doesNotContain("activity-1")
     }
 
     /**

@@ -46,7 +46,8 @@ import kotlin.coroutines.resumeWithException
  * Posts Turnkey's current Solana send activity, `ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2`, as a stamped
  * request of this module's own, and returns the activity Turnkey records for it.
  *
- * Vendor defect, `com.turnkey:http` 2.1.0 (and tkhq/kotlin-sdk main as of 2026-09-29):
+ * Vendor defect, `com.turnkey:http` 2.1.0 (and tkhq/kotlin-sdk main as of 2026-09-30; a fix is
+ * proposed in tkhq/kotlin-sdk#96):
  * `TurnkeyClient.solSendTransaction` posts the activity type `ACTIVITY_TYPE_SOL_SEND_TRANSACTION` with
  * the V2 body that `com.turnkey:types` 2.1.0 serializes (`signWiths`, a list). The V1 intent requires
  * the singular `signWith`, so Turnkey refuses the envelope with HTTP 400 before the transaction is
@@ -71,9 +72,11 @@ import kotlin.coroutines.resumeWithException
  * import; the top-level `sessionStamper` with `TurnkeySessionStamperTest` and
  * `TurnkeyContextAdapterTest`; and let the adapter return `client.solSendTransaction(input).activity`.
  * The shared HTTP client the provider owns stays, the manager uses it too; [sendClient] leaves with
- * this class. The wire test named `the vendor client still posts the V1 activity type with the V2
- * body` fails on the release that corrects the type, which is the prompt to check the second
- * condition.
+ * this class. The wire test named `the vendor client still throws a bare exception on an activity
+ * without a result` pins the second condition and fails on the release that meets it, which is the
+ * prompt to check the first and delete. A release that corrects the type alone (the first
+ * condition) needs only the `turnkey-http` catalog version moved: nothing here depends on the type
+ * the vendor posts, and every test but that pin stays green.
  *
  * @param client the vendor client of the current session, for the endpoint URLs and the poll's stamp.
  * @param stamper produces the stamper for the current session's key on each request, so a key
@@ -333,9 +336,6 @@ internal class TurnkeySolanaSendRequest(
     internal companion object {
         /** The type Turnkey's reference lists for `/public/v1/submit/sol_send_transaction`. */
         const val ACTIVITY_TYPE = "ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2"
-
-        /** The type the vendor's 2.1.0 client posts, with the V2 body; the wire test pins the defect on it. */
-        const val VENDOR_ACTIVITY_TYPE = "ACTIVITY_TYPE_SOL_SEND_TRANSACTION"
 
         /** The states the vendor's client stops polling at; anything else is still in flight. */
         val TERMINAL_STATUSES: Set<V1ActivityStatus> = setOf(
