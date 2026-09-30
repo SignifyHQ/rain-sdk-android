@@ -2,6 +2,8 @@ package com.rain.sdk.turnkey
 
 import com.rain.sdk.error.RainError
 import com.turnkey.types.TGetSendTransactionStatusResponse
+import com.turnkey.types.V1Activity
+import com.turnkey.types.V1ActivityStatus
 import com.turnkey.types.V1SolanaFailureDetails
 import com.turnkey.types.V1TxError
 
@@ -28,7 +30,7 @@ import com.turnkey.types.V1TxError
 internal object TurnkeySendFailures {
 
     /** Vendor prose reaches hosts' logs through the cause; bound it as the Rain API client bounds error bodies. */
-    private const val MAX_VENDOR_MESSAGE_LENGTH = 300
+    internal const val MAX_VENDOR_MESSAGE_LENGTH = 300
 
     /** The runtime's own failure line, `Program <base58 id> failed: ...`; a program's own log mentioning "failed" does not count. */
     private val PROGRAM_FAILED_LOG = Regex("^Program [1-9A-HJ-NP-Za-km-z]{32,44} failed")
@@ -52,6 +54,21 @@ internal object TurnkeySendFailures {
                 RainError.TransactionSimulationFailed(IllegalStateException(message), transactionId)
             else -> RainError.ProviderError(IllegalStateException(message))
         }
+    }
+
+    /**
+     * The settled failure of a send activity, or null. An activity Turnkey failed or rejected without a
+     * send status id never broadcast anything (a policy denial, a transaction it could not sign), so
+     * it is a [RainError.ProviderError] carrying Turnkey's reason, bounded like the status failures
+     * above, or [fallback] when Turnkey gave none; nothing moved, and the host may retry. Any other
+     * status is not a failure here: pending and completed activities are the caller's to read.
+     */
+    fun activityFailure(activity: V1Activity, fallback: String): RainError? {
+        val settled = activity.status == V1ActivityStatus.ACTIVITY_STATUS_FAILED ||
+            activity.status == V1ActivityStatus.ACTIVITY_STATUS_REJECTED
+        if (!settled) return null
+        val reason = activity.failure?.message?.take(MAX_VENDOR_MESSAGE_LENGTH) ?: fallback
+        return RainError.ProviderError(IllegalStateException(reason))
     }
 
     /** A structured error naming anything: the backend attaches one only when the send failed. */

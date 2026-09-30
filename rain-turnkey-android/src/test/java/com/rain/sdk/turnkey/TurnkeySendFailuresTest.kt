@@ -3,6 +3,7 @@ package com.rain.sdk.turnkey
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.error.RainError
 import com.rain.sdk.turnkey.MockTurnkeyClient.StatusFixture
+import com.turnkey.types.V1ActivityStatus
 import com.turnkey.types.V1RevertChainEntry
 import com.turnkey.types.V1SolanaFailureDetails
 import org.junit.Test
@@ -287,5 +288,44 @@ class TurnkeySendFailuresTest {
 
         assertThat(error).isInstanceOf(RainError.ProviderError::class.java)
         assertThat(error?.cause?.message).isEqualTo("fallback message")
+    }
+
+    // ---------- send activities ----------
+
+    private fun solanaActivity(status: V1ActivityStatus, reason: String?) = MockTurnkey.makeSolanaActivity(
+        id = "act",
+        signWith = MockTurnkey.DEFAULT_SOLANA_ADDRESS,
+        caip2 = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+        unsignedTransaction = "00",
+        sendTransactionStatusId = null,
+        shape = MockTurnkey.SolanaSendShape.V2,
+        status = status,
+        failureMessage = reason
+    )
+
+    @Test
+    fun `a failed activity is a ProviderError carrying the backend's reason, capped like a status failure`() {
+        val failed = solanaActivity(V1ActivityStatus.ACTIVITY_STATUS_FAILED, "x".repeat(400))
+
+        val error = TurnkeySendFailures.activityFailure(failed, "fallback")
+
+        assertThat(error).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(error!!.cause?.message).hasLength(TurnkeySendFailures.MAX_VENDOR_MESSAGE_LENGTH)
+    }
+
+    @Test
+    fun `a rejected activity without a reason carries the fallback`() {
+        val rejected = solanaActivity(V1ActivityStatus.ACTIVITY_STATUS_REJECTED, null)
+
+        val error = TurnkeySendFailures.activityFailure(rejected, "Wallet backend rejected the Solana send")
+
+        assertThat(error).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(error!!.cause?.message).isEqualTo("Wallet backend rejected the Solana send")
+    }
+
+    @Test
+    fun `a pending or completed activity is not a failure`() {
+        assertThat(TurnkeySendFailures.activityFailure(solanaActivity(V1ActivityStatus.ACTIVITY_STATUS_PENDING, null), "f")).isNull()
+        assertThat(TurnkeySendFailures.activityFailure(solanaActivity(V1ActivityStatus.ACTIVITY_STATUS_COMPLETED, null), "f")).isNull()
     }
 }

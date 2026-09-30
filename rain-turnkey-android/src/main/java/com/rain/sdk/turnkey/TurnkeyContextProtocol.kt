@@ -15,6 +15,8 @@ import com.turnkey.crypto.models.KeyFormat
 import com.turnkey.http.TurnkeyClient
 import com.turnkey.passkey.PasskeyUser
 import com.turnkey.passkey.createPasskey
+import com.turnkey.stamper.Stamper
+import com.turnkey.stamper.utils.TurnkeyStamperError
 import com.turnkey.types.TCreateAuthenticatorsBody
 import com.turnkey.types.TCreateWalletAccountsBody
 import com.turnkey.types.TEthSendTransactionBody
@@ -33,9 +35,9 @@ import com.turnkey.types.TListEthTransactionHistoryResponse
 import com.turnkey.types.TListSolTransactionHistoryBody
 import com.turnkey.types.TListSolTransactionHistoryResponse
 import com.turnkey.types.TSolSendTransactionBody
-import com.turnkey.types.TSolSendTransactionResponse
 import com.turnkey.types.TUpdateUserEmailBody
 import com.turnkey.types.TUpdateUserPhoneNumberBody
+import com.turnkey.types.V1Activity
 import com.turnkey.types.V1AddressFormat
 import com.turnkey.types.V1Attestation
 import com.turnkey.types.V1AuthenticatorParamsV2
@@ -50,6 +52,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import timber.log.Timber
 import java.util.UUID
 
@@ -70,9 +73,14 @@ internal interface TurnkeyClientProtocol {
         input: TEthSendTransactionBody
     ): TEthSendTransactionResponse
 
+    /**
+     * Submits a Solana send and returns the activity Turnkey recorded for it, settled or not; the
+     * caller reads the status id off it. The vendor's own response type demands the V2 result, which
+     * a pending or failed activity has not got.
+     */
     suspend fun solSendTransaction(
         input: TSolSendTransactionBody
-    ): TSolSendTransactionResponse
+    ): V1Activity
 
     suspend fun getSendTransactionStatus(
         input: TGetSendTransactionStatusBody
@@ -281,6 +289,17 @@ internal fun OtpChannel.toVendorOtpType(): OtpType = when (this) {
 internal class TurnkeyContextAdapter(
     private val context: TurnkeyContext = TurnkeyContext,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /**
+     * The client the module's own Solana send goes out on: the provider's shared one with redirects
+     * refused, see [TurnkeySolanaSendRequest.sendClient].
+     */
+    private val httpClient: OkHttpClient,
+    /** Builds the stamper for a session's public key; the vendor's key store in production. */
+    private val stamperFor: (String) -> Stamper = Stamper::fromPublicKey,
+    /** The selected session's public key as the vendor's flow shows it; a test hands in its own. */
+    private val sessionPublicKey: () -> String? = { context.session.value?.publicKey },
+    /** The vendor client of the moment; a test hands in one bound to a mock server. */
+    private val vendorClient: () -> TurnkeyClient = { context.client },
 ) : TurnkeyContextProtocol {
 
     override val wallets: List<Wallet>
@@ -290,7 +309,23 @@ internal class TurnkeyContextAdapter(
         get() = context.session.value
 
     override val turnkeyClient: TurnkeyClientProtocol?
-        get() = runCatching { TurnkeyClientAdapter(context.client) }.getOrNull()
+        get() = runCatching {
+            val client = vendorClient()
+            TurnkeyClientAdapter(
+                client,
+                TurnkeySolanaSendRequest(client, ::currentSessionStamper, httpClient, ioDispatcher = ioDispatcher)
+            )
+        }.getOrNull()
+
+    /**
+     * A stamper over the selected session's key, the call the vendor itself makes when it builds a
+     * session's client, so the module's own request is signed by the key Turnkey expects. Read on
+     * each request, so a key rotated by a refresh is picked up. The key pair is in the vendor's key
+     * store, so the read runs off the caller's thread.
+     */
+    private suspend fun currentSessionStamper(): Stamper = withContext(ioDispatcher) {
+        sessionStamper(sessionPublicKey(), stamperFor)
+    }
 
     override val authState: StateFlow<AuthState>
         get() = context.authState
@@ -624,8 +659,40 @@ internal suspend fun reloadSelectedSession(selectedKey: String?, reload: suspend
     }
 }
 
+/**
+ * The stamper for the session the vendor's flow shows, built by [stamperFor] from its public key. No
+ * session, or a key the vendor's key store cannot produce, is the vendor's own dead-session error:
+ * the session coordinator answers that with one refresh and retry, and the refresh reloads the flow,
+ * so the retry signs with the key the vendor's client holds. The store lacks the flow's key when the
+ * flow fell behind the client (a refresh whose reload failed) or the store was purged, which the
+ * vendor's store reports as an [IllegalStateException]; an entry it holds but cannot decrypt is its
+ * [TurnkeyStamperError]. A stamper never configured for the process reports the same
+ * [IllegalStateException] and reads as a dead session too, which it is: no session was ever selected.
+ * All of it happens before anything is sent.
+ */
+internal fun sessionStamper(publicKey: String?, stamperFor: (String) -> Stamper): Stamper {
+    val stamper = publicKey?.let { key ->
+        try {
+            stamperFor(key)
+        } catch (e: IllegalStateException) {
+            deadSession(e)
+        } catch (e: TurnkeyStamperError) {
+            deadSession(e)
+        }
+    }
+    return stamper ?: throw TurnkeyKotlinError.InvalidSession()
+}
+
+/** The vendor's dead-session error around whatever kept the key store from producing a stamper. */
+private fun deadSession(cause: Throwable): Nothing = throw TurnkeyKotlinError.InvalidSession(cause)
+
+/**
+ * The vendor's typed client behind [TurnkeyClientProtocol]. Every call is the vendor's own except the
+ * Solana send, which [solanaSend] posts with the activity type the vendor's client gets wrong.
+ */
 internal class TurnkeyClientAdapter(
-    private val client: TurnkeyClient
+    private val client: TurnkeyClient,
+    private val solanaSend: TurnkeySolanaSendRequest,
 ) : TurnkeyClientProtocol {
 
     override suspend fun getWalletAddressBalances(
@@ -636,9 +703,12 @@ internal class TurnkeyClientAdapter(
         input: TEthSendTransactionBody
     ): TEthSendTransactionResponse = client.ethSendTransaction(input)
 
+    // Not `client.solSendTransaction(input)`: the vendor's 2.1.0 method posts the V1 activity type
+    // with the V2 body, which Turnkey refuses. See TurnkeySolanaSendRequest for the defect and the
+    // conditions for going back to the vendor's method.
     override suspend fun solSendTransaction(
         input: TSolSendTransactionBody
-    ): TSolSendTransactionResponse = client.solSendTransaction(input)
+    ): V1Activity = solanaSend.submit(input)
 
     override suspend fun getSendTransactionStatus(
         input: TGetSendTransactionStatusBody

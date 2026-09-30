@@ -55,6 +55,9 @@ okhttp = "5.4.0"
 
 # -- Kotlin --
 coroutines = "1.11.0"
+# The version the Turnkey artifacts already put on every consumer's runtime classpath; the adapter names it
+# so its own code compiles against the same coordinates, so it must not move ahead of the vendor's pin.
+kotlinx-serialization = "1.9.0"
 
 # -- Tooling --
 zxing = "3.5.4"
@@ -110,6 +113,7 @@ json = { module = "org.json:json", version.ref = "json" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
 kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect", version.ref = "kotlin" }
 
 # -- AndroidX --

@@ -10,6 +10,7 @@ import com.turnkey.types.TListSolTransactionHistoryBody
 import com.turnkey.types.V1Pagination
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.SerializationException
+import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.json.JSONObject
@@ -40,13 +41,13 @@ class TurnkeyHistoryWireTest {
         // vendor rebuilt its client from it; nothing here needs a device keystore.
         val keyPair = generateP256KeyPair()
         sessionPublicKey = keyPair.publicKeyCompressed
-        client = TurnkeyClientAdapter(
-            TurnkeyClient(
-                apiBaseUrl = server.url("/").toString().trimEnd('/'),
-                stamper = Stamper(keyPair.publicKeyCompressed, keyPair.privateKey),
-                organizationId = "org-1",
-            )
+        val stamper = Stamper(keyPair.publicKeyCompressed, keyPair.privateKey)
+        val vendorClient = TurnkeyClient(
+            apiBaseUrl = server.url("/").toString().trimEnd('/'),
+            stamper = stamper,
+            organizationId = "org-1",
         )
+        client = TurnkeyClientAdapter(vendorClient, TurnkeySolanaSendRequest(vendorClient, { stamper }, OkHttpClient()))
     }
 
     @After
