@@ -25,8 +25,9 @@ subprojects {
     }
 }
 
-// Unit tests run on a JDK 24 launcher (Gradle/AGP/Kotlin stay on the invoking JDK) because the
-// Turnkey AAR ships class-file 68; on an older JVM the Turnkey suites silently `assume`-skip.
+// Unit tests run on a JDK 24 launcher (Gradle/AGP/Kotlin stay on the invoking JDK) because
+// Turnkey's com.turnkey:encoding jar ships class-file 68; on an older JVM the Turnkey suites
+// silently `assume`-skip.
 // Override with -Prain.testJdk=21 to reproduce that behaviour on purpose.
 val rainTestJdk = (findProperty("rain.testJdk") as String?)?.toInt() ?: 24
 subprojects {

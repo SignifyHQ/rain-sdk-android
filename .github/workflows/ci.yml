@@ -22,9 +22,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # JDK 24 runs the forked test JVM (Turnkey AAR is class-file 68). Installed first so the
-      # second setup-java (21, used by Gradle/AGP/Kotlin) becomes JAVA_HOME while 24 stays
-      # reachable as JAVA_HOME_24_X64 for the toolchain resolver.
+      # JDK 24 runs the forked test JVM because Turnkey's com.turnkey:encoding jar is class-file 68.
+      # Installed first so the second setup-java (21, used by Gradle/AGP/Kotlin) becomes JAVA_HOME
+      # while 24 stays reachable as JAVA_HOME_24_X64 for the toolchain resolver.
       - name: Set up JDK 24 (unit-test launcher)
         uses: actions/setup-java@v4
         with:
