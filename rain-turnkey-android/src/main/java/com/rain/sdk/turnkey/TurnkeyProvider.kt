@@ -17,18 +17,10 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** The message every call on a closed provider carries; one literal so the two guards cannot drift. */
 internal const val TURNKEY_PROVIDER_CLOSED_MESSAGE = "This provider was closed; build a new one"
-
-/** Timeouts of the provider's shared HTTP client, the manager's RPC reads. */
-private const val HTTP_CONNECT_TIMEOUT_SECONDS = 10L
-private const val HTTP_WRITE_TIMEOUT_SECONDS = 10L
-private const val HTTP_READ_TIMEOUT_SECONDS = 30L
-private const val HTTP_CALL_TIMEOUT_SECONDS = 30L
 
 /**
  * Configuration for the Turnkey provider.
@@ -225,21 +217,6 @@ class TurnkeyProvider internal constructor(
     override val capabilities: Set<Capability> =
         TurnkeyWalletProvider.capabilitiesFor(config.sponsorGas)
 
-    /**
-     * The one HTTP client for the module's own calls, the manager's RPC reads: timeouts on every
-     * phase and a bound on the whole call, which OkHttp's defaults lack. Built on first use and
-     * shared, so one connection pool and one dispatcher serve the provider.
-     */
-    private val httpClientDelegate = lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(HTTP_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .writeTimeout(HTTP_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .readTimeout(HTTP_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .callTimeout(HTTP_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .build()
-    }
-    private val httpClient: OkHttpClient by httpClientDelegate
-
     private val turnkeyContext: TurnkeyContextProtocol by lazy {
         contextOverride ?: TurnkeyContextAdapter(config.turnkey)
     }
@@ -322,8 +299,6 @@ class TurnkeyProvider internal constructor(
         coordinator.stop()
         monitorScope.cancel()
         managedAuth?.close()
-        // Idle connections go with the provider; a call still in flight keeps its own until it ends.
-        if (httpClientDelegate.isInitialized()) httpClient.connectionPool.evictAll()
     }
 
     override suspend fun create(context: ProviderContext): WalletProvider {
@@ -345,7 +320,6 @@ class TurnkeyProvider internal constructor(
             sponsorGas = config.sponsorGas,
             walletAddressOverride = config.walletAddress,
             sessionCoordinator = coordinator,
-            httpClient = httpClient,
         )
         val provider = TurnkeyWalletProvider(
             manager = manager,
