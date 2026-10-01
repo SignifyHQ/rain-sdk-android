@@ -29,7 +29,8 @@ balances and history, and estimate fees. Works on EVM chains and Solana.
 > a range or `+`: Maven has no pre-release flag, so a range picks up every later beta, and a beta
 > may still change API between versions (see [Compatibility](#compatibility)).
 
-The modules are on Maven Central, so `mavenCentral()` is the only repository you need. The SDK is
+The modules are on Maven Central. `google()` and `mavenCentral()`, the two repositories a new
+Android project already declares, resolve them and everything they depend on. The SDK is
 modular (ports & adapters): a vendor-free **`rain-core-android`** plus one adapter module per
 wallet provider. Link only the providers you use — an unselected provider's vendor SDK never enters
 your dependency graph.
@@ -80,6 +81,9 @@ mixing versions is not supported.
 - compileSdk 36 or higher (the AARs declare minCompileSdk 36; the SDK itself compiles against 37)
 - Kotlin 2.2 recommended; Kotlin 2.1 compiles against the SDK's metadata through the compiler's one-version-ahead reading (the SDK is built with Kotlin 2.2.21 and ships Java 11 bytecode)
 - Android Gradle Plugin 8.11 or higher (tested with 8.11.2 and 9.4.0; older versions are untested)
+- JDK 24 to run JVM unit tests that reach Turnkey's code through `rain-turnkey-android` or
+  `rain-wallet-android`, because Turnkey's `com.turnkey:encoding` ships Java 24 bytecode. App
+  builds are unaffected.
 
 ## Compatibility
 
@@ -425,6 +429,10 @@ val fee = client.estimateWithdrawalFee(chainId = 8453, prepared = prepared)
 ```
 
 ### 9. Solana
+
+> **Known issue in `5.0.0-beta.1`.** Solana `sendNative`, `sendToken` and `withdrawCollateral`
+> through the Turnkey provider or the Rain wallet fail with `RAIN_501` and broadcast nothing.
+> Privy's Solana sends are not affected. See the [CHANGELOG](CHANGELOG.md).
 
 Solana uses the same `RainClient` methods as EVM — the SDK routes on the chain ID. `RainChain`
 exposes the sentinel IDs (`SOLANA_MAINNET` 900, `SOLANA_DEVNET` 901, `SOLANA_TESTNET` 902); these
