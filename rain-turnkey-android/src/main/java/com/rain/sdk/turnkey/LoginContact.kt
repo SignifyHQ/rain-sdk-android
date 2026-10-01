@@ -6,8 +6,9 @@ package com.rain.sdk.turnkey
  * and by phone number for [Phone]. The same person arriving through the other channel is a new
  * account unless the second contact was attached to the first account while signed in
  * (`sendContactVerificationCode` / `confirmContactVerification`). `sendLoginCode` and
- * `sendContactVerificationCode` canonicalize the value once (trim for an email; trim, separator
- * removal and an E.164 check for a phone number) and send that same string on confirm.
+ * `sendContactVerificationCode` canonicalize the value once (trim and lowercase for an email, since
+ * the backend matches it case-sensitively; trim, separator removal and an E.164 check for a phone
+ * number) and send that same string on confirm.
  * `toString()` hides the value, which is personal data.
  * Internal API ([InternalRainTurnkeyApi]): hosts see it through the Rain wallet provider, `RainProvider` in `rain-wallet-android`.
  */
@@ -16,7 +17,11 @@ sealed interface LoginContact {
     /** The contact as given; canonicalization happens in the sending methods, not here. */
     val value: String
 
-    /** An email address. A blank one makes either sending method throw `RainError.InvalidConfig`. */
+    /**
+     * An email address. The sending methods lowercase it, so two spellings of one address name the
+     * same account; `equals` still compares the text as given. A blank one makes either sending
+     * method throw `RainError.InvalidConfig`.
+     */
     data class Email(override val value: String) : LoginContact {
         override fun toString(): String = "LoginContact.Email(…)"
     }

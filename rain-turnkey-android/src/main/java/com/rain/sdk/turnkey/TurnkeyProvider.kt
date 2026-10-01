@@ -447,9 +447,10 @@ class TurnkeyProvider internal constructor(
      * most 3 can be active per user. Calling it for another contact or channel retires the pending
      * code first, so a failed switch leaves nothing confirmable. A phone number must be in E.164
      * form (`+`, country code and number, digits only); spaces, dots, hyphens and parentheses are
-     * removed first, and a parenthesised trunk zero is refused. The contact is canonicalized once
-     * and the same string is sent on confirm. Throws `RainError.InvalidConfig` for a blank email or
-     * a phone number outside E.164. Managed mode only.
+     * removed first, and a parenthesised trunk zero is refused. The contact is canonicalized once,
+     * an email trimmed and lowercased because Turnkey matches it case-sensitively, and the same
+     * string is sent on confirm. Throws `RainError.InvalidConfig` for a blank email or a phone
+     * number outside E.164. Managed mode only.
      */
     @InternalRainTurnkeyApi
     suspend fun sendLoginCode(contact: LoginContact) = requireManagedAuth().sendLoginCode(contact)

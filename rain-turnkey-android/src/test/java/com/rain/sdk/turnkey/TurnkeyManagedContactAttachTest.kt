@@ -62,7 +62,7 @@ class TurnkeyManagedContactAttachTest {
         controller.sendContactVerificationCode(LoginContact.Email("  User@Example.com "))
         controller.sendContactVerificationCode(LoginContact.Phone("+1 (321) 456-7890"))
 
-        assertThat(turnkey.sendOtpCalls.map { it.contact }).containsExactly("User@Example.com", "+13214567890").inOrder()
+        assertThat(turnkey.sendOtpCalls.map { it.contact }).containsExactly("user@example.com", "+13214567890").inOrder()
         assertThat(turnkey.sendOtpCalls.map { it.channel }).containsExactly(OtpChannel.EMAIL, OtpChannel.SMS).inOrder()
 
         expectThrows<RainError.InvalidConfig> { controller.sendContactVerificationCode(LoginContact.Email("   ")) }

@@ -27,6 +27,17 @@ enum class ContactChannel(
         Phone -> recorded.phoneKey() == typed.phoneKey()
     }
 
+    /**
+     * The contact as the wallet backend keys the account on it: an email is trimmed and lowercased,
+     * since the backend matches it case-sensitively and a second spelling would be a second account;
+     * a phone number is trimmed. The direct Turnkey card uses it on the send and on the verify call
+     * alike, so the two cannot disagree when the field was edited in between.
+     */
+    fun canonical(contact: String): String = when (this) {
+        Email -> contact.trim().lowercase()
+        Phone -> contact.trim()
+    }
+
     companion object {
         /** The recorded channel; blank or unknown reads as email, which is all an older record kept. */
         fun fromRecordOrEmail(name: String): ContactChannel = entries.firstOrNull { it.name == name } ?: Email

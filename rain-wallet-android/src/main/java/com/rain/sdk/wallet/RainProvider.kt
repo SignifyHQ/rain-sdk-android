@@ -185,8 +185,9 @@ class RainProvider internal constructor(
      * Calling it again for the same contact issues a new code and replaces the pending one, which
      * is how a code is resent: codes expire after 5 minutes, lock after 3 wrong attempts, and at
      * most 3 can be active per user. Calling it for another contact or channel retires the pending
-     * code first, so a failed switch leaves nothing confirmable. The contact is canonicalized once
-     * (see [RainWalletContact]) and the same string is sent on confirm.
+     * code first, so a failed switch leaves nothing confirmable. The contact is canonicalized once,
+     * an email trimmed and lowercased (see [RainWalletContact]), and the same string is sent on
+     * confirm.
      *
      * @throws RainError.InvalidConfig (`RAIN_102`) for a blank email or a phone number outside
      *   E.164, on a wallet backend configuration conflict for this launch, or when this provider
