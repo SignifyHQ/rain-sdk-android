@@ -32,6 +32,23 @@ internal object TurnkeySendFailures {
     /** Vendor prose reaches hosts' logs through the cause; bound it as the Rain API client bounds error bodies. */
     internal const val MAX_VENDOR_MESSAGE_LENGTH = 300
 
+    /**
+     * The start of the message the vendor's generated submit methods throw, as a bare `RuntimeException`,
+     * when the activity they polled did not complete: `No result found from <path>`. The vendor's HTTP
+     * refusals are bare `RuntimeException`s as well, so the prefix is what identifies this one; the
+     * class check keeps subclasses (a `RainError`, a cancellation) out.
+     */
+    internal const val VENDOR_NO_RESULT_PREFIX = "No result found"
+
+    /**
+     * The start of the message the vendor's `activity()` helper throws, as a bare `RuntimeException`,
+     * when Turnkey answers the submit itself with an error: `HTTP error calling <type> request ...
+     * Code: <status>`. Nothing has been executed at that point. The vendor's query methods say
+     * `HTTP error from <path>: <status>` instead, which inside a submit can only come from the poll
+     * after acceptance.
+     */
+    internal const val VENDOR_SUBMIT_REFUSAL_PREFIX = "HTTP error calling "
+
     /** The runtime's own failure line, `Program <base58 id> failed: ...`; a program's own log mentioning "failed" does not count. */
     private val PROGRAM_FAILED_LOG = Regex("^Program [1-9A-HJ-NP-Za-km-z]{32,44} failed")
 
@@ -70,6 +87,39 @@ internal object TurnkeySendFailures {
         val reason = activity.failure?.message?.take(MAX_VENDOR_MESSAGE_LENGTH) ?: fallback
         return RainError.ProviderError(IllegalStateException(reason))
     }
+
+    /**
+     * True for the vendor's own signal that a submitted activity did not complete within its poll (still
+     * pending, or failed or rejected): a `RuntimeException` of exactly that class whose message starts
+     * with [VENDOR_NO_RESULT_PREFIX]. The vendor drops the activity with it, so the caller looks the
+     * activity up before deciding what the host sees. A subclass, a `RainError` or a cancellation is
+     * never it.
+     */
+    fun isMissingResultFailure(e: Throwable): Boolean =
+        e.javaClass == RuntimeException::class.java && e.message?.startsWith(VENDOR_NO_RESULT_PREFIX) == true
+
+    /** True for a refusal of a submit before anything was executed, see [VENDOR_SUBMIT_REFUSAL_PREFIX]. */
+    fun isSubmitRefusal(e: Throwable): Boolean = e.message?.startsWith(VENDOR_SUBMIT_REFUSAL_PREFIX) == true
+
+    /**
+     * True for a send failure that says nothing was executed and so leaves the write as itself for the
+     * session coordinator to classify: a [RainError] already decided, or a refusal of the submit (a 401
+     * there is the one refresh-and-retry is safe on). Everything else may follow acceptance.
+     */
+    fun leavesTheSendAsItself(e: Exception): Boolean = e is RainError || isSubmitRefusal(e)
+
+    /**
+     * The error for a Solana send whose activity the vendor's client dropped and the activity log did
+     * not give back: the fate is unknown, so it is a [RainError.ProviderError] whose cause carries the
+     * vendor's message, capped, and nothing else. The vendor exception stays out of the cause chain,
+     * so no layer reads an HTTP status off it and retries the send.
+     */
+    fun droppedActivity(failure: Throwable): RainError = RainError.ProviderError(
+        IllegalStateException(
+            "Wallet backend did not return the Solana send activity and none could be read back; " +
+                "the send may still land: ${failure.message?.take(MAX_VENDOR_MESSAGE_LENGTH) ?: failure.javaClass.simpleName}"
+        )
+    )
 
     /** A structured error naming anything: the backend attaches one only when the send failed. */
     private fun carriesDetail(error: V1TxError?): Boolean =

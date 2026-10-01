@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** The message every call on a closed provider carries; one literal so the two guards cannot drift. */
 internal const val TURNKEY_PROVIDER_CLOSED_MESSAGE = "This provider was closed; build a new one"
 
-/** Timeouts of the provider's shared HTTP client; a Solana send activity is signed and broadcast within one call. */
+/** Timeouts of the provider's shared HTTP client, the manager's RPC reads. */
 private const val HTTP_CONNECT_TIMEOUT_SECONDS = 10L
 private const val HTTP_WRITE_TIMEOUT_SECONDS = 10L
 private const val HTTP_READ_TIMEOUT_SECONDS = 30L
@@ -226,10 +226,9 @@ class TurnkeyProvider internal constructor(
         TurnkeyWalletProvider.capabilitiesFor(config.sponsorGas)
 
     /**
-     * The one HTTP client for the module's own calls: the manager's RPC reads, and, through
-     * [TurnkeySolanaSendRequest.sendClient], the Solana send request. Timeouts on every phase and a
-     * bound on the whole call, which the vendor's bare client and OkHttp's defaults lack. Built on
-     * first use and shared, so one connection pool and one dispatcher serve the provider.
+     * The one HTTP client for the module's own calls, the manager's RPC reads: timeouts on every
+     * phase and a bound on the whole call, which OkHttp's defaults lack. Built on first use and
+     * shared, so one connection pool and one dispatcher serve the provider.
      */
     private val httpClientDelegate = lazy {
         OkHttpClient.Builder()
@@ -242,7 +241,7 @@ class TurnkeyProvider internal constructor(
     private val httpClient: OkHttpClient by httpClientDelegate
 
     private val turnkeyContext: TurnkeyContextProtocol by lazy {
-        contextOverride ?: TurnkeyContextAdapter(config.turnkey, httpClient = TurnkeySolanaSendRequest.sendClient(httpClient))
+        contextOverride ?: TurnkeyContextAdapter(config.turnkey)
     }
 
     private val coordinator: TurnkeySessionCoordinator by lazy {
@@ -323,8 +322,7 @@ class TurnkeyProvider internal constructor(
         coordinator.stop()
         monitorScope.cancel()
         managedAuth?.close()
-        // Idle connections go with the provider (the send's client shares this pool); a call still in
-        // flight keeps its own until it ends.
+        // Idle connections go with the provider; a call still in flight keeps its own until it ends.
         if (httpClientDelegate.isInitialized()) httpClient.connectionPool.evictAll()
     }
 

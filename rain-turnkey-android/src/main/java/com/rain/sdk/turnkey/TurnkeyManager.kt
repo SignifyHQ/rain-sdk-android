@@ -17,6 +17,7 @@ import com.rain.sdk.models.RainTransactionOrder
 import com.rain.sdk.models.Token
 import com.rain.sdk.models.UnsignedSolanaTransfer
 import com.rain.sdk.utils.EthereumConverter
+import com.turnkey.types.Externaldatav1Timestamp
 import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TGetActivitiesBody
 import com.turnkey.types.TGetNoncesBody
@@ -119,6 +120,11 @@ internal class TurnkeyManager(
             V1ActivityType.ACTIVITY_TYPE_SOL_SEND_TRANSACTION,
             V1ActivityType.ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2,
         )
+
+        /** Newest Solana send activities read back when the vendor's client dropped the one it submitted. */
+        const val SOLANA_SEND_LOOKUP_LIMIT = 10
+
+        private const val NANOS_PER_SECOND = 1_000_000_000.0
 
         /** Sort key for an indexed row with no mined block yet: newest, not 1970. */
         const val PENDING_ROW_EPOCH = Double.MAX_VALUE
@@ -692,7 +698,7 @@ internal class TurnkeyManager(
             val nanos = activity.createdAt.nanos.toDoubleOrNull() ?: 0.0
             ActivityDraft(
                 id = activity.id,
-                timestampSeconds = seconds + nanos / 1_000_000_000.0,
+                timestampSeconds = seconds + nanos / NANOS_PER_SECOND,
                 from = intent.from,
                 to = intent.to,
                 value = intent.value,
@@ -770,7 +776,7 @@ internal class TurnkeyManager(
             val transfer = SolanaTransactionDecoder.decode(intent.unsignedTransaction)
             SolanaActivityDraft(
                 id = activity.id,
-                timestampSeconds = seconds + nanos / 1_000_000_000.0,
+                timestampSeconds = seconds + nanos / NANOS_PER_SECOND,
                 // The account the transfer moves funds from; the intent's first signer only when the
                 // blob does not decode (a V2 activity may list a co-signer first).
                 from = transfer?.from ?: intent.signer,
@@ -1058,12 +1064,19 @@ internal class TurnkeyManager(
      * from chain and verified as this wallet's own successful transaction. Anything short of that
      * is [RainError.TransactionPending] — never the status id posing as a signature.
      *
-     * The send is a `sol_send_transaction` activity. Once Turnkey has accepted it, this call never
-     * reports a failure while the send's fate is unknown: that is [RainError.TransactionPending],
-     * because a host that retries a reported failure would send the money twice. The failures it
-     * does report after acceptance are settled ones: an activity Turnkey itself failed or rejected
-     * before it broadcast anything ([solanaSendStatusId] draws that line), or a send status Turnkey
-     * reports as failed; both leave the money where it was.
+     * The send is a `sol_send_transaction` activity through the vendor's client. Once Turnkey has
+     * accepted it, this call never reports a failure while the send's fate is unknown: that is
+     * [RainError.TransactionPending], because a host that retries a reported failure would send the
+     * money twice. The vendor's client works against that: it returns the activity only once it
+     * completed within its poll and otherwise throws and drops the activity id (an activity still
+     * pending, a poll read that failed, a lost answer, a body that did not decode), so
+     * [solanaSendOutcome] keeps every failure that can follow acceptance inside the write, the
+     * activity is read back by its unsigned transaction outside it ([readBackSolanaSendActivity]),
+     * and [solanaSendStatusId] classifies it. The failures this call does report after acceptance
+     * are settled ones: an activity Turnkey itself failed or rejected before it broadcast anything,
+     * or a send status Turnkey reports as failed; both leave the money where it was. One residue
+     * stays: when the activity cannot be read back at all, the host sees [RainError.ProviderError]
+     * with the fate unknown, built without the vendor's exception so nothing retries the send.
      */
     internal suspend fun submitSolanaTransaction(
         chainId: Int,
@@ -1080,9 +1093,15 @@ internal class TurnkeyManager(
         // Kept as a Result: without a baseline, recovery cannot tell this send from older history.
         val baseline = runCatching { solanaRpcClient.getLatestSignature(rpcUrl, from) }
 
-        val activity = sessions.executeWrite { session, client ->
-            client.solSendTransaction(
+        // One timestamp per send, pinned on the body: should the coordinator re-run the block after
+        // a refresh, the vendor posts the identical envelope, which Turnkey answers with the same
+        // activity rather than a second one.
+        val timestampMs = System.currentTimeMillis().toString()
+        val outcome = sessions.executeWrite { session, client ->
+            solanaSendOutcome(
+                client,
                 TSolSendTransactionBody(
+                    timestampMs = timestampMs,
                     organizationId = session.organizationId,
                     unsignedTransaction = unsigned.transactionHex,
                     // The one customer signer, in transaction order as a sponsored send requires.
@@ -1095,6 +1114,11 @@ internal class TurnkeyManager(
                     recentBlockhash = unsigned.recentBlockhash
                 )
             )
+        }
+        val activity = when (outcome) {
+            is SolanaSendOutcome.Settled -> outcome.activity
+            is SolanaSendOutcome.Dropped ->
+                readBackSolanaSendActivity(outcome.body) ?: throw TurnkeySendFailures.droppedActivity(outcome.failure)
         }
         val statusId = solanaSendStatusId(activity)
         pollForSolanaCompletion(statusId)?.let { return it }
@@ -1113,6 +1137,66 @@ internal class TurnkeyManager(
         // Same contract as the EVM path: a timeout is pending, not success and not failure.
         throw RainError.TransactionPending(statusId)
     }
+
+    /** What the vendor's client made of a Solana send: the activity, or a failure that may follow acceptance. */
+    private sealed interface SolanaSendOutcome {
+        class Settled(val activity: V1Activity) : SolanaSendOutcome
+        class Dropped(val body: TSolSendTransactionBody, val failure: Exception) : SolanaSendOutcome
+    }
+
+    /**
+     * The vendor's `solSendTransaction`, with its failures sorted by what they say about the send. A
+     * cancellation, a [RainError] and a refusal of the submit itself (Turnkey answered the submit with
+     * an error before executing anything; a 401 there is the one the coordinator refreshes and
+     * retries, safely) leave as themselves. Everything else arrived after Turnkey may have accepted
+     * the activity: the vendor's bare throw on an activity not completed within its poll, a poll read
+     * that failed (a 401 there must never re-run this block, which would be a second send), a lost
+     * answer, a body that did not decode. Those come back as [SolanaSendOutcome.Dropped], for the
+     * caller to read the activity back outside the write.
+     */
+    @Suppress("TooGenericExceptionCaught") // every failure the vendor's client can raise after acceptance is sorted here
+    private suspend fun solanaSendOutcome(client: TurnkeyClientProtocol, body: TSolSendTransactionBody): SolanaSendOutcome = try {
+        SolanaSendOutcome.Settled(client.solSendTransaction(body))
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        if (TurnkeySendFailures.leavesTheSendAsItself(e)) throw e
+        SolanaSendOutcome.Dropped(body, e)
+    }
+
+    /**
+     * The newest Solana send activity whose unsigned transaction is [body]'s, read from the activity
+     * log under the coordinator's read rules (a dead session is refreshed, a transient failure is
+     * retried), or null when none matches or the read fails: the caller then surfaces the vendor's
+     * failure with the fate unknown, never a lookup problem in its place. The unsigned transaction is
+     * unique to a send (it carries the blockhash and the amount); newest first should one ever repeat.
+     */
+    @Suppress("TooGenericExceptionCaught") // a failed lookup falls back to the vendor's failure, never hides it
+    private suspend fun readBackSolanaSendActivity(body: TSolSendTransactionBody): V1Activity? = try {
+        val page = sessions.executeRead { _, client ->
+            client.getActivities(
+                TGetActivitiesBody(
+                    organizationId = body.organizationId,
+                    filterByType = listOf(V1ActivityType.ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2),
+                    paginationOptions = V1Pagination(limit = SOLANA_SEND_LOOKUP_LIMIT.toString())
+                )
+            )
+        }
+        val match = page.activities
+            .filter { it.intent.solSendTransactionIntentV2?.unsignedTransaction.equals(body.unsignedTransaction, ignoreCase = true) }
+            .maxByOrNull { it.createdAt.epochSeconds() }
+        if (match == null) Timber.w("Rain SDK: wallet backend dropped the Solana send activity and none matched the unsigned transaction")
+        match
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Timber.w(e, "Rain SDK: wallet backend dropped the Solana send activity and reading it back failed")
+        null
+    }
+
+    /** Seconds with the nanosecond fraction, the key the history rows sort by as well. */
+    private fun Externaldatav1Timestamp.epochSeconds(): Double =
+        (seconds.toDoubleOrNull() ?: 0.0) + (nanos.toDoubleOrNull() ?: 0.0) / NANOS_PER_SECOND
 
     /**
      * The send status id of a Solana send activity, the handle the broadcast is tracked by. A

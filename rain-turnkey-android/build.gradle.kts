@@ -98,11 +98,6 @@ dependencies {
     // the passkey ceremony and matches their error types directly, so both are named here.
     implementation(libs.turnkey.passkey)
     implementation(libs.turnkey.stamper)
-    // The vendor's `http` and `types` artifacts declare kotlinx-serialization-json at runtime scope only,
-    // so `Json` is not on this module's compile classpath although it is on every consumer's runtime
-    // classpath at this same version. TurnkeySolanaSendRequest encodes and decodes the vendor's models
-    // with it; remove this line together with that class.
-    implementation(libs.kotlinx.serialization.json)
 
     // ed25519 public-key derivation for the exported Solana keypair, the vendor's own method. The
     // same bcprov-jdk15to18 build and 1.84 floor are already on every consumer's runtime classpath

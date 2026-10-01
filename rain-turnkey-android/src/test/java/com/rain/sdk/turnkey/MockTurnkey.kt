@@ -162,8 +162,10 @@ internal class MockTurnkeyClient(
 
     /**
      * When set, [solSendTransaction] answers with this activity instead of a completed V2-shaped one
-     * carrying [mockSolSendTransactionStatusId]: a pending, failed or result-less activity for the
-     * tests of what the send does with each.
+     * carrying [mockSolSendTransactionStatusId], or throws from it. The vendor's client returns the
+     * activity only once it completed with its V2 result and throws otherwise, so a hook that records
+     * the activity Turnkey holds in [mockActivities] and then throws models the vendor; the provider
+     * test's `dropActivityAfterSubmit` does that.
      */
     var solSendActivity: ((TSolSendTransactionBody) -> V1Activity)? = null
 
@@ -274,7 +276,9 @@ internal class MockTurnkeyClient(
     ): TGetActivitiesResponse {
         getActivitiesCalls += input
         getActivitiesError?.let { throw it }
-        return TGetActivitiesResponse(activities = mockActivities)
+        // The type filter is honoured, as Turnkey's is; a request without one lists everything.
+        val wanted = input.filterByType.orEmpty()
+        return TGetActivitiesResponse(activities = if (wanted.isEmpty()) mockActivities else mockActivities.filter { it.type in wanted })
     }
 
     override suspend fun listEthTransactionHistory(
@@ -847,7 +851,8 @@ internal class MockTurnkey(
          * A `sol_send_transaction` activity: completed with its status id by default, a history
          * fixture or a send's answer; [status], a `null` [sendTransactionStatusId] and [failureMessage]
          * shape the pending, result-less and failed answers the send tests need. [coSignerFirst] puts
-         * another signer ahead of [signWith] in a V2 activity's `signWiths`.
+         * another signer ahead of [signWith] in a V2 activity's `signWiths`. [resultShape] lets the
+         * result take the other shape than the intent, as Turnkey may record it.
          */
         fun makeSolanaActivity(
             id: String,
@@ -859,7 +864,8 @@ internal class MockTurnkey(
             shape: SolanaSendShape = SolanaSendShape.V1,
             status: V1ActivityStatus = V1ActivityStatus.ACTIVITY_STATUS_COMPLETED,
             failureMessage: String? = null,
-            coSignerFirst: String? = null
+            coSignerFirst: String? = null,
+            resultShape: SolanaSendShape = shape
         ): V1Activity = V1Activity(
             canApprove = false,
             canReject = false,
@@ -886,7 +892,7 @@ internal class MockTurnkey(
             organizationId = DEFAULT_ORG_ID,
             result = when {
                 sendTransactionStatusId == null -> V1Result()
-                shape == SolanaSendShape.V1 -> V1Result(
+                resultShape == SolanaSendShape.V1 -> V1Result(
                     solSendTransactionResult = V1SolSendTransactionResult(sendTransactionStatusId = sendTransactionStatusId)
                 )
                 else -> V1Result(

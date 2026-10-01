@@ -324,6 +324,42 @@ class TurnkeySendFailuresTest {
     }
 
     @Test
+    fun `the vendor's bare no-result exception is recognised by class and message, nothing else is`() {
+        val vendor = RuntimeException("No result found from /public/v1/submit/sol_send_transaction")
+        assertThat(TurnkeySendFailures.isMissingResultFailure(vendor)).isTrue()
+        assertThat(TurnkeySendFailures.isMissingResultFailure(IllegalStateException("No result found from x"))).isFalse()
+        val refused = RuntimeException("HTTP error calling ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2 request")
+        assertThat(TurnkeySendFailures.isMissingResultFailure(refused)).isFalse()
+        assertThat(TurnkeySendFailures.isMissingResultFailure(RuntimeException())).isFalse()
+        assertThat(TurnkeySendFailures.isMissingResultFailure(RainError.ProviderError(RuntimeException("No result found")))).isFalse()
+        assertThat(TurnkeySendFailures.isMissingResultFailure(kotlinx.coroutines.CancellationException("No result found"))).isFalse()
+        assertThat(TurnkeySendFailures.isMissingResultFailure(RuntimeException("HTTP error from /public/v1/query/get_activity: 500"))).isFalse()
+    }
+
+    @Test
+    fun `a refusal of the submit is told apart from a failure after acceptance by the vendor's wording`() {
+        val refused = RuntimeException("HTTP error calling ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2 request\nError: {}\nCode: 400")
+        assertThat(TurnkeySendFailures.isSubmitRefusal(refused)).isTrue()
+        assertThat(TurnkeySendFailures.isSubmitRefusal(RuntimeException("HTTP error from /public/v1/query/get_activity: 401"))).isFalse()
+        assertThat(TurnkeySendFailures.isSubmitRefusal(RuntimeException("No result found from /public/v1/submit/sol_send_transaction"))).isFalse()
+        assertThat(TurnkeySendFailures.isSubmitRefusal(java.io.IOException("unexpected end of stream"))).isFalse()
+    }
+
+    @Test
+    fun `a dropped activity is a ProviderError that carries the vendor's message but not its exception`() {
+        val vendor = RuntimeException("HTTP error from /public/v1/query/get_activity: 401")
+
+        val error = TurnkeySendFailures.droppedActivity(vendor)
+
+        assertThat(error).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(error.cause).isInstanceOf(IllegalStateException::class.java)
+        assertThat(error.cause?.cause).isNull()
+        assertThat(error.cause?.message).contains("HTTP error from /public/v1/query/get_activity: 401")
+        assertThat(error.cause?.message).contains("the send may still land")
+        assertThat(TurnkeyErrorMapping.turnkeyHttpStatus(error)).isNull()
+    }
+
+    @Test
     fun `a pending or completed activity is not a failure`() {
         assertThat(TurnkeySendFailures.activityFailure(solanaActivity(V1ActivityStatus.ACTIVITY_STATUS_PENDING, null), "f")).isNull()
         assertThat(TurnkeySendFailures.activityFailure(solanaActivity(V1ActivityStatus.ACTIVITY_STATUS_COMPLETED, null), "f")).isNull()
