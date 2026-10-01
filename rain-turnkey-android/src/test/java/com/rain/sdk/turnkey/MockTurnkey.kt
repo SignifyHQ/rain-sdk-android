@@ -9,6 +9,8 @@ import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TEthSendTransactionResponse
 import com.turnkey.types.TGetActivitiesBody
 import com.turnkey.types.TGetActivitiesResponse
+import com.turnkey.types.TGetActivityBody
+import com.turnkey.types.TGetActivityResponse
 import com.turnkey.types.TGetNoncesBody
 import com.turnkey.types.TGetNoncesResponse
 import com.turnkey.types.TGetSendTransactionStatusBody
@@ -175,6 +177,21 @@ internal class MockTurnkeyClient(
     /** When set, [getActivities] throws this instead of producing a response. */
     var getActivitiesError: Exception? = null
 
+    /**
+     * When set, [getActivities] answers with it instead of filtering [mockActivities]: a page that
+     * changes between reads, for example. Checked after [getActivitiesError].
+     */
+    var getActivitiesAnswer: ((TGetActivitiesBody) -> List<V1Activity>)? = null
+
+    /** When set, [getActivity] throws this instead of producing a response. */
+    var getActivityError: Exception? = null
+
+    /**
+     * When set, [getActivity] answers with it instead of looking the id up in [mockActivities]: an
+     * activity that settles over successive reads, for example. Checked after [getActivityError].
+     */
+    var getActivityAnswer: ((TGetActivityBody) -> V1Activity)? = null
+
     /** Gas-station nonce [getNonces] returns when the request asks for one. */
     var mockGasStationNonce: String? = "7"
 
@@ -200,6 +217,7 @@ internal class MockTurnkeyClient(
     val solSendTransactionCalls = mutableListOf<TSolSendTransactionBody>()
     val sendTransactionStatusCalls = mutableListOf<TGetSendTransactionStatusBody>()
     val getActivitiesCalls = mutableListOf<TGetActivitiesBody>()
+    val getActivityCalls = mutableListOf<TGetActivityBody>()
     val getNoncesCalls = mutableListOf<TGetNoncesBody>()
     val listEthHistoryCalls = mutableListOf<TListEthTransactionHistoryBody>()
     val listSolHistoryCalls = mutableListOf<TListSolTransactionHistoryBody>()
@@ -277,8 +295,19 @@ internal class MockTurnkeyClient(
         getActivitiesCalls += input
         getActivitiesError?.let { throw it }
         // The type filter is honoured, as Turnkey's is; a request without one lists everything.
+        getActivitiesAnswer?.let { return TGetActivitiesResponse(activities = it(input)) }
         val wanted = input.filterByType.orEmpty()
         return TGetActivitiesResponse(activities = if (wanted.isEmpty()) mockActivities else mockActivities.filter { it.type in wanted })
+    }
+
+    override suspend fun getActivity(input: TGetActivityBody): TGetActivityResponse {
+        getActivityCalls += input
+        getActivityError?.let { throw it }
+        getActivityAnswer?.let { return TGetActivityResponse(activity = it(input)) }
+        // Turnkey answers an unknown id with an HTTP error, which the vendor's client throws as a bare exception.
+        val activity = mockActivities.firstOrNull { it.id == input.activityId }
+            ?: throw MockTurnkey.historyHttpError(MockTurnkey.GET_ACTIVITY_PATH, 404)
+        return TGetActivityResponse(activity = activity)
     }
 
     override suspend fun listEthTransactionHistory(
@@ -668,8 +697,8 @@ internal class MockTurnkey(
     /** When set, [refreshSession] throws this. */
     var refreshSessionError: Exception? = null
 
-    /** Runs after a recorded [refreshSession] call — install the refreshed session here. */
-    var onRefreshSession: (() -> Unit)? = null
+    /** Runs after a recorded [refreshSession] call: install the refreshed session here. */
+    var onRefreshSession: (suspend () -> Unit)? = null
 
     /** Runs after a recorded [refreshWallets] call — install the fetched wallets here. */
     var onRefreshWallets: (suspend () -> Unit)? = null
@@ -706,6 +735,7 @@ internal class MockTurnkey(
         const val DEFAULT_ORG_ID = "org-id"
         const val DEFAULT_SESSION_KEY = "com.turnkey.sdk.session"
         const val ETH_HISTORY_PATH = "/public/v1/query/list_eth_transaction_history"
+        const val GET_ACTIVITY_PATH = "/public/v1/query/get_activity"
         const val SOL_HISTORY_PATH = "/public/v1/query/list_sol_transaction_history"
 
         /**

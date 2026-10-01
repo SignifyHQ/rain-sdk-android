@@ -101,7 +101,7 @@ sealed class RainError(
      * status id, which getTransactions resolves to the hash once available, or the transaction or
      * user-operation hash itself), rather than sending again. On a Turnkey or Rain wallet Solana
      * send whose activity the backend accepted without a readable status id, it is the backend's
-     * activity id: no call polls it, and it matches `uniqueId` on the activity-log history row for
+     * activity id: no call takes it, and it matches `uniqueId` on the activity-log history row for
      * the send. Reported as `RAIN_302`.
      */
     class TransactionPending(val statusId: String) :

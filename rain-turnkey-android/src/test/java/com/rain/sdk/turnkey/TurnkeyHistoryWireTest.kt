@@ -117,7 +117,11 @@ class TurnkeyHistoryWireTest {
      * The vendor behaviour the manager's activity lookup exists for: when the activity is not completed
      * after the vendor's poll, `solSendTransaction` throws a bare `RuntimeException` that names the path
      * and not the activity. When a vendor release returns or wraps the activity instead, this test
-     * fails, and the lookup in `TurnkeyManager.solanaSendActivity` can go.
+     * fails, and `TurnkeySendFailures.isMissingResultFailure` with the single-read branch of
+     * `TurnkeyManager.readBackSolanaSendActivity` can go; the read-back itself stays for the other
+     * dropped failures. The request count
+     * pins the vendor's poll loop as well (the submit, one poll, the final read): a count mismatch alone
+     * means the loop changed, not the throw.
      */
     @Test
     fun `the vendor client still throws a bare exception on a Solana send activity without a result`() {

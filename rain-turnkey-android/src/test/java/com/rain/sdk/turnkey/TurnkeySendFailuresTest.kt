@@ -337,9 +337,20 @@ class TurnkeySendFailuresTest {
     }
 
     @Test
-    fun `a refusal of the submit is told apart from a failure after acceptance by the vendor's wording`() {
-        val refused = RuntimeException("HTTP error calling ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2 request\nError: {}\nCode: 400")
-        assertThat(TurnkeySendFailures.isSubmitRefusal(refused)).isTrue()
+    fun `a refusal of the submit is told apart from a failure after acceptance by the vendor's wording and status`() {
+        fun submitAnswer(status: String) =
+            RuntimeException("HTTP error calling ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2 request\nError: {}\nCode: $status")
+        val noStatus = RuntimeException("HTTP error calling ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2 request")
+        assertThat(TurnkeySendFailures.isSubmitRefusal(submitAnswer("400"))).isTrue()
+        assertThat(TurnkeySendFailures.isSubmitRefusal(submitAnswer("401"))).isTrue()
+        assertThat(TurnkeySendFailures.isSubmitRefusal(submitAnswer("403"))).isTrue()
+        // A redirect or a rate limit precedes execution as well.
+        assertThat(TurnkeySendFailures.isSubmitRefusal(submitAnswer("302"))).isTrue()
+        assertThat(TurnkeySendFailures.isSubmitRefusal(submitAnswer("429"))).isTrue()
+        // A gateway can answer 5xx after Turnkey created the activity: not a refusal, the activity is read back.
+        assertThat(TurnkeySendFailures.isSubmitRefusal(submitAnswer("500"))).isFalse()
+        assertThat(TurnkeySendFailures.isSubmitRefusal(submitAnswer("504"))).isFalse()
+        assertThat(TurnkeySendFailures.isSubmitRefusal(noStatus)).isFalse()
         assertThat(TurnkeySendFailures.isSubmitRefusal(RuntimeException("HTTP error from /public/v1/query/get_activity: 401"))).isFalse()
         assertThat(TurnkeySendFailures.isSubmitRefusal(RuntimeException("No result found from /public/v1/submit/sol_send_transaction"))).isFalse()
         assertThat(TurnkeySendFailures.isSubmitRefusal(java.io.IOException("unexpected end of stream"))).isFalse()
@@ -356,6 +367,35 @@ class TurnkeySendFailuresTest {
         assertThat(error.cause?.cause).isNull()
         assertThat(error.cause?.message).contains("HTTP error from /public/v1/query/get_activity: 401")
         assertThat(error.cause?.message).contains("the send may still land")
+        assertThat(TurnkeyErrorMapping.turnkeyHttpStatus(error)).isNull()
+    }
+
+    @Test
+    fun `a dropped activity's message stops before the input kotlinx quotes`() {
+        val decode = kotlinx.serialization.SerializationException(
+            "Unexpected JSON token at offset 12\nJSON input: {\"activity\":{\"id\":\"act-secret\"}}"
+        )
+
+        val error = TurnkeySendFailures.droppedActivity(decode)
+
+        assertThat(error.cause?.message).contains("Unexpected JSON token at offset 12")
+        assertThat(error.cause?.message).doesNotContain("JSON input")
+        assertThat(error.cause?.message).doesNotContain("act-secret")
+        assertThat(RuntimeException().vendorMessage()).isEqualTo("RuntimeException")
+        assertThat(RuntimeException("x".repeat(400)).vendorMessage()).hasLength(TurnkeySendFailures.MAX_VENDOR_MESSAGE_LENGTH)
+    }
+
+    /** A 5xx answer to the submit carries the response body in the vendor's message; the host gets status and target only. */
+    @Test
+    fun `a dropped activity after a 5xx submit answer names the status, never the response body`() {
+        val gateway = RuntimeException(
+            "HTTP error calling ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2 request\nError: {\"marker\":\"gateway-body-7f3a\"}\nCode: 504"
+        )
+
+        val error = TurnkeySendFailures.droppedActivity(gateway)
+
+        assertThat(error.cause?.message).contains("ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2: 504")
+        assertThat(error.cause?.message).doesNotContain("gateway-body-7f3a")
         assertThat(TurnkeyErrorMapping.turnkeyHttpStatus(error)).isNull()
     }
 

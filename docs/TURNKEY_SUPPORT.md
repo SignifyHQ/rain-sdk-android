@@ -291,21 +291,29 @@ is read-only and a send there throws `RAIN_104`. The broadcast chain list is und
 - **The send request.** The broadcast is Turnkey's `sol_send_transaction` activity through the
   vendor client's `solSendTransaction`, posted as `ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2` with
   `signWiths` since `com.turnkey:http` 2.1.1; 2.1.0 posted the V1 type with that body and Turnkey
-  refused it with HTTP 400, which is why the module declares `com.turnkey:http` itself rather than
-  taking the version `sdk-kotlin` pins.
-- **After acceptance.** Once Turnkey has accepted the activity the call never reports a failure while
-  the send's fate is unknown. The vendor's client returns the activity only when it completed within
-  its poll (up to five reads over about four seconds) and otherwise throws and drops the activity id,
-  whether the activity was still pending, a poll read failed, the answer was lost or did not decode.
-  The adapter keeps every such failure inside the send (a poll-phase 401 never re-runs the submit),
-  reads the activity back from the activity log by its unsigned transaction and classifies it. Still
-  pending, or completed without a status id this build can read, surfaces as `TransactionPending`
-  carrying the activity id (no call polls it; it matches `uniqueId` on the activity-log history row).
-  Failed or rejected before broadcasting anything (a policy denial, for example) is a `ProviderError`
-  with Turnkey's reason. A send status Turnkey reports as failed maps as in the table above. When the
-  activity cannot be read back at all, the send surfaces as a `ProviderError` that says the send may
-  still land and names the vendor's failure, so a host that sees one reads history before it sends
-  again.
+  refused it with HTTP 400. The module keeps its own catalog entry for `com.turnkey:http`, so an
+  http-only fix from Turnkey is a one-line bump ahead of the version `sdk-kotlin` pins. An answer
+  below 500 to the submit is a refusal. Nothing was executed, and the send fails as any refused
+  request does.
+- **After acceptance.** Once Turnkey has accepted the activity the call reports a failure only when
+  the send has settled, with one residue described at the end of this note. The vendor's client
+  returns the activity only when it completed within its poll (up to five reads over about four
+  seconds) and otherwise throws and drops the activity id, whether the activity was still pending, a
+  poll read failed, the answer was lost or did not decode. A 5xx answer to the submit itself is
+  treated the same way, since Turnkey may have created the activity before a gateway failed. The
+  adapter keeps every such failure inside the send (a poll-phase 401 never re-runs the submit) and
+  reads the activity back from the activity log by its unsigned transaction: once after the vendor's
+  own no-result throw, and twice, one polling interval apart, after any other failure (a 5xx answer to
+  the submit, a failed poll read, a lost or undecodable answer). While
+  Turnkey is still executing the activity it is read again by id at the polling interval, up to ten
+  times. Then it is classified. Completed with a status id continues to the status poll. Failed or
+  rejected before broadcasting anything (a policy denial, for example) is a `ProviderError` with
+  Turnkey's reason, and nothing moved. Still pending, or completed without a status id this build can
+  read, surfaces as `TransactionPending` carrying the activity id (no call takes it; it matches
+  `uniqueId` on the activity-log history row). A send status Turnkey reports as failed maps as in the
+  table above. The residue is the activity that cannot be read back at all. The send then surfaces as
+  a `ProviderError` that says the send may still land and names the vendor's failure. That error is
+  not retry-safe; read history before sending again.
 - **Encoding.** Turnkey takes `unsignedTransaction` hex-encoded, the full wire format with zeroed
   signature placeholders, so Rain sends hex. Turnkey returns a status id rather than a signature; Rain polls for it, then
   recovers it from `getSignaturesForAddress` (newer than the pre-send baseline only) and verifies
@@ -459,8 +467,10 @@ What every wallet call does:
    `TurnkeyConfig` a bring-your-own host passed to `TurnkeyContext.init`. A reload that fails is
    logged and is not a session death.
 3. **Refresh-on-401** — a call rejected with HTTP 401 / `InvalidSession` is refreshed and
-   retried exactly once. A 401 means Turnkey rejected the request before executing it, so this
-   is safe for sends too. A second 401 surfaces as `RainError.TokenExpired`.
+   retried exactly once. A 401 on the request itself means Turnkey rejected it before executing
+   anything, so this is safe for sends too. A 401 inside the wallet backend's own poll after a Solana
+   send was accepted is kept inside that send (see [Solana notes](#solana-notes)); on an EVM send it
+   would re-run the submit, a known gap. A second 401 surfaces as `RainError.TokenExpired`.
 4. **Transient backoff** — idempotent reads (balances, history, transaction-status polls) and
    key export retry HTTP 5xx/429/408 and network I/O failures with exponential backoff; a retried
    export is a new activity with a fresh ephemeral key. Sends and signing are never retried on

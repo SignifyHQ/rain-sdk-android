@@ -80,3 +80,20 @@ internal class TurnkeyHttpFailure(status: Int, target: String) : RuntimeExceptio
 
 /** The first token after "from" or "calling": the request path or the activity type, never the body. */
 private val TURNKEY_HTTP_TARGET_REGEX = Regex("""^HTTP error (?:from|calling) (\S+)""")
+
+/**
+ * What kotlinx appends to a decoding failure's message: the input it could not read. For a Turnkey
+ * answer that is the activity itself (ids, addresses, the unsigned transaction), so a vendor message
+ * is cut there before it reaches a host-visible error or a log line.
+ */
+private const val KOTLINX_INPUT_MARKER = "\nJSON input:"
+
+/**
+ * This vendor failure's message for a host-visible error or a log line. A vendor HTTP failure is
+ * reduced to its status and target first ([sanitizedForHost]), so no response body passes; the
+ * message is then cut before [KOTLINX_INPUT_MARKER] and capped at
+ * [TurnkeySendFailures.MAX_VENDOR_MESSAGE_LENGTH]; the class name when there is no message.
+ */
+internal fun Throwable.vendorMessage(): String = sanitizedForHost().let { safe ->
+    safe.message?.substringBefore(KOTLINX_INPUT_MARKER)?.take(TurnkeySendFailures.MAX_VENDOR_MESSAGE_LENGTH) ?: safe.javaClass.simpleName
+}

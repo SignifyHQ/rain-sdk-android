@@ -22,6 +22,8 @@ import com.turnkey.types.TEthSendTransactionResponse
 import com.turnkey.types.TExportWalletAccountBody
 import com.turnkey.types.TGetActivitiesBody
 import com.turnkey.types.TGetActivitiesResponse
+import com.turnkey.types.TGetActivityBody
+import com.turnkey.types.TGetActivityResponse
 import com.turnkey.types.TGetNoncesBody
 import com.turnkey.types.TGetNoncesResponse
 import com.turnkey.types.TGetSendTransactionStatusBody
@@ -88,6 +90,11 @@ internal interface TurnkeyClientProtocol {
     suspend fun getActivities(
         input: TGetActivitiesBody
     ): TGetActivitiesResponse
+
+    /** One activity by id: the Solana send reads a read-back activity again with it while Turnkey executes it. */
+    suspend fun getActivity(
+        input: TGetActivityBody
+    ): TGetActivityResponse
 
     suspend fun getNonces(
         input: TGetNoncesBody
@@ -655,6 +662,10 @@ internal class TurnkeyClientAdapter(
     override suspend fun getActivities(
         input: TGetActivitiesBody
     ): TGetActivitiesResponse = client.getActivities(input)
+
+    override suspend fun getActivity(
+        input: TGetActivityBody
+    ): TGetActivityResponse = client.getActivity(input)
 
     override suspend fun getNonces(
         input: TGetNoncesBody
