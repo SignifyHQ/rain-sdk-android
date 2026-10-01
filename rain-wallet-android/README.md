@@ -9,10 +9,10 @@ configures nothing but behaviour.
 
 > **Known issues in `5.0.0-beta.1`.** Solana `sendNative`, `sendToken` and `withdrawCollateral`
 > fail with `RAIN_501` and broadcast nothing. Attaching a contact through
-> `sendContactVerificationCode` and `confirmContactVerification` replaces the account's email
-> address or phone number instead of adding one, and succeeds for an email address that already
-> logs in to another account. `getTokenBalances` and `getAllBalances` can leave out a token the
-> wallet holds. See the [CHANGELOG](../CHANGELOG.md).
+> `sendContactVerificationCode` and `confirmContactVerification` replaces an existing email
+> address or phone number instead of adding a second one, and succeeds for an email address that
+> already logs in to another account. `getTokenBalances` and `getAllBalances` can leave out a
+> token the wallet holds. See the [CHANGELOG](../CHANGELOG.md).
 
 ```kotlin
 dependencies {
@@ -72,9 +72,11 @@ because every passkey created against it stops working when it changes, and a pa
 domain does not work in an app on another. Partners host
 their own file; Rain runs no shared domain. Every call to `signUpWithPasskey` creates a new account,
 so returning users sign in or add a passkey, and accounts are never merged. A passkey-only account
-gets an email or phone as a second login through `sendContactVerificationCode(contact)` and
-`confirmContactVerification(code)`, which attach the verified contact to this account and never
-move wallets; `exportRecoveryPhrase()` is its backup path either way.
+is meant to get an email or phone as a second login through `sendContactVerificationCode(contact)`
+and `confirmContactVerification(code)`, which attach the verified contact to this account and never
+move wallets (in `5.0.0-beta.1` an attach replaces an existing contact of the same kind instead of
+adding a second one, and succeeds for a contact another account owns; see the known issues above);
+`exportRecoveryPhrase()` is its backup path either way.
 
 Notes:
 
@@ -96,11 +98,11 @@ Notes:
 - Capabilities: `EXPORT`, `MULTI_CHAIN`, plus `GAS_SPONSORSHIP` while `sponsorGas` is on. Signing is
   not gated behind a biometric prompt, so gate export yourself. No capability advertises passkeys;
   `hasActiveSession()` and `authState` answer the same for a code or a passkey login.
-- Attaching a contact adds a permanent login route with no user-presence check beyond a live session,
-  which can be one restored at launch, so gate `sendContactVerificationCode` and
-  `confirmContactVerification` as you gate export, and show the user which contacts sign in to the
-  account. The passkey requests ask the credential provider for user verification as preferred, not
-  required, so gate `addPasskey` the same way.
+- Attaching a contact changes which contacts sign in to the account, with no user-presence check
+  beyond a live session, which can be one restored at launch, so gate `sendContactVerificationCode`
+  and `confirmContactVerification` as you gate export, and show the user which contacts sign in to
+  the account. The passkey requests ask the credential provider for user verification as preferred,
+  not required, so gate `addPasskey` the same way.
 - Minified builds inherit one rule from the wallet backend's adapter: `-dontwarn
   org.bitcoinj.core.Base58`, for a class the backend references on its export path and never loads.
   It lands in your whole R8 configuration, so a reference of your own to that class stops warning.
