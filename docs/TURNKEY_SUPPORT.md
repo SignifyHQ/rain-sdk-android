@@ -286,24 +286,26 @@ is read-only and a send there throws `RAIN_104`. The broadcast chain list is und
   history feature is enabled for the organization: receives included, and the row's hash is the real
   signature. Otherwise from the activity log, sends only, whichever of the two activity types Turnkey
   recorded the send under (`ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2`, which the SDK posts, or
-  `ACTIVITY_TYPE_SOL_SEND_TRANSACTION`), where the row's hash is the Turnkey status id, not an
-  explorer-resolvable signature.
+  `ACTIVITY_TYPE_SOL_SEND_TRANSACTION`), where the row's hash is the Turnkey status id (the activity
+  id when the send recorded none), not an explorer-resolvable signature.
 - **The send request.** The broadcast is Turnkey's `sol_send_transaction` activity through the
   vendor client's `solSendTransaction`, posted as `ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2` with
   `signWiths` since `com.turnkey:http` 2.1.1; 2.1.0 posted the V1 type with that body and Turnkey
-  refused it with HTTP 400, which is why the module pins `http` directly (the catalog comment on
-  `turnkey-http` says how the pin resolves).
+  refused it with HTTP 400, which is why the module declares `com.turnkey:http` itself rather than
+  taking the version `sdk-kotlin` pins.
 - **After acceptance.** Once Turnkey has accepted the activity the call never reports a failure while
   the send's fate is unknown. The vendor's client returns the activity only when it completed within
   its poll (up to five reads over about four seconds) and otherwise throws and drops the activity id,
   whether the activity was still pending, a poll read failed, the answer was lost or did not decode.
   The adapter keeps every such failure inside the send (a poll-phase 401 never re-runs the submit),
-  reads the activity back from the activity log by its unsigned transaction and classifies it: still pending, or completed without a status id this build can read, surfaces as
-  `TransactionPending` carrying the activity id (no call polls it; it matches `uniqueId` on the
-  activity-log history row); failed or rejected before broadcasting anything (a policy denial, for
-  example) is a `ProviderError` with Turnkey's reason; a send status Turnkey reports as failed maps as
-  in the table above. When the activity cannot be read back at all, the vendor's failure surfaces as
-  `ProviderError` with the fate unknown, so a host that sees one reads history before it sends again.
+  reads the activity back from the activity log by its unsigned transaction and classifies it. Still
+  pending, or completed without a status id this build can read, surfaces as `TransactionPending`
+  carrying the activity id (no call polls it; it matches `uniqueId` on the activity-log history row).
+  Failed or rejected before broadcasting anything (a policy denial, for example) is a `ProviderError`
+  with Turnkey's reason. A send status Turnkey reports as failed maps as in the table above. When the
+  activity cannot be read back at all, the send surfaces as a `ProviderError` that says the send may
+  still land and names the vendor's failure, so a host that sees one reads history before it sends
+  again.
 - **Encoding.** Turnkey takes `unsignedTransaction` hex-encoded, the full wire format with zeroed
   signature placeholders, so Rain sends hex. Turnkey returns a status id rather than a signature; Rain polls for it, then
   recovers it from `getSignaturesForAddress` (newer than the pre-send baseline only) and verifies
@@ -312,7 +314,7 @@ is read-only and a send there throws `RAIN_104`. The broadcast chain list is und
   signs it with this wallet and the sponsor, so the check is on signers) with
   `err == null`. If the
   baseline read failed or nothing verifiable lands in time, the send surfaces as
-  `TransactionPending` carrying the status id — the same contract as EVM — never the status id
+  `TransactionPending` carrying the status id, the same contract as EVM, never the status id
   posing as a signature.
 - **Collateral withdrawal.** Authorized differently from EVM: the coordinator executor signs a
   keccak-encoded withdraw message off chain (that is the admin signature the Rain API returns). Core

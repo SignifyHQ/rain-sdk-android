@@ -769,7 +769,7 @@ Solana account rather than the EVM one), or a Rain collateral deposit address.
 Fetches transaction history for the current wallet on the given network.
 
 - **Returns:** `List<RainTransaction>` — the transaction records. `value` is a `BigDecimal?` in human-readable units; null when decimals could not be resolved, with `rawValue` still populated.
-- **Source (Turnkey and Rain wallet):** the wallet backend's indexed history when the transaction history feature is enabled for the organization: receives and externally submitted transactions included, EVM addresses in EIP-55 form, real Solana signatures in `hash`. Otherwise the activity log, which lists sends only and, on Solana, carries the backend's status id in `hash`. The fallback runs only when the backend refuses the indexed query; a dead session, a transport failure or a page that could not be decoded surfaces as its own error.
+- **Source (Turnkey and Rain wallet):** the wallet backend's indexed history when the transaction history feature is enabled for the organization: receives and externally submitted transactions included, EVM addresses in EIP-55 form, real Solana signatures in `hash`. Otherwise the activity log, which lists sends only and, on Solana, carries the backend's status id in `hash` (the activity id when the send recorded none). The fallback runs only when the backend refuses the indexed query; a dead session, a transport failure or a page that could not be decoded surfaces as its own error.
 - **Throws:** `RainError` if transaction history cannot be retrieved.
 - **Suspend:** Yes
 
