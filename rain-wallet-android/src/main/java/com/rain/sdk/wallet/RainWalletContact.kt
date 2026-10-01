@@ -8,9 +8,9 @@ import com.rain.sdk.turnkey.LoginContact
  * method. A first login signs the user up under this contact; a later login finds the account by
  * email for [Email] and by phone number for [Phone]. The same person arriving through the other
  * channel is a new account. [RainProvider.sendLoginCode] and [RainProvider.sendContactVerificationCode]
- * canonicalize the value once (trim for an email; trim, separator removal and an E.164 check for a
- * phone number) and send that same string on confirm. `toString()` hides the value, which is
- * personal data.
+ * canonicalize the value once (trim and lowercase for an email, since the backend matches it
+ * case-sensitively; trim, separator removal and an E.164 check for a phone number) and send that
+ * same string on confirm. `toString()` hides the value, which is personal data.
  */
 sealed interface RainWalletContact {
     /**
@@ -19,7 +19,11 @@ sealed interface RainWalletContact {
      */
     val value: String
 
-    /** An email address. A blank one makes either sending method throw `RainError.InvalidConfig`. */
+    /**
+     * An email address. The sending methods lowercase it, so two spellings of one address name the
+     * same account; `equals` still compares the text as given. A blank one makes either sending
+     * method throw `RainError.InvalidConfig`.
+     */
     class Email(override val value: String) : RainWalletContact {
         override fun equals(other: Any?): Boolean = other is Email && other.value == value
 

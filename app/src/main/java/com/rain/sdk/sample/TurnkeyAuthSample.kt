@@ -167,11 +167,13 @@ object TurnkeyAuthSample {
     /**
      * Starts the one-time-code flow on [channel]. Returns the [InitOtpResult], whose `otpId` and
      * `otpEncryptionTargetBundle` [verifyOtp] both needs. SMS needs SMS one-time codes enabled on
-     * the auth proxy configuration.
+     * the auth proxy configuration. An email is lowercased before it goes out, and [verifyOtp]
+     * lowercases the same way, so the two calls hand the vendor one spelling.
      */
     suspend fun sendOtp(contact: String, channel: ContactChannel): InitOtpResult {
-        SampleLog.d("TurnkeyAuth", "sendOtp ${channel.name} to=${channel.mask(contact)}")
-        val result = TurnkeyContext.initOtp(otpType = channel.otpType, contact = contact)
+        val canonical = channel.canonical(contact)
+        SampleLog.d("TurnkeyAuth", "sendOtp ${channel.name} to=${channel.mask(canonical)}")
+        val result = TurnkeyContext.initOtp(otpType = channel.otpType, contact = canonical)
         SampleLog.d("TurnkeyAuth", "OTP sent otpId=${SampleLog.maskToken(result.otpId)}")
         return result
     }
@@ -210,7 +212,7 @@ object TurnkeyAuthSample {
             otpId = otpId,
             otpCode = otpCode,
             otpEncryptionTargetBundle = otpEncryptionTargetBundle,
-            contact = contact,
+            contact = channel.canonical(contact),
             otpType = channel.otpType,
         )
         SampleLog.d("TurnkeyAuth", "session active subOrgId=${SampleLog.maskToken(subOrganizationId)}")

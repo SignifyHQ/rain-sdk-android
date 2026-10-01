@@ -254,9 +254,11 @@ internal class TurnkeyManagedAuthController(
      * resend leaves a code the user can still type; a call for another contact or channel retires
      * the pending challenge before the vendor is asked, so a failed switch leaves nothing
      * confirmable. The contact becomes the account's identity on sign-up, so it is canonicalized
-     * once here and the very same string is sent on confirm: an email is trimmed; a phone number is
-     * trimmed, stripped of separators and checked against E.164. A blank or malformed contact
-     * throws [RainError.InvalidConfig] before the vendor is called and changes nothing.
+     * once here and the very same string is sent on confirm: an email is trimmed and lowercased,
+     * because the vendor matches it case-sensitively and a second spelling would be a second
+     * account; a phone number is trimmed, stripped of separators and checked against E.164. A
+     * blank or malformed contact throws [RainError.InvalidConfig] before the vendor is called and
+     * changes nothing.
      */
     suspend fun sendLoginCode(contact: LoginContact) {
         flowMutex.withLock {
@@ -570,10 +572,16 @@ internal class TurnkeyManagedAuthController(
     private fun requireCode(code: String): String =
         code.trim().ifEmpty { throw RainError.InvalidConfig("code must not be blank") }
 
-    /** The identity string the vendor keys the account on, and the channel the code travels on. */
+    /**
+     * The identity string the vendor keys the account on, and the channel the code travels on. The
+     * vendor matches an email case-sensitively, so `Jo@Example.com` and `jo@example.com` would sign
+     * up as two accounts with two wallets; lowercasing folds them into one. Kotlin's `lowercase()`
+     * is locale-independent, so the device locale cannot change the identity.
+     */
     private fun canonicalize(contact: LoginContact): Pair<String, OtpChannel> = when (contact) {
         is LoginContact.Email -> {
-            val email = contact.value.trim().ifEmpty { throw RainError.InvalidConfig("email must not be blank") }
+            val email = contact.value.trim().lowercase()
+                .ifEmpty { throw RainError.InvalidConfig("email must not be blank") }
             email to OtpChannel.EMAIL
         }
         is LoginContact.Phone -> requirePhoneNumber(contact.value) to OtpChannel.SMS
