@@ -311,7 +311,7 @@ anything else is `TransactionPending` straight away rather than a hash no node c
 
 ## Not covered
 
-EIP-2612 `permit` (gasless) approvals, sponsored approvals, and non-USDC assets are out of scope.
+EIP-2612 `permit` (gasless) approvals and non-USDC assets are out of scope.
 Account abstraction is supported only as described above (Portal UserOperation resolution), not as a
 general ERC-4337 integration.
 
