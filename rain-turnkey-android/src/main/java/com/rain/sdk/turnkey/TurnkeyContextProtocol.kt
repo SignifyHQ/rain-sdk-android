@@ -22,6 +22,8 @@ import com.turnkey.types.TEthSendTransactionResponse
 import com.turnkey.types.TExportWalletAccountBody
 import com.turnkey.types.TGetActivitiesBody
 import com.turnkey.types.TGetActivitiesResponse
+import com.turnkey.types.TGetActivityBody
+import com.turnkey.types.TGetActivityResponse
 import com.turnkey.types.TGetNoncesBody
 import com.turnkey.types.TGetNoncesResponse
 import com.turnkey.types.TGetSendTransactionStatusBody
@@ -33,9 +35,9 @@ import com.turnkey.types.TListEthTransactionHistoryResponse
 import com.turnkey.types.TListSolTransactionHistoryBody
 import com.turnkey.types.TListSolTransactionHistoryResponse
 import com.turnkey.types.TSolSendTransactionBody
-import com.turnkey.types.TSolSendTransactionResponse
 import com.turnkey.types.TUpdateUserEmailBody
 import com.turnkey.types.TUpdateUserPhoneNumberBody
+import com.turnkey.types.V1Activity
 import com.turnkey.types.V1AddressFormat
 import com.turnkey.types.V1Attestation
 import com.turnkey.types.V1AuthenticatorParamsV2
@@ -70,9 +72,16 @@ internal interface TurnkeyClientProtocol {
         input: TEthSendTransactionBody
     ): TEthSendTransactionResponse
 
+    /**
+     * Submits a Solana send and returns the activity Turnkey recorded for it; the caller reads the
+     * status id off it. The vendor's method returns the activity only once it completed with its V2
+     * result and throws a bare `RuntimeException` otherwise (still pending after the vendor's poll,
+     * or failed or rejected), with no activity id in it; the manager recovers the activity in that
+     * case, see `TurnkeyManager.submitSolanaTransaction`.
+     */
     suspend fun solSendTransaction(
         input: TSolSendTransactionBody
-    ): TSolSendTransactionResponse
+    ): V1Activity
 
     suspend fun getSendTransactionStatus(
         input: TGetSendTransactionStatusBody
@@ -81,6 +90,11 @@ internal interface TurnkeyClientProtocol {
     suspend fun getActivities(
         input: TGetActivitiesBody
     ): TGetActivitiesResponse
+
+    /** One activity by id: the Solana send reads a read-back activity again with it while Turnkey executes it. */
+    suspend fun getActivity(
+        input: TGetActivityBody
+    ): TGetActivityResponse
 
     suspend fun getNonces(
         input: TGetNoncesBody
@@ -312,7 +326,7 @@ internal class TurnkeyContextAdapter(
             } else {
                 context.refreshSession(expirationSeconds = expirationSeconds)
             }
-            // Turnkey 2.0.1's refreshSession rotates the session key pair, deletes the old one and
+            // Turnkey's refreshSession (sdk-kotlin up to 2.0.2) rotates the session key pair, deletes the old one and
             // rebuilds its client, but never rewrites its public `session` flow: the flow keeps the
             // pre-refresh session, whose public key no longer has a key pair and whose expiry is the
             // old one. Re-selecting the session is the one public call that reloads the stored
@@ -624,6 +638,7 @@ internal suspend fun reloadSelectedSession(selectedKey: String?, reload: suspend
     }
 }
 
+/** The vendor's typed client behind [TurnkeyClientProtocol]; every call is the vendor's own. */
 internal class TurnkeyClientAdapter(
     private val client: TurnkeyClient
 ) : TurnkeyClientProtocol {
@@ -638,7 +653,7 @@ internal class TurnkeyClientAdapter(
 
     override suspend fun solSendTransaction(
         input: TSolSendTransactionBody
-    ): TSolSendTransactionResponse = client.solSendTransaction(input)
+    ): V1Activity = client.solSendTransaction(input).activity
 
     override suspend fun getSendTransactionStatus(
         input: TGetSendTransactionStatusBody
@@ -647,6 +662,10 @@ internal class TurnkeyClientAdapter(
     override suspend fun getActivities(
         input: TGetActivitiesBody
     ): TGetActivitiesResponse = client.getActivities(input)
+
+    override suspend fun getActivity(
+        input: TGetActivityBody
+    ): TGetActivityResponse = client.getActivity(input)
 
     override suspend fun getNonces(
         input: TGetNoncesBody

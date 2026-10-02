@@ -99,7 +99,10 @@ sealed class RainError(
      * confirmation window lapsed. NOT a failure: the transaction may still confirm, and resending it
      * risks a duplicate transfer. Resume from [statusId], the identifier the path had (a provider
      * status id, which getTransactions resolves to the hash once available, or the transaction or
-     * user-operation hash itself), rather than sending again. Reported as `RAIN_302`.
+     * user-operation hash itself), rather than sending again. On a Turnkey or Rain wallet Solana
+     * send whose activity the backend accepted without a readable status id, it is the backend's
+     * activity id: no call takes it, and it matches `uniqueId` on the activity-log history row for
+     * the send. Reported as `RAIN_302`.
      */
     class TransactionPending(val statusId: String) :
         RainError(
