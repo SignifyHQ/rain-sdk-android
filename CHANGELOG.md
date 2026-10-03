@@ -14,12 +14,20 @@ Notable changes to the Rain Android SDK, newest first. The format follows
 
 ### Changed
 
+- **Breaking:** `sendLoginCode` and `sendContactVerificationCode` lowercase an email before it
+  reaches Turnkey, which matches emails case-sensitively: `Jo@Example.com` and `jo@example.com`
+  signed up as two accounts with two wallets. Migration: an account created from a mixed-case email
+  under 5.0.0-beta.1 is keyed on that exact spelling, and after this change a login with that
+  address is lowercased, misses it and signs up a new, empty account. Rain cannot change the stored
+  spelling, because the user is the sub-organization's only root. Before upgrading, have such users
+  sign in on the current build and export the recovery phrase or move their funds out. Sandbox test
+  accounts can simply be recreated.
 - On a Solana send through `rain-turnkey-android` or `rain-wallet-android`, `RAIN_302`
   `TransactionPending` may carry the wallet backend's activity id when the backend accepted the send
   without a readable status id, and the activity-log history lists Solana sends under both of the
   backend's send activity types. See [TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md#solana-notes).
 
-## [5.0.0-beta.1] - 2026-09-29
+## [5.0.0-beta.1] - 2026-09-30
 
 First public beta, published to Maven Central under `xyz.rain`. Pin the exact version during the
 beta; see [Compatibility](README.md#compatibility).

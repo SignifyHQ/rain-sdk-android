@@ -93,6 +93,37 @@ class TurnkeyManagedAuthTest {
     }
 
     @Test
+    fun `an email is trimmed and lowercased once and the identical string is sent on confirm`() = runTest {
+        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), session = null)
+        turnkey.onCompleteOtp = { turnkey.authenticate() }
+        val controller = controller(turnkey)
+
+        controller.sendLoginCode(LoginContact.Email("  User@Example.COM "))
+        controller.confirmLoginCode("123456")
+
+        // The vendor matches an email case-sensitively: the lowercased string is the account's
+        // identity, for the lookup and for the sign-up alike.
+        assertThat(turnkey.sendOtpCalls).containsExactly(MockTurnkey.SendOtpCall("user@example.com", OtpChannel.EMAIL))
+        assertThat(turnkey.completeOtpCalls.single().contact).isEqualTo("user@example.com")
+    }
+
+    @Test
+    fun `a failed resend for the same email in another spelling keeps the pending challenge`() = runTest {
+        val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), session = null)
+        turnkey.onCompleteOtp = { turnkey.authenticate() }
+        val controller = controller(turnkey)
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
+
+        turnkey.sendOtpError = RuntimeException("HTTP error from /v1/otp_init_v2: 500")
+        expectThrows<RainError> { controller.sendLoginCode(LoginContact.Email("User@Example.com")) }
+        turnkey.sendOtpError = null
+
+        // One address, one account: the spelling is not another contact, so the first code is still typable.
+        controller.confirmLoginCode("123456")
+        assertThat(turnkey.completeOtpCalls.single().contact).isEqualTo("user@example.com")
+    }
+
+    @Test
     fun `confirmLoginCode without a prior sendLoginCode throws InvalidConfig`() = runTest {
         val turnkey = MockTurnkey(session = null)
         val controller = controller(turnkey)
