@@ -6,6 +6,12 @@ Notable changes to the Rain Android SDK, newest first. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Solana sends and collateral withdrawals through `rain-turnkey-android` and `rain-wallet-android`
+  reach the chain: the wallet backend's client is `com.turnkey:sdk-kotlin` 2.0.2 with
+  `com.turnkey:http` 2.1.1, which post the activity type the request body requires.
+
 ### Changed
 
 - **Breaking:** `sendLoginCode` and `sendContactVerificationCode` lowercase an email before it
@@ -16,6 +22,10 @@ Notable changes to the Rain Android SDK, newest first. The format follows
   spelling, because the user is the sub-organization's only root. Before upgrading, have such users
   sign in on the current build and export the recovery phrase or move their funds out. Sandbox test
   accounts can simply be recreated.
+- On a Solana send through `rain-turnkey-android` or `rain-wallet-android`, `RAIN_302`
+  `TransactionPending` may carry the wallet backend's activity id when the backend accepted the send
+  without a readable status id, and the activity-log history lists Solana sends under both of the
+  backend's send activity types. See [TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md#solana-notes).
 
 ## [5.0.0-beta.1] - 2026-09-30
 
@@ -37,7 +47,8 @@ Rain plans to fix each of these in a later beta.
 - Solana sends through the Turnkey provider and the Rain wallet fail with `RAIN_501`
   (`ProviderError`), and nothing reaches the chain. The wallet backend rejects the request with
   HTTP 400. This affects `sendNative`, `sendToken` and `withdrawCollateral` on Solana chains. EVM
-  sends, Solana reads, `prepareWithdrawal` and Privy's Solana sends are not affected.
+  sends, Solana reads, `prepareWithdrawal` and Privy's Solana sends are not affected. The fix is
+  listed under Unreleased above.
 - The Rain wallet's contact attach, `sendContactVerificationCode` followed by
   `confirmContactVerification`, replaces the account's email address or phone number instead of
   adding a second one. The old contact then no longer logs in to the account. The attach also

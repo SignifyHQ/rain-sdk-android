@@ -4,9 +4,11 @@ import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.error.RainError
 import com.turnkey.crypto.generateP256KeyPair
 import com.turnkey.http.TurnkeyClient
+import com.turnkey.http.utils.ActivityPollerConfig
 import com.turnkey.stamper.Stamper
 import com.turnkey.types.TListEthTransactionHistoryBody
 import com.turnkey.types.TListSolTransactionHistoryBody
+import com.turnkey.types.TSolSendTransactionBody
 import com.turnkey.types.V1Pagination
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.SerializationException
@@ -29,6 +31,7 @@ class TurnkeyHistoryWireTest {
 
     private lateinit var server: MockWebServer
     private lateinit var client: TurnkeyClientProtocol
+    private lateinit var stamper: Stamper
     private lateinit var sessionPublicKey: String
 
     @Before
@@ -40,10 +43,11 @@ class TurnkeyHistoryWireTest {
         // vendor rebuilt its client from it; nothing here needs a device keystore.
         val keyPair = generateP256KeyPair()
         sessionPublicKey = keyPair.publicKeyCompressed
+        stamper = Stamper(keyPair.publicKeyCompressed, keyPair.privateKey)
         client = TurnkeyClientAdapter(
             TurnkeyClient(
                 apiBaseUrl = server.url("/").toString().trimEnd('/'),
-                stamper = Stamper(keyPair.publicKeyCompressed, keyPair.privateKey),
+                stamper = stamper,
                 organizationId = "org-1",
             )
         )
@@ -52,6 +56,97 @@ class TurnkeyHistoryWireTest {
     @After
     fun tearDown() {
         if (::server.isInitialized) server.shutdown()
+    }
+
+    private fun solanaSendBody() = TSolSendTransactionBody(
+        organizationId = "org-1",
+        unsignedTransaction = "0100deadbeef",
+        signWiths = listOf(SOLANA_SENDER),
+        sponsor = true,
+        caip2 = "solana:devnet",
+    )
+
+    private fun solanaActivityJson(status: String, result: String) =
+        """
+        {
+          "activity": {
+            "id": "activity-1",
+            "organizationId": "org-1",
+            "status": "$status",
+            "type": "ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2",
+            "intent": {"solSendTransactionIntentV2": {"unsignedTransaction": "0100deadbeef", "signWiths": ["$SOLANA_SENDER"], "sponsor": true, "caip2": "solana:devnet"}},
+            "result": $result,
+            "votes": [],
+            "fingerprint": "fp",
+            "canApprove": false,
+            "canReject": false,
+            "createdAt": {"seconds": "1700000000", "nanos": "0"},
+            "updatedAt": {"seconds": "1700000000", "nanos": "0"}
+          }
+        }
+        """.trimIndent()
+
+    /**
+     * The vendor client the module relies on since `com.turnkey:http` 2.1.1: the Solana send is posted
+     * as the V2 activity type with the V2 body, through the vendor's own stamper. 2.1.0 posted the V1
+     * type with this body and Turnkey refused it; a bump back below 2.1.1 fails here.
+     */
+    @Test
+    fun `the vendor client posts the V2 Solana send activity type with the V2 body`() {
+        server.enqueue(
+            MockResponse().setBody(
+                solanaActivityJson("ACTIVITY_STATUS_COMPLETED", """{"solSendTransactionResultV2": {"sendTransactionStatusId": "status-1"}}""")
+            )
+        )
+
+        val activity = runBlocking { client.solSendTransaction(solanaSendBody()) }
+
+        assertThat(activity.result.solSendTransactionResultV2?.sendTransactionStatusId).isEqualTo("status-1")
+        val recorded = server.takeRequest()
+        assertThat(recorded.path).isEqualTo("/public/v1/submit/sol_send_transaction")
+        val envelope = JSONObject(recorded.body.readUtf8())
+        assertThat(envelope.getString("type")).isEqualTo("ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2")
+        val parameters = envelope.getJSONObject("parameters")
+        assertThat(parameters.getJSONArray("signWiths").getString(0)).isEqualTo(SOLANA_SENDER)
+        assertThat(parameters.has("signWith")).isFalse()
+        val stamp = JSONObject(String(Base64.getUrlDecoder().decode(recorded.getHeader("X-Stamp"))))
+        assertThat(stamp.getString("publicKey")).isEqualTo(sessionPublicKey)
+    }
+
+    /**
+     * The vendor behaviour the manager's activity lookup exists for: when the activity is not completed
+     * after the vendor's poll, `solSendTransaction` throws a bare `RuntimeException` that names the path
+     * and not the activity. When a vendor release returns or wraps the activity instead, this test
+     * fails, and `TurnkeySendFailures.isMissingResultFailure` with the single-read branch of
+     * `TurnkeyManager.readBackSolanaSendActivity` can go; the read-back itself stays for the other
+     * dropped failures. The request count
+     * pins the vendor's poll loop as well (the submit, one poll, the final read): a count mismatch alone
+     * means the loop changed, not the throw.
+     */
+    @Test
+    fun `the vendor client still throws a bare exception on a Solana send activity without a result`() {
+        val vendor = TurnkeyClient(
+            apiBaseUrl = server.url("/").toString().trimEnd('/'),
+            stamper = stamper,
+            organizationId = "org-1",
+            activityPoller = ActivityPollerConfig(intervalMs = 0L, numRetries = 0),
+        )
+        // The submit, one delayed poll (numRetries 0 runs the loop once) and the vendor's final read.
+        repeat(3) { server.enqueue(MockResponse().setBody(solanaActivityJson("ACTIVITY_STATUS_PENDING", "{}"))) }
+
+        val error = assertThrows(RuntimeException::class.java) { runBlocking { vendor.solSendTransaction(solanaSendBody()) } }
+
+        assertThat(TurnkeySendFailures.isMissingResultFailure(error)).isTrue()
+        assertThat(TurnkeySendFailures.isSubmitRefusal(error)).isFalse()
+        assertThat(error.message).doesNotContain("activity-1")
+        // The vendor held the activity, it polled it by id, and still threw without it.
+        assertThat(server.requestCount).isEqualTo(3)
+        assertThat(server.takeRequest().path).isEqualTo("/public/v1/submit/sol_send_transaction")
+        repeat(2) {
+            val poll = server.takeRequest()
+            assertThat(poll.path).isEqualTo("/public/v1/query/get_activity")
+            assertThat(JSONObject(poll.body.readUtf8()).getString("activityId")).isEqualTo("activity-1")
+        }
     }
 
     private fun ethBody(limit: String = "25") = TListEthTransactionHistoryBody(
@@ -269,5 +364,9 @@ class TurnkeyHistoryWireTest {
         val tx = listEth().transactions.single()
 
         assertThat(tx.transfers.single().asset?.decimals).isEqualTo(6)
+    }
+
+    private companion object {
+        const val SOLANA_SENDER = "9C6hybhQ6Aycep9jaUnP6uL9ZYvDjUp1aSkFWPUFJtpj"
     }
 }

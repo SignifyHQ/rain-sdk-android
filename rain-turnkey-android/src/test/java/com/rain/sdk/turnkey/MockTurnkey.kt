@@ -4,10 +4,13 @@ import com.turnkey.core.models.AuthState
 import com.turnkey.core.models.Session
 import com.turnkey.core.models.Wallet
 import com.turnkey.types.Externaldatav1Timestamp
+import com.turnkey.types.RpcStatus
 import com.turnkey.types.TEthSendTransactionBody
 import com.turnkey.types.TEthSendTransactionResponse
 import com.turnkey.types.TGetActivitiesBody
 import com.turnkey.types.TGetActivitiesResponse
+import com.turnkey.types.TGetActivityBody
+import com.turnkey.types.TGetActivityResponse
 import com.turnkey.types.TGetNoncesBody
 import com.turnkey.types.TGetNoncesResponse
 import com.turnkey.types.TGetSendTransactionStatusBody
@@ -19,7 +22,6 @@ import com.turnkey.types.TListEthTransactionHistoryResponse
 import com.turnkey.types.TListSolTransactionHistoryBody
 import com.turnkey.types.TListSolTransactionHistoryResponse
 import com.turnkey.types.TSolSendTransactionBody
-import com.turnkey.types.TSolSendTransactionResponse
 import com.turnkey.types.V1Activity
 import com.turnkey.types.V1ActivityStatus
 import com.turnkey.types.V1ActivityType
@@ -38,6 +40,7 @@ import com.turnkey.types.V1Result
 import com.turnkey.types.V1RevertChainEntry
 import com.turnkey.types.V1SignRawPayloadResult
 import com.turnkey.types.V1SolSendTransactionIntent
+import com.turnkey.types.V1SolSendTransactionIntentV2
 import com.turnkey.types.V1SolSendTransactionResult
 import com.turnkey.types.V1SolSendTransactionResultV2
 import com.turnkey.types.V1SolanaFailureDetails
@@ -159,11 +162,35 @@ internal class MockTurnkeyClient(
     /** When set, [solSendTransaction] throws this instead of producing a response. */
     var solSendTransactionError: Exception? = null
 
+    /**
+     * When set, [solSendTransaction] answers with this activity instead of a completed V2-shaped one
+     * carrying [mockSolSendTransactionStatusId], or throws from it. The vendor's client returns the
+     * activity only once it completed with its V2 result and throws otherwise, so a hook that records
+     * the activity Turnkey holds in [mockActivities] and then throws models the vendor; the provider
+     * test's `dropActivityAfterSubmit` does that.
+     */
+    var solSendActivity: ((TSolSendTransactionBody) -> V1Activity)? = null
+
     /** When set, [getSendTransactionStatus] throws this instead of producing a response. */
     var sendTransactionStatusError: Exception? = null
 
     /** When set, [getActivities] throws this instead of producing a response. */
     var getActivitiesError: Exception? = null
+
+    /**
+     * When set, [getActivities] answers with it instead of filtering [mockActivities]: a page that
+     * changes between reads, for example. Checked after [getActivitiesError].
+     */
+    var getActivitiesAnswer: ((TGetActivitiesBody) -> List<V1Activity>)? = null
+
+    /** When set, [getActivity] throws this instead of producing a response. */
+    var getActivityError: Exception? = null
+
+    /**
+     * When set, [getActivity] answers with it instead of looking the id up in [mockActivities]: an
+     * activity that settles over successive reads, for example. Checked after [getActivityError].
+     */
+    var getActivityAnswer: ((TGetActivityBody) -> V1Activity)? = null
 
     /** Gas-station nonce [getNonces] returns when the request asks for one. */
     var mockGasStationNonce: String? = "7"
@@ -190,6 +217,7 @@ internal class MockTurnkeyClient(
     val solSendTransactionCalls = mutableListOf<TSolSendTransactionBody>()
     val sendTransactionStatusCalls = mutableListOf<TGetSendTransactionStatusBody>()
     val getActivitiesCalls = mutableListOf<TGetActivitiesBody>()
+    val getActivityCalls = mutableListOf<TGetActivityBody>()
     val getNoncesCalls = mutableListOf<TGetNoncesBody>()
     val listEthHistoryCalls = mutableListOf<TListEthTransactionHistoryBody>()
     val listSolHistoryCalls = mutableListOf<TListSolTransactionHistoryBody>()
@@ -232,20 +260,18 @@ internal class MockTurnkeyClient(
 
     override suspend fun solSendTransaction(
         input: TSolSendTransactionBody
-    ): TSolSendTransactionResponse {
+    ): V1Activity {
         solSendTransactionCalls += input
         solSendTransactionError?.let { throw it }
-        return TSolSendTransactionResponse(
-            activity = MockTurnkey.makeActivity(
-                id = UUID.randomUUID().toString(),
-                from = input.signWiths.single(),
-                to = input.signWiths.single(),
-                caip2 = input.caip2,
-                value = null,
-                data = null,
-                sendTransactionStatusId = mockSolSendTransactionStatusId
-            ),
-            result = V1SolSendTransactionResultV2(sendTransactionStatusId = mockSolSendTransactionStatusId)
+        solSendActivity?.let { return it(input) }
+        // The shape Turnkey records for the request the SDK posts: the V2 intent and the V2 result.
+        return MockTurnkey.makeSolanaActivity(
+            id = UUID.randomUUID().toString(),
+            signWith = input.signWiths.single(),
+            caip2 = input.caip2,
+            unsignedTransaction = input.unsignedTransaction,
+            sendTransactionStatusId = mockSolSendTransactionStatusId,
+            shape = MockTurnkey.SolanaSendShape.V2
         )
     }
 
@@ -268,7 +294,20 @@ internal class MockTurnkeyClient(
     ): TGetActivitiesResponse {
         getActivitiesCalls += input
         getActivitiesError?.let { throw it }
-        return TGetActivitiesResponse(activities = mockActivities)
+        // The type filter is honoured, as Turnkey's is; a request without one lists everything.
+        getActivitiesAnswer?.let { return TGetActivitiesResponse(activities = it(input)) }
+        val wanted = input.filterByType.orEmpty()
+        return TGetActivitiesResponse(activities = if (wanted.isEmpty()) mockActivities else mockActivities.filter { it.type in wanted })
+    }
+
+    override suspend fun getActivity(input: TGetActivityBody): TGetActivityResponse {
+        getActivityCalls += input
+        getActivityError?.let { throw it }
+        getActivityAnswer?.let { return TGetActivityResponse(activity = it(input)) }
+        // Turnkey answers an unknown id with an HTTP error, which the vendor's client throws as a bare exception.
+        val activity = mockActivities.firstOrNull { it.id == input.activityId }
+            ?: throw MockTurnkey.historyHttpError(MockTurnkey.GET_ACTIVITY_PATH, 404)
+        return TGetActivityResponse(activity = activity)
     }
 
     override suspend fun listEthTransactionHistory(
@@ -305,6 +344,12 @@ internal class MockTurnkey(
         val encoding: V1PayloadEncoding,
         val hashFunction: V1HashFunction
     )
+
+    /**
+     * The two shapes Turnkey records a Solana send under: [V1] with `signWith` and the V1 result,
+     * as earlier builds posted it; [V2] with `signWiths` and the V2 result, as the SDK posts it.
+     */
+    enum class SolanaSendShape { V1, V2 }
 
     // Backed by flows so coordinator/state tests can observe assignments like production code
     // observes the Turnkey singleton.
@@ -652,8 +697,8 @@ internal class MockTurnkey(
     /** When set, [refreshSession] throws this. */
     var refreshSessionError: Exception? = null
 
-    /** Runs after a recorded [refreshSession] call — install the refreshed session here. */
-    var onRefreshSession: (() -> Unit)? = null
+    /** Runs after a recorded [refreshSession] call: install the refreshed session here. */
+    var onRefreshSession: (suspend () -> Unit)? = null
 
     /** Runs after a recorded [refreshWallets] call — install the fetched wallets here. */
     var onRefreshWallets: (suspend () -> Unit)? = null
@@ -690,6 +735,7 @@ internal class MockTurnkey(
         const val DEFAULT_ORG_ID = "org-id"
         const val DEFAULT_SESSION_KEY = "com.turnkey.sdk.session"
         const val ETH_HISTORY_PATH = "/public/v1/query/list_eth_transaction_history"
+        const val GET_ACTIVITY_PATH = "/public/v1/query/get_activity"
         const val SOL_HISTORY_PATH = "/public/v1/query/list_sol_transaction_history"
 
         /**
@@ -831,35 +877,63 @@ internal class MockTurnkey(
             votes = emptyList()
         )
 
-        /** A completed `sol_send_transaction` activity (history fixture). */
+        /**
+         * A `sol_send_transaction` activity: completed with its status id by default, a history
+         * fixture or a send's answer; [status], a `null` [sendTransactionStatusId] and [failureMessage]
+         * shape the pending, result-less and failed answers the send tests need. [coSignerFirst] puts
+         * another signer ahead of [signWith] in a V2 activity's `signWiths`. [resultShape] lets the
+         * result take the other shape than the intent, as Turnkey may record it.
+         */
         fun makeSolanaActivity(
             id: String,
             signWith: String,
             caip2: String,
             unsignedTransaction: String,
-            sendTransactionStatusId: String,
-            createdAtSeconds: String = "1714521600"
+            sendTransactionStatusId: String?,
+            createdAtSeconds: String = "1714521600",
+            shape: SolanaSendShape = SolanaSendShape.V1,
+            status: V1ActivityStatus = V1ActivityStatus.ACTIVITY_STATUS_COMPLETED,
+            failureMessage: String? = null,
+            coSignerFirst: String? = null,
+            resultShape: SolanaSendShape = shape
         ): V1Activity = V1Activity(
             canApprove = false,
             canReject = false,
             createdAt = Externaldatav1Timestamp(nanos = "0", seconds = createdAtSeconds),
+            failure = failureMessage?.let { RpcStatus(message = it) },
             fingerprint = "fingerprint",
             id = id,
-            intent = V1Intent(
-                solSendTransactionIntent = V1SolSendTransactionIntent(
-                    caip2 = caip2,
-                    signWith = signWith,
-                    unsignedTransaction = unsignedTransaction
+            intent = when (shape) {
+                SolanaSendShape.V1 -> V1Intent(
+                    solSendTransactionIntent = V1SolSendTransactionIntent(
+                        caip2 = caip2,
+                        signWith = signWith,
+                        unsignedTransaction = unsignedTransaction
+                    )
                 )
-            ),
+                SolanaSendShape.V2 -> V1Intent(
+                    solSendTransactionIntentV2 = V1SolSendTransactionIntentV2(
+                        caip2 = caip2,
+                        signWiths = listOfNotNull(coSignerFirst, signWith),
+                        unsignedTransaction = unsignedTransaction
+                    )
+                )
+            },
             organizationId = DEFAULT_ORG_ID,
-            result = V1Result(
-                solSendTransactionResult = V1SolSendTransactionResult(
-                    sendTransactionStatusId = sendTransactionStatusId
+            result = when {
+                sendTransactionStatusId == null -> V1Result()
+                resultShape == SolanaSendShape.V1 -> V1Result(
+                    solSendTransactionResult = V1SolSendTransactionResult(sendTransactionStatusId = sendTransactionStatusId)
                 )
-            ),
-            status = V1ActivityStatus.ACTIVITY_STATUS_COMPLETED,
-            type = V1ActivityType.ACTIVITY_TYPE_SOL_SEND_TRANSACTION,
+                else -> V1Result(
+                    solSendTransactionResultV2 = V1SolSendTransactionResultV2(sendTransactionStatusId = sendTransactionStatusId)
+                )
+            },
+            status = status,
+            type = when (shape) {
+                SolanaSendShape.V1 -> V1ActivityType.ACTIVITY_TYPE_SOL_SEND_TRANSACTION
+                SolanaSendShape.V2 -> V1ActivityType.ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2
+            },
             updatedAt = Externaldatav1Timestamp(nanos = "0", seconds = createdAtSeconds),
             votes = emptyList()
         )
