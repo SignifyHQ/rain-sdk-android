@@ -40,6 +40,10 @@ shrink, and CI fails the detekt leg if one grows.
 - Commits must be **signed**, and authored with an email linked to your GitHub account —
   the branch ruleset refuses to merge unsigned or unattributed commits.
 - If you changed the public API, update `docs/METHODS.md` to match.
+- If you changed anything under a module's `src/main`, add a line under `## [Unreleased]` in
+  `CHANGELOG.md` (Added, Changed, Deprecated, Removed or Fixed; a line a host must act on starts
+  with **Breaking:** and a migration note). The `changelog` check fails the PR otherwise. For a
+  change no host can notice, add the `skip-changelog` label instead.
 - A new member on `WalletProvider`, `ProviderDescriptor` or `RainClient` ships with a default body
   wherever one makes sense. Hosts implement these interfaces behind `@ExperimentalRainApi`, and an
   abstract member breaks every host implementation at compile time.

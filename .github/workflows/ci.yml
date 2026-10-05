@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main, 'feature/**', 'release/**']
+  # Lets a release workflow run these same checks on the tagged commit before it publishes.
+  workflow_call:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -20,25 +22,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # JDK 24 runs the forked test JVM because Turnkey's com.turnkey:encoding jar is class-file 68.
       # Installed first so the second setup-java (21, used by Gradle/AGP/Kotlin) becomes JAVA_HOME
       # while 24 stays reachable as JAVA_HOME_24_X64 for the toolchain resolver.
       - name: Set up JDK 24 (unit-test launcher)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: '24'
 
       - name: Set up JDK 21 (Gradle)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           log-accepted-android-sdk-licenses: false
           # The action's default list also asks for the legacy `tools` package, which the SDK
@@ -48,7 +50,7 @@ jobs:
           packages: platform-tools
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
@@ -65,7 +67,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: unit-test-results
           path: |
@@ -75,7 +77,7 @@ jobs:
 
       - name: Publish test report
         if: always()
-        uses: mikepenz/action-junit-report@v5
+        uses: mikepenz/action-junit-report@3585e9575db828022551b4231f165eb59a0e74e3 # v5.6.2
         with:
           report_paths: '**/build/test-results/testDebugUnitTest/TEST-*.xml'
           check_name: Unit test report
@@ -113,22 +115,22 @@ jobs:
             # vendor left on core's classpath is merely unused there.
             task: checkVendorFreeClasspaths
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           log-accepted-android-sdk-licenses: false
           packages: platform-tools
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
@@ -197,7 +199,7 @@ jobs:
 
       - name: Upload reports on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: reports-${{ matrix.name }}
           path: |
@@ -206,3 +208,101 @@ jobs:
             **/build/outputs/mapping/**
             **/build/intermediates/lint_vital_intermediate_text_report/**
           if-no-files-found: warn
+
+  # Release PR gate. When the published version changes, every file that carries it must agree and
+  # the version must be new, because a Maven Central release can never be changed or deleted. Runs
+  # on every PR and passes at once when rain-sdk is unchanged: a required check that a path filter
+  # skips never reports, and a check that never reports blocks the merge.
+  release-readiness:
+    name: release-readiness
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Compare the published version with the base branch
+        id: version
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --quiet --depth=1 origin "$BASE_SHA"
+          read_version() { sed -nE 's/^rain-sdk = "([^"]*)".*/\1/p'; }
+          base=$(git show "${BASE_SHA}:gradle/libs.versions.toml" | read_version)
+          head=$(read_version < gradle/libs.versions.toml)
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+          if [ "$base" = "$head" ]; then
+            echo "rain-sdk is unchanged ($head); nothing to check." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "rain-sdk changes $base -> $head; checking the release files."
+          fi
+
+      - name: Check that the release files agree and the version is new
+        if: steps.version.outputs.base != steps.version.outputs.head
+        env:
+          VERSION: ${{ steps.version.outputs.head }}
+        run: |
+          python3 - <<'EOF'
+          import glob, os, re, subprocess, sys, urllib.error, urllib.request
+
+          v = os.environ["VERSION"]
+          errors = []
+
+          # Lowercase dotted pre-release ids only; Gradle and Maven sort them, mixed styles do not sort.
+          if not re.fullmatch(r"\d+\.\d+\.\d+(-(beta|rc)\.\d+)?", v):
+              errors.append(f"version {v!r} is not X.Y.Z, X.Y.Z-beta.N or X.Y.Z-rc.N")
+
+          # The CHANGELOG entry becomes the GitHub release notes, so it must exist and say something.
+          changelog = open("CHANGELOG.md", encoding="utf-8").read()
+          m = re.search(rf"^## \[{re.escape(v)}\] - \d{{4}}-\d{{2}}-\d{{2}}[^\n]*\n(.*?)(?=^## \[|\Z)",
+                        changelog, re.M | re.S)
+          if m is None:
+              errors.append(f"CHANGELOG.md has no '## [{v}] - YYYY-MM-DD' heading")
+          elif not m.group(1).strip():
+              errors.append(f"the CHANGELOG.md section for {v} is empty")
+
+          # Every install coordinate in tracked Markdown must carry the new version.
+          tracked = subprocess.check_output(["git", "ls-files", "*.md"], text=True).split()
+          coordinate = re.compile(r"xyz\.rain:rain-[a-z]+-android:([0-9][^\"'\s)]*)")
+          for path in tracked:
+              for n, line in enumerate(open(path, encoding="utf-8"), 1):
+                  for found in coordinate.findall(line):
+                      if found != v:
+                          errors.append(f"{path}:{n} pins {found}, expected {v}")
+
+          # A version that is already on Central cannot be published again.
+          url = f"https://repo1.maven.org/maven2/xyz/rain/rain-core-android/{v}/rain-core-android-{v}.pom"
+          try:
+              urllib.request.urlopen(url, timeout=30)
+              errors.append(f"{v} is already on Maven Central ({url})")
+          except urllib.error.HTTPError as e:
+              if e.code != 404:
+                  errors.append(f"repo1.maven.org answered {e.code} for {url}")
+
+          # The tag must not exist yet, and the version must sort after every published one.
+          def order(tag):
+              t = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:-(beta|rc)\.(\d+))?", tag)
+              if t is None:
+                  return None
+              return (int(t[1]), int(t[2]), int(t[3]), {"beta": 0, "rc": 1, None: 2}[t[4]], int(t[5] or 0))
+          refs = subprocess.check_output(["git", "ls-remote", "--tags", "origin"], text=True).splitlines()
+          tags = [r.split("refs/tags/")[1] for r in refs if "refs/tags/" in r and not r.endswith("^{}")]
+          if v in tags:
+              errors.append(f"tag {v} already exists on origin")
+          newest = max((t for t in tags if order(t)), key=order, default=None)
+          if newest and order(v) and order(v) <= order(newest):
+              errors.append(f"{v} does not sort after the latest tag {newest}")
+
+          summary = open(os.environ["GITHUB_STEP_SUMMARY"], "a")
+          if errors:
+              for e in errors:
+                  print(f"::error::{e}")
+              summary.write(f"## Release readiness: {v} is not ready\n\n" + "".join(f"- {e}\n" for e in errors))
+              sys.exit(1)
+          summary.write(f"## Release readiness: {v} is ready\n\nCHANGELOG heading, install coordinates, "
+                        "Maven Central and tags all agree.\n")
+          print(f"{v} is ready to release.")
+          EOF
