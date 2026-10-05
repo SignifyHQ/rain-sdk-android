@@ -8,6 +8,14 @@ Notable changes to the Rain Android SDK, newest first. The format follows
 
 ### Fixed
 
+- Sends and collateral withdrawals refuse an EVM address written in mixed case whose EIP-55
+  checksum doesn't match, with `RAIN_102`, before anything is signed. A mistyped character almost
+  always breaks the checksum, and 5.0.0-beta.1 checked only the address's shape, so `sendNative`,
+  `sendToken`, `withdrawCollateral` and `prepareWithdrawal` went ahead with the mistyped address. A
+  send's recipient is refused as `InvalidRecipient`, a withdrawal address as `InvalidConfig`.
+  `sendToken` now checks its token contract the same way, and `RainSdk.Builder.build()` the Auth
+  Pull operator and token contracts. An address written in a single letter case carries no
+  checksum and is accepted as before.
 - Solana sends and collateral withdrawals through `rain-turnkey-android` and `rain-wallet-android`
   reach the chain: the wallet backend's client is `com.turnkey:sdk-kotlin` 2.0.2 with
   `com.turnkey:http` 2.1.1, which post the activity type the request body requires.
@@ -44,6 +52,13 @@ beta; see [Compatibility](README.md#compatibility).
 
 Rain plans to fix each of these in a later beta.
 
+- Sends and collateral withdrawals accept an EVM address written in mixed case whose EIP-55
+  checksum doesn't match. `sendNative`, `sendToken`, `withdrawCollateral` and `prepareWithdrawal`
+  check only that the address is 40 hex characters, so a mistyped character in a checksummed
+  address goes through and the funds go to an address nobody may control. The Auth Pull operator
+  and token contracts passed to `RainSdk.Builder.authPullConfig(...)` have the same gap. Until the
+  fix, check mixed-case input in the app before calling, for example by comparing it with web3j's
+  `Keys.toChecksumAddress`. The fix is listed under Unreleased above.
 - Solana sends through the Turnkey provider and the Rain wallet fail with `RAIN_501`
   (`ProviderError`), and nothing reaches the chain. The wallet backend rejects the request with
   HTTP 400. This affects `sendNative`, `sendToken` and `withdrawCollateral` on Solana chains. EVM
