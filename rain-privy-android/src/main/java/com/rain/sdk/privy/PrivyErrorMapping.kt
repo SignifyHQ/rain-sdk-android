@@ -10,7 +10,8 @@ import io.privy.wallet.EmbeddedWalletException
  * Classifies Privy vendor exceptions into specific [RainError] cases at the adapter boundary:
  * - authentication failures (not logged in / invalid or expired JWT) map to [RainError.TokenExpired]
  * - user cancellation / rejection maps to [RainError.UserRejected]
- * - "insufficient funds / balance / lamports" node messages map to [RainError.InsufficientFunds]
+ * - a funds shortfall in a node or wallet-RPC message ("insufficient funds", "found no record of
+ *   a prior credit") maps to [RainError.InsufficientFunds]
  * - missing wallet / failed wallet creation maps to [RainError.WalletUnavailable]
  * - any other Privy exception maps to [RainError.ProviderError]
  *
@@ -85,8 +86,18 @@ internal object PrivyErrorMapping {
         }
     }
 
+    /**
+     * A failure from Privy's API, on any wallet-API call (a send, a signature, history). 401 and
+     * 403 are the session, whatever the body says. Any other status, and the status-less shape
+     * the vendor gives a request that got no HTTP answer, is read for a funds shortfall before it
+     * floors at [RainError.ProviderError]: the message is the response body's `error` text, which
+     * for a send Privy's server wallet refused is the node's own sentence ("Error broadcasting
+     * transaction with message: Error: Transaction simulation failed: Attempt to debit an account
+     * but found no record of a prior credit."). Only the funds verdict is asked for, because a
+     * server wallet never prompts the user, so a rejection marker in relayed text is noise.
+     */
     private fun mapApiException(e: PrivyApiException): RainError = when (e.statusCode) {
         401, 403 -> RainError.TokenExpired()
-        else -> RainError.ProviderError(e)
+        else -> VendorErrorClassifier.insufficientFundsOrNull(e.message) ?: RainError.ProviderError(e)
     }
 }

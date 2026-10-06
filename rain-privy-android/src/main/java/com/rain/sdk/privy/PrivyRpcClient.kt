@@ -1,6 +1,7 @@
 package com.rain.sdk.privy
 
 import com.rain.sdk.error.RainError
+import com.rain.sdk.internal.error.VendorErrorClassifier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -102,26 +103,25 @@ internal class PrivyRpcClient(
     /**
      * Classifies a node JSON-RPC error by message, aware of what the call was [purpose]d for:
      * - [RpcCallPurpose.SIMULATION]: "revert" maps to [RainError.TransactionSimulationFailed]
-     *   (checked before "insufficient funds" so "execution reverted: insufficient allowance"
-     *   classifies as a simulation failure), then "insufficient funds" maps to
+     *   (checked before the funds phrases so "execution reverted: insufficient allowance"
+     *   classifies as a simulation failure), then a funds shortfall maps to
      *   [RainError.InsufficientFunds].
-     * - [RpcCallPurpose.READ]: only "insufficient funds" maps to [RainError.InsufficientFunds];
-     *   a read can never fail simulation.
+     * - [RpcCallPurpose.READ]: only a funds shortfall maps to [RainError.InsufficientFunds]; a
+     *   read can never fail simulation.
      *
-     * No message keyword maps to [RainError.UserRejected]: nodes and gateways produce "denied"
-     * for auth and rate-limit failures, never for user rejections (those come from the wallet
-     * layer, not JSON-RPC). Anything else falls back to [RainError.InternalError] with the code
-     * and message preserved.
+     * The funds shortfall is the shared [VendorErrorClassifier]'s funds verdict, so every wording
+     * it knows ("insufficient funds", the "EVM error: OutOfFunds" Base Sepolia's node answers a
+     * native send over the balance with) classifies here as it does in every adapter. Only that
+     * verdict is asked for: nodes and gateways say "denied" for auth and rate-limit failures,
+     * never for a user rejection (those come from the wallet layer, not JSON-RPC). Anything else
+     * falls back to [RainError.InternalError] with the code and message preserved.
      */
     private fun classifyNodeError(code: Int, message: String, purpose: RpcCallPurpose): RainError {
-        val lower = message.lowercase()
         val details = "RPC error [$code]: $message"
-        return when {
-            purpose == RpcCallPurpose.SIMULATION && lower.contains("revert") ->
-                RainError.TransactionSimulationFailed(RainError.InternalError(details))
-            lower.contains("insufficient funds") -> RainError.InsufficientFunds()
-            else -> RainError.InternalError(details)
+        if (purpose == RpcCallPurpose.SIMULATION && message.contains("revert", ignoreCase = true)) {
+            return RainError.TransactionSimulationFailed(RainError.InternalError(details))
         }
+        return VendorErrorClassifier.insufficientFundsOrNull(message) ?: RainError.InternalError(details)
     }
 
     private fun paramsToJsonArray(params: List<Any>): JSONArray {
