@@ -163,14 +163,20 @@ enum class WalletChain(
         if (isSolana) contractChainId == chainId else contractChainId !in SOLANA_CHAIN_IDS
 
     /**
-     * The collateral contract the screens show for this chain: the one on this exact chain when
-     * Rain provisioned one there, otherwise the first of this chain's family. Rain can hold a
-     * user's collateral on several EVM chains and lists the contracts in no fixed order, so the
-     * family match alone could show a different contract from one launch to the next.
+     * The collateral contract a screen shows for this chain: the one on this exact chain when Rain
+     * provisioned one there. With none, [CollateralContractMatch.EXACT_CHAIN] gives null and
+     * [CollateralContractMatch.CHAIN_FAMILY] gives the first sibling in the API's order. Under
+     * CHAIN_FAMILY the exact chain still comes first, so a chain with its own contract always shows
+     * that one; Rain lists the contracts in no fixed order, so the family match alone could show a
+     * different contract from one launch to the next.
      */
-    fun collateralContract(contracts: List<CollateralContract>): CollateralContract? =
-        contracts.firstOrNull { it.chainId == chainId }
-            ?: contracts.firstOrNull { ownsCollateralContract(it.chainId) }
+    fun collateralContract(contracts: List<CollateralContract>, match: CollateralContractMatch): CollateralContract? {
+        val exact = contracts.firstOrNull { it.chainId == chainId }
+        return when (match) {
+            CollateralContractMatch.EXACT_CHAIN -> exact
+            CollateralContractMatch.CHAIN_FAMILY -> exact ?: contracts.firstOrNull { ownsCollateralContract(it.chainId) }
+        }
+    }
 
     /** Light client-side address sanity check (the SDK validates authoritatively). */
     fun isValidAddress(address: String): Boolean {
@@ -225,8 +231,8 @@ enum class WalletChain(
          * Chains this build does not offer in the picker but Rain may host a user's collateral on.
          * The SDK reads collateral token names, symbols and decimals from the token contracts, so
          * it needs an RPC endpoint there; without one the withdraw screen lists the token without
-         * a name and with its money actions disabled. The picker stays as it is: nothing is sent
-         * on these chains.
+         * a name and with its money actions disabled. The picker stays as it is: the send and
+         * deposit screens never target these chains; withdraw can, with the contract's own chain id.
          */
         private val COLLATERAL_ONLY_CHAINS = mapOf(
             ETHEREUM_SEPOLIA to CollateralOnlyChain(
@@ -260,6 +266,30 @@ enum class WalletChain(
             entries.firstOrNull { it.chainId == chainId }?.let { it.explorerName to it.explorerTxUrl(hash) }
                 ?: COLLATERAL_ONLY_CHAINS[chainId]?.let { it.explorerName to "${it.explorerTxPrefix}$hash" }
     }
+}
+
+/**
+ * Which of the user's collateral contracts a screen gets for the selected chain. Rain may host the
+ * collateral on an EVM chain the picker does not offer (see [WalletChain.ownsCollateralContract]),
+ * so each screen says whether a contract on a sibling chain will do. The reasons live here; the
+ * call sites point at this enum.
+ */
+enum class CollateralContractMatch {
+    /**
+     * A contract on the selected chain only. For the Wallet & QR deposit card, which offers an
+     * address for a deposit on the chain on screen: a sibling chain's contract address is not where
+     * Rain credits this account's deposits on the chain on screen, so a deposit sent there is not
+     * credited (WALL-116).
+     */
+    EXACT_CHAIN,
+
+    /**
+     * The selected chain's contract when Rain provisioned one there, otherwise the first contract
+     * of the chain's family in the API's order. For withdraw, which carries the contract's own
+     * chain id through every withdrawal call, and for the balances card, which only reads the
+     * contract.
+     */
+    CHAIN_FAMILY,
 }
 
 /** A chain the SDK reads on but the picker does not offer. */

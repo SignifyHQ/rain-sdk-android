@@ -30,7 +30,7 @@ screens otherwise need a real provider login to reach.
 | Screen | What it exercises |
 |---|---|
 | **Home** | Provider choice (Rain Wallet / Turnkey / Portal MPC / Privy), Rain API credentials, auth, `RainSdk` build, session card, active-wallet dropdown, feature grid, and for a signed-in Rain Wallet session the *Export keys* card (`exportRecoveryPhrase`, `exportPrivateKey`) |
-| **Wallet & QR** | `getWalletAddress(chainId)` and the collateral deposit address from the demo's own `RainApiClient` (a call a shipped app makes from its backend), each with a QR bitmap from `generateAddressQRCode(address)` |
+| **Wallet & QR** | `getWalletAddress(chainId)` and the collateral deposit address from the demo's own `RainApiClient` (a call a shipped app makes from its backend), each with a QR bitmap from `generateAddressQRCode(address)`. The deposit card shows a contract on the selected chain only, and otherwise says which chain holds the collateral |
 | **Balances** | Collateral balances from the demo's `RainApiClient`, with token names and decimals from `RainSdk.tokenMetadata`, plus the wallet's own native and token balances (`getBalance`, `getTokenBalances`) |
 | **Send tokens** | `sendNative` and `sendToken` (ERC-20 on EVM, SPL on Solana) |
 | **Withdraw collateral** | The withdrawal signature from the demo's `RainApiClient` + `withdrawCollateral`, with the `estimateWithdrawalFee` and `prepareWithdrawal` dry runs and an *Estimate fee of prepared* button that quotes the held preparation with no new signature, on both EVM and Solana collateral (both fee estimates are EVM-only). The fee card says when a sponsor pays, and a token whose decimals the SDK cannot resolve stays listed with its money actions disabled |
@@ -44,10 +44,16 @@ networks needs no re-initialization: the SDK is built with all chains' RPC endpo
 ## Networks
 
 `WalletChain` defines six networks (a sandbox build offers Avalanche Fuji, Base Sepolia, Arbitrum Sepolia and
-Solana devnet, hides the mainnet Auth Pull chains, and adds an Ethereum Sepolia endpoint for collateral reads),
+Solana devnet, hides the mainnet Auth Pull chains, and adds an Ethereum Sepolia endpoint for collateral reads and withdrawals),
 along with each one's RPC URL, native symbol, explorer links, default token / recipient, and address
 validation. Portal holds no Solana account, so selecting Portal restricts the dropdown to the EVM
 chains.
+
+Rain may host a user's collateral on a chain the picker does not offer, so each screen picks its
+contract with `CollateralContractMatch` (its KDoc in `WalletChain.kt` has the reasons). Withdraw and
+Balances take a contract on any EVM chain when an EVM chain is selected, and a Solana cluster takes
+only its own. Wallet & QR takes the selected chain's contract only, and when there is none it says
+which chain holds this account's collateral.
 
 ## Providers
 

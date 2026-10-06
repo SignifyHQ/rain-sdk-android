@@ -162,13 +162,13 @@ class RainSession {
     fun requireRainApi(): RainApiClient = rainApi ?: error(RAIN_API_CREDENTIALS_REQUIRED)
 
     /**
-     * The user's collateral contract for [chain], picked exact chain first (see
-     * [WalletChain.collateralContract]), with each token's name, symbol and decimals resolved by the
-     * SDK from its address. A token the SDK cannot resolve, or a contract on a chain this build has
-     * no RPC endpoint for, keeps null metadata; the withdraw screen then disables its money actions.
+     * The user's collateral contract for [chain], picked by [match] (see [CollateralContractMatch]),
+     * with each token's name, symbol and decimals resolved by the SDK from its address. A token the
+     * SDK cannot resolve, or a contract on a chain this build has no RPC endpoint for, keeps null
+     * metadata; the withdraw screen then disables its money actions.
      */
-    suspend fun fetchCollateralContract(chain: WalletChain): CollateralContract? {
-        val contract = chain.collateralContract(requireRainApi().fetchCollateralContracts())
+    suspend fun fetchCollateralContract(chain: WalletChain, match: CollateralContractMatch): CollateralContract? {
+        val contract = chain.collateralContract(requireRainApi().fetchCollateralContracts(), match)
         val sdk = rain
         if (contract == null || sdk == null) return contract
         val tokens = tokensWithMetadata(
