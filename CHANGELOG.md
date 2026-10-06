@@ -13,16 +13,20 @@ Notable changes to the Rain Android SDK, newest first. The format follows
   `com.turnkey:http` 2.1.1, which post the activity type the request body requires.
 - `PrivyProvider.refreshSession()` no longer reports a live session as dead because the device was
   offline. Only a refresh Privy refuses, or one it drops the session on, throws `RAIN_201` and
-  fires `onSessionExpired`. A refresh that got no answer from the network, and a session restored
-  offline that Privy has not verified yet, throw `RAIN_301` `NetworkError`; any other failure with
-  the session still in place throws what it was (`RAIN_501` at the floor), with the hook silent. A
-  host that logs the user out on the hook no longer does so after a moment offline. On a wallet
-  call through Privy, a request that never left the device (the device offline, no route, no
+  fires `onSessionExpired`. A refresh that got no answer from the network throws `RAIN_301`
+  `NetworkError`; a session the vendor restored without a network answer is verified with it
+  first (`Privy.onNetworkRestored()`) and throws `RAIN_301` only if that still fails, from the
+  refresh and from the `create()` probe; any other failure with the session still in place throws
+  what it was (`RAIN_501` at the floor), with the hook silent. A host that logs the user out on
+  the hook no longer does so after a moment offline. On a wallet call through a wallet on Privy's
+  server-wallet stack, a request that never left the device (the device offline, no route, no
   connection) now leaves as `RAIN_301` instead of `RAIN_501`, as the adapter's own RPC reads
-  already did, and a read whose answer was lost is `RAIN_301` after its retries. A send whose
-  answer was lost after the request left (a timeout, a reset) stays `RAIN_501`: Privy signs and
-  broadcasts inside that request, so its fate is unknown and `RAIN_301`'s "retry" would send twice.
-  A cancellation the vendor wrapped in its own failure now leaves a Privy call as the cancellation.
+  already did, and a read whose answer was lost is `RAIN_301` after its retries; an on-device
+  wallet reports an offline device through its own prose and stays `RAIN_501`. A send whose
+  answer was lost after the request left (a timeout, a reset, or a resend the HTTP client made
+  after a reset that then could not connect) stays `RAIN_501`: Privy signs and broadcasts inside
+  that request, so its fate is unknown and `RAIN_301`'s "retry" would send twice. A cancellation
+  the vendor wrapped in its own failure now leaves a Privy call as the cancellation.
 
 ### Changed
 

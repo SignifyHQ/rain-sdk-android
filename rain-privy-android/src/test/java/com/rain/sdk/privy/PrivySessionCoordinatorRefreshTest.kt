@@ -2,14 +2,19 @@ package com.rain.sdk.privy
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.error.RainError
+import io.mockk.Runs
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
 import io.privy.auth.AuthState
 import io.privy.auth.AuthenticationException
 import io.privy.auth.PrivyUser
+import io.privy.network.ApiResult
 import io.privy.network.NoNetworkException
 import io.privy.network.PrivyApiException
+import io.privy.network.toResult
 import io.privy.sdk.Privy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
@@ -36,6 +41,7 @@ class PrivySessionCoordinatorRefreshTest {
     ): Privy {
         val privy = mockk<Privy>()
         every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
         coEvery { privy.getUser() } returns user
         return privy
     }
@@ -55,13 +61,9 @@ class PrivySessionCoordinatorRefreshTest {
     private fun apiException(status: Int?) =
         PrivyApiException(status, null, "api failure", RuntimeException("api failure"))
 
-    /** The vendor's confirmed-offline answer to an API call: no status, its sentence, a bare cause. */
-    private fun offlineRefusal() = PrivyApiException(
-        null,
-        null,
-        NoNetworkException.message.orEmpty(),
-        Throwable(NoNetworkException.message),
-    )
+    /** The vendor's confirmed-offline answer to an API call, built the way its `toResult()` builds it. */
+    private fun offlineRefusal(): Throwable =
+        checkNotNull(ApiResult.Error.NoNetworkError.toResult().exceptionOrNull())
 
     /** A transport failure the vendor wrapped: `ConnectException` to auth.privy.io (QA, 2026-10-02). */
     private fun wrappedTransportFailure() = PrivyApiException(
@@ -149,11 +151,13 @@ class PrivySessionCoordinatorRefreshTest {
             AuthenticationException("Authenticate was successful, but Privy backend requested this user be logged out."),
         )) {
             val user = mockk<PrivyUser>()
-            coEvery { user.refresh() } returns Result.failure(failure)
             val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
-            val privy = mockk<Privy>()
-            every { privy.authState } returns auth
-            coEvery { privy.getUser() } returnsMany listOf(user, null)
+            // The vendor flips its own state before the failure comes back.
+            coEvery { user.refresh() } coAnswers {
+                auth.value = AuthState.Unauthenticated
+                Result.failure(failure)
+            }
+            val privy = authenticatedPrivy(auth, user)
             var hookCalls = 0
             val coordinator = coordinator(privy, onSessionExpired = { hookCalls++ })
 
@@ -167,13 +171,14 @@ class PrivySessionCoordinatorRefreshTest {
     }
 
     @Test
-    fun `refreshNow on a session restored offline throws NetworkError with the hook silent`() {
-        // A cold start offline leaves the vendor in AuthenticatedUnverified, where getUser() is
-        // null; the vendor re-verifies when the network returns, so this is not a death.
+    fun `refreshNow on a session the vendor still cannot verify throws NetworkError with the hook silent`() {
+        // AuthenticatedUnverified: a cold start offline, or a restore that failed while online. The
+        // coordinator asks the vendor to verify (onNetworkRestored) and reads the state again.
         val auth = MutableStateFlow<AuthState>(mockk<AuthState.AuthenticatedUnverified>())
         val privy = mockk<Privy>()
         every { privy.authState } returns auth
-        coEvery { privy.getUser() } returns null
+        coEvery { privy.getAuthState() } answers { auth.value }
+        coEvery { privy.onNetworkRestored() } just Runs
         var hookCalls = 0
         val coordinator = coordinator(privy, onSessionExpired = { hookCalls++ })
 
@@ -181,6 +186,53 @@ class PrivySessionCoordinatorRefreshTest {
         assertThrows(RainError.NetworkError::class.java) { runBlocking { coordinator.requireUser() } }
         assertThat(hookCalls).isEqualTo(0)
         assertThat(coordinator.currentState()).isEqualTo(PrivySessionState.Unverified)
+        coVerify(exactly = 2) { privy.onNetworkRestored() }
+    }
+
+    @Test
+    fun `an unverified session the vendor verifies on request proceeds as a live one`() {
+        val user = mockk<PrivyUser>()
+        coEvery { user.refresh() } returns Result.success(Unit)
+        val auth = MutableStateFlow<AuthState>(mockk<AuthState.AuthenticatedUnverified>())
+        val privy = mockk<Privy>()
+        every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
+        coEvery { privy.onNetworkRestored() } coAnswers { auth.value = AuthState.Authenticated(user) }
+        var hookCalls = 0
+        val coordinator = coordinator(privy, onSessionExpired = { hookCalls++ })
+
+        runBlocking { coordinator.refreshNow() }
+        assertThat(runBlocking { coordinator.requireUser() }).isSameInstanceAs(user)
+        assertThat(hookCalls).isEqualTo(0)
+    }
+
+    @Test
+    fun `an unverified session the vendor rejects on request is a death`() {
+        val auth = MutableStateFlow<AuthState>(mockk<AuthState.AuthenticatedUnverified>())
+        val privy = mockk<Privy>()
+        every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
+        coEvery { privy.onNetworkRestored() } coAnswers { auth.value = AuthState.Unauthenticated }
+        val coordinator = coordinator(privy)
+
+        assertThrows(RainError.TokenExpired::class.java) { runBlocking { coordinator.refreshNow() } }
+        assertThrows(RainError.TokenExpired::class.java) { runBlocking { coordinator.requireUser() } }
+    }
+
+    @Test
+    fun `refreshNow offline once the JWT has expired surfaces NetworkError with the hook silent`() {
+        // PrivyUser.refresh runs the vendor's token refresh once the JWT has expired, which refuses
+        // a confirmed-offline device with a bare NoNetworkException before any request.
+        val user = mockk<PrivyUser>()
+        coEvery { user.refresh() } returns Result.failure(NoNetworkException)
+        val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
+        val privy = authenticatedPrivy(auth, user)
+        var hookCalls = 0
+        val coordinator = coordinator(privy, onSessionExpired = { hookCalls++ })
+
+        val thrown = assertThrows(RainError.NetworkError::class.java) { runBlocking { coordinator.refreshNow() } }
+        assertThat(thrown.cause).isSameInstanceAs(NoNetworkException)
+        assertThat(hookCalls).isEqualTo(0)
     }
 
     @Test

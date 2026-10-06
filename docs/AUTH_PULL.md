@@ -282,7 +282,7 @@ provider is asked for one thing: the wallet address to read the allowance *for*,
 | `RAIN_102` | `RainError.InvalidConfig` | Auth Pull is not configured, target differs from the trusted token/operator, malformed input, wrong chain/environment, or the token reports decimals outside `0..77`. Local configuration failures occur before wallet access. |
 | `RAIN_102` | `RainError.TokenNotFound` | The token's decimals could not be established (not in the registry and its `decimals()` read failed), so a capped amount cannot be scaled safely. Never raised for an unlimited approval. |
 | `RAIN_104` | `RainError.ChainNotSupported` | Turnkey and the Rain wallet: the chain is outside the wallet backend's broadcast coverage. Thrown before any signature or network call. |
-| `RAIN_301` | `RainError.NetworkError` | A network failure on the RPC read or on a provider's pre-flight simulation. Retryable; nothing was signed or broadcast. |
+| `RAIN_301` | `RainError.NetworkError` | A network failure on the RPC read, on a provider's pre-flight simulation, or, with Privy, on an approval whose request never left the device. Retryable; nothing was signed or broadcast. |
 | `RAIN_302` | `RainError.TransactionPending` | Confirmation window (`statusId` = transaction hash) or Portal UserOperation scan (`statusId` = UserOperation hash) expired. Not confirmed yet — re-read the allowance, don't re-approve. |
 | `RAIN_401` | `RainError.UserRejected` | The user declined the signature in the wallet UI. |
 | `RAIN_402` | `RainError.InsufficientFunds` | Not enough native gas to submit the approval (self-paid providers; a sponsored Turnkey approval needs none). |

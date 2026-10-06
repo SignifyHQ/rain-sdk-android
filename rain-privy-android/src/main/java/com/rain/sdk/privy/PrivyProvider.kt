@@ -90,11 +90,9 @@ class PrivyProvider(
      * check. The conditions behind each code are stated once, in the provider-adapters section
      * of `docs/METHODS.md`.
      *
-     * @throws RainError.TokenExpired (`RAIN_201`) the session is gone, with
-     *   [PrivyConfig.onSessionExpired] fired; re-authenticate.
-     * @throws RainError.NetworkError (`RAIN_301`) the refresh got no answer, or the session was
-     *   restored offline and is not verified yet; the session is left as it was, retry online.
-     * @throws RainError.ProviderError (`RAIN_501`) any other failure with the session still in place.
+     * @throws RainError.TokenExpired (`RAIN_201`), with [PrivyConfig.onSessionExpired] fired; see METHODS.
+     * @throws RainError.NetworkError (`RAIN_301`); see METHODS.
+     * @throws RainError.ProviderError (`RAIN_501`); see METHODS.
      */
     suspend fun refreshSession() = coordinator.refreshNow()
 

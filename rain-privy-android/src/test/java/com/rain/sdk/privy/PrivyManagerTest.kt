@@ -26,7 +26,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import java.net.ConnectException
+import java.net.SocketException
 import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 
 class PrivyManagerTest {
 
@@ -38,15 +40,18 @@ class PrivyManagerTest {
 
     private fun privyWith(wallets: List<EmbeddedEthereumWallet>?): Privy {
         val privy = mockk<Privy>()
+        val auth: MutableStateFlow<AuthState>
         if (wallets == null) {
             coEvery { privy.getUser() } returns null
-            every { privy.authState } returns MutableStateFlow(AuthState.Unauthenticated)
+            auth = MutableStateFlow(AuthState.Unauthenticated)
         } else {
             val user = mockk<PrivyUser>()
             every { user.embeddedEthereumWallets } returns wallets
             coEvery { privy.getUser() } returns user
-            every { privy.authState } returns MutableStateFlow(AuthState.Authenticated(user))
+            auth = MutableStateFlow(AuthState.Authenticated(user))
         }
+        every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
         return privy
     }
 
@@ -60,8 +65,10 @@ class PrivyManagerTest {
     @Test
     fun `resolveWallet on a session restored offline throws NetworkError, not a death`() = runBlocking {
         val privy = mockk<Privy>()
-        coEvery { privy.getUser() } returns null
-        every { privy.authState } returns MutableStateFlow(mockk<AuthState.AuthenticatedUnverified>())
+        val auth = MutableStateFlow<AuthState>(mockk<AuthState.AuthenticatedUnverified>())
+        every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
+        coEvery { privy.onNetworkRestored() } just Runs
         val manager = PrivyManager(privy, PrivySessionCoordinator(privy, retryDelay = { }))
 
         val error = runCatching { manager.getAddress(null) }.exceptionOrNull()
@@ -85,6 +92,69 @@ class PrivyManagerTest {
 
         assertThat(error).isInstanceOf(RainError.ProviderError::class.java)
         assertThat(error?.cause).isSameInstanceAs(lost)
+    }
+
+    @Test
+    fun `a send the client resent after a reset and then could not connect for leaves as ProviderError`() = runBlocking {
+        val provider = mockk<EmbeddedEthereumWalletProvider>()
+        every { provider.switchChain(any()) } just Runs
+        val resent = UnknownHostException("api.privy.io").apply { addSuppressed(SocketException("Connection reset")) }
+        coEvery { provider.request(any()) } returns
+            Result.failure(PrivyApiException(null, null, "Something went wrong", resent))
+        val manager = PrivyManager(privyWith(listOf(wallet(WALLET, provider))))
+
+        val error = runCatching {
+            manager.sendTransaction(walletAddress = WALLET, rpcUrl = RPC, transactionJson = "{}")
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    @Test
+    fun `a signature request maps a lost answer and a refused connection the same way as a send`() = runBlocking {
+        val lost = PrivyApiException(null, null, "Something went wrong", SocketTimeoutException("timeout"))
+        val refused = PrivyApiException(null, null, "Something went wrong", ConnectException("Failed to connect"))
+        for ((failure, expected) in listOf(lost to RainError.ProviderError::class.java, refused to RainError.NetworkError::class.java)) {
+            val provider = mockk<EmbeddedEthereumWalletProvider>()
+            coEvery { provider.request(any()) } returns Result.failure(failure)
+            val manager = PrivyManager(privyWith(listOf(wallet(WALLET, provider))))
+
+            val error = runCatching { manager.signTypedData(WALLET, "{}") }.exceptionOrNull()
+
+            assertThat(error).isInstanceOf(expected)
+            assertThat(error?.cause).isSameInstanceAs(failure)
+        }
+    }
+
+    @Test
+    fun `a Solana send maps a lost answer and a refused connection the same way, thrown or returned`() = runBlocking {
+        val lost = PrivyApiException(null, null, "Something went wrong", SocketTimeoutException("timeout"))
+        val refused = PrivyApiException(null, null, "Something went wrong", ConnectException("Failed to connect"))
+        for ((failure, expected) in listOf(lost to RainError.ProviderError::class.java, refused to RainError.NetworkError::class.java)) {
+            for (thrown in listOf(true, false)) {
+                val privy = privyWith(emptyList())
+                val user = privy.getUser()!!
+                val solanaProvider = mockk<EmbeddedSolanaWalletProvider>()
+                if (thrown) {
+                    coEvery { solanaProvider.signAndSendTransaction(any(), any(), any()) } throws failure
+                } else {
+                    coEvery { solanaProvider.signAndSendTransaction(any(), any(), any()) } returns Result.failure(failure)
+                }
+                val solanaWallet = mockk<EmbeddedSolanaWallet>().also {
+                    every { it.address } returns SOLANA_WALLET
+                    every { it.provider } returns solanaProvider
+                }
+                every { user.embeddedSolanaWallets } returns listOf(solanaWallet)
+                val manager = PrivyManager(privy)
+
+                val error = runCatching {
+                    manager.signAndSendSolanaTransaction(ByteArray(8), SolanaCluster.DevNet, RPC)
+                }.exceptionOrNull()
+
+                assertThat(error).isInstanceOf(expected)
+                assertThat(error?.cause).isSameInstanceAs(failure)
+            }
+        }
     }
 
     @Test

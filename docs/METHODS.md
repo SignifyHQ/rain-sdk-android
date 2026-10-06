@@ -183,12 +183,12 @@ Each adapter is a `ProviderDescriptor` that owns its vendor SDK as a private dep
 Every adapter also exposes its session on the descriptor: `sessionState` (a flow of the adapter's session
 state), `currentSessionState()`, `suspend fun refreshSession()` (a forced refresh; `RAIN_201`, with
 `onSessionExpired` fired, when the session cannot be refreshed; on `PrivyProvider` that means a refresh Privy
-refuses or drops the session on, while a refresh that got no answer from the network, or a session restored
-offline that Privy has not verified yet, throws `RAIN_301`, and any other failure with the session still in
-place throws what it was, `RAIN_501` at the floor, with the hook silent; in `5.0.0-beta.1` every Privy refresh
-failure throws `RAIN_201` and fires the hook, see the [CHANGELOG](../CHANGELOG.md)) and `close()` (stops the
-session watcher so a discarded provider never fires `onSessionExpired`; `RainSdk.close()` calls it for every
-registered descriptor). `PortalProvider` adds
+refuses or drops the session on, while a refresh that got no answer from the network throws `RAIN_301`, a
+session the vendor restored without a network answer is verified with it first and throws `RAIN_301` only if
+that still fails, and any other failure with the session still in place throws what it was, `RAIN_501` at the
+floor, with the hook silent; `5.0.0-beta.1` behaves differently, see the [CHANGELOG](../CHANGELOG.md) known
+issue) and `close()` (stops the session watcher so a discarded provider never fires `onSessionExpired`;
+`RainSdk.close()` calls it for every registered descriptor). `PortalProvider` adds
 `suspend fun updateSessionToken(sessionToken)`, which installs a new Portal session token on the running
 client; its `refreshSession()` and `updateSessionToken()` throw `RainError.SdkNotInitialized` (`RAIN_101`)
 before the provider was resolved.

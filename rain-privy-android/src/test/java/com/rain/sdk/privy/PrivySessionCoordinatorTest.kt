@@ -8,8 +8,10 @@ import io.mockk.mockk
 import io.privy.auth.AuthState
 import io.privy.auth.AuthenticationException
 import io.privy.auth.PrivyUser
+import io.privy.network.ApiResult
 import io.privy.network.NoNetworkException
 import io.privy.network.PrivyApiException
+import io.privy.network.toResult
 import io.privy.sdk.Privy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -39,6 +41,7 @@ class PrivySessionCoordinatorTest {
     ): Privy {
         val privy = mockk<Privy>()
         every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
         coEvery { privy.getUser() } returns user
         return privy
     }
@@ -58,13 +61,9 @@ class PrivySessionCoordinatorTest {
     private fun apiException(status: Int?) =
         PrivyApiException(status, null, "api failure", RuntimeException("api failure"))
 
-    /** The vendor's confirmed-offline answer to an API call: no status, its sentence, a bare cause. */
-    private fun offlineRefusal() = PrivyApiException(
-        null,
-        null,
-        NoNetworkException.message.orEmpty(),
-        Throwable(NoNetworkException.message),
-    )
+    /** The vendor's confirmed-offline answer to an API call, built the way its `toResult()` builds it. */
+    private fun offlineRefusal(): Throwable =
+        checkNotNull(ApiResult.Error.NoNetworkError.toResult().exceptionOrNull())
 
     /** A transport failure the vendor wrapped: `ConnectException` to auth.privy.io (QA, 2026-10-02). */
     private fun wrappedTransportFailure() = PrivyApiException(
@@ -84,6 +83,7 @@ class PrivySessionCoordinatorTest {
         val auth = MutableStateFlow<AuthState>(AuthState.Unauthenticated)
         val privy = mockk<Privy>()
         every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
         var blockRuns = 0
         val coordinator = coordinator(privy)
 
@@ -98,6 +98,7 @@ class PrivySessionCoordinatorTest {
         val auth = MutableStateFlow<AuthState>(AuthState.Unauthenticated)
         val privy = mockk<Privy>()
         every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
         var hookCalls = 0
         val coordinator = coordinator(privy, onSessionExpired = { hookCalls++ })
 
@@ -343,6 +344,49 @@ class PrivySessionCoordinatorTest {
     }
 
     @Test
+    fun `a call whose failure left the vendor without a session is a death, on a send too`() {
+        // The vendor logs out on a 4xx to the token refresh it runs inside a wallet call; that
+        // failure arrives as neither an auth failure nor a transient one.
+        val user = mockk<PrivyUser>()
+        val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
+        val privy = authenticatedPrivy(auth, user)
+        var hookCalls = 0
+        val coordinator = coordinator(privy, onSessionExpired = { hookCalls++ })
+
+        assertThrows(RainError.TokenExpired::class.java) {
+            runBlocking {
+                coordinator.executeWrite<String> {
+                    auth.value = AuthState.Unauthenticated
+                    throw apiException(400)
+                }
+            }
+        }
+        assertThat(hookCalls).isEqualTo(1)
+    }
+
+    @Test
+    fun `a read on an unverified session asks the vendor to verify on every attempt`() {
+        val user = mockk<PrivyUser>()
+        val auth = MutableStateFlow<AuthState>(mockk<AuthState.AuthenticatedUnverified>())
+        val privy = mockk<Privy>()
+        every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
+        var verifications = 0
+        coEvery { privy.onNetworkRestored() } coAnswers {
+            verifications++
+            if (verifications == 2) auth.value = AuthState.Authenticated(user)
+        }
+        val delays = RecordingDelay()
+        val coordinator = coordinator(privy, delayRecorder = delays)
+
+        val resolved = runBlocking { coordinator.executeRead { coordinator.requireUser() } }
+
+        assertThat(resolved).isSameInstanceAs(user)
+        assertThat(verifications).isEqualTo(2)
+        assertThat(delays.delays).containsExactly(500L).inOrder()
+    }
+
+    @Test
     fun `a cancellation the vendor wrapped leaves a guarded call as itself`() {
         val user = mockk<PrivyUser>()
         val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
@@ -476,6 +520,7 @@ class PrivySessionCoordinatorTest {
         val auth = MutableStateFlow<AuthState>(AuthState.NotReady)
         val privy = mockk<Privy>()
         every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
         val coordinator = coordinator(privy)
 
         assertThat(coordinator.currentState()).isEqualTo(PrivySessionState.Loading)
@@ -581,6 +626,7 @@ class PrivySessionCoordinatorTest {
         val auth = MutableStateFlow<AuthState>(AuthState.NotReady)
         val privy = mockk<Privy>()
         every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
         var hookCalls = 0
         val coordinator = PrivySessionCoordinator(
             privy = privy,

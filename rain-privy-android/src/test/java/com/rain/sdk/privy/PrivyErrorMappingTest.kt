@@ -4,14 +4,17 @@ import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.error.RainError
 import io.ktor.client.network.sockets.ConnectTimeoutException
 import io.privy.auth.AuthenticationException
+import io.privy.network.ApiResult
 import io.privy.network.NoNetworkException
 import io.privy.network.PrivyApiException
+import io.privy.network.toResult
 import io.privy.wallet.EmbeddedWalletException
 import kotlinx.coroutines.CancellationException
 import org.junit.Test
 import java.io.IOException
 import java.net.ConnectException
 import java.net.NoRouteToHostException
+import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 
@@ -122,13 +125,9 @@ class PrivyErrorMappingTest {
 
     // ---- network ------------------------------------------------------------------
 
-    /** The vendor's confirmed-offline answer to an API call: no status, its sentence, a bare cause. */
-    private fun offlineApiCall() = PrivyApiException(
-        null,
-        null,
-        NoNetworkException.message.orEmpty(),
-        Throwable(NoNetworkException.message),
-    )
+    /** The vendor's confirmed-offline answer to an API call, built the way its `toResult()` builds it. */
+    private fun offlineApiCall(): Throwable =
+        checkNotNull(ApiResult.Error.NoNetworkError.toResult().exceptionOrNull())
 
     /** The vendor's status-less wrapper for any other exception the HTTP client raised. */
     private fun wrapped(cause: Throwable) = PrivyApiException(null, null, "Something went wrong", cause)
@@ -168,6 +167,18 @@ class PrivyErrorMappingTest {
             assertThat(mapped.cause).isSameInstanceAs(failure)
             assertThat(PrivyErrorMapping.map(cause, idempotent = false)).isInstanceOf(RainError.NetworkError::class.java)
         }
+    }
+
+    @Test
+    fun `a connect failure after the client resent the request is an unknown fate on a send`() {
+        // OkHttp resends a request after a recoverable send-time failure and, when the retry cannot
+        // connect, throws that failure with the earlier one attached as suppressed.
+        val resent = UnknownHostException("api.privy.io").apply { addSuppressed(SocketException("Connection reset")) }
+        assertThat(PrivyErrorMapping.map(wrapped(resent), idempotent = false)).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(PrivyErrorMapping.map(wrapped(resent), idempotent = true)).isInstanceOf(RainError.NetworkError::class.java)
+        // Two connect failures in a row never left the device.
+        val neverLeft = UnknownHostException("api.privy.io").apply { addSuppressed(ConnectException("Failed to connect")) }
+        assertThat(PrivyErrorMapping.map(wrapped(neverLeft), idempotent = false)).isInstanceOf(RainError.NetworkError::class.java)
     }
 
     @Test
