@@ -28,6 +28,13 @@ Notable changes to the Rain Android SDK, newest first. The format follows
 - Solana sends and collateral withdrawals through `rain-turnkey-android` and `rain-wallet-android`
   reach the chain: the wallet backend's client is `com.turnkey:sdk-kotlin` 2.0.2 with
   `com.turnkey:http` 2.1.1, which post the activity type the request body requires.
+- The Rain wallet's contact attach refuses a contact that already signs in to another account.
+  Once the code is accepted, `confirmContactVerification` asks the wallet backend which account
+  the contact signs in to and throws `RAIN_202` (`Unauthorized`) before anything changes when it
+  is another one; a contact nobody signs in with, or this account's own, attaches as before. In
+  `5.0.0-beta.1` the attach succeeded and replaced the signed-in account's contact with one that
+  kept opening the other account. The attach still replaces an existing contact of the same kind
+  instead of adding a second one; see Known issues under `5.0.0-beta.1`.
 
 ### Changed
 
@@ -79,7 +86,8 @@ Rain plans to fix each of these in a later beta.
   `confirmContactVerification`, replaces the account's email address or phone number instead of
   adding a second one. The old contact then no longer logs in to the account. The attach also
   succeeds for an email address that already logs in to another account. That address keeps
-  opening the other account, which leaves the signed-in account with no working email login.
+  opening the other account, which leaves the signed-in account with no working email login. The
+  fix for that second part, a refusal, is listed under Unreleased above; the replacement remains.
   Tell users that an attach replaces their current contact.
 - `getTokenBalances` and `getAllBalances` can leave out a token the wallet holds. On Ethereum, Base,
   Polygon and their test networks, the Turnkey provider and the Rain wallet build the list from the

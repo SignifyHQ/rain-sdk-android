@@ -336,6 +336,44 @@ class TurnkeyErrorMappingTest {
         assertThat(mapped).isInstanceOf(RainError.TokenExpired::class.java)
     }
 
+    @Test
+    fun `mapAccountLookupError is ProviderError for every status and passes a RainError through`() {
+        // No session stamps the auth proxy's account lookup, so a 401 or 403 inside its failure is
+        // neither RAIN_201 nor RAIN_202; the status survives in the message, as on a code request.
+        for (status in listOf(400, 401, 403, 429, 500)) {
+            val mapped = mapping.mapAccountLookupError(RuntimeException("HTTP error from /v1/account: $status"))
+            assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
+            assertThat(mapped).hasMessageThat().contains(status.toString())
+        }
+        assertThat(mapping.mapAccountLookupError(java.io.IOException("offline")))
+            .isInstanceOf(RainError.ProviderError::class.java)
+
+        val passthrough = RainError.Unauthorized("refused")
+        assertThat(mapping.mapAccountLookupError(passthrough)).isSameInstanceAs(passthrough)
+    }
+
+    @Test
+    fun `mapAccountLookupError never hands the throwable to the log`() {
+        val seen = StringBuilder()
+        val throwables = mutableListOf<Throwable>()
+        val tree = object : timber.log.Timber.Tree() {
+            override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+                seen.append(message).append('\n')
+                if (t != null) throwables += t
+            }
+        }
+        timber.log.Timber.plant(tree)
+        try {
+            mapping.mapAccountLookupError(RuntimeException("HTTP error from /v1/account for someone@example.com: 401"))
+        } finally {
+            timber.log.Timber.uproot(tree)
+        }
+        assertThat(seen.toString()).contains("Authentication error")
+        assertThat(seen.toString()).contains(RainErrorCode.PROVIDER_ERROR.code)
+        assertThat(seen.toString()).doesNotContain("example.com")
+        assertThat(throwables).isEmpty()
+    }
+
     // ---------- HTTP statuses the vendor reports as plain exceptions ----------
     //
     // The Turnkey Kotlin SDK throws a plain RuntimeException carrying the status only in the

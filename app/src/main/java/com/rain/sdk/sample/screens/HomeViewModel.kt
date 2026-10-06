@@ -1044,7 +1044,8 @@ class HomeViewModel(
     /**
      * Confirms the verification code and attaches the contact, which can then sign in to this
      * account by code; the contact goes into its owner slot, so a code login for it reuses the live
-     * session. A rejected code keeps the challenge; any other failure restarts from "Send
+     * session. A rejected code keeps the challenge; a contact another account signs in with is
+     * refused with `RAIN_202` and the slot stays as it was; any other failure restarts from "Send
      * verification code", which replaces a challenge the SDK kept.
      */
     fun confirmRainWalletAttach() {
@@ -1070,6 +1071,17 @@ class HomeViewModel(
                 SampleLog.w("RainWallet.attach", "verification code rejected (${e.code})")
                 _state.update {
                     it.copy(rainWalletAttachCode = "", statusText = "That code was not accepted; check it and try again")
+                }
+            } catch (e: RainError.Unauthorized) {
+                // The SDK's message says which: another account signs in with that contact, or the
+                // backend refused the update. The code is spent either way, and the slot is untouched.
+                SampleLog.w("RainWallet.attach", "attach refused ${e.describe()}")
+                _state.update {
+                    it.copy(
+                        rainWalletAttachCodeSent = false,
+                        rainWalletAttachCode = "",
+                        statusText = "Contact attach refused (${e.code}): ${e.details()}",
+                    )
                 }
             } catch (e: RainError) {
                 SampleLog.w("RainWallet.attach", "confirm failed ${e.describe()}")
@@ -1309,6 +1321,9 @@ class HomeViewModel(
     /** The code and class of a failure, never its prose: an auth-proxy failure can echo the contact. */
     private fun Throwable.describe(): String =
         (this as? RainError)?.let { "${it.code} ${javaClass.simpleName}" } ?: javaClass.simpleName
+
+    /** A RainError's own text, without the `RainSDK Error [code]: ` prefix the base class puts in front. */
+    private fun RainError.details(): String = message.orEmpty().removePrefix("RainSDK Error [$code]: ")
 
     fun sendPrivyOtp(app: Application) {
         val s = _state.value
