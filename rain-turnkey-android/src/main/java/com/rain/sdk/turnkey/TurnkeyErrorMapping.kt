@@ -39,6 +39,7 @@ import timber.log.Timber
  * those by the innermost cause the chain carries. No session exists during a passkey login or
  * sign-up, so an HTTP 401 or 403 inside one is never `TokenExpired` or `Unauthorized`.
  */
+@Suppress("TooManyFunctions") // one mapping per vendor failure shape; a split would scatter the single exit
 internal object TurnkeyErrorMapping {
 
     /**
@@ -77,13 +78,31 @@ internal object TurnkeyErrorMapping {
      */
     fun mapAuthError(e: Throwable): RainError {
         val mapped = map(e)
-        // No throwable in this log line: an auth-proxy failure can echo the user's contact address.
+        logAuthFailure(mapped, e)
+        return mapped
+    }
+
+    /**
+     * [mapAuthError] for the auth proxy's account lookup, `POST /v1/account`, which the contact
+     * attach runs between the code check and the update. No session stamps it, so an HTTP 401 or
+     * 403 inside its failure cannot mean an expired session or a missing permission; as for a
+     * failed code request, every vendor failure is [RainError.ProviderError] whatever the status,
+     * with the response body dropped at the exit. A [RainError] passes through. Same log rule as
+     * the other auth-proxy calls: the code and the class name, never the throwable.
+     */
+    fun mapAccountLookupError(e: Throwable): RainError {
+        val mapped = (e as? RainError ?: RainError.ProviderError(e)).withoutResponseBody()
+        logAuthFailure(mapped, e)
+        return mapped
+    }
+
+    /** No throwable in this log line: an auth-proxy failure can echo the user's contact address. */
+    private fun logAuthFailure(mapped: RainError, e: Throwable) {
         Timber.e(
             "Rain SDK: Authentication error %s (%s)",
             mapped.errorCode.code,
             e.javaClass.simpleName,
         )
-        return mapped
     }
 
     /**
