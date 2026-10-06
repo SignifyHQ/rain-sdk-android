@@ -1,5 +1,12 @@
 name: CI
 
+# Six job names here are required status checks in the "Protect main branchs" ruleset: Unit tests
+# (JDK 24 launcher), detekt, Android Lint, Dokka (API docs), Sample app (R8 release), Vendor-free
+# classpaths, plus release-readiness below. A required check that never reports blocks every merge
+# into main, so: rename or remove one of these jobs only after taking its name off the ruleset
+# (Settings > Rules), and never add `paths` or `paths-ignore` to the triggers, because a PR the
+# filter skips gets no run and no check.
+
 on:
   pull_request:
   push:
@@ -229,9 +236,15 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           git fetch --quiet --depth=1 origin "$BASE_SHA"
-          read_version() { sed -nE 's/^rain-sdk = "([^"]*)".*/\1/p'; }
+          # Tolerates spacing and quote style around the value; fails loudly when the key is missing,
+          # because a silent "unchanged" would switch this check off for every later PR.
+          read_version() { sed -nE 's/^[[:space:]]*rain-sdk[[:space:]]*=[[:space:]]*["'"'"']([^"'"'"']*)["'"'"'].*/\1/p' | head -n 1; }
           base=$(git show "${BASE_SHA}:gradle/libs.versions.toml" | read_version)
           head=$(read_version < gradle/libs.versions.toml)
+          if [ -z "$head" ]; then
+            echo "::error::gradle/libs.versions.toml has no readable rain-sdk version line"
+            exit 1
+          fi
           echo "base=$base" >> "$GITHUB_OUTPUT"
           echo "head=$head" >> "$GITHUB_OUTPUT"
           if [ "$base" = "$head" ]; then
@@ -264,11 +277,14 @@ jobs:
           elif not m.group(1).strip():
               errors.append(f"the CHANGELOG.md section for {v} is empty")
 
-          # Every install coordinate in tracked Markdown must carry the new version.
+          # Every install line in tracked Markdown must carry the new version. Only lines a host would
+          # copy into a build file count, so prose, migration notes and the CHANGELOG may name old versions.
           tracked = [p for p in subprocess.check_output(["git", "ls-files", "*.md"], text=True).split() if p != "CHANGELOG.md"]
           coordinate = re.compile(r"xyz\.rain:rain-[a-z]+-android:([0-9][0-9A-Za-z.+-]*)")
           for path in tracked:
               for n, line in enumerate(open(path, encoding="utf-8"), 1):
+                  if "implementation" not in line:
+                      continue
                   for found in coordinate.findall(line):
                       if found != v:
                           errors.append(f"{path}:{n} pins {found}, expected {v}")
@@ -281,8 +297,11 @@ jobs:
           except urllib.error.HTTPError as e:
               if e.code != 404:
                   errors.append(f"repo1.maven.org answered {e.code} for {url}")
+          except (urllib.error.URLError, TimeoutError, OSError) as e:
+              errors.append(f"could not reach repo1.maven.org to confirm {v} is unpublished ({e}); re-run when it is reachable")
 
-          # The tag must not exist yet, and the version must sort after every published one.
+          # The tag must not exist yet, and the version must sort after every published one on the same
+          # major.minor line, so a patch on an older line is allowed while 5.1.x is out.
           def order(tag):
               t = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:-(beta|rc)\.(\d+))?", tag)
               if t is None:
@@ -292,9 +311,11 @@ jobs:
           tags = [r.split("refs/tags/")[1] for r in refs if "refs/tags/" in r and not r.endswith("^{}")]
           if v in tags:
               errors.append(f"tag {v} already exists on origin")
-          newest = max((t for t in tags if order(t)), key=order, default=None)
-          if newest and order(v) and order(v) <= order(newest):
-              errors.append(f"{v} does not sort after the latest tag {newest}")
+          mine = order(v)
+          same_line = [t for t in tags if order(t) and order(t)[:2] == (mine or ())[:2]]
+          newest = max(same_line, key=order, default=None)
+          if newest and mine and mine <= order(newest):
+              errors.append(f"{v} does not sort after the latest tag on its line, {newest}")
 
           summary = open(os.environ["GITHUB_STEP_SUMMARY"], "a")
           if errors:
