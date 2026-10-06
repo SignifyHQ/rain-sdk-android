@@ -40,6 +40,9 @@ class TurnkeySessionCoordinatorCancellationTest {
         assertThat(thrown).isSameInstanceAs(cancel)
         assertThat(hookCalls).isEqualTo(0)
         assertThat(coordinator.deathEpoch).isEqualTo(epochBefore)
+        // A cancelled refresh says nothing about the session, so it is never cleared as a revoked one.
+        assertThat(turnkey.clearSessionCalls).isEmpty()
+        assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
     }
 
     @Test
@@ -58,6 +61,30 @@ class TurnkeySessionCoordinatorCancellationTest {
 
         assertThat(thrown).isSameInstanceAs(cancel)
         assertThat(turnkey.refreshSessionCallCount).isEqualTo(1)
+        assertThat(hookCalls).isEqualTo(0)
+        assertThat(coordinator.deathEpoch).isEqualTo(0)
+        assertThat(turnkey.clearSessionCalls).isEmpty()
+        assertThat(turnkey.clearSelectedSessionCallCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `a cancellation inside the clear of a revoked session is rethrown, not a session death`() {
+        val turnkey = MockTurnkey()
+        turnkey.refreshSessionError = revokedSessionRefreshFailure()
+        val cancel = kotlinx.coroutines.CancellationException("caller went away")
+        turnkey.clearSessionError = TurnkeyKotlinError.FailedToClearSession(cancel)
+        var hookCalls = 0
+        val coordinator = coordinator(turnkey, onSessionExpired = { hookCalls++ })
+
+        val thrown = assertThrows(kotlinx.coroutines.CancellationException::class.java) {
+            runBlocking { coordinator.refreshNow() }
+        }
+
+        // The refusal reached the clear, the caller went away during it, and that is what leaves:
+        // no TokenExpired, no hook, no death counted.
+        assertThat(thrown).isSameInstanceAs(cancel)
+        assertThat(turnkey.clearSessionCalls).containsExactly(MockTurnkey.DEFAULT_SESSION_KEY)
+        assertThat(turnkey.session).isNotNull()
         assertThat(hookCalls).isEqualTo(0)
         assertThat(coordinator.deathEpoch).isEqualTo(0)
     }

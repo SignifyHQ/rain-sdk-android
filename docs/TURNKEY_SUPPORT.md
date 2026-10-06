@@ -185,7 +185,7 @@ Each member, with its contract; all carry `@InternalRainTurnkeyApi`:
 | `confirmContactVerification` | `suspend fun confirmContactVerification(code: String)` | Confirms the code from `sendContactVerificationCode` and attaches the verified contact. The session is checked before the code is spent (`RAIN_201` otherwise). A rejected code throws `RainError.InvalidLoginCode` (`RAIN_203`) and keeps the challenge; a rejection the backend wraps in an HTTP 500 arrives as `RAIN_501` with the challenge kept too. A failure after the code was accepted drops the challenge: `RAIN_201` when the session died meanwhile, `RAIN_202` when the backend refused the update, `RAIN_501` when the update failed; request a new code. `RAIN_102` when no code was requested or the code is blank. Managed mode only. |
 | `logout` | `suspend fun logout()` | Clears the selected session (after waiting for a restore in flight to settle) without firing `onSessionExpired`; cached accounts are evicted and a pending login code and a pending contact verification are dropped. No-op when no session is selected. |
 | `awaitSessionRestore` | `suspend fun awaitSessionRestore(timeoutMs: Long = 5_000)` | Waits for the vendor's asynchronous restore of a persisted session; a timeout returns normally and leaves `authState` at `Loading`. As the first auth call of a launch it also runs Turnkey's one-shot initialization first, which `timeoutMs` does not bound. Throws `RainError.InvalidConfig` on a configuration conflict (blank or different ids, a different `passkeyDomain`, or a `TurnkeyContext` initialized outside the SDK) and `RainError.InternalError` when Turnkey's initialization failed. |
-| `hasActiveSession` | `fun hasActiveSession(): Boolean` | True when a live session has more than 30 seconds left — the code step can be skipped. Local expiry only: a session revoked server-side reads as active until its first call fails. |
+| `hasActiveSession` | `fun hasActiveSession(): Boolean` | True when a live session has more than 30 seconds left — the code step can be skipped. The answer comes from the stored session, and a session Turnkey refuses to refresh is cleared with that failure, so this reads false from then on; see [Session expiry, refresh, and retry](#session-expiry-refresh-and-retry). In `5.0.0-beta.1` a session revoked by a login on another device kept reading true until its own expiry passed, see the [CHANGELOG](../CHANGELOG.md). |
 | `authState` / `currentAuthState()` | `val authState: Flow<TurnkeyAuthState>` / `fun currentAuthState(): TurnkeyAuthState` | `Loading` / `Authenticated` / `Unauthenticated`; a view over `sessionState` with `Expired` collapsed into `Unauthenticated`. Reads `Loading` until the first auth call has configured Turnkey and its restore has settled. |
 | `LoginContact` | `sealed interface LoginContact { val value: String }` with `data class Email(value)` and `data class Phone(value)` | Where the code goes and the identity the account is keyed on: a first login signs the user up under this contact; a later login finds the account by email for `Email` and by phone number for `Phone`. The same person arriving through the other channel is a new account, with its own sub-organization and wallet, unless the contacts were linked outside the SDK. `value` is the string as given; `toString()` hides it. Marked `@InternalRainTurnkeyApi`. |
 
@@ -227,7 +227,7 @@ The association file the device accepts, in the shape of Google's passkey exampl
 - An email is trimmed and lowercased before any proxy call: `LoginContact.Email(" Jo@Example.com ")` sends `jo@example.com`. Turnkey matches an email case-sensitively, so without this `Jo@Example.com` and `jo@example.com` would sign up as two sub-organizations with two wallets. The lowercased string is the account's identity: it is sent on confirm, used for the account lookup, and stored by a contact attach. An account that signed up with a mixed-case email under 5.0.0-beta.1 is keyed on that exact spelling, so a lowercased login does not find it and signs up a new, empty account. Rain cannot change the stored spelling, since the user is the sub-organization's only root; before upgrading, have such a user sign in on the current build and export the recovery phrase or move the funds out.
 - A phone number is trimmed, stripped of spaces, dots, hyphens and parentheses, and must then be E.164 (`+`, country code and number, at most 15 digits): `LoginContact.Phone("+1 (555) 123-4567")` sends `+15551234567`. A national number without its country code is refused with `RainError.InvalidConfig` before any proxy call, and so is a parenthesised trunk zero such as `+44 (0) 20 ...`, which stripping would turn into a different number; convert national formats in your app first (the sample uses `PhoneNumberUtils.formatNumberToE164` with the device's region). The canonical string is the account's identity, so the same string is sent on confirm and used for the account lookup.
 - Turnkey's sandbox simulates SMS delivery: the test number `+1 999-999-9999` with the code `000000` works once the proxy's code format is numeric and 6 characters, a setting that changes email codes on the same configuration too.
-- A successful login revokes the user's other Turnkey sessions server-side (`invalidateExisting`) and clears the previous local session once the switch to the new one succeeded. The signed-out device's `onSessionExpired` fires at its next call. `hasActiveSession()` reflects the local expiry only — a session revoked from another device reads as active until its first call fails.
+- A successful login revokes the user's other Turnkey sessions server-side (`invalidateExisting`) and clears the previous local session once the switch to the new one succeeded. The signed-out device learns of it at its next refresh: a wallet call that refreshes (with `autoRefresh` on) or `refreshSession()`. Turnkey refuses to refresh the revoked session (HTTP 401), the SDK clears the stored session, `onSessionExpired` fires once, and `hasActiveSession()`, `currentAuthState()` and `currentSessionState()` read signed out as soon as that call returns; see [Session expiry, refresh, and retry](#session-expiry-refresh-and-retry). Until then the revoked session still reads as active, because the stored session carries only its local expiry. In `5.0.0-beta.1` nothing cleared it, see the [CHANGELOG](../CHANGELOG.md).
 - `logout()` clears the selected session — after waiting for a restore in flight to settle — and does **not** fire `onSessionExpired`; cached accounts are still evicted and a pending login code and a pending contact verification are dropped. With no session selected it is a no-op.
 - A first sign-up creates its wallet inside the signup request: one wallet named `Wallet`, 12-word mnemonic, Ethereum `m/44'/60'/0'/0/0` (secp256k1) and Solana `m/44'/501'/0'/0'` (ed25519) — a cross-platform contract shared by Rain's SDKs, so a user provisioned on one platform resolves identically on another. Afterwards, missing accounts are added to the wallet Rain resolves (`createWalletAccounts`); only an organization with no wallet at all gets a new one, so the user has a single mnemonic to back up either way.
 - A sign-up creates one Turnkey **sub-organization** per end user under your parent organization. The user is its only root user, with the credential the flow used: the verified contact, email address or phone number, for a code sign-up, or the passkey for a passkey sign-up; `addPasskey` adds more later, and the contact-attach methods are meant to (in `5.0.0-beta.1` they replace an existing contact of the same kind instead of adding a second one, and succeed for a contact another account owns; see [Attaching a contact](#attaching-a-contact)). The root quorum is the user alone: the parent organization has read-only visibility and can neither reach the keys nor sign. An account is keyed on the credential it signed up with: the same person logging in by email once and by SMS once, or by a code once and with `signUpWithPasskey` once, gets two sub-organizations, two wallets and two mnemonics, unless the second login method was attached to the first account while signed in (`addPasskey`, or `sendContactVerificationCode` / `confirmContactVerification`). Accounts never merge. Treat one credential as one account, or attach the second login method to the existing account before offering it to existing users. An SMS sign-up gets Turnkey's default names for the root user and the organization, since there is no email to name them after. The wallet above is created inside that same signup request, and every session and wallet call is scoped to the sub-organization. Deleting a sub-organization is a root-user activity that requires its wallets to have been exported first (or `deleteWithoutExport`) and is not exposed by this SDK.
@@ -380,7 +380,9 @@ Rain exposes no vendor getters (core references no concrete vendor type). In bri
 you authenticated and passed to `TurnkeyConfig`. In managed mode the SDK configured that same
 process-wide `TurnkeyContext` object; it is reachable because it is a public vendor type, but treat
 it as read-only — creating, selecting or clearing sessions behind Rain's back is unsupported, and
-the vendor configuration itself is one-shot per launch.
+the vendor configuration itself is one-shot per launch. In both modes Rain clears the selected
+session when Turnkey refuses to refresh it, see
+[Session expiry, refresh, and retry](#session-expiry-refresh-and-retry).
 
 ## Error handling
 
@@ -478,10 +480,20 @@ What every wallet call does:
    transient failures.
 5. **Re-auth hook** — when the session dies for good (refresh failed, or Turnkey's own expiry
    timer cleared it while the app was idle), `onSessionExpired` fires once — even with no Rain
-   call in flight, via a passive watcher over Turnkey's auth state.
+   call in flight, via a passive watcher over Turnkey's auth state. A refresh Turnkey refused
+   with HTTP 401 (the session was revoked, which a login on another device does) also clears the
+   stored session before the call throws `RainError.TokenExpired`, so `currentSessionState()`,
+   `currentAuthState()` and `hasActiveSession()` read signed out when it returns and
+   `sessionState` emits it. A refresh that failed for another reason (offline, a 5xx) throws the
+   same error but leaves the session stored, so a later call can refresh it. This holds in both
+   modes: in bring-your-own mode the session is removed from the `TurnkeyContext` the host owns,
+   and the vendor's expiry timer for it is cancelled with it. A refresh whose session a login
+   replaced while it was on the network proceeds with the new session instead.
 
-With `autoRefresh = false` Rain never touches the session: expired sessions and 401s surface
-as `RainError.TokenExpired` immediately and refresh/re-auth is entirely the host's job.
+With `autoRefresh = false` Rain refreshes nothing on its own: expired sessions and 401s surface
+as `RainError.TokenExpired` immediately, the stored session stays, and refresh/re-auth is entirely
+the host's job. The one exception is a `refreshSession()` call the host makes itself: a refusal
+clears the stored session as described above.
 
 ### Observing session state
 
@@ -500,7 +512,8 @@ scope.launch {
     }
 }
 
-provider.refreshSession()  // manual refresh; throws RainError.TokenExpired when it fails
+provider.refreshSession()  // manual refresh; throws RainError.TokenExpired when it fails, and clears
+                           // the stored session when Turnkey refused the refresh
 ```
 
 `sessionState` emits on every Turnkey auth/session change and additionally re-checks when an

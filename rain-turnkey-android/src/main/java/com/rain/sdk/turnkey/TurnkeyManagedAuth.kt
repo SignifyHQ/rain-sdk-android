@@ -224,8 +224,10 @@ internal class TurnkeyManagedAuthController(
      * True when a session is live with more than [SESSION_MIN_REMAINING_SECONDS] left, so the
      * one-time-code step can be skipped. [authState] answers "is there a session"; this answers
      * "can the flow skip the code" — the floor keeps a session from dying during its first call.
-     * Reflects the local expiry only: a session revoked server-side (for example by a login on
-     * another device) reads as active until its first call fails.
+     * The answer comes from the stored session, and a session Turnkey refuses to refresh is cleared
+     * with that failure, so this reads false from then on; a refresh that failed for another reason
+     * (offline, a 5xx) leaves the session stored. Until a refresh asks, a session revoked from
+     * another device still reads as active.
      */
     fun hasActiveSession(): Boolean {
         if (closed.get()) return false

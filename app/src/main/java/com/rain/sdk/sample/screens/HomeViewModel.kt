@@ -202,7 +202,9 @@ class HomeViewModel(
      * conflict, or the backend failing to initialize on this device — and an uncaught exception here
      * would crash every launch, so it falls back to the manual screen instead. A live session with
      * no recorded owner (a confirm that failed after the login itself went through) is not resumed
-     * either: logging in again replaces it safely.
+     * either: logging in again replaces it safely. Nor is one the backend no longer honours: a
+     * login on another device revokes the session without touching the stored copy, so the backend
+     * is asked before the session is trusted, as on Send code.
      */
     private suspend fun resumeRainWallet() {
         try {
@@ -217,6 +219,8 @@ class HomeViewModel(
                     resumeFallback("No active Rain Wallet session — log in again")
                 recordedRainWalletOwner() == null ->
                     resumeFallback("Saved Rain Wallet session has no recorded owner — log in again")
+                !restoredRainWalletSessionIsLive(rainWallet) ->
+                    resumeFallback("Saved Rain Wallet session was signed out on another device — log in again")
                 else -> {
                     val passkey = recordedRainWalletOwner() is RainWalletOwner.Passkey
                     _state.update { it.copy(rainWalletSessionActive = true, rainWalletPasskeySession = passkey) }
@@ -515,7 +519,12 @@ class HomeViewModel(
                 // session's owner. Any other contact, the same person on the other channel
                 // included, runs the full code flow, which logs in under a fresh session and
                 // leaves the current one untouched until the switch succeeds.
-                if (provider.hasActiveSession() && isRecordedRainWalletOwner(channel, contact)) {
+                // restoredRainWalletSessionIsLive also asks the backend whether it still honours
+                // the restored session.
+                if (provider.hasActiveSession() &&
+                    isRecordedRainWalletOwner(channel, contact) &&
+                    restoredRainWalletSessionIsLive(provider)
+                ) {
                     SampleLog.i("RainWallet.otpInit", "existing session restored for this contact — skipping the code")
                     _state.update {
                         it.copy(
@@ -670,6 +679,24 @@ class HomeViewModel(
         val channel = ContactChannel.fromRecordOrEmail(store.rainWalletChannel)
         val contact = rainWalletContactSlot(channel).trim()
         return if (contact.isBlank()) null else RainWalletOwner.Contact(channel, contact)
+    }
+
+    /**
+     * Whether the backend still honours the restored session. `hasActiveSession()` reads the stored
+     * session, and a login on another device revokes it without touching that copy, so skipping the
+     * code on it alone would hand the user a session every wallet call then rejects. A forced refresh
+     * asks the backend. A refused refresh clears the stored session, fires the expiry hook and throws
+     * `RAIN_201`, and the caller goes to the code step instead: Send code sends a fresh code, the
+     * launch resume falls back to the manual screen. A refresh that failed for another reason
+     * surfaces the same way today and is treated the same, since a fresh code works whatever state
+     * the session is in.
+     */
+    private suspend fun restoredRainWalletSessionIsLive(provider: RainProvider): Boolean = try {
+        provider.refreshSession()
+        true
+    } catch (e: RainError.TokenExpired) {
+        SampleLog.w("RainWallet.otpInit", "restored session refused by the backend (${e.code}) — sending a code")
+        false
     }
 
     /**

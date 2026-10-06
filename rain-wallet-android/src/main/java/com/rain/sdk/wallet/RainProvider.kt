@@ -133,7 +133,13 @@ class RainProvider internal constructor(
     fun currentSessionState(): RainWalletSessionState = backing.currentSessionState().toRainWallet()
 
     /**
-     * Forces a session refresh (extended expiry) regardless of remaining lifetime.
+     * Forces a session refresh (extended expiry) regardless of remaining lifetime. When the wallet
+     * backend refused the refresh (a login on another device revoked the session), the stored
+     * session is cleared before the throw and `onSessionExpired` fires once, so [hasActiveSession],
+     * [currentAuthState] and [currentSessionState] read signed out when this returns. A refresh
+     * that failed for another reason (offline, a 5xx) throws the same error but leaves the session
+     * stored. The same happens inside any wallet call that refreshes with
+     * [RainWalletSessionPolicy.autoRefresh] on.
      *
      * @throws RainError.TokenExpired (`RAIN_201`) when the session cannot be refreshed; re-authenticate.
      * @throws RainError.InvalidConfig (`RAIN_102`) when this provider was closed.
@@ -159,9 +165,11 @@ class RainProvider internal constructor(
 
     /**
      * True when an unexpired session is already live, restored or just established, with more than
-     * 30 seconds left, so the one-time-code step can be skipped. Reflects the local expiry only: a
-     * session revoked server-side (a login on another device) reads as active until its first call
-     * fails. False until the first authentication call has configured the wallet backend.
+     * 30 seconds left, so the one-time-code step can be skipped. The answer comes from the stored
+     * session, and a session the wallet backend refuses to refresh is cleared with that failure
+     * (see [refreshSession]), so this reads false from then on; until a refresh asks, a session
+     * revoked from another device still reads as active. False until the first authentication call
+     * has configured the wallet backend.
      */
     fun hasActiveSession(): Boolean = backing.hasActiveSession()
 

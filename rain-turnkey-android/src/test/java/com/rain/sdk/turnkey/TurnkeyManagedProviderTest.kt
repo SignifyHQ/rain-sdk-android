@@ -242,6 +242,32 @@ class TurnkeyManagedProviderTest {
     }
 
     @Test
+    fun `a refresh the backend refused reads signed out on the provider as soon as it returns`() = runTest {
+        val turnkey = MockTurnkey()
+        turnkey.refreshSessionError = revokedSessionRefreshFailure()
+        var hookCalls = 0
+        val provider = TurnkeyProvider(
+            TurnkeyConfig(
+                application = mockk<Application>(),
+                organizationId = "org-a",
+                authProxyConfigId = "proxy-a",
+                onSessionExpired = { hookCalls++ },
+            ),
+            contextOverride = turnkey,
+        )
+        assertThat(provider.hasActiveSession()).isTrue()
+
+        expectThrows<RainError.TokenExpired> { provider.refreshSession() }
+
+        // The public reads a login screen keys on, before the scheduler runs anything else.
+        assertThat(provider.hasActiveSession()).isFalse()
+        assertThat(provider.currentAuthState()).isEqualTo(TurnkeyAuthState.Unauthenticated)
+        assertThat(provider.currentSessionState()).isEqualTo(TurnkeySessionState.Unauthenticated)
+        assertThat(turnkey.clearSessionCalls).containsExactly(MockTurnkey.DEFAULT_SESSION_KEY)
+        assertThat(hookCalls).isEqualTo(1)
+    }
+
+    @Test
     fun `a closed managed provider refuses authentication and reads unauthenticated`() = runTest {
         val turnkey = MockTurnkey()
         val provider = TurnkeyProvider(managedConfig(), contextOverride = turnkey)

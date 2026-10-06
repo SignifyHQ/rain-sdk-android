@@ -697,6 +697,13 @@ internal class MockTurnkey(
     /** When set, [refreshSession] throws this. */
     var refreshSessionError: Exception? = null
 
+    /**
+     * When set, [refreshSession] suspends on it after recording the call and before failing or
+     * completing — a refresh in flight on the network, during which another coroutine can change
+     * the session.
+     */
+    var refreshSessionGate: CompletableDeferred<Unit>? = null
+
     /** Runs after a recorded [refreshSession] call: install the refreshed session here. */
     var onRefreshSession: (suspend () -> Unit)? = null
 
@@ -711,6 +718,7 @@ internal class MockTurnkey(
     override suspend fun refreshSession(expirationSeconds: String?) {
         refreshSessionCallCount++
         refreshSessionCalls += expirationSeconds
+        refreshSessionGate?.await()
         refreshSessionError?.let { throw it }
         onRefreshSession?.invoke()
     }
