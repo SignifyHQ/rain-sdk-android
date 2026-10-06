@@ -80,8 +80,9 @@ methods:
   (`passkeys.uptop.xyz`) to vouch for this build's signing key, see *Demo keystore* under Notes.
   Signed in, *Add a passkey to this account* registers a passkey for a code-created account, and
   the *Add a login contact* step sends a verification code to an email or phone and attaches it on
-  *Verify and attach*, after which that contact signs in to this account by code. A closed passkey
-  sheet shows `RAIN_401`; every other failure shows its error code only.
+  *Verify and attach*, after which that contact signs in to this account by code; a contact another
+  account signs in with is refused (`RAIN_202`) and the card shows the reason. A closed
+  passkey sheet shows `RAIN_401`; every other failure shows its error code only.
 - **Export keys** — once the Rain Wallet session is active, an *Export keys* card under the Rain Wallet card reveals the recovery phrase,
   the Ethereum private key or the Solana private key, one at a time, through `exportRecoveryPhrase`
   and `exportPrivateKey`, on a restored or reused session before *Initialize Rain*, and after it. While a value shows, the window

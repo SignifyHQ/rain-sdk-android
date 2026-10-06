@@ -49,7 +49,7 @@ object TokenRegistry {
         ),
         // BNB Chain
         56 to listOf(
-            TokenInfo(56, "0x8AC76a51cc950d9822D68b83Fe1AD97B32Cd580d", "USDC", 18, "USDC"),
+            TokenInfo(56, "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", "USDC", 18, "USDC"),
             TokenInfo(56, "0x55d398326f99059fF775485246999027B3197955", "USDT", 18, "Tether USD")
         ),
         // Polygon
@@ -95,7 +95,7 @@ object TokenRegistry {
         // Celo
         42220 to listOf(
             TokenInfo(42220, "0xceba9300f2b948710d2653dd7b07f33a8b32118c", "USDC", 6, "USDC"),
-            TokenInfo(42220, "0x48065fbBE25f71C9282DDF5e1CD6D6A887483D5e", "USDT", 6, "Tether USD")
+            TokenInfo(42220, "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e", "USDT", 6, "Tether USD")
         ),
         // Avalanche
         43114 to listOf(

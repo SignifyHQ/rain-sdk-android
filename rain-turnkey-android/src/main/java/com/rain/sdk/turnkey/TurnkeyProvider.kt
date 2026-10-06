@@ -570,10 +570,9 @@ class TurnkeyProvider internal constructor(
      * is canonicalized like a login contact (see [LoginContact]) and that string is what the account
      * stores; calling it again for the same contact replaces the pending code, a call for another
      * contact or channel retires it before anything is sent, and a login or a [logout] drops it. Accounts
-     * are never merged: a contact another account already owns does not move wallets, and the
-     * backend's answer surfaces on confirm. Throws `RainError.InvalidConfig` for a blank or
-     * malformed contact, and `RainError.ProviderError` when the code request is refused. Managed
-     * mode only.
+     * are never merged; what the confirm refuses is under [confirmContactVerification]. Throws
+     * `RainError.InvalidConfig` for a blank or malformed contact, and `RainError.ProviderError` when
+     * the code request is refused. Managed mode only.
      */
     @InternalRainTurnkeyApi
     suspend fun sendContactVerificationCode(contact: LoginContact) {
@@ -582,14 +581,14 @@ class TurnkeyProvider internal constructor(
 
     /**
      * Confirms the code from [sendContactVerificationCode] and attaches the verified contact. The
-     * session is checked before the code is spent (`RainError.TokenExpired` otherwise). A rejected
-     * code throws `RainError.InvalidLoginCode` and keeps the challenge, so the user can retype it;
-     * a rejection the backend wraps in an HTTP 500 arrives as `RainError.ProviderError` with the
-     * challenge kept too. A failure after the code was accepted drops the challenge: the session
-     * died meanwhile (`RainError.TokenExpired`), the backend refused the update
-     * (`RainError.Unauthorized`), or the update failed (`RainError.ProviderError`); request a new
-     * code. Throws `RainError.InvalidConfig` when no code was requested or the code is blank.
-     * Managed mode only.
+     * session is checked before the code is spent. Once the code is accepted, the backend's account
+     * lookup names the account the contact signs in to: another account refuses the attach before
+     * anything changes, this account or none lets the update run. A rejected code keeps the
+     * challenge, so the user can retype it; a failure after the code was accepted drops it, so the
+     * user requests a new code. Fails with `RainError.InvalidConfig`, `RainError.TokenExpired`,
+     * `RainError.InvalidLoginCode`, `RainError.Unauthorized` or `RainError.ProviderError`; the
+     * `confirmContactVerification` row under *Members* in `docs/TURNKEY_SUPPORT.md` says which
+     * condition maps to which. Managed mode only.
      */
     @InternalRainTurnkeyApi
     suspend fun confirmContactVerification(code: String) {

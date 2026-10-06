@@ -6,6 +6,7 @@ import com.rain.sdk.error.RainError
 import com.turnkey.core.TurnkeyContext
 import com.turnkey.core.models.AuthConfig
 import com.turnkey.core.models.AuthState
+import com.turnkey.core.models.Session
 import com.turnkey.types.V1AddressFormat
 import com.turnkey.types.V1Curve
 import kotlinx.coroutines.CancellationException
@@ -408,7 +409,7 @@ internal class TurnkeyManagedAuthController(
      * rule: a second call for the same contact replaces it on success and keeps it on failure, and
      * a call for another contact or channel retires it before the vendor is asked, so a failed
      * switch leaves nothing confirmable. Accounts are never merged: a contact another account
-     * already owns goes to the backend, and its answer surfaces on confirm.
+     * already signs in with is refused on confirm, before anything changes.
      */
     suspend fun sendContactVerificationCode(contact: LoginContact) {
         flowMutex.withLock {
@@ -428,19 +429,25 @@ internal class TurnkeyManagedAuthController(
      * session is checked before the code is spent, so a dead session costs no code. A rejected code
      * throws [RainError.InvalidLoginCode] and keeps the challenge, as [confirmLoginCode] does, and so
      * does any other failure inside the verify step. Once the verify returned a token the code is
-     * spent, so the challenge is dropped whether or not the update that follows succeeds; a failed
-     * update surfaces as its own error and the user requests a new code.
+     * spent, so the challenge is dropped whether or not what follows succeeds. What follows is the
+     * ownership check, then the update: the backend's account lookup names the account the contact
+     * signs in to, and another account than the signed-in one refuses the attach with
+     * [RainError.Unauthorized] before anything changes (the backend's update accepts such a
+     * contact: it replaces this account's contact while the other account keeps signing in with
+     * it). This account or none, and the update runs. A failed lookup or update surfaces as its
+     * own error and the user requests a new code.
      */
     suspend fun confirmContactVerification(code: String) {
         flowMutex.withLock {
             prepare()
             val pending = requirePendingContactOtp()
             val trimmed = requireCode(code)
-            requireLiveSession()
+            val organizationId = requireLiveSession().organizationId
             val token = guarded(onVendorFailure = ::dropContactOtpUnlessVerifyFailed) {
                 context.verifyOtpToken(pending.challenge, trimmed)
             }
             clearPendingContactOtp()
+            requireContactFreeOrOurs(pending, token, organizationId)
             // The coordinator is its own mapping boundary: it rethrows cancellation and maps the rest.
             coordinator.executeWrite { session, _ ->
                 when (pending.challenge.channel) {
@@ -454,6 +461,21 @@ internal class TurnkeyManagedAuthController(
     /** Mirrors [dropChallengeUnlessVerifyFailed] for the verification slot. */
     private fun dropContactOtpUnlessVerifyFailed(e: Exception) {
         if (!TurnkeyErrorMapping.isLoginCodeVerifyFailure(e)) clearPendingContactOtp()
+    }
+
+    /**
+     * Refuses the attach when another account signs in with the pending contact, through the auth
+     * proxy's account lookup with the token the verify step returned. The lookup runs outside the
+     * coordinator on purpose: no session stamps it, so a 401 from it is not a session death to
+     * refresh and retry, and [TurnkeyErrorMapping.mapAccountLookupError] maps its failures to
+     * [RainError.ProviderError] whatever the status. A contact no account signs in with, or this
+     * account's own, lets the update run.
+     */
+    private suspend fun requireContactFreeOrOurs(pending: PendingOtp, token: String, organizationId: String) {
+        val owner = guarded(map = TurnkeyErrorMapping::mapAccountLookupError) {
+            context.lookupContactOwner(pending.challenge.channel, pending.contact, token)
+        }
+        if (owner != null && owner != organizationId) throw RainError.Unauthorized(CONTACT_OWNED_MESSAGE)
     }
 
     /** Mirrors [retirePendingOtpUnlessFor] for the verification slot. */
@@ -474,12 +496,11 @@ internal class TurnkeyManagedAuthController(
 
     /**
      * A live or refreshable session, or [RainError.TokenExpired]: the coordinator's own check, run
-     * as an empty read. It waits out a restore in flight and refreshes inside the expiry buffer;
-     * [hasActiveSession] alone reads false while the vendor's asynchronous restore is still loading.
+     * as a read that returns the session it validated. It waits out a restore in flight and
+     * refreshes inside the expiry buffer; [hasActiveSession] alone reads false while the vendor's
+     * asynchronous restore is still loading.
      */
-    private suspend fun requireLiveSession() {
-        coordinator.executeRead { _, _ -> Unit }
-    }
+    private suspend fun requireLiveSession(): Session = coordinator.executeRead { session, _ -> session }
 
     /**
      * The relying-party domain, or [RainError.InvalidConfig] before the vendor is touched. The
@@ -827,9 +848,15 @@ internal class TurnkeyManagedAuthController(
      * vendor wraps cancellation in its own error types, but it also re-emits a sibling's failure as
      * a wrapped `JobCancellationException` while this caller is still active. [onVendorFailure]
      * sees the raw vendor exception before it is mapped, for decisions the mapped error cannot carry.
+     * [map] turns it into the [RainError] that leaves: the auth-proxy mapping unless the call has
+     * a rule of its own, as the account lookup does.
      */
     @Suppress("TooGenericExceptionCaught", "ThrowsCount") // the mapping boundary: two pass-throughs and one mapped exit
-    private suspend fun <T> guarded(onVendorFailure: ((Exception) -> Unit)? = null, block: suspend () -> T): T {
+    private suspend fun <T> guarded(
+        onVendorFailure: ((Exception) -> Unit)? = null,
+        map: (Throwable) -> RainError = TurnkeyErrorMapping::mapAuthError,
+        block: suspend () -> T,
+    ): T {
         try {
             return block()
         } catch (e: CancellationException) {
@@ -839,7 +866,7 @@ internal class TurnkeyManagedAuthController(
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
             onVendorFailure?.invoke(e)
-            throw TurnkeyErrorMapping.mapAuthError(e)
+            throw map(e)
         }
     }
 
@@ -855,6 +882,9 @@ internal class TurnkeyManagedAuthController(
         const val SESSION_MIN_REMAINING_SECONDS = 30.0
         const val SESSION_KEY_PREFIX = "rain-turnkey-"
         const val MANAGED_WALLET_NAME = "Wallet"
+
+        /** The refusal for a contact another account signs in with. Names no contact, by the auth-proxy log rule. */
+        const val CONTACT_OWNED_MESSAGE = "This contact already signs in to another account"
 
         /** Separators people type into a phone number; removed before the E.164 check. */
         private val PHONE_SEPARATORS = Regex("""[\s().-]""")

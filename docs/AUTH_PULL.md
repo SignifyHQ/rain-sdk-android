@@ -279,7 +279,7 @@ provider is asked for one thing: the wallet address to read the allowance *for*,
 
 | Code | Case | When |
 |---|---|---|
-| `RAIN_102` | `RainError.InvalidConfig` | Auth Pull is not configured, target differs from the trusted token/operator, malformed input, wrong chain/environment, or the token reports decimals outside `0..77`. Local configuration failures occur before wallet access. |
+| `RAIN_102` | `RainError.InvalidConfig` | Auth Pull is not configured, target differs from the trusted token/operator, malformed input (an operator or token contract written in mixed case must carry its EIP-55 checksum), wrong chain/environment, or the token reports decimals outside `0..77`. Local configuration failures occur before wallet access. |
 | `RAIN_102` | `RainError.TokenNotFound` | The token's decimals could not be established (not in the registry and its `decimals()` read failed), so a capped amount cannot be scaled safely. Never raised for an unlimited approval. |
 | `RAIN_104` | `RainError.ChainNotSupported` | Turnkey and the Rain wallet: the chain is outside the wallet backend's broadcast coverage. Thrown before any signature or network call. |
 | `RAIN_301` | `RainError.NetworkError` | A network failure on the RPC read or on a provider's pre-flight simulation. Retryable; nothing was signed or broadcast. |

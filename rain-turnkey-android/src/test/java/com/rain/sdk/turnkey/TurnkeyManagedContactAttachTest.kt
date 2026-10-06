@@ -3,6 +3,7 @@ package com.rain.sdk.turnkey
 import android.app.Activity
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.error.RainError
+import com.rain.sdk.error.RainErrorCode
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
@@ -10,10 +11,11 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Contact attach on [TurnkeyManagedAuthController]: a code verified without logging in, then the
- * signed-in user's email or phone set with the verification token, under a pending slot the login
- * code cannot consume and that a login or a logout drops. Vendor types stay inside method bodies
- * (see [TurnkeyErrorMappingTest] for why).
+ * Contact attach on [TurnkeyManagedAuthController]: a code verified without logging in, the
+ * account lookup that refuses a contact another account signs in with, then the signed-in user's
+ * email or phone set with the verification token, under a pending slot the login code cannot
+ * consume and that a login or a logout drops. Vendor types stay inside method bodies (see
+ * [TurnkeyErrorMappingTest] for why).
  */
 class TurnkeyManagedContactAttachTest {
 
@@ -210,6 +212,12 @@ class TurnkeyManagedContactAttachTest {
         assertThat(set.contact).isEqualTo("user@example.com")
         assertThat(set.verificationToken).isEqualTo(turnkey.stubbedVerificationToken)
         assertThat(turnkey.setUserPhoneNumberCalls).isEmpty()
+        // The ownership lookup ran between the verify and the update, for the canonical contact
+        // with the same token, and nobody owning the contact let the update run.
+        val lookup = turnkey.accountLookupCalls.single()
+        assertThat(lookup.channel).isEqualTo(OtpChannel.EMAIL)
+        assertThat(lookup.contact).isEqualTo("user@example.com")
+        assertThat(lookup.verificationToken).isEqualTo(turnkey.stubbedVerificationToken)
         // The session is untouched and the slot is spent.
         assertThat(turnkey.selectedSessionKey).isEqualTo(MockTurnkey.DEFAULT_SESSION_KEY)
         expectThrows<RainError.InvalidConfig> { controller.confirmContactVerification("123456") }
@@ -227,6 +235,101 @@ class TurnkeyManagedContactAttachTest {
         assertThat(set.contact).isEqualTo("+19999999999")
         assertThat(set.userId).isEqualTo("user-id")
         assertThat(turnkey.setUserEmailCalls).isEmpty()
+        val lookup = turnkey.accountLookupCalls.single()
+        assertThat(lookup.channel).isEqualTo(OtpChannel.SMS)
+        assertThat(lookup.contact).isEqualTo("+19999999999")
+    }
+
+    @Test
+    fun `a contact another account signs in with is refused with Unauthorized before anything changes`() = runTest {
+        for (contact in listOf(LoginContact.Email("Taken@Example.com"), LoginContact.Phone("+1 (999) 999-9999"))) {
+            val turnkey = MockTurnkey()
+            turnkey.accountLookupResult = "another-org-id"
+            val controller = controller(turnkey)
+            controller.sendContactVerificationCode(contact)
+
+            val refused = expectThrows<RainError.Unauthorized> { controller.confirmContactVerification("123456") }
+
+            assertThat(refused.errorCode).isEqualTo(RainErrorCode.UNAUTHORIZED)
+            assertThat(refused).hasMessageThat().contains(TurnkeyManagedAuthController.CONTACT_OWNED_MESSAGE)
+            assertThat(refused).hasMessageThat().doesNotContain("example.com")
+            assertThat(refused).hasMessageThat().doesNotContain("9999")
+            // The code was spent on the verify, the lookup ran for the canonical contact, nothing was written.
+            assertThat(turnkey.verifyOtpTokenCalls).hasSize(1)
+            val lookup = turnkey.accountLookupCalls.single()
+            assertThat(lookup.contact).isEqualTo(if (contact is LoginContact.Email) "taken@example.com" else "+19999999999")
+            assertThat(lookup.channel).isEqualTo(if (contact is LoginContact.Email) OtpChannel.EMAIL else OtpChannel.SMS)
+            assertThat(turnkey.setUserEmailCalls).isEmpty()
+            assertThat(turnkey.setUserPhoneNumberCalls).isEmpty()
+            // The session is untouched, read at once, and the host hook stayed silent.
+            assertThat(turnkey.selectedSessionKey).isEqualTo(MockTurnkey.DEFAULT_SESSION_KEY)
+            assertThat(controller.hasActiveSession()).isTrue()
+            assertThat(controller.currentAuthState()).isEqualTo(TurnkeyAuthState.Authenticated)
+            assertThat(turnkey.refreshSessionCallCount).isEqualTo(0)
+            assertThat(hookCalls).isEqualTo(0)
+            // The challenge is dropped, as after any failure past the verify: the next attempt needs a new code.
+            val spent = expectThrows<RainError.InvalidConfig> { controller.confirmContactVerification("123456") }
+            assertThat(spent).hasMessageThat().contains("sendContactVerificationCode")
+            assertThat(turnkey.verifyOtpTokenCalls).hasSize(1)
+        }
+    }
+
+    @Test
+    fun `a contact this account signs in with passes the lookup and the update runs`() = runTest {
+        val turnkey = MockTurnkey()
+        turnkey.accountLookupResult = MockTurnkey.DEFAULT_ORG_ID
+        val controller = controller(turnkey)
+        controller.sendContactVerificationCode(LoginContact.Email("mine@example.com"))
+
+        controller.confirmContactVerification("123456")
+
+        assertThat(turnkey.accountLookupCalls).hasSize(1)
+        assertThat(turnkey.setUserEmailCalls.single().contact).isEqualTo("mine@example.com")
+        assertThat(hookCalls).isEqualTo(0)
+    }
+
+    @Test
+    fun `a failed lookup is ProviderError whatever its status, runs no update and drops the challenge`() = runTest {
+        // No session stamps the lookup, so its 401 is neither a session death nor a refresh to run,
+        // and its 403 is not a permission the organization lacks.
+        val failures = listOf(
+            RuntimeException("HTTP error from /v1/account: 401"),
+            RuntimeException("HTTP error from /v1/account: 403"),
+            RuntimeException("HTTP error from /v1/account: 500"),
+            java.io.IOException("offline"),
+        )
+        for (failure in failures) {
+            val turnkey = MockTurnkey()
+            turnkey.accountLookupError = failure
+            val controller = controller(turnkey)
+            controller.sendContactVerificationCode(LoginContact.Email("user@example.com"))
+
+            val failed = expectThrows<RainError.ProviderError> { controller.confirmContactVerification("123456") }
+
+            assertThat(failed).hasMessageThat().doesNotContain("example.com")
+            assertThat(turnkey.accountLookupCalls).hasSize(1)
+            assertThat(turnkey.setUserEmailCalls).isEmpty()
+            assertThat(turnkey.refreshSessionCallCount).isEqualTo(0)
+            assertThat(turnkey.selectedSessionKey).isEqualTo(MockTurnkey.DEFAULT_SESSION_KEY)
+            assertThat(controller.hasActiveSession()).isTrue()
+            assertThat(hookCalls).isEqualTo(0)
+            // The code is spent, so the slot is gone: the next confirm needs a new code.
+            expectThrows<RainError.InvalidConfig> { controller.confirmContactVerification("123456") }
+        }
+    }
+
+    @Test
+    fun `a cancellation inside the lookup propagates as itself and runs no update`() = runTest {
+        val turnkey = MockTurnkey()
+        turnkey.accountLookupError = CancellationException("cancelled")
+        val controller = controller(turnkey)
+        controller.sendContactVerificationCode(LoginContact.Email("user@example.com"))
+
+        expectThrows<CancellationException> { controller.confirmContactVerification("123456") }
+
+        assertThat(turnkey.accountLookupCalls).hasSize(1)
+        assertThat(turnkey.setUserEmailCalls).isEmpty()
+        assertThat(hookCalls).isEqualTo(0)
     }
 
     @Test

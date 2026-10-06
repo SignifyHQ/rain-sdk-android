@@ -495,6 +495,16 @@ internal class MockTurnkey(
     /** When set, both contact setters throw this after recording the call. */
     var setUserContactError: Exception? = null
 
+    data class AccountLookupCall(val channel: OtpChannel, val contact: String, val verificationToken: String)
+
+    val accountLookupCalls = mutableListOf<AccountLookupCall>()
+
+    /** The organization [lookupContactOwner] names as the contact's owner; null, the default, is nobody. */
+    var accountLookupResult: String? = null
+
+    /** When set, [lookupContactOwner] throws this after recording the call. */
+    var accountLookupError: Exception? = null
+
     val createWalletCalls = mutableListOf<CreateWalletCall>()
     var createWalletError: Exception? = null
 
@@ -602,6 +612,12 @@ internal class MockTurnkey(
         verifyOtpTokenCalls += VerifyOtpTokenCall(challenge.otpId, otpCode, challenge.encryptionTargetBundle)
         verifyOtpTokenError?.let { throw it }
         return stubbedVerificationToken
+    }
+
+    override suspend fun lookupContactOwner(channel: OtpChannel, contact: String, verificationToken: String): String? {
+        accountLookupCalls += AccountLookupCall(channel, contact, verificationToken)
+        accountLookupError?.let { throw it }
+        return accountLookupResult
     }
 
     override suspend fun setUserEmail(organizationId: String, userId: String, email: String, verificationToken: String) {

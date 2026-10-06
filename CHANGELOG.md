@@ -8,6 +8,23 @@ Notable changes to the Rain Android SDK, newest first. The format follows
 
 ### Fixed
 
+- Sends and collateral withdrawals refuse an EVM address written in mixed case whose EIP-55
+  checksum doesn't match, with `RAIN_102`, before anything is signed. A mistyped character almost
+  always breaks the checksum, and 5.0.0-beta.1 checked only the address's shape, so `sendNative`,
+  `sendToken`, `withdrawCollateral` and `prepareWithdrawal` went ahead with the mistyped address. A
+  send's recipient is refused as `InvalidRecipient`, a withdrawal address as `InvalidConfig`. The
+  same check guards every method that takes `RainWithdrawAddresses`, `estimateWithdrawalFee` and
+  the wallet-agnostic `RainSdk.buildEIP712Message` and `RainSdk.buildWithdrawTransactionData`
+  included, the proxy passed to `RainSdk.getLatestNonce`, and the wallet address
+  `buildEIP712Message` signs for. `sendToken` now checks its token contract the same way, and a
+  malformed contract fails with `RAIN_102` before the provider is called, where 5.0.0-beta.1 handed
+  it to the provider and surfaced the provider's error. `RainSdk.Builder.build()` checks the Auth
+  Pull operator and token contracts. An address written in a single letter case carries no
+  checksum and is accepted as before.
+- The built-in token registry lists BNB Chain USDC and Celo USDT in EIP-55 form. 5.0.0-beta.1
+  carried both with a wrong mixed-case checksum, so `tokenMetadata` and `registerTokens` refused
+  the registry's own spelling of those two tokens, and the check above would have refused them on
+  `sendToken` as well.
 - Solana sends and collateral withdrawals through `rain-turnkey-android` and `rain-wallet-android`
   reach the chain: the wallet backend's client is `com.turnkey:sdk-kotlin` 2.0.2 with
   `com.turnkey:http` 2.1.1, which post the activity type the request body requires.
@@ -22,6 +39,13 @@ Notable changes to the Rain Android SDK, newest first. The format follows
   the new session. In bring-your-own mode the clear removes the session from the `TurnkeyContext`
   the host owns, and the vendor's expiry timer for it is cancelled with it. The sample app asks the
   backend before reusing a restored session.
+- The Rain wallet's contact attach refuses a contact that already signs in to another account.
+  Once the code is accepted, `confirmContactVerification` asks the wallet backend which account
+  the contact signs in to and throws `RAIN_202` (`Unauthorized`) before anything changes when it
+  is another one; a contact nobody signs in with, or this account's own, attaches as before. In
+  `5.0.0-beta.1` the attach succeeded and replaced the signed-in account's contact with one that
+  kept opening the other account. The attach still replaces an existing contact of the same kind
+  instead of adding a second one; see Known issues under `5.0.0-beta.1`.
 
 ### Changed
 
@@ -55,6 +79,15 @@ beta; see [Compatibility](README.md#compatibility).
 
 Rain plans to fix each of these in a later beta.
 
+- Sends and collateral withdrawals accept an EVM address written in mixed case whose EIP-55
+  checksum doesn't match. `sendNative`, `sendToken`, `withdrawCollateral`, `prepareWithdrawal` and
+  `estimateWithdrawalFee` check only that the address is 40 hex characters, and so do the
+  wallet-agnostic `RainSdk.buildEIP712Message`, `RainSdk.buildWithdrawTransactionData` and
+  `RainSdk.getLatestNonce`, so a mistyped character in a checksummed address goes through and the
+  funds go to an address nobody may control. `sendToken` doesn't check its token contract at all.
+  The Auth Pull operator and token contracts passed to `RainSdk.Builder.authPullConfig(...)` have
+  the same gap. Until the fix, check mixed-case input in the app before calling, by comparing it
+  with its EIP-55 form from any EIP-55 implementation. The fix is listed under Unreleased above.
 - Solana sends through the Turnkey provider and the Rain wallet fail with `RAIN_501`
   (`ProviderError`), and nothing reaches the chain. The wallet backend rejects the request with
   HTTP 400. This affects `sendNative`, `sendToken` and `withdrawCollateral` on Solana chains. EVM
@@ -64,7 +97,8 @@ Rain plans to fix each of these in a later beta.
   `confirmContactVerification`, replaces the account's email address or phone number instead of
   adding a second one. The old contact then no longer logs in to the account. The attach also
   succeeds for an email address that already logs in to another account. That address keeps
-  opening the other account, which leaves the signed-in account with no working email login.
+  opening the other account, which leaves the signed-in account with no working email login. The
+  fix for that second part, a refusal, is listed under Unreleased above; the replacement remains.
   Tell users that an attach replaces their current contact.
 - A session revoked by a login on another device keeps reading as active on the first device:
   `hasActiveSession()`, `currentAuthState()` and `currentSessionState()` report the stored
