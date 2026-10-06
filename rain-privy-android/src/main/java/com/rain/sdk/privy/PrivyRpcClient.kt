@@ -109,19 +109,27 @@ internal class PrivyRpcClient(
      * - [RpcCallPurpose.READ]: only a funds shortfall maps to [RainError.InsufficientFunds]; a
      *   read can never fail simulation.
      *
-     * The funds shortfall is the shared [VendorErrorClassifier]'s funds verdict, so every wording
-     * it knows ("insufficient funds", the "EVM error: OutOfFunds" Base Sepolia's node answers a
-     * native send over the balance with) classifies here as it does in every adapter. Only that
-     * verdict is asked for: nodes and gateways say "denied" for auth and rate-limit failures,
-     * never for a user rejection (those come from the wallet layer, not JSON-RPC). Anything else
-     * falls back to [RainError.InternalError] with the code and message preserved.
+     * The funds shortfall is the shared [VendorErrorClassifier]'s funds verdict, the one
+     * [PrivyErrorMapping] asks of a wallet-API answer, so every wording it knows ("insufficient
+     * funds", the "EVM error: OutOfFunds" Base Sepolia's node answers a native send over the
+     * balance with) classifies the same on both Privy paths. Only that verdict is asked for: nodes
+     * and gateways say "denied" for auth and rate-limit failures, never for a user rejection (those
+     * come from the wallet layer, not JSON-RPC). [RainError.InsufficientFunds] carries no cause, so
+     * the node's wording is logged before the verdict is returned. Anything else falls back to
+     * [RainError.InternalError] with the code and message preserved.
      */
     private fun classifyNodeError(code: Int, message: String, purpose: RpcCallPurpose): RainError {
         val details = "RPC error [$code]: $message"
-        if (purpose == RpcCallPurpose.SIMULATION && message.contains("revert", ignoreCase = true)) {
-            return RainError.TransactionSimulationFailed(RainError.InternalError(details))
+        val shortfall = VendorErrorClassifier.insufficientFundsOrNull(message)
+        return when {
+            purpose == RpcCallPurpose.SIMULATION && message.contains("revert", ignoreCase = true) ->
+                RainError.TransactionSimulationFailed(RainError.InternalError(details))
+            shortfall != null -> {
+                Timber.w("Rain SDK: Privy JSON-RPC refused for a funds shortfall: $details")
+                shortfall
+            }
+            else -> RainError.InternalError(details)
         }
-        return VendorErrorClassifier.insufficientFundsOrNull(message) ?: RainError.InternalError(details)
     }
 
     private fun paramsToJsonArray(params: List<Any>): JSONArray {

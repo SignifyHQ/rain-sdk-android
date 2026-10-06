@@ -139,17 +139,37 @@ class PrivyErrorMappingTest {
     }
 
     @Test
-    fun `a failure with no HTTP status, and a 5xx, map to ProviderError with the cause kept`() {
-        // privy-core 0.15.0 reports a request that got no answer, and a 5xx, as a status-less
-        // PrivyApiException with the client's exception as the cause.
-        for (failure in listOf(
-            PrivyApiException(null, null, "Something went wrong", IllegalStateException("no answer")),
-            PrivyApiException(null, null, "Something went wrong", IllegalStateException("503 Service Unavailable")),
-            apiException(502, "Bad Gateway"),
+    fun `a 400 whose body relays a revert maps to TransactionSimulationFailed before the funds read`() {
+        // The preflight's order: a revert that also names a balance is a simulation failure, never
+        // a native shortfall with null amounts. Whether Privy's wallet API relays a decoded revert
+        // is not confirmed on a device.
+        for (message in listOf(
+            "execution reverted: insufficient balance",
+            "Error broadcasting transaction with message: execution reverted: ERC20InsufficientBalance(0xabc, 0, 1)",
         )) {
+            val failure = apiException(400, message)
             val mapped = PrivyErrorMapping.mapOrNull(failure)
-            assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
+            assertThat(mapped).isInstanceOf(RainError.TransactionSimulationFailed::class.java)
             assertThat(mapped!!.cause).isSameInstanceAs(failure)
+        }
+    }
+
+    @Test
+    fun `a failure with no HTTP status maps to ProviderError through map, whatever its cause says`() {
+        // privy-core 0.15.0 keeps a status and the body text only for a 4xx. A request that got no
+        // answer, a 3xx and a 5xx arrive as a status-less PrivyApiException with the vendor's fixed
+        // sentence and the client's exception as the cause, so the funds read never sees a cause
+        // that names a shortfall. Asserted through map, the adapter's total mapping, because the
+        // Privy-type branch may hand a status-less shape on to the network mapping.
+        for (cause in listOf(
+            IllegalStateException("no answer"),
+            IllegalStateException("503 Service Unavailable"),
+            IllegalStateException("EVM error: OutOfFunds"),
+        )) {
+            val failure = PrivyApiException(null, null, "Something went wrong", cause)
+            val mapped = PrivyErrorMapping.map(failure)
+            assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
+            assertThat(mapped.cause).isSameInstanceAs(failure)
         }
     }
 
