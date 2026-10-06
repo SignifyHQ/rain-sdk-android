@@ -42,7 +42,7 @@ internal class PrivyManager(
      * otherwise the user's first embedded Ethereum wallet.
      */
     suspend fun resolveWallet(addressOverride: String?): EmbeddedEthereumWallet {
-        val user = privy.getUser() ?: throw RainError.TokenExpired()
+        val user = sessions.requireUser()
         val wallets = user.embeddedEthereumWallets
         if (wallets.isEmpty()) {
             throw RainError.WalletUnavailable(
@@ -136,7 +136,7 @@ internal class PrivyManager(
      * address override is an Ethereum address, so it does not participate here.
      */
     suspend fun resolveSolanaWallet(): EmbeddedSolanaWallet {
-        val user = privy.getUser() ?: throw RainError.TokenExpired()
+        val user = sessions.requireUser()
         return user.embeddedSolanaWallets.firstOrNull()
             ?: throw RainError.WalletUnavailable(
                 "Privy user has no embedded Solana wallet; call createSolanaWallet() first"

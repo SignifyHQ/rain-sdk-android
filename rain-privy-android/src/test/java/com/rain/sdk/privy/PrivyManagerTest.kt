@@ -10,6 +10,7 @@ import io.mockk.just
 import io.mockk.mockk
 import io.privy.auth.AuthState
 import io.privy.auth.PrivyUser
+import io.privy.network.PrivyApiException
 import io.privy.sdk.Privy
 import io.privy.wallet.ethereum.EmbeddedEthereumWallet
 import io.privy.wallet.ethereum.EmbeddedEthereumWalletProvider
@@ -24,6 +25,8 @@ import io.privy.wallet.transactions.TransactionsPage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
+import java.net.ConnectException
+import java.net.SocketTimeoutException
 
 class PrivyManagerTest {
 
@@ -52,6 +55,52 @@ class PrivyManagerTest {
         val manager = PrivyManager(privyWith(null))
         val error = runCatching { manager.getAddress(null) }.exceptionOrNull()
         assertThat(error).isInstanceOf(RainError.TokenExpired::class.java)
+    }
+
+    @Test
+    fun `resolveWallet on a session restored offline throws NetworkError, not a death`() = runBlocking {
+        val privy = mockk<Privy>()
+        coEvery { privy.getUser() } returns null
+        every { privy.authState } returns MutableStateFlow(mockk<AuthState.AuthenticatedUnverified>())
+        val manager = PrivyManager(privy, PrivySessionCoordinator(privy, retryDelay = { }))
+
+        val error = runCatching { manager.getAddress(null) }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(RainError.NetworkError::class.java)
+    }
+
+    @Test
+    fun `a send whose answer was lost after the request left leaves as ProviderError`() = runBlocking {
+        // Privy signs and broadcasts inside the one request, so the fate is unknown and the host
+        // must not read a retry hint into it.
+        val provider = mockk<EmbeddedEthereumWalletProvider>()
+        every { provider.switchChain(any()) } just Runs
+        val lost = PrivyApiException(null, null, "Something went wrong", SocketTimeoutException("timeout"))
+        coEvery { provider.request(any()) } returns Result.failure(lost)
+        val manager = PrivyManager(privyWith(listOf(wallet(WALLET, provider))))
+
+        val error = runCatching {
+            manager.sendTransaction(walletAddress = WALLET, rpcUrl = RPC, transactionJson = "{}")
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(error?.cause).isSameInstanceAs(lost)
+    }
+
+    @Test
+    fun `a send refused before the request left the device leaves as NetworkError`() = runBlocking {
+        val provider = mockk<EmbeddedEthereumWalletProvider>()
+        every { provider.switchChain(any()) } just Runs
+        val refused = PrivyApiException(null, null, "Something went wrong", ConnectException("Failed to connect"))
+        coEvery { provider.request(any()) } returns Result.failure(refused)
+        val manager = PrivyManager(privyWith(listOf(wallet(WALLET, provider))))
+
+        val error = runCatching {
+            manager.sendTransaction(walletAddress = WALLET, rpcUrl = RPC, transactionJson = "{}")
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(RainError.NetworkError::class.java)
+        assertThat(error?.cause).isSameInstanceAs(refused)
     }
 
     @Test

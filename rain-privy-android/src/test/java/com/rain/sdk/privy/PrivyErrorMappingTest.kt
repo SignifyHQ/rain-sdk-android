@@ -2,9 +2,18 @@ package com.rain.sdk.privy
 
 import com.google.common.truth.Truth.assertThat
 import com.rain.sdk.error.RainError
+import io.ktor.client.network.sockets.ConnectTimeoutException
 import io.privy.auth.AuthenticationException
+import io.privy.network.NoNetworkException
+import io.privy.network.PrivyApiException
 import io.privy.wallet.EmbeddedWalletException
+import kotlinx.coroutines.CancellationException
 import org.junit.Test
+import java.io.IOException
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 
 /**
  * Vendor-error classification. The Privy Kotlin SDK carries no structured reason codes, so
@@ -109,6 +118,105 @@ class PrivyErrorMappingTest {
             EmbeddedWalletException("RPC response missing result")
         )
         assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
+    }
+
+    // ---- network ------------------------------------------------------------------
+
+    /** The vendor's confirmed-offline answer to an API call: no status, its sentence, a bare cause. */
+    private fun offlineApiCall() = PrivyApiException(
+        null,
+        null,
+        NoNetworkException.message.orEmpty(),
+        Throwable(NoNetworkException.message),
+    )
+
+    /** The vendor's status-less wrapper for any other exception the HTTP client raised. */
+    private fun wrapped(cause: Throwable) = PrivyApiException(null, null, "Something went wrong", cause)
+
+    @Test
+    fun `a status-less API failure is left to map, which reads it by the call it failed on`() {
+        // privy-core 0.15.0 reports a request that got no answer as a status-less PrivyApiException.
+        // The typed mapping stays out of it: only the call site knows whether the request left.
+        assertThat(PrivyErrorMapping.mapOrNull(offlineApiCall())).isNull()
+        assertThat(PrivyErrorMapping.mapOrNull(wrapped(ConnectException("No route to host")))).isNull()
+    }
+
+    @Test
+    fun `the vendor's confirmed-offline answer maps to NetworkError on any call`() {
+        // An API call on a device the vendor can confirm offline comes back as
+        // ApiResult.Error.NoNetworkError, which toResult() wraps as a status-less PrivyApiException
+        // carrying the same sentence; a wallet call fails with NoNetworkException itself.
+        for (idempotent in listOf(true, false)) {
+            assertThat(PrivyErrorMapping.map(offlineApiCall(), idempotent))
+                .isInstanceOf(RainError.NetworkError::class.java)
+            assertThat(PrivyErrorMapping.map(NoNetworkException, idempotent))
+                .isInstanceOf(RainError.NetworkError::class.java)
+        }
+    }
+
+    @Test
+    fun `a failure before the request left the device maps to NetworkError on a send too`() {
+        for (cause in listOf<Throwable>(
+            ConnectException("Failed to connect to api.privy.io"),
+            UnknownHostException("api.privy.io"),
+            NoRouteToHostException("No route to host"),
+            ConnectTimeoutException("Connect timeout has expired"),
+        )) {
+            val failure = wrapped(cause)
+            val mapped = PrivyErrorMapping.map(failure, idempotent = false)
+            assertThat(mapped).isInstanceOf(RainError.NetworkError::class.java)
+            assertThat(mapped.cause).isSameInstanceAs(failure)
+            assertThat(PrivyErrorMapping.map(cause, idempotent = false)).isInstanceOf(RainError.NetworkError::class.java)
+        }
+    }
+
+    @Test
+    fun `a transport failure after the request left is NetworkError only on a call that can be repeated`() {
+        // A read timeout or a reset may follow a broadcast Privy already made inside the request,
+        // so on a send it is an unknown fate, never the "retry" that RAIN_301 means.
+        for (cause in listOf<Throwable>(SocketTimeoutException("timeout"), IOException("connection reset"))) {
+            val failure = wrapped(cause)
+            assertThat(PrivyErrorMapping.map(failure, idempotent = true)).isInstanceOf(RainError.NetworkError::class.java)
+            assertThat(PrivyErrorMapping.map(cause, idempotent = true)).isInstanceOf(RainError.NetworkError::class.java)
+            val onSend = PrivyErrorMapping.map(failure, idempotent = false)
+            assertThat(onSend).isInstanceOf(RainError.ProviderError::class.java)
+            assertThat(onSend.cause).isSameInstanceAs(failure)
+            assertThat(PrivyErrorMapping.map(cause, idempotent = false)).isInstanceOf(RainError.ProviderError::class.java)
+        }
+    }
+
+    @Test
+    fun `a status-less failure that is not the network stays ProviderError`() {
+        // A response the vendor could not decode, and a 5xx, which ktor raises as a
+        // ServerResponseException (an IllegalStateException) and the vendor's catch-all reports
+        // status-less: neither is a transport failure, on a read or on a send.
+        for (cause in listOf<Throwable>(
+            IllegalStateException("no body"),
+            IllegalStateException("Server error(https://auth.privy.io/api/v1/sessions: 503 Service Unavailable"),
+        )) {
+            for (idempotent in listOf(true, false)) {
+                val failure = wrapped(cause)
+                val mapped = PrivyErrorMapping.map(failure, idempotent)
+                assertThat(mapped).isInstanceOf(RainError.ProviderError::class.java)
+                assertThat(mapped.cause).isSameInstanceAs(failure)
+            }
+        }
+    }
+
+    @Test
+    fun `an HTTP answer is never a network failure, whatever caused the client to throw`() {
+        assertThat(PrivyErrorMapping.mapOrNull(PrivyApiException(401, null, "Unauthorized", IOException("x"))))
+            .isInstanceOf(RainError.TokenExpired::class.java)
+        val answered = PrivyApiException(404, null, "Not found", IOException("x"))
+        assertThat(PrivyErrorMapping.mapOrNull(answered)).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(PrivyErrorMapping.isNetworkFailure(answered)).isFalse()
+    }
+
+    @Test
+    fun `a cancellation the vendor wrapped is found in the chain`() {
+        val cancel = CancellationException("caller went away")
+        assertThat(wrapped(cancel).cancellationInChain()).isSameInstanceAs(cancel)
+        assertThat(IOException("x").cancellationInChain()).isNull()
     }
 
     // ---- fallthrough --------------------------------------------------------------

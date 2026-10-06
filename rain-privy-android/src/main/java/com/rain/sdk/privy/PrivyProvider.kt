@@ -32,10 +32,12 @@ import kotlinx.coroutines.withContext
  * @param sessionPolicy Auth-guard and transient-retry behavior for every wallet call.
  * @param onSessionExpired Re-auth hook: invoked once per session death when the Privy session
  *                         dies — whether that is discovered during a wallet call or by the
- *                         passive session watcher. May run on the calling coroutine's thread or
- *                         a watcher thread; hop to the main thread before touching UI, and never
- *                         call back into the SDK synchronously from it. Restart authentication
- *                         from here.
+ *                         passive session watcher. A failure that leaves the session in place,
+ *                         a call or refresh that got no answer from the network for one, is not
+ *                         a death and leaves it silent; see [PrivyProvider.refreshSession]. May
+ *                         run on the calling coroutine's thread or a watcher thread; hop to the
+ *                         main thread before touching UI, and never call back into the SDK
+ *                         synchronously from it. Restart authentication from here.
  */
 class PrivyConfig(
     val privy: Privy,
@@ -84,8 +86,14 @@ class PrivyProvider(
     /**
      * Forces a Privy session refresh (`PrivyUser.refresh`). Rarely needed — Privy refreshes its
      * own session before every call — but available for hosts that want an explicit health
-     * check. Throws `RainError.TokenExpired` when the session cannot be refreshed — the host
-     * must re-authenticate.
+     * check. The conditions behind each code are stated once, in the provider-adapters section
+     * of `docs/METHODS.md`.
+     *
+     * @throws RainError.TokenExpired (`RAIN_201`) the session is gone, with
+     *   [PrivyConfig.onSessionExpired] fired; re-authenticate.
+     * @throws RainError.NetworkError (`RAIN_301`) the refresh got no answer, or the session was
+     *   restored offline and is not verified yet; the session is left as it was, retry online.
+     * @throws RainError.ProviderError (`RAIN_501`) any other failure with the session still in place.
      */
     suspend fun refreshSession() = coordinator.refreshNow()
 
