@@ -265,8 +265,8 @@ jobs:
               errors.append(f"the CHANGELOG.md section for {v} is empty")
 
           # Every install coordinate in tracked Markdown must carry the new version.
-          tracked = subprocess.check_output(["git", "ls-files", "*.md"], text=True).split()
-          coordinate = re.compile(r"xyz\.rain:rain-[a-z]+-android:([0-9][^\"'\s)]*)")
+          tracked = [p for p in subprocess.check_output(["git", "ls-files", "*.md"], text=True).split() if p != "CHANGELOG.md"]
+          coordinate = re.compile(r"xyz\.rain:rain-[a-z]+-android:([0-9][0-9A-Za-z.+-]*)")
           for path in tracked:
               for n, line in enumerate(open(path, encoding="utf-8"), 1):
                   for found in coordinate.findall(line):
