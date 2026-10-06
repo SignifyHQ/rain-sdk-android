@@ -1,5 +1,6 @@
 package com.rain.sdk.privy
 
+import com.rain.sdk.error.RainError
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.provider.ProviderContext
 import com.rain.sdk.provider.ProviderDescriptor
