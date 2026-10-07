@@ -7,7 +7,6 @@ import com.turnkey.http.utils.TurnkeyHttpError
 import com.turnkey.types.Externaldatav1Timestamp
 import com.turnkey.types.RpcStatus
 import com.turnkey.types.TEthSendTransactionBody
-import com.turnkey.types.TEthSendTransactionResponse
 import com.turnkey.types.TGetActivitiesBody
 import com.turnkey.types.TGetActivitiesResponse
 import com.turnkey.types.TGetActivityBody
@@ -160,6 +159,12 @@ internal class MockTurnkeyClient(
     /** When set, [ethSendTransaction] throws this instead of producing a response. */
     var ethSendTransactionError: Exception? = null
 
+    /**
+     * When set, [ethSendTransaction] answers with this activity instead of a completed one carrying
+     * [mockSendTransactionStatusId], or throws from it; the Solana twin is [solSendActivity].
+     */
+    var ethSendActivity: ((TEthSendTransactionBody) -> V1Activity)? = null
+
     /** When set, [solSendTransaction] throws this instead of producing a response. */
     var solSendTransactionError: Exception? = null
 
@@ -236,20 +241,18 @@ internal class MockTurnkeyClient(
 
     override suspend fun ethSendTransaction(
         input: TEthSendTransactionBody
-    ): TEthSendTransactionResponse {
+    ): V1Activity {
         ethSendTransactionCalls += input
         ethSendTransactionError?.let { throw it }
-        return TEthSendTransactionResponse(
-            activity = MockTurnkey.makeActivity(
-                id = UUID.randomUUID().toString(),
-                from = input.from,
-                to = input.to,
-                caip2 = input.caip2,
-                value = input.value,
-                data = input.data,
-                sendTransactionStatusId = mockSendTransactionStatusId
-            ),
-            result = V1EthSendTransactionResult(sendTransactionStatusId = mockSendTransactionStatusId)
+        ethSendActivity?.let { return it(input) }
+        return MockTurnkey.makeActivity(
+            id = UUID.randomUUID().toString(),
+            from = input.from,
+            to = input.to,
+            caip2 = input.caip2,
+            value = input.value,
+            data = input.data,
+            sendTransactionStatusId = mockSendTransactionStatusId
         )
     }
 
@@ -854,6 +857,11 @@ internal class MockTurnkey(
             wallet.copy(accounts = wallet.accounts + solanaAccount(VECTOR_SOLANA_ADDRESS))
         }
 
+        /**
+         * An `eth_send_transaction` activity: completed with its status id by default, a history
+         * fixture or a send's answer; [status], a `null` [sendTransactionStatusId] and [failureMessage]
+         * shape the pending, result-less and failed answers the send tests need.
+         */
         fun makeActivity(
             id: String,
             from: String,
@@ -861,11 +869,14 @@ internal class MockTurnkey(
             caip2: String,
             value: String?,
             data: String?,
-            sendTransactionStatusId: String
+            sendTransactionStatusId: String?,
+            status: V1ActivityStatus = V1ActivityStatus.ACTIVITY_STATUS_COMPLETED,
+            failureMessage: String? = null
         ): V1Activity = V1Activity(
             canApprove = false,
             canReject = false,
             createdAt = Externaldatav1Timestamp(nanos = "0", seconds = "1714521600"),
+            failure = failureMessage?.let { RpcStatus(message = it) },
             fingerprint = "fingerprint",
             id = id,
             intent = V1Intent(
@@ -884,12 +895,10 @@ internal class MockTurnkey(
                 )
             ),
             organizationId = DEFAULT_ORG_ID,
-            result = V1Result(
-                ethSendTransactionResult = V1EthSendTransactionResult(
-                    sendTransactionStatusId = sendTransactionStatusId
-                )
-            ),
-            status = V1ActivityStatus.ACTIVITY_STATUS_COMPLETED,
+            result = sendTransactionStatusId?.let {
+                V1Result(ethSendTransactionResult = V1EthSendTransactionResult(sendTransactionStatusId = it))
+            } ?: V1Result(),
+            status = status,
             type = V1ActivityType.ACTIVITY_TYPE_ETH_SEND_TRANSACTION,
             updatedAt = Externaldatav1Timestamp(nanos = "0", seconds = "1714521600"),
             votes = emptyList()

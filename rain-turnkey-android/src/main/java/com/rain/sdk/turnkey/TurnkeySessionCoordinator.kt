@@ -198,9 +198,9 @@ internal class TurnkeySessionCoordinator(
                     isAuthFailure(e) -> {
                         // A 401 on the request itself means Turnkey rejected it before executing
                         // anything, so one refresh-and-retry is safe even for a send. A block that
-                        // polls after acceptance must not let a poll-phase 401 out as such: the
-                        // Solana send sorts those itself; the EVM send still relies on the vendor's
-                        // poll not failing with 401, a known gap.
+                        // polls after acceptance must not let a poll-phase 401 out as such: both
+                        // sends sort those inside the write (TurnkeyManager.sendOutcome), so one
+                        // never reaches this branch.
                         if (refreshedAfterAuthFailure || !policy.autoRefresh) expireAndThrow(e)
                         refreshedAfterAuthFailure = true
                         val outcome = refreshLock.withLock {

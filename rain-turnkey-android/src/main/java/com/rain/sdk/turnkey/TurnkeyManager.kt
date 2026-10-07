@@ -219,7 +219,13 @@ internal class TurnkeyManager(
 
     // ---------- high-level send ----------
 
-    /** Every EVM send, transfer or raw, follows [sponsorGas]; there is no per-call override. */
+    /**
+     * Every EVM send, transfer or raw, follows [sponsorGas]; there is no per-call override. The send
+     * is an `eth_send_transaction` activity through the vendor's client: [sendOutcome] sorts what the
+     * client made of the submit, [sendActivity] waits for the activity while Turnkey is still
+     * executing it, and [evmSendStatusId] reads the status id the hash is then polled with. The
+     * rules are the Solana send's, see [submitSolanaTransaction].
+     */
     internal suspend fun sendEvmTransaction(
         chainId: Int,
         from: String,
@@ -232,8 +238,9 @@ internal class TurnkeyManager(
         TurnkeyBroadcastChains.requireSendSupport(chainId)
         return evmSendLock.withLock {
             requireEvmChain(chainId, "sendTransaction")
-            // The body is rebuilt on a refresh-and-retry so the nonce and gas quotes stay fresh.
-            val statusId = sessions.executeWrite { session, client ->
+            // The body is rebuilt on a refresh-and-retry so the nonce and gas quotes stay fresh; the
+            // retry only follows a refusal of the submit, so nothing was executed with the old body.
+            val outcome = sessions.executeWrite { session, client ->
                 val sendBody = buildSendTransactionBody(
                     session = session,
                     client = client,
@@ -243,9 +250,9 @@ internal class TurnkeyManager(
                     data = data,
                     value = value
                 )
-                client.ethSendTransaction(sendBody).result.sendTransactionStatusId
+                sendOutcome { client.ethSendTransaction(sendBody) }
             }
-            pollForTransactionHash(statusId)
+            pollForTransactionHash(evmSendStatusId(sendActivity(outcome)))
         }
     }
 
@@ -1225,6 +1232,13 @@ internal class TurnkeyManager(
      */
     private fun solanaSendStatusId(activity: V1Activity): String =
         activity.result.solanaSendStatusId() ?: sendWithoutStatusId(activity, "Solana send")
+
+    /**
+     * The send status id of an EVM send activity, the handle the hash is polled with; the same
+     * classification as [solanaSendStatusId] when the activity carries none.
+     */
+    private fun evmSendStatusId(activity: V1Activity): String =
+        activity.result.ethSendTransactionResult?.sendTransactionStatusId ?: sendWithoutStatusId(activity, "send")
 
     /** The end of a send whose activity carries no status id: the settled failure, else pending on the activity id. */
     private fun sendWithoutStatusId(activity: V1Activity, what: String): Nothing {

@@ -20,7 +20,6 @@ import com.turnkey.types.ProxyTGetAccountBody
 import com.turnkey.types.TCreateAuthenticatorsBody
 import com.turnkey.types.TCreateWalletAccountsBody
 import com.turnkey.types.TEthSendTransactionBody
-import com.turnkey.types.TEthSendTransactionResponse
 import com.turnkey.types.TExportWalletAccountBody
 import com.turnkey.types.TGetActivitiesBody
 import com.turnkey.types.TGetActivitiesResponse
@@ -70,17 +69,18 @@ internal interface TurnkeyClientProtocol {
         input: TGetWalletAddressBalancesBody
     ): TGetWalletAddressBalancesResponse
 
-    suspend fun ethSendTransaction(
-        input: TEthSendTransactionBody
-    ): TEthSendTransactionResponse
-
     /**
-     * Submits a Solana send and returns the activity Turnkey recorded for it; the caller reads the
-     * status id off it. The vendor's method returns the activity once it completed with its V2 result
-     * and, since `com.turnkey:http` 2.2.0, throws `TurnkeyHttpError.ActivityNotCompleted` carrying the
-     * activity otherwise (still pending after the vendor's poll, failed or rejected); the manager
+     * Submits an EVM send and returns the activity Turnkey recorded for it; the caller reads the
+     * status id off it. The vendor's method returns the activity once it completed with its result
+     * and, since `com.turnkey:http` 2.2.0, throws `TurnkeyHttpError.ActivityNotCompleted` carrying
+     * the activity otherwise (still pending after the vendor's poll, failed or rejected); the manager
      * sorts both, see `TurnkeyManager.sendOutcome`.
      */
+    suspend fun ethSendTransaction(
+        input: TEthSendTransactionBody
+    ): V1Activity
+
+    /** The Solana twin of [ethSendTransaction]: the activity, with the V2 result once completed. */
     suspend fun solSendTransaction(
         input: TSolSendTransactionBody
     ): V1Activity
@@ -675,7 +675,7 @@ internal class TurnkeyClientAdapter(
 
     override suspend fun ethSendTransaction(
         input: TEthSendTransactionBody
-    ): TEthSendTransactionResponse = client.ethSendTransaction(input)
+    ): V1Activity = client.ethSendTransaction(input).activity
 
     override suspend fun solSendTransaction(
         input: TSolSendTransactionBody
