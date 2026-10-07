@@ -20,8 +20,8 @@ dependencies {
 An app that does not register Turnkey should not depend on this module: the Turnkey artifacts come with it and with `rain-wallet-android`, which wraps this module; no other Rain module pulls them. Internally the module pulls in:
 
 ```
-com.turnkey:sdk-kotlin:2.0.2
-com.turnkey:http:2.1.1
+com.turnkey:sdk-kotlin:2.1.0
+com.turnkey:http:2.2.0
 com.turnkey:types:2.1.0
 com.turnkey:crypto:1.0.1
 com.turnkey:encoding:1.0.0
@@ -128,7 +128,7 @@ independently; each provider resolves on its own.
 
 Managed mode is not a host-facing mode. Every member of it — the `TurnkeyConfig(application, organizationId, authProxyConfigId, passkeyDomain = ...)` constructor, `sendLoginCode` / `confirmLoginCode` / `loginWithPasskey` / `signUpWithPasskey` / `addPasskey` / `sendContactVerificationCode` / `confirmContactVerification` / `logout` / `awaitSessionRestore` / `hasActiveSession` / `authState` / `currentAuthState`, the `managedOrganizationId`, `managedAuthProxyConfigId` and `managedPasskeyDomain` accessors, `LoginContact` and `TurnkeyAuthState` — is marked `@InternalRainTurnkeyApi`, a `@RequiresOptIn` annotation at error level: a host app that calls any of them gets a compile error naming the reason. It is the building block of the Rain wallet provider (`RainProvider` in `rain-wallet-android`), which exposes the same flow in Rain's own terms with no Turnkey types; that module opts in module-wide with `-opt-in=com.rain.sdk.turnkey.InternalRainTurnkeyApi`. The rest of this section documents the flow for that caller.
 
-Before the first run, in the Turnkey dashboard: enable the **Auth Proxy** for your parent organization with **Email OTP** turned on, and **SMS OTP** as well when phone numbers are used (each auth method has its own toggle), copy its auth-proxy config id (it identifies the configuration and is safe to ship in the app; the Turnkey SDK sends it as the `X-Auth-Proxy-Config-ID` header on every proxy call), and set the code format (6–9 characters, numeric or alphanumeric; one setting shared by email and SMS) and the session lifetime (900 seconds by default) there. The SDK reads none of these settings; it obeys them. SMS authentication is a Turnkey Enterprise feature that Turnkey enables on request, off by default on top-level organizations. Leave the dashboard captcha off while this SDK pins Turnkey's Kotlin SDK 2.0.2: that SDK sends no captcha token, so an enabled captcha refuses every code request on both channels.
+Before the first run, in the Turnkey dashboard: enable the **Auth Proxy** for your parent organization with **Email OTP** turned on, and **SMS OTP** as well when phone numbers are used (each auth method has its own toggle), copy its auth-proxy config id (it identifies the configuration and is safe to ship in the app; the Turnkey SDK sends it as the `X-Auth-Proxy-Config-ID` header on every proxy call), and set the code format (6–9 characters, numeric or alphanumeric; one setting shared by email and SMS) and the session lifetime (900 seconds by default) there. The SDK reads none of these settings; it obeys them. SMS authentication is a Turnkey Enterprise feature that Turnkey enables on request, off by default on top-level organizations. Leave the dashboard captcha off while this SDK pins Turnkey's Kotlin SDK 2.1.0: that SDK sends no captcha token, so an enabled captcha refuses every code request on both channels.
 
 For passkeys, turn **Passkey** on in the same auth-proxy configuration (Rain's own configuration lists email, SMS and passkey) and pass `passkeyDomain` to the constructor: a registrable domain of at least two labels you control, such as `passkeys.example.com`, that serves `https://<domain>/.well-known/assetlinks.json` as `application/json` with no redirect, in the shape of Google's passkey example (the file under [Passkeys](#passkeys)): a statement for the site itself granting `delegate_permission/common.get_login_creds`, and an `android_app` statement granting both `delegate_permission/common.handle_all_urls` and `delegate_permission/common.get_login_creds` that lists the app's package name and the SHA-256 fingerprint of every certificate that signs it (debug, upload and Play App Signing). Google Play services fetches the file from the device at every ceremony and judges it itself; a file carrying the app statement alone is refused with `RAIN_102`, even when Google's asset-links API reports the link as valid, so start from that shape. The domain is permanent, because every passkey created against it stops working when it changes, and a passkey made for one domain does not work in an app on another. Null or blank turns the passkey methods off (they throw `RainError.InvalidConfig` before any Turnkey call); a scheme, port, path or a single label such as `localhost` throws `RAIN_102` from the constructor. On the device the flows need Android 9 or later; on Android 9 to 13 Google Play services (the passkey provider the SDK's dependencies bring), on Android 14 and later any installed credential provider; a screen lock and a provider with a signed-in account. An emulator needs a Play image with a Google account added. When Turnkey has enabled the `WEBAUTHN_ORIGINS` feature on your parent organization, its allowed origins must include the Android origin `android:apk-key-hash:<base64url SHA-256 of the signing certificate>`, one per certificate.
 
@@ -255,6 +255,27 @@ After the Turnkey-backed `client` is resolved, every wallet operation routes thr
 On Solana chain ids the same methods route to `TurnkeyClient.solSendTransaction` /
 `getWalletAddressBalances` and the Solana account instead — see [Solana notes](#solana-notes).
 
+### After a send is accepted
+
+The Solana send follows one rule once Turnkey has accepted the activity: the call reports a
+failure only when the send has settled, because a host that retries a reported failure would send
+the money twice. The vendor's client polls the activity for about four seconds (its
+`ActivityPollerConfig`, 1 s and 3 retries by default; a bring-your-own host can set the
+`activityPoller` field of the vendor `TurnkeyConfig` it initializes Turnkey with, and the Rain wallet
+keeps the default) and, since `com.turnkey:http` 2.2.0, throws `TurnkeyHttpError.ActivityNotCompleted`
+carrying the activity when it is not completed by then. The adapter takes the activity from that
+error, reads it again by id at the polling interval while Turnkey is still executing it (up to ten
+reads, under the session rules below), then classifies it. Completed with a status id continues to
+the status poll. Failed or rejected before broadcasting anything (a policy denial, for example) is a
+`ProviderError` with Turnkey's reason, and nothing moved. Still pending, or completed without a
+status id this build can read, is `TransactionPending` carrying the activity id; no call takes that
+id, and it matches `uniqueId` on the activity-log history row for the send. An answer below 500 to
+the submit is a refusal: nothing was executed, the send fails as any refused request does, and a 401
+there is refreshed and retried once. Any other failure after the submit (a 5xx answer, a poll read
+that failed, a lost or undecodable answer) leaves the activity with Turnkey and its id unknown to the
+adapter, so the send surfaces as a `ProviderError` that says the send may still land and names the
+vendor's failure. That error is not retry-safe; read history before sending again.
+
 ## Solana notes
 
 > **Known issue in `5.0.0-beta.1`.** Every Solana send through the Turnkey adapter fails with
@@ -293,28 +314,11 @@ is read-only and a send there throws `RAIN_104`. The broadcast chain list is und
   vendor client's `solSendTransaction`, posted as `ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2` with
   `signWiths` since `com.turnkey:http` 2.1.1; 2.1.0 posted the V1 type with that body and Turnkey
   refused it with HTTP 400. The module keeps its own catalog entry for `com.turnkey:http`, so an
-  http-only fix from Turnkey is a one-line bump ahead of the version `sdk-kotlin` pins. An answer
-  below 500 to the submit is a refusal. Nothing was executed, and the send fails as any refused
-  request does.
-- **After acceptance.** Once Turnkey has accepted the activity the call reports a failure only when
-  the send has settled, with one residue described at the end of this note. The vendor's client
-  returns the activity only when it completed within its poll (up to five reads over about four
-  seconds) and otherwise throws and drops the activity id, whether the activity was still pending, a
-  poll read failed, the answer was lost or did not decode. A 5xx answer to the submit itself is
-  treated the same way, since Turnkey may have created the activity before a gateway failed. The
-  adapter keeps every such failure inside the send (a poll-phase 401 never re-runs the submit) and
-  reads the activity back from the activity log by its unsigned transaction: once after the vendor's
-  own no-result throw, and twice, one polling interval apart, after any other failure (a 5xx answer to
-  the submit, a failed poll read, a lost or undecodable answer). While
-  Turnkey is still executing the activity it is read again by id at the polling interval, up to ten
-  times. Then it is classified. Completed with a status id continues to the status poll. Failed or
-  rejected before broadcasting anything (a policy denial, for example) is a `ProviderError` with
-  Turnkey's reason, and nothing moved. Still pending, or completed without a status id this build can
-  read, surfaces as `TransactionPending` carrying the activity id (no call takes it; it matches
-  `uniqueId` on the activity-log history row). A send status Turnkey reports as failed maps as in the
-  table above. The residue is the activity that cannot be read back at all. The send then surfaces as
-  a `ProviderError` that says the send may still land and names the vendor's failure. That error is
-  not retry-safe; read history before sending again.
+  http-only fix from Turnkey is a one-line bump ahead of the version `sdk-kotlin` pins.
+- **After acceptance.** The rule under [After a send is accepted](#after-a-send-is-accepted)
+  applies. The status id is read from the activity's V2 result, or from the V1 result should Turnkey
+  record the activity that way, and a send status Turnkey reports as failed maps as in the table
+  above.
 - **Encoding.** Turnkey takes `unsignedTransaction` hex-encoded, the full wire format with zeroed
   signature placeholders, so Rain sends hex. Turnkey returns a status id rather than a signature; Rain polls for it, then
   recovers it from `getSignaturesForAddress` (newer than the pre-send baseline only) and verifies
@@ -473,8 +477,8 @@ What every wallet call does:
 3. **Refresh-on-401** — a call rejected with HTTP 401 / `InvalidSession` is refreshed and
    retried exactly once. A 401 on the request itself means Turnkey rejected it before executing
    anything, so this is safe for sends too. A 401 inside the wallet backend's own poll after a Solana
-   send was accepted is kept inside that send (see [Solana notes](#solana-notes)); on an EVM send it
-   would re-run the submit, a known gap. A second 401 surfaces as `RainError.TokenExpired`.
+   send was accepted is kept inside that send (see [After a send is accepted](#after-a-send-is-accepted));
+   on an EVM send it would re-run the submit, a known gap. A second 401 surfaces as `RainError.TokenExpired`.
 4. **Transient backoff** — idempotent reads (balances, history, transaction-status polls) and
    key export retry HTTP 5xx/429/408 and network I/O failures with exponential backoff; a retried
    export is a new activity with a fresh ephemeral key. Sends and signing are never retried on

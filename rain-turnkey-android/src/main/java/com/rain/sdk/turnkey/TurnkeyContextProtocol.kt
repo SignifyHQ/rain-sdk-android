@@ -76,10 +76,10 @@ internal interface TurnkeyClientProtocol {
 
     /**
      * Submits a Solana send and returns the activity Turnkey recorded for it; the caller reads the
-     * status id off it. The vendor's method returns the activity only once it completed with its V2
-     * result and throws a bare `RuntimeException` otherwise (still pending after the vendor's poll,
-     * or failed or rejected), with no activity id in it; the manager recovers the activity in that
-     * case, see `TurnkeyManager.submitSolanaTransaction`.
+     * status id off it. The vendor's method returns the activity once it completed with its V2 result
+     * and, since `com.turnkey:http` 2.2.0, throws `TurnkeyHttpError.ActivityNotCompleted` carrying the
+     * activity otherwise (still pending after the vendor's poll, failed or rejected); the manager
+     * sorts both, see `TurnkeyManager.sendOutcome`.
      */
     suspend fun solSendTransaction(
         input: TSolSendTransactionBody
@@ -93,7 +93,7 @@ internal interface TurnkeyClientProtocol {
         input: TGetActivitiesBody
     ): TGetActivitiesResponse
 
-    /** One activity by id: the Solana send reads a read-back activity again with it while Turnkey executes it. */
+    /** One activity by id: a send reads its activity again with it while Turnkey is still executing it. */
     suspend fun getActivity(
         input: TGetActivityBody
     ): TGetActivityResponse
@@ -265,7 +265,7 @@ internal interface TurnkeyContextProtocol {
      * the auth proxy's Get Account, `POST /v1/account`, filtered by `EMAIL` or `PHONE_NUMBER`. The
      * proxy requires the [verificationToken] from [verifyOtpToken] to look an email or phone number
      * up, and the token stays usable afterwards (`TurnkeyContext.loginOrSignUpWithOtp` in sdk-kotlin
-     * 2.0.2 looks the account up with it and then logs in or signs up with the same token). No
+     * 2.1.0 looks the account up with it and then logs in or signs up with the same token). No
      * session stamps the call.
      */
     suspend fun lookupContactOwner(channel: OtpChannel, contact: String, verificationToken: String): String?
@@ -338,7 +338,7 @@ internal class TurnkeyContextAdapter(
             } else {
                 context.refreshSession(expirationSeconds = expirationSeconds)
             }
-            // Turnkey's refreshSession (sdk-kotlin up to 2.0.2) rotates the session key pair, deletes the old one and
+            // Turnkey's refreshSession (sdk-kotlin up to 2.1.0) rotates the session key pair, deletes the old one and
             // rebuilds its client, but never rewrites its public `session` flow: the flow keeps the
             // pre-refresh session, whose public key no longer has a key pair and whose expiry is the
             // old one. Re-selecting the session is the one public call that reloads the stored

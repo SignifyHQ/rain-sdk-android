@@ -320,7 +320,7 @@ internal class TurnkeySessionCoordinator(
 
     /**
      * Clears the stored session after Turnkey refused to refresh it with HTTP 401 on the stamp-login
-     * request (sdk-kotlin 2.0.2 `TurnkeyContext.refreshSession` wraps it in `FailedToRefreshSession`).
+     * request (sdk-kotlin 2.1.0 `TurnkeyContext.refreshSession` wraps it in `FailedToRefreshSession`).
      * The session was revoked out from under this device, which is what a login on another device
      * does (`invalidateExisting`), and the stored copy still carries its local expiry. Without the
      * clear, [currentState], [sessionStates] and every read derived from them would keep saying

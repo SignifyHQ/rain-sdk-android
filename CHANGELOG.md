@@ -26,8 +26,14 @@ Notable changes to the Rain Android SDK, newest first. The format follows
   the registry's own spelling of those two tokens, and the check above would have refused them on
   `sendToken` as well.
 - Solana sends and collateral withdrawals through `rain-turnkey-android` and `rain-wallet-android`
-  reach the chain: the wallet backend's client is `com.turnkey:sdk-kotlin` 2.0.2 with
-  `com.turnkey:http` 2.1.1, which post the activity type the request body requires.
+  reach the chain: the wallet backend's client is `com.turnkey:sdk-kotlin` 2.1.0 with
+  `com.turnkey:http` 2.2.0, which post the activity type the request body requires.
+- A Solana send through `rain-turnkey-android` or `rain-wallet-android` whose activity the wallet
+  backend had not finished executing when its client stopped waiting (about four seconds), or which
+  the backend failed or rejected, ends as `RAIN_302` `TransactionPending` carrying the activity id
+  while it is still pending (the SDK reads the activity again by id for up to ten seconds first), or
+  as `RAIN_501` with the backend's reason when it failed or was rejected, in which case nothing
+  moved. See [TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md#after-a-send-is-accepted).
 - The SDK clears a Rain wallet or Turnkey session revoked by a login on another device as soon as
   the wallet backend refuses to refresh it: inside any wallet call that refreshes (with
   `autoRefresh` on) and inside `refreshSession()`. `hasActiveSession()`, `currentAuthState()` and
@@ -60,7 +66,8 @@ Notable changes to the Rain Android SDK, newest first. The format follows
 - On a Solana send through `rain-turnkey-android` or `rain-wallet-android`, `RAIN_302`
   `TransactionPending` may carry the wallet backend's activity id when the backend accepted the send
   without a readable status id, and the activity-log history lists Solana sends under both of the
-  backend's send activity types. See [TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md#solana-notes).
+  backend's send activity types. See
+  [TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md#after-a-send-is-accepted).
 
 ## [5.0.0-beta.1] - 2026-09-30
 
