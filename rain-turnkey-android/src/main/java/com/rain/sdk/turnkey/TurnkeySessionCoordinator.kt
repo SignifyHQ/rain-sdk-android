@@ -29,7 +29,9 @@ import kotlin.time.Duration.Companion.milliseconds
  *
  * Terminal auth failures always surface as [RainError.TokenExpired], advance [deathEpoch] and
  * fire the host's `onSessionExpired` hook once per session death; the hook re-arms when a live
- * session is seen again, the count only grows.
+ * session is seen again, the count only grows. A session Turnkey refuses to refresh is cleared
+ * with the failure (see [clearRevokedSession]), so [currentState] and [sessionStates] read it as
+ * dead from then on instead of trusting its stored expiry.
  */
 internal class TurnkeySessionCoordinator(
     private val turnkey: TurnkeyContextProtocol,
@@ -126,7 +128,11 @@ internal class TurnkeySessionCoordinator(
      */
     suspend fun refreshNow() {
         if (turnkey.session != null) sawSession.set(true)
-        val outcome = refreshLock.withLock { refreshOutcome() }
+        val outcome = refreshLock.withLock {
+            // A caller that cleared the session while this one waited on the lock left nothing to
+            // refresh, and the vendor would fall back to its default session key.
+            if (turnkey.session == null) RefreshOutcome.Dead(null) else refreshOutcome()
+        }
         if (outcome is RefreshOutcome.Dead) expireAndThrow(outcome.cause)
         expiryNotified.set(false)
     }
@@ -200,9 +206,10 @@ internal class TurnkeySessionCoordinator(
                         val outcome = refreshLock.withLock {
                             // A concurrent caller may have already rotated the rejected
                             // session; refreshing again would waste a key rotation and could
-                            // report a false session death.
-                            val current = turnkey.session
-                            if (current != null && current.publicKey != session.publicKey) {
+                            // report a false session death. One that found it revoked has
+                            // cleared it, and there is nothing left to refresh.
+                            val current = turnkey.session ?: return@withLock RefreshOutcome.Dead(null)
+                            if (current.publicKey != session.publicKey) {
                                 RefreshOutcome.Fresh(current)
                             } else {
                                 refreshOutcome()
@@ -278,11 +285,18 @@ internal class TurnkeySessionCoordinator(
     }
 
     /**
-     * Refreshes through Turnkey and reports the outcome instead of throwing, so callers can
-     * release [refreshLock] before firing the expiry hook — a host reacting to the hook by
-     * calling back into the coordinator must never find the lock still held.
+     * Refreshes through Turnkey and reports the outcome instead of throwing, so the caller fires
+     * the expiry hook only after it has released [refreshLock]: a host reacting to the hook by
+     * calling back into the coordinator must never find the lock still held. The watcher may fire
+     * the hook earlier, while the lock is still held, when [clearRevokedSession] flips the vendor's
+     * state; that path never waits on the lock. A refresh Turnkey refused clears the stored session
+     * first. One that failed for any other reason (offline, a 5xx) leaves it stored. A refresh
+     * whose session a login replaced while it was on the network reports the new session as fresh
+     * whatever the failure, because the failure was the old session's and the new one is live.
      */
     private suspend fun refreshOutcome(): RefreshOutcome {
+        val refreshed = turnkey.session
+        val refreshedKey = turnkey.selectedSessionKey
         return try {
             turnkey.refreshSession(policy.refreshExpirationSeconds?.toString())
             turnkey.session?.let { RefreshOutcome.Fresh(it) } ?: RefreshOutcome.Dead(null)
@@ -290,8 +304,46 @@ internal class TurnkeySessionCoordinator(
             // A cancellation leaves as itself, bare or wrapped: FailedToRefreshSession wraps whatever
             // ended the refresh, and a screen closed mid-refresh is not a session death.
             e.cancellationInChain()?.let { throw it }
+            // The rule the 401 retry applies before it refreshes: a login that replaced the session
+            // meanwhile holds the live one, and a death reported over it would sign the user out of
+            // the session they just created.
+            val current = turnkey.session
+            if (current != null && refreshed != null && current.publicKey != refreshed.publicKey) {
+                Timber.w(e, "Rain SDK: wallet session refresh failed, but a login replaced the session meanwhile")
+                return RefreshOutcome.Fresh(current)
+            }
             Timber.w(e, "Rain SDK: wallet session refresh failed")
+            if (isAuthFailure(e)) clearRevokedSession(refreshedKey)
             RefreshOutcome.Dead(e)
+        }
+    }
+
+    /**
+     * Clears the stored session after Turnkey refused to refresh it with HTTP 401 on the stamp-login
+     * request (sdk-kotlin 2.0.2 `TurnkeyContext.refreshSession` wraps it in `FailedToRefreshSession`).
+     * The session was revoked out from under this device, which is what a login on another device
+     * does (`invalidateExisting`), and the stored copy still carries its local expiry. Without the
+     * clear, [currentState], [sessionStates] and every read derived from them would keep saying
+     * Active until the JWT lapsed, up to the session's whole lifetime, while every call failed. The
+     * clear flips them with the failure. The watcher then sees Active → Unauthenticated, and
+     * [expiryNotified] keeps the host hook at one firing for the one death. The clear names the key
+     * the refresh was for and is skipped when another key is selected by now: the vendor selects a
+     * session in two steps, key first and then session, so a login halfway through still shows the
+     * old session under its new key, and that login clears the superseded session itself. Runs
+     * under [refreshLock], so a caller waiting on the lock finds no session instead of refreshing a
+     * cleared one. A clear that fails is logged, and the [RainError.TokenExpired] the caller throws
+     * is what surfaces. The vendor's `InvalidSession` is an auth failure too, but it is thrown
+     * before any request, when there is no session to refresh, so it leaves nothing to clear.
+     */
+    @Suppress("TooGenericExceptionCaught") // best-effort cleanup: the TokenExpired is what surfaces
+    private suspend fun clearRevokedSession(refreshedKey: String?) {
+        val key = refreshedKey ?: return
+        if (turnkey.selectedSessionKey != key) return
+        try {
+            turnkey.clearSession(key)
+        } catch (e: Exception) {
+            e.cancellationInChain()?.let { throw it }
+            Timber.w(e, "Rain SDK: could not clear the revoked wallet session")
         }
     }
 

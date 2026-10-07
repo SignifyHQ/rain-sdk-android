@@ -9,6 +9,7 @@ import com.rain.sdk.models.RainPreparedWithdrawal
 import com.rain.sdk.models.RainWithdrawAddresses
 import com.rain.sdk.provider.Capability
 import com.rain.sdk.sample.CollateralContract
+import com.rain.sdk.sample.CollateralContractMatch
 import com.rain.sdk.sample.RainApiError
 import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.SampleLog
@@ -46,9 +47,9 @@ class CollateralWithdrawViewModel(
                 val walletAddress = rainClient.getWalletAddress(chain.chainId)
                 SampleLog.d("Withdraw.contract", "wallet address=$walletAddress")
 
-                // From the demo's own Rain API client, exact chain first (see
-                // WalletChain.collateralContract); a host makes this call from its backend.
-                val contract = session.fetchCollateralContract(chain)
+                // From the demo's own Rain API client, exact chain first, then the family (see
+                // CollateralContractMatch.CHAIN_FAMILY); a host makes this call from its backend.
+                val contract = session.fetchCollateralContract(chain, CollateralContractMatch.CHAIN_FAMILY)
                 if (contract == null) {
                     SampleLog.w("Withdraw.contract", "no collateral contract for ${chain.displayName}")
                     // Clear the previous chain's tokens so a failed switch shows nothing stale.

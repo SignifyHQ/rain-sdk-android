@@ -45,7 +45,7 @@ data class CollateralContract(
     val proxyAddress: String,
     /** The controller a withdrawal executes against; `RainWithdrawAddresses.controllerAddress`. */
     val controllerAddress: String,
-    /** Where deposits go when Rain provides a dedicated address (Solana); null, never blank, otherwise. */
+    /** Where deposits go when Rain sends a dedicated address, seen on EVM and Solana contracts; null, never blank, otherwise. */
     val depositAddress: String?,
     /** Admin signers; one of them is the `adminAddress` of a signature request. */
     val adminAddresses: List<String>,

@@ -620,6 +620,45 @@ class TurnkeyManagedAuthTest {
         assertThat(hookCalls).isEqualTo(1)
     }
 
+    // ---------- a session revoked from another device ----------
+
+    @Test
+    fun `a refresh the backend refused signs the device out and the reads flip before the scheduler runs`() = runTest {
+        val turnkey = MockTurnkey()
+        turnkey.refreshSessionError = revokedSessionRefreshFailure()
+        val coordinator = coordinator(turnkey)
+        val controller = controller(turnkey, coordinator = coordinator)
+        coordinator.startMonitoring(backgroundScope)
+        runCurrent()
+        assertThat(controller.hasActiveSession()).isTrue()
+
+        // The provider's refreshSession() is this call; a wallet call that hits a 401 ends the same way.
+        expectThrows<RainError.TokenExpired> { coordinator.refreshNow() }
+        // Read before the scheduler runs anything else, as after logout: the vendor flips its state
+        // inline inside clearSession and the controller derives both answers on demand.
+        assertThat(controller.hasActiveSession()).isFalse()
+        assertThat(controller.currentAuthState()).isEqualTo(TurnkeyAuthState.Unauthenticated)
+        assertThat(turnkey.selectedSessionKey).isNull()
+        runCurrent()
+
+        assertThat(turnkey.clearSessionCalls).containsExactly(MockTurnkey.DEFAULT_SESSION_KEY)
+        assertThat(turnkey.session).isNull()
+        assertThat(controller.authState.first()).isEqualTo(TurnkeyAuthState.Unauthenticated)
+        // Unlike a logout, this is a death the host has to recover from: the hook fires, once.
+        assertThat(hookCalls).isEqualTo(1)
+
+        // A fresh login works as a first login and re-arms the hook for a later death.
+        controller.sendLoginCode(LoginContact.Email("user@example.com"))
+        turnkey.onCompleteOtp = { turnkey.authenticate() }
+        controller.confirmLoginCode("123456")
+        runCurrent()
+        assertThat(controller.hasActiveSession()).isTrue()
+        turnkey.session = null
+        turnkey.authStateFlow.value = AuthState.unauthenticated
+        runCurrent()
+        assertThat(hookCalls).isEqualTo(2)
+    }
+
     @Test
     fun `logout with no session clears nothing and leaves the re-auth hook armed for later`() = runTest {
         val turnkey = MockTurnkey(session = null)

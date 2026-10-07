@@ -74,9 +74,9 @@ their own file; Rain runs no shared domain. Every call to `signUpWithPasskey` cr
 so returning users sign in or add a passkey, and accounts are never merged. A passkey-only account
 is meant to get an email or phone as a second login through `sendContactVerificationCode(contact)`
 and `confirmContactVerification(code)`, which attach the verified contact to this account and never
-move wallets (in `5.0.0-beta.1` an attach replaces an existing contact of the same kind instead of
-adding a second one, and succeeds for a contact another account owns; see the known issues above);
-`exportRecoveryPhrase()` is its backup path either way.
+move wallets (what an attach refuses and what it replaces today is in the
+`confirmContactVerification` row of [docs/METHODS.md](../docs/METHODS.md#rain-wallet-provider) and
+in the known issues above); `exportRecoveryPhrase()` is its backup path either way.
 
 Notes:
 
@@ -87,8 +87,9 @@ Notes:
   environment switch.
 - What leaves the device: the email address or phone number passed to `sendLoginCode` or
   `sendContactVerificationCode`, sent to the wallet backend to deliver the code and key the account
-  (on confirm of an attach, the verified contact and its verification token go to the backend's user
-  update); on a passkey sign-up the passkey's attestation, the passkey name `passkey-<unix seconds>`
+  (on confirm of an attach, the verified contact and its verification token go to the backend's
+  account lookup, which names the account the contact signs in to, and then to its user update); on
+  a passkey sign-up the passkey's attestation, the passkey name `passkey-<unix seconds>`
   and a temporary session key, on a passkey sign-in the passkey's assertion, on `addPasskey` a new
   passkey's attestation. The session stays on the device in storage the backend SDK owns; wallet
   keys live in the wallet backend and reach the device only through the export methods. This module

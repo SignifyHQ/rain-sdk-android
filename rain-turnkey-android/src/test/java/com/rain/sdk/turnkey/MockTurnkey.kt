@@ -495,6 +495,16 @@ internal class MockTurnkey(
     /** When set, both contact setters throw this after recording the call. */
     var setUserContactError: Exception? = null
 
+    data class AccountLookupCall(val channel: OtpChannel, val contact: String, val verificationToken: String)
+
+    val accountLookupCalls = mutableListOf<AccountLookupCall>()
+
+    /** The organization [lookupContactOwner] names as the contact's owner; null, the default, is nobody. */
+    var accountLookupResult: String? = null
+
+    /** When set, [lookupContactOwner] throws this after recording the call. */
+    var accountLookupError: Exception? = null
+
     val createWalletCalls = mutableListOf<CreateWalletCall>()
     var createWalletError: Exception? = null
 
@@ -604,6 +614,12 @@ internal class MockTurnkey(
         return stubbedVerificationToken
     }
 
+    override suspend fun lookupContactOwner(channel: OtpChannel, contact: String, verificationToken: String): String? {
+        accountLookupCalls += AccountLookupCall(channel, contact, verificationToken)
+        accountLookupError?.let { throw it }
+        return accountLookupResult
+    }
+
     override suspend fun setUserEmail(organizationId: String, userId: String, email: String, verificationToken: String) {
         setUserEmailCalls += SetContactCall(organizationId, userId, email, verificationToken)
         setUserContactError?.let { throw it }
@@ -697,6 +713,13 @@ internal class MockTurnkey(
     /** When set, [refreshSession] throws this. */
     var refreshSessionError: Exception? = null
 
+    /**
+     * When set, [refreshSession] suspends on it after recording the call and before failing or
+     * completing — a refresh in flight on the network, during which another coroutine can change
+     * the session.
+     */
+    var refreshSessionGate: CompletableDeferred<Unit>? = null
+
     /** Runs after a recorded [refreshSession] call: install the refreshed session here. */
     var onRefreshSession: (suspend () -> Unit)? = null
 
@@ -711,6 +734,7 @@ internal class MockTurnkey(
     override suspend fun refreshSession(expirationSeconds: String?) {
         refreshSessionCallCount++
         refreshSessionCalls += expirationSeconds
+        refreshSessionGate?.await()
         refreshSessionError?.let { throw it }
         onRefreshSession?.invoke()
     }

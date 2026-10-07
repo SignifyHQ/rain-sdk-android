@@ -20,8 +20,12 @@ data class RainWithdrawAddresses(
     val recipientAddress: String
 ) {
     /**
-     * Returns a new instance with checksummed addresses.
-     * Throws [RainError.InvalidConfig] if any address is invalid.
+     * Returns a copy with every address in EIP-55 checksum form. A mixed-case address must already
+     * carry its checksum: the letter case is EIP-55's typo check, so a wrong one is refused rather
+     * than repaired. All-lowercase and all-uppercase input carries no checksum and is normalized.
+     *
+     * @throws RainError.InvalidConfig (`RAIN_102`) when an address is not 40 hex characters with an
+     *   optional `0x` prefix, or a mixed-case address's checksum doesn't match
      */
     fun validated(): RainWithdrawAddresses {
         return RainWithdrawAddresses(

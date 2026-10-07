@@ -9,12 +9,14 @@ import com.turnkey.core.models.OtpType
 import com.turnkey.core.models.Session
 import com.turnkey.core.models.Wallet
 import com.turnkey.core.models.errors.TurnkeyKotlinError
+import com.turnkey.core.models.otpTypeToFilterTypeMap
 import com.turnkey.crypto.decryptExportBundle
 import com.turnkey.crypto.generateP256KeyPair
 import com.turnkey.crypto.models.KeyFormat
 import com.turnkey.http.TurnkeyClient
 import com.turnkey.passkey.PasskeyUser
 import com.turnkey.passkey.createPasskey
+import com.turnkey.types.ProxyTGetAccountBody
 import com.turnkey.types.TCreateAuthenticatorsBody
 import com.turnkey.types.TCreateWalletAccountsBody
 import com.turnkey.types.TEthSendTransactionBody
@@ -257,6 +259,16 @@ internal interface TurnkeyContextProtocol {
      * failure. The throwaway key it binds instead is deleted before this returns.
      */
     suspend fun verifyOtpToken(challenge: OtpChallenge, otpCode: String): String
+
+    /**
+     * The sub-organization whose user signs in with [contact] on [channel], or null when none does:
+     * the auth proxy's Get Account, `POST /v1/account`, filtered by `EMAIL` or `PHONE_NUMBER`. The
+     * proxy requires the [verificationToken] from [verifyOtpToken] to look an email or phone number
+     * up, and the token stays usable afterwards (`TurnkeyContext.loginOrSignUpWithOtp` in sdk-kotlin
+     * 2.0.2 looks the account up with it and then logs in or signs up with the same token). No
+     * session stamps the call.
+     */
+    suspend fun lookupContactOwner(channel: OtpChannel, contact: String, verificationToken: String): String?
 
     /** Sets the email of user [userId] on [organizationId]; [verificationToken] marks it verified. */
     suspend fun setUserEmail(organizationId: String, userId: String, email: String, verificationToken: String)
@@ -517,6 +529,20 @@ internal class TurnkeyContextAdapter(
             Timber.w("Rain SDK: could not delete the verification key pair (%s)", e.javaClass.simpleName)
         }
         result.verificationToken
+    }
+
+    override suspend fun lookupContactOwner(channel: OtpChannel, contact: String, verificationToken: String): String? {
+        // The vendor's own filter-type map, the one its loginOrSignUpWithOtp hands the same lookup
+        // (docs.turnkey.com/api-reference/auth-proxy/account). The proxy answers an unknown contact
+        // with an empty organizationId, so that reads as "nobody".
+        val response = context.client.proxyGetAccount(
+            ProxyTGetAccountBody(
+                filterType = otpTypeToFilterTypeMap.getValue(channel.toVendorOtpType()).name,
+                filterValue = contact,
+                verificationToken = verificationToken,
+            )
+        )
+        return response.organizationId?.takeIf { it.isNotEmpty() }
     }
 
     override suspend fun setUserEmail(organizationId: String, userId: String, email: String, verificationToken: String) {

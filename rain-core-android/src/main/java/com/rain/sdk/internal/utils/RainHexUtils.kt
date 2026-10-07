@@ -9,14 +9,32 @@ internal object RainHexUtils {
     private const val ADDRESS_LENGTH_IN_HEX = 40
 
     /**
-     * Validates and checksums an Ethereum address.
-     * Throws [RainError.InvalidConfig] if the address is invalid.
+     * Validates an EVM address and returns it in EIP-55 checksum form. A mixed-case input must
+     * already carry the right checksum: its letter case is EIP-55's typo check, a mistyped
+     * character almost always breaks it, and funds sent to a mistyped address can't be recovered.
+     * All-lowercase and all-uppercase inputs carry no checksum and are normalized.
+     *
+     * @throws RainError.InvalidConfig (`RAIN_102`) when [address] is not 40 hex characters with an
+     *   optional lowercase `0x` prefix, or when its mixed-case checksum does not match.
      */
     fun validateAndChecksum(address: String, paramName: String): String {
         if (!isValidAddress(address)) {
             throw RainError.InvalidConfig("Invalid $paramName format: $address")
         }
+        if (!hasValidChecksum(address)) {
+            throw RainError.InvalidConfig("Invalid $paramName checksum: $address")
+        }
         return toChecksumAddress(address)
+    }
+
+    /**
+     * True when [address], already checked for shape, is all one letter case or matches its EIP-55
+     * checksum. A `0x` or `0X` prefix is optional.
+     */
+    fun hasValidChecksum(address: String): Boolean {
+        val body = address.strippingHexPrefix()
+        val mixedCase = body.any { it.isUpperCase() } && body.any { it.isLowerCase() }
+        return !mixedCase || body == toChecksumAddress(body).strippingHexPrefix()
     }
 
     /**
@@ -69,21 +87,13 @@ internal object RainHexUtils {
 /**
  * Validates an EVM address a host hands an adapter and returns it in EIP-55 checksum form. Adapters
  * call it on a `walletAddress` override at construction, so a typo fails there rather than as a
- * foreign address on every read. Beyond [RainHexUtils.validateAndChecksum]'s shape check, a
- * mixed-case input must already carry the right checksum; all-lowercase and all-uppercase inputs
- * carry no checksum and are normalized.
+ * foreign address on every read. It applies [RainHexUtils.validateAndChecksum]'s rules and also
+ * accepts an uppercase `0X` prefix.
  *
  * @throws RainError.InvalidConfig (`RAIN_102`) when [address] is not 40 hex characters with an
  *   optional `0x` or `0X` prefix, or when its mixed-case checksum does not match.
  */
 @RainAdapterApi
-fun validateAndChecksumAddress(address: String, paramName: String): String {
-    // The shape check below recognises only a lowercase prefix; normalise first so `0X` is accepted.
-    val body = address.strippingHexPrefix()
-    val checksummed = RainHexUtils.validateAndChecksum("0x$body", paramName)
-    val mixedCase = body.any { it.isUpperCase() } && body.any { it.isLowerCase() }
-    if (mixedCase && body != checksummed.removePrefix("0x")) {
-        throw RainError.InvalidConfig("Invalid $paramName checksum: $address")
-    }
-    return checksummed
-}
+fun validateAndChecksumAddress(address: String, paramName: String): String =
+    // The shape check recognises only a lowercase prefix; normalise first so `0X` is accepted.
+    RainHexUtils.validateAndChecksum("0x${address.strippingHexPrefix()}", paramName)

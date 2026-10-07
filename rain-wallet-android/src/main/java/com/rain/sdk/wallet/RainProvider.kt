@@ -133,7 +133,13 @@ class RainProvider internal constructor(
     fun currentSessionState(): RainWalletSessionState = backing.currentSessionState().toRainWallet()
 
     /**
-     * Forces a session refresh (extended expiry) regardless of remaining lifetime.
+     * Forces a session refresh (extended expiry) regardless of remaining lifetime. When the wallet
+     * backend refused the refresh (a login on another device revoked the session), the stored
+     * session is cleared before the throw and `onSessionExpired` fires once, so [hasActiveSession],
+     * [currentAuthState] and [currentSessionState] read signed out when this returns. A refresh
+     * that failed for another reason (offline, a 5xx) throws the same error but leaves the session
+     * stored. The same happens inside any wallet call that refreshes with
+     * [RainWalletSessionPolicy.autoRefresh] on.
      *
      * @throws RainError.TokenExpired (`RAIN_201`) when the session cannot be refreshed; re-authenticate.
      * @throws RainError.InvalidConfig (`RAIN_102`) when this provider was closed.
@@ -159,9 +165,11 @@ class RainProvider internal constructor(
 
     /**
      * True when an unexpired session is already live, restored or just established, with more than
-     * 30 seconds left, so the one-time-code step can be skipped. Reflects the local expiry only: a
-     * session revoked server-side (a login on another device) reads as active until its first call
-     * fails. False until the first authentication call has configured the wallet backend.
+     * 30 seconds left, so the one-time-code step can be skipped. The answer comes from the stored
+     * session, and a session the wallet backend refuses to refresh is cleared with that failure
+     * (see [refreshSession]), so this reads false from then on; until a refresh asks, a session
+     * revoked from another device still reads as active. False until the first authentication call
+     * has configured the wallet backend.
      */
     fun hasActiveSession(): Boolean = backing.hasActiveSession()
 
@@ -350,8 +358,8 @@ class RainProvider internal constructor(
      * that contact becomes a login method for this account; distinct from [sendLoginCode], which
      * starts a login. Requires a live session. The contact is canonicalized like a login contact
      * (see [RainWalletContact]) and that string is what the account stores. Accounts are never
-     * merged: a contact that already belongs to another account does not move wallets, and the
-     * backend's answer surfaces on confirm. Calling it again for the same contact replaces the
+     * merged; what the confirm refuses is under [confirmContactVerification]. Calling it again for
+     * the same contact replaces the
      * pending code; a call for another contact or channel retires it before anything is sent, so a
      * failed switch leaves nothing confirmable; a login or a [logout] drops it. The SDK adds no
      * user-presence check before the attach beyond the live
@@ -372,23 +380,23 @@ class RainProvider internal constructor(
 
     /**
      * Confirms the code from [sendContactVerificationCode] and attaches the verified contact to the
-     * signed-in account. A rejected code keeps the challenge, so the user can retype it; a failure
-     * after the code was accepted drops it, so request a new code. Requires a live session, checked
-     * before the code is spent.
+     * signed-in account. Requires a live session, checked before the code is spent. Once the code
+     * is accepted, the wallet backend is asked which account the contact signs in to: another
+     * account refuses the attach before anything changes, since accounts are never merged; this
+     * account or none lets the attach run. A rejected code keeps the challenge, so the user can
+     * retype it; a failure after the code was accepted drops it, so request a new code. Fails with
+     * the classes below; the `confirmContactVerification` row under *Rain wallet provider* in
+     * `docs/METHODS.md` says which condition maps to which.
      *
-     * @throws RainError.InvalidConfig (`RAIN_102`) when no code was requested, the code is blank, on
-     *   a wallet backend configuration conflict for this launch, or when this provider was closed.
-     * @throws RainError.TokenExpired (`RAIN_201`) without a live session before the code is spent,
-     *   or when the session died before the attach; in the second case the challenge is dropped.
-     * @throws RainError.InvalidLoginCode (`RAIN_203`) when the code is rejected; the challenge is
-     *   kept.
-     * @throws RainError.ProviderError (`RAIN_501`) when the backend wraps a rejection in an HTTP 500,
-     *   with the challenge kept, so treat it like `RAIN_203`; or when the attach itself failed, with
-     *   the challenge dropped.
-     * @throws RainError.Unauthorized (`RAIN_202`) when the backend refuses the update; the challenge
-     *   is dropped.
+     * @throws RainError.InvalidConfig (`RAIN_102`) on a precondition: no code requested, a blank
+     *   code, a configuration conflict for this launch, a closed provider.
+     * @throws RainError.TokenExpired (`RAIN_201`) without a live session.
+     * @throws RainError.InvalidLoginCode (`RAIN_203`) when the code is rejected.
+     * @throws RainError.Unauthorized (`RAIN_202`) when the attach is refused.
+     * @throws RainError.ProviderError (`RAIN_501`) when the backend failed.
      * @throws RainError.InternalError (`RAIN_502`) when the backend's initialization failed for
      *   this launch; relaunch the app.
+     * @see sendContactVerificationCode
      */
     suspend fun confirmContactVerification(code: String) {
         backing.confirmContactVerification(code)

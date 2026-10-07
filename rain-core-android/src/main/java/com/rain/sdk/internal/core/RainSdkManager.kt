@@ -351,10 +351,13 @@ internal class RainSdkManager(
             // Skipped on Solana — the store enriches through the EVM reader, which cannot see an SPL
             // mint — so an unspecified value resolves to 0 there. The Solana adapter reads the mint's
             // own decimals and must not scale with this one.
-            val recipient = if (SolanaChains.isSolanaChain(chainId)) to else checksummedRecipient(to)
-            val resolvedDecimals = decimals
-                ?: if (SolanaChains.isSolanaChain(chainId)) 0 else requireDecimals(chainId, contractAddress)
-            val txHash = walletProvider.sendToken(chainId, contractAddress, recipient, amount, resolvedDecimals)
+            val solana = SolanaChains.isSolanaChain(chainId)
+            val recipient = if (solana) to else checksummedRecipient(to)
+            // The token contract gets the same checks as the recipient: a mistyped contract sends the
+            // transfer call to a different address.
+            val contract = if (solana) contractAddress else RainHexUtils.validateAndChecksum(contractAddress, "contractAddress")
+            val resolvedDecimals = decimals ?: if (solana) 0 else requireDecimals(chainId, contract)
+            val txHash = walletProvider.sendToken(chainId, contract, recipient, amount, resolvedDecimals)
             RainTokenTransferResult(transactionHash = txHash)
         }
     }
@@ -368,10 +371,17 @@ internal class RainSdkManager(
         tokenStore?.decimalsOrNull(chainId, contractAddress)
             ?: throw RainError.TokenNotFound(contractAddress, chainId)
 
-    /** Validates and EIP-55 checksums an EVM recipient; a malformed address must never broadcast. */
+    /**
+     * Validates and EIP-55 checksums an EVM recipient. A malformed address must never broadcast, and
+     * neither may a mixed-case one whose checksum doesn't match, because that case pattern is how a
+     * mistyped character shows up.
+     */
     private fun checksummedRecipient(to: String): String {
         if (!RainHexUtils.isValidAddress(to)) {
             throw RainError.InvalidRecipient(to, "not a valid EVM address")
+        }
+        if (!RainHexUtils.hasValidChecksum(to)) {
+            throw RainError.InvalidRecipient(to, "the EIP-55 checksum doesn't match, so the address may have a typo")
         }
         return RainHexUtils.toChecksumAddress(to)
     }
