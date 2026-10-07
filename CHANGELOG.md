@@ -28,6 +28,17 @@ Notable changes to the Rain Android SDK, newest first. The format follows
 - Solana sends and collateral withdrawals through `rain-turnkey-android` and `rain-wallet-android`
   reach the chain: the wallet backend's client is `com.turnkey:sdk-kotlin` 2.0.2 with
   `com.turnkey:http` 2.1.1, which post the activity type the request body requires.
+- The SDK clears a Rain wallet or Turnkey session revoked by a login on another device as soon as
+  the wallet backend refuses to refresh it: inside any wallet call that refreshes (with
+  `autoRefresh` on) and inside `refreshSession()`. `hasActiveSession()`, `currentAuthState()` and
+  `currentSessionState()` read signed out when the failed call returns, and `sessionState` and
+  `authState` emit it. Before, they kept reporting the stored session's local expiry, for up to
+  the session's whole lifetime, and a login flow that skips the code on `hasActiveSession()`
+  restored the dead session. A refresh that failed for another reason (offline, a 5xx) still
+  leaves the session stored, and a refresh whose session a login replaced meanwhile proceeds with
+  the new session. In bring-your-own mode the clear removes the session from the `TurnkeyContext`
+  the host owns, and the vendor's expiry timer for it is cancelled with it. The sample app asks the
+  backend before reusing a restored session.
 - The Rain wallet's contact attach refuses a contact that already signs in to another account.
   Once the code is accepted, `confirmContactVerification` asks the wallet backend which account
   the contact signs in to and throws `RAIN_202` (`Unauthorized`) before anything changes when it
@@ -89,6 +100,12 @@ Rain plans to fix each of these in a later beta.
   opening the other account, which leaves the signed-in account with no working email login. The
   fix for that second part, a refusal, is listed under Unreleased above; the replacement remains.
   Tell users that an attach replaces their current contact.
+- A session revoked by a login on another device keeps reading as active on the first device:
+  `hasActiveSession()`, `currentAuthState()` and `currentSessionState()` report the stored
+  session's local expiry until it passes, up to the session's whole lifetime, while every wallet
+  call fails with `RAIN_201` and `onSessionExpired` fires once. A login flow that skips the code on
+  `hasActiveSession()` restores the dead session. Call `refreshSession()` and treat `RAIN_201` as
+  signed out before skipping the code. The fix is listed under Unreleased above.
 - `getTokenBalances` and `getAllBalances` can leave out a token the wallet holds. On Ethereum, Base,
   Polygon and their test networks, the Turnkey provider and the Rain wallet build the list from the
   wallet backend's balance service. On other EVM chains, and with Privy on every EVM chain, the

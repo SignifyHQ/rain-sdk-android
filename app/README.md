@@ -68,7 +68,9 @@ methods:
   converted with the device's region before it reaches the SDK, which requires E.164 and removes
   spaces, dots, hyphens and parentheses. The SDK sends and confirms the one-time code, signs up
   (creating one wallet with the Ethereum and Solana accounts) or logs in, and backfills a missing
-  account, then initializes Rain on its own, as it does for a resumed session. A rejected code keeps
+  account, then initializes Rain on its own, as it does for a resumed session. A session restored
+  from an earlier run is reused only after the backend confirms it is still live. One revoked by a
+  login on another device falls back to the code. A rejected code keeps
   the challenge for a retry, and *Resend code* requests a new one (the
   channel and the contact stay locked); the code field takes letters on both channels
   because the backend's code format is one shared setting and may be alphanumeric. If the login

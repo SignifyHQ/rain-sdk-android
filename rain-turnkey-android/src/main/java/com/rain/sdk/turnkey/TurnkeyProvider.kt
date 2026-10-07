@@ -278,7 +278,12 @@ class TurnkeyProvider internal constructor(
     /**
      * Forces a Turnkey session refresh (new JWT, extended expiry) regardless of remaining
      * lifetime. Throws `RainError.TokenExpired` when the session cannot be refreshed — the
-     * host must re-authenticate.
+     * host must re-authenticate. When Turnkey refused the refresh (HTTP 401: a login on another
+     * device revoked the session), the stored session is cleared before the throw and
+     * `onSessionExpired` fires once, so [hasActiveSession], [currentAuthState] and
+     * [currentSessionState] read signed out when this returns. A refresh that failed for another
+     * reason (offline, a 5xx) throws the same error but leaves the session stored. The same happens
+     * inside any wallet call that refreshes with [TurnkeySessionPolicy.autoRefresh] on.
      */
     suspend fun refreshSession() {
         requireOpen()
@@ -415,10 +420,11 @@ class TurnkeyProvider internal constructor(
 
     /**
      * True when an unexpired session is already live — restored, or just established — with more
-     * than 30 seconds left, so the one-time-code step can be skipped. Reflects the local expiry
-     * only: a session revoked server-side (a login on another device) reads as active until its
-     * first call fails. False until the first auth call has configured Turnkey, and always false
-     * in bring-your-own mode.
+     * than 30 seconds left, so the one-time-code step can be skipped. The answer comes from the
+     * stored session, and a session Turnkey refuses to refresh is cleared with that failure (see
+     * [refreshSession]), so this reads false from then on; until a refresh asks, a session revoked
+     * from another device still reads as active. False until the first auth call has configured
+     * Turnkey, and always false in bring-your-own mode.
      */
     @InternalRainTurnkeyApi
     fun hasActiveSession(): Boolean = managedAuth?.hasActiveSession() ?: false
