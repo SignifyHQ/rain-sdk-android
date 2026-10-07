@@ -11,6 +11,7 @@ import com.rain.sdk.internal.network.chainreader.EvmChainReader
 import com.rain.sdk.internal.solana.SolanaSupport
 import com.rain.sdk.internal.tokenstore.TokenInfoValidation
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
+import com.rain.sdk.internal.utils.RainHexUtils
 import com.rain.sdk.internal.utils.isValidEthereumAddress
 import com.rain.sdk.internal.utils.isZeroAddress
 import com.rain.sdk.models.NetworkConfig
@@ -476,6 +477,11 @@ class RainSdk private constructor(
             if (!config.operatorAddress.isValidEthereumAddress) {
                 throw RainError.InvalidConfig("Invalid Auth Pull operator: ${config.operatorAddress}")
             }
+            // Every approval names this address as the spender. A mixed-case address whose EIP-55
+            // checksum doesn't match is how a typo shows up, so refuse it before any approval.
+            if (!RainHexUtils.hasValidChecksum(config.operatorAddress)) {
+                throw RainError.InvalidConfig("Invalid Auth Pull operator checksum: ${config.operatorAddress}")
+            }
             if (config.operatorAddress.isZeroAddress) {
                 throw RainError.InvalidConfig("Auth Pull operator must not be the zero address")
             }
@@ -495,6 +501,11 @@ class RainSdk private constructor(
                 if (!address.isValidEthereumAddress || address.isZeroAddress) {
                     throw RainError.InvalidConfig(
                         "Invalid Auth Pull token contract for chainId=$chainId: $address"
+                    )
+                }
+                if (!RainHexUtils.hasValidChecksum(address)) {
+                    throw RainError.InvalidConfig(
+                        "Invalid Auth Pull token contract checksum for chainId=$chainId: $address"
                     )
                 }
             }

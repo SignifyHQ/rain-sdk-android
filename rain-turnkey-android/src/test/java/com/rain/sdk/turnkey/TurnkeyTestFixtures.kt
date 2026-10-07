@@ -7,6 +7,7 @@ import com.rain.sdk.internal.network.chainreader.SolanaChainReader
 import com.rain.sdk.internal.solana.SolanaRpcClient
 import com.rain.sdk.internal.solana.SolanaTransferComposer
 import com.rain.sdk.internal.tokenstore.TokenMetadataStore
+import com.turnkey.core.models.errors.TurnkeyKotlinError
 import okhttp3.OkHttpClient
 import org.junit.Assume.assumeTrue
 
@@ -35,6 +36,18 @@ internal fun assumeJdk24() {
         major >= 24
     )
 }
+
+/**
+ * The vendor's failure for a refresh Turnkey refused. `TurnkeyContext.refreshSession` (sdk-kotlin
+ * 2.0.2) wraps the stamp-login failure in `FailedToRefreshSession`, and the typed client's message
+ * (http 2.1.1 `TurnkeyClient`) carries the status in the shape `TurnkeyErrorMapping.turnkeyHttpStatus`
+ * reads. `PUBLIC_KEY_NOT_FOUND` is the answer a session revoked by a login on another device gets.
+ */
+internal fun revokedSessionRefreshFailure(): Exception = TurnkeyKotlinError.FailedToRefreshSession(
+    RuntimeException(
+        "HTTP error calling ACTIVITY_TYPE_STAMP_LOGIN request\nError: PUBLIC_KEY_NOT_FOUND\nCode: 401"
+    )
+)
 
 /**
  * Runs a suspending [block] and returns the [T] it threw. Fails the test when it threw nothing;

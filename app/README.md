@@ -30,7 +30,7 @@ screens otherwise need a real provider login to reach.
 | Screen | What it exercises |
 |---|---|
 | **Home** | Provider choice (Rain Wallet / Turnkey / Portal MPC / Privy), Rain API credentials, auth, `RainSdk` build, session card, active-wallet dropdown, feature grid, and for a signed-in Rain Wallet session the *Export keys* card (`exportRecoveryPhrase`, `exportPrivateKey`) |
-| **Wallet & QR** | `getWalletAddress(chainId)` and the collateral deposit address from the demo's own `RainApiClient` (a call a shipped app makes from its backend), each with a QR bitmap from `generateAddressQRCode(address)` |
+| **Wallet & QR** | `getWalletAddress(chainId)` and the collateral deposit address from the demo's own `RainApiClient` (a call a shipped app makes from its backend), each with a QR bitmap from `generateAddressQRCode(address)`. The deposit card shows a contract on the selected chain only, and otherwise says which chain holds the collateral |
 | **Balances** | Collateral balances from the demo's `RainApiClient`, with token names and decimals from `RainSdk.tokenMetadata`, plus the wallet's own native and token balances (`getBalance`, `getTokenBalances`) |
 | **Send tokens** | `sendNative` and `sendToken` (ERC-20 on EVM, SPL on Solana) |
 | **Withdraw collateral** | The withdrawal signature from the demo's `RainApiClient` + `withdrawCollateral`, with the `estimateWithdrawalFee` and `prepareWithdrawal` dry runs and an *Estimate fee of prepared* button that quotes the held preparation with no new signature, on both EVM and Solana collateral (both fee estimates are EVM-only). The fee card says when a sponsor pays, and a token whose decimals the SDK cannot resolve stays listed with its money actions disabled |
@@ -44,10 +44,16 @@ networks needs no re-initialization: the SDK is built with all chains' RPC endpo
 ## Networks
 
 `WalletChain` defines six networks (a sandbox build offers Avalanche Fuji, Base Sepolia, Arbitrum Sepolia and
-Solana devnet, hides the mainnet Auth Pull chains, and adds an Ethereum Sepolia endpoint for collateral reads),
+Solana devnet, hides the mainnet Auth Pull chains, and adds an Ethereum Sepolia endpoint for collateral reads and withdrawals),
 along with each one's RPC URL, native symbol, explorer links, default token / recipient, and address
 validation. Portal holds no Solana account, so selecting Portal restricts the dropdown to the EVM
 chains.
+
+Rain may host a user's collateral on a chain the picker does not offer, so each screen picks its
+contract with `CollateralContractMatch` (its KDoc in `WalletChain.kt` has the reasons). Withdraw and
+Balances take a contract on any EVM chain when an EVM chain is selected, and a Solana cluster takes
+only its own. Wallet & QR takes the selected chain's contract only, and when there is none it says
+which chain holds this account's collateral.
 
 ## Providers
 
@@ -62,7 +68,9 @@ methods:
   converted with the device's region before it reaches the SDK, which requires E.164 and removes
   spaces, dots, hyphens and parentheses. The SDK sends and confirms the one-time code, signs up
   (creating one wallet with the Ethereum and Solana accounts) or logs in, and backfills a missing
-  account, then initializes Rain on its own, as it does for a resumed session. A rejected code keeps
+  account, then initializes Rain on its own, as it does for a resumed session. A session restored
+  from an earlier run is reused only after the backend confirms it is still live. One revoked by a
+  login on another device falls back to the code. A rejected code keeps
   the challenge for a retry, and *Resend code* requests a new one (the
   channel and the contact stay locked); the code field takes letters on both channels
   because the backend's code format is one shared setting and may be alphanumeric. If the login
@@ -78,8 +86,9 @@ methods:
   (`passkeys.uptop.xyz`) to vouch for this build's signing key, see *Demo keystore* under Notes.
   Signed in, *Add a passkey to this account* registers a passkey for a code-created account, and
   the *Add a login contact* step sends a verification code to an email or phone and attaches it on
-  *Verify and attach*, after which that contact signs in to this account by code. A closed passkey
-  sheet shows `RAIN_401`; every other failure shows its error code only.
+  *Verify and attach*, after which that contact signs in to this account by code; a contact another
+  account signs in with is refused (`RAIN_202`) and the card shows the reason. A closed
+  passkey sheet shows `RAIN_401`; every other failure shows its error code only.
 - **Export keys** — once the Rain Wallet session is active, an *Export keys* card under the Rain Wallet card reveals the recovery phrase,
   the Ethereum private key or the Solana private key, one at a time, through `exportRecoveryPhrase`
   and `exportPrivateKey`, on a restored or reused session before *Initialize Rain*, and after it. While a value shows, the window

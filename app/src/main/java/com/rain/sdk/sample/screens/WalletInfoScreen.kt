@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.rain.sdk.RainChain
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.sample.R
 import com.rain.sdk.sample.RainSession
@@ -180,6 +181,7 @@ private const val PREVIEW_EVM_WALLET = "0x1234567890abcdef1234567890abcdef123456
 private const val PREVIEW_EVM_COLLATERAL = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
 private const val PREVIEW_SOLANA_WALLET = "7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV"
 private const val PREVIEW_SOLANA_COLLATERAL = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
+private const val PREVIEW_ETHEREUM_SEPOLIA = 11155111
 private const val PREVIEW_QR_CELLS = 21
 private const val PREVIEW_QR_SCALE = 8
 private const val PREVIEW_QR_DENSITY = 3
@@ -225,6 +227,23 @@ private fun WalletInfoErrorPreview() {
     WalletInfoPreview(
         WalletInfoUiState(errorText = "No collateral contract on ${WalletChain.SOLANA.displayName}"),
         selectedChain = WalletChain.SOLANA,
+    )
+}
+
+@Preview(name = "Error · collateral on other chains", showBackground = true)
+@Composable
+private fun WalletInfoCollateralElsewherePreview() {
+    // The message the card builds when the account's contracts sit on other chains of the family:
+    // one the picker offers (Base Sepolia) and one it does not (Ethereum Sepolia).
+    WalletInfoPreview(
+        WalletInfoUiState(
+            errorText = noContractMessage(
+                chain = WalletChain.EVM,
+                collateralChainIds = listOf(RainChain.BASE_SEPOLIA, PREVIEW_ETHEREUM_SEPOLIA),
+                offered = listOf(WalletChain.EVM, WalletChain.BASE_SEPOLIA, WalletChain.ARBITRUM_SEPOLIA, WalletChain.SOLANA),
+            ),
+        ),
+        selectedChain = WalletChain.EVM,
     )
 }
 

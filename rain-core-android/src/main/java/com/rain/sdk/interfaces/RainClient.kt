@@ -51,13 +51,17 @@ interface RainClient {
      * sending.
      *
      * @param chainId The chain ID for the transaction
-     * @param addresses All required addresses for the withdrawal
+     * @param addresses All required addresses for the withdrawal. EVM addresses go through
+     *   [RainWithdrawAddresses.validated]: a mixed-case address must carry its EIP-55 checksum
      * @param amount The amount to withdraw
      * @param decimals Token decimals. Scales [amount] on every chain including Solana, where it is
      *                 not checked against the SPL mint — pass the mint's real decimals
      * @param adminSignature Rain's authorization for this withdrawal, fetched by the host from the Rain API
      * @param nonce Optional nonce; resolved from the contract when null
      * @return The transaction hash (EVM) or transaction signature (Solana)
+     * @throws RainError.InvalidConfig (`RAIN_102`) when an address is malformed or a mixed-case address
+     *   carries a wrong EIP-55 checksum, or [adminSignature]'s salt, signature or expiry cannot be
+     *   decoded; nothing is signed. The full `RAIN_102` table is `## Errors` in `docs/METHODS.md`
      * @throws RainError.ChainNotSupported (`RAIN_104`) when the provider cannot broadcast on [chainId]
      * @throws RainError.WithdrawalRevertedByNetwork (`RAIN_405`) when the network rejected the withdrawal,
      *   in the dry run or after broadcast
@@ -81,7 +85,9 @@ interface RainClient {
      * so it works where [withdrawCollateral] throws [RainError.ChainNotSupported]. On Solana the fee
      * check and the dry run always run, because the prepared transaction is the host's own self-paid
      * submission. See [RainPreparedWithdrawal] for what this does and does not do offline, and for
-     * the Solana blockhash lifetime.
+     * the Solana blockhash lifetime. Refuses a malformed address, or a mixed-case one whose EIP-55
+     * checksum doesn't match, with [RainError.InvalidConfig] (`RAIN_102`) before anything is signed,
+     * as [withdrawCollateral] does.
      */
     @Throws(RainError::class)
     suspend fun prepareWithdrawal(
@@ -147,12 +153,15 @@ interface RainClient {
      * itself; a sponsor pays instead and its own cost is not quoted.
      *
      * @param chainId The chain ID for the transaction. EVM only.
-     * @param addresses All required addresses for the withdrawal.
+     * @param addresses All required addresses for the withdrawal. The same validation as
+     *   [withdrawCollateral]: a mixed-case EVM address must carry its EIP-55 checksum.
      * @param amount The amount to withdraw (human units).
      * @param decimals Token decimals.
      * @param adminSignature Rain's authorization for this withdrawal, fetched by the host from the Rain API
      * @param nonce Optional nonce; pin the estimate to the nonce the withdrawal will sign.
      * @return Estimated withdrawal fee in the chain's native token, as an exact [BigDecimal].
+     * @throws RainError.InvalidConfig (`RAIN_102`) for a malformed address or a mixed-case one whose
+     *   EIP-55 checksum doesn't match, before anything is signed.
      * @throws RainError if estimation fails; a Solana [chainId] throws [RainError.InternalError].
      */
     @Throws(RainError::class)
@@ -184,9 +193,14 @@ interface RainClient {
      * Sends the chain's native token (e.g. ETH, AVAX).
      *
      * @param chainId Network ID
-     * @param to Recipient's wallet address
+     * @param to Recipient's wallet address. On EVM chains, 40 hex characters with an optional `0x`
+     *   prefix; a mixed-case address must carry its EIP-55 checksum, and the provider receives it in
+     *   checksum form. On Solana chains, the recipient's base58 public key
      * @param amount Amount to send, in the native token's human unit (e.g. 0.1 AVAX)
      * @return RainTokenTransferResult containing the transaction hash
+     * @throws RainError.InvalidRecipient (`RAIN_102`) when [to] is not a valid EVM address or its
+     *   mixed-case EIP-55 checksum doesn't match; nothing is sent. The full `RAIN_102` table is
+     *   `## Errors` in `docs/METHODS.md`
      */
     @Throws(RainError::class)
     suspend fun sendNative(
@@ -199,8 +213,11 @@ interface RainClient {
      * Sends an ERC-20 token.
      *
      * @param chainId Network ID
-     * @param contractAddress ERC-20 token contract address
-     * @param to Recipient's wallet address
+     * @param contractAddress ERC-20 token contract address, or the SPL mint on Solana. On EVM chains,
+     *   40 hex characters with an optional `0x` prefix; a mixed-case address must carry its EIP-55
+     *   checksum, and the provider receives it in checksum form
+     * @param to Recipient's wallet address. The same format rule as [contractAddress] on EVM chains,
+     *   forwarded in checksum form
      * @param amount Amount to send (in human-readable unit, e.g. 1.5 USDC)
      * @param decimals Optional number of decimals the token uses (e.g. 6 for USDC, 18 for most
      *                 tokens). When `null` (the default), the SDK resolves the token's
@@ -211,6 +228,10 @@ interface RainClient {
      *                 On Solana it never scales the amount: the SPL mint's own decimals are read
      *                 from the chain and enforced by `TransferChecked`.
      * @return RainTokenTransferResult containing the transaction hash
+     * @throws RainError.InvalidRecipient (`RAIN_102`) when [to] is not a valid EVM address or its
+     *   mixed-case EIP-55 checksum doesn't match, and [RainError.InvalidConfig] (`RAIN_102`) when the
+     *   same is true of [contractAddress]; nothing is sent. The full `RAIN_102` table is `## Errors`
+     *   in `docs/METHODS.md`
      */
     @Throws(RainError::class)
     suspend fun sendToken(

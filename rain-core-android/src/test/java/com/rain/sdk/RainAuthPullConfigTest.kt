@@ -2,8 +2,10 @@ package com.rain.sdk
 
 import android.webkit.URLUtil
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.constants.TokenRegistry
+import com.rain.sdk.internal.utils.RainHexUtils
 import io.mockk.every
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
@@ -174,6 +176,21 @@ class RainAuthPullConfigTest {
         assertThat(error.message).contains("zero address")
     }
 
+    /** A typo in a mixed-case operator breaks its EIP-55 checksum; every approval would name it. */
+    @Test
+    fun `an operator whose checksum doesn't match is rejected`() {
+        val error = buildCustom(customConfig(operatorAddress = withFirstLetterCaseFlipped(operator)))
+        assertThat(error.message).contains("operator checksum")
+    }
+
+    @Test
+    fun `an operator written in a single letter case is accepted`() {
+        RainSdk.builder()
+            .rpcEndpoints(mapOf(RainChain.BASE_SEPOLIA to "https://rpc.example/base"))
+            .authPullConfig(customConfig(operatorAddress = operator.lowercase()))
+            .build()
+    }
+
     @Test
     fun `a custom config must name at least one token contract`() {
         val error = buildCustom(customConfig(tokenAddresses = emptyMap()))
@@ -207,6 +224,32 @@ class RainAuthPullConfigTest {
             customConfig(tokenAddresses = mapOf(RainChain.BASE_SEPOLIA to zeroAddress.removePrefix("0x")))
         )
         assertThat(error.message).contains("token contract")
+    }
+
+    @Test
+    fun `a token contract whose checksum doesn't match is rejected`() {
+        val error = buildCustom(
+            customConfig(tokenAddresses = mapOf(RainChain.BASE_SEPOLIA to withFirstLetterCaseFlipped(baseSepoliaUsdc)))
+        )
+        assertThat(error.message).contains("token contract checksum")
+    }
+
+    /** The presets' own spellings go through the same check, so a wrong one would fail every build. */
+    @Test
+    fun `every preset token contract carries a valid checksum`() {
+        val presets = RainAuthPullConfig.sandbox(operator).tokenAddresses.values +
+            RainAuthPullConfig.production(operator).tokenAddresses.values
+        presets.forEach { address ->
+            assertWithMessage(address).that(RainHexUtils.hasValidChecksum(address)).isTrue()
+        }
+    }
+
+    /** [address] with its first letter's case flipped: the same bytes and a wrong EIP-55 checksum. */
+    private fun withFirstLetterCaseFlipped(address: String): String {
+        val i = (2 until address.length).first { address[it].isLetter() }
+        val c = address[i]
+        return address.substring(0, i) + (if (c.isUpperCase()) c.lowercaseChar() else c.uppercaseChar()) +
+            address.substring(i + 1)
     }
 
     /** A trusted chain with no RPC endpoint can never carry an approval; all of them missing is a misconfiguration. */

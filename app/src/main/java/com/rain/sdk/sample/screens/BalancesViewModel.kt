@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.rain.sdk.interfaces.RainClient
 import com.rain.sdk.models.Token
+import com.rain.sdk.sample.CollateralContractMatch
 import com.rain.sdk.sample.CollateralToken
 import com.rain.sdk.sample.RainSession
 import com.rain.sdk.sample.SampleLog
@@ -101,9 +102,9 @@ class BalancesViewModel(
 
         viewModelScope.launch {
             try {
-                // From the demo's own Rain API client, exact chain first (see
-                // WalletChain.collateralContract); a host makes this call from its backend.
-                val contract = session.fetchCollateralContract(chain)
+                // From the demo's own Rain API client, exact chain first, then the family (see
+                // CollateralContractMatch.CHAIN_FAMILY); a host makes this call from its backend.
+                val contract = session.fetchCollateralContract(chain, CollateralContractMatch.CHAIN_FAMILY)
                 if (contract == null) {
                     SampleLog.w("Balances.collateral", "no collateral contract for ${chain.displayName}")
                     _state.update {
