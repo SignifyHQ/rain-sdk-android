@@ -87,7 +87,9 @@ internal object TestManagers {
         seedTokens: List<com.rain.sdk.models.TokenInfo> = emptyList(),
         authPullChainIds: Set<Int> = RainAuthPullChains.SANDBOX,
         authPullTokenAddresses: Map<Int, String>? = null,
-        approvalConfirmationIntervalMs: Long = RainSdkManager.APPROVAL_CONFIRMATION_INTERVAL_MS,
+        // 1 ms, not the production second: the confirmation tests assert attempt counts and outcomes,
+        // never elapsed time, and at 1 s x 60 attempts four of them each waited out a real minute in CI.
+        approvalConfirmationIntervalMs: Long = 1,
     ): Triple<RainSdkManager, StubWalletProvider, MockChainReader> {
         val manager = RainSdkManager(
             walletProvider = stub,
