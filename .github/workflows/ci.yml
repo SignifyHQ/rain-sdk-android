@@ -1,10 +1,11 @@
 name: CI
 
-# Four job names here are required status checks in the "Protect main branchs" ruleset: test,
-# analysis, r8 and release-readiness; the fifth, changelog, lives in changelog.yml. A required check
-# that never reports blocks every merge into main, so: rename or remove one of these jobs only after
-# taking its name off the ruleset (Settings > Rules), and never add `paths` or `paths-ignore` to the
-# triggers, because a PR the filter skips gets no run and no check.
+# Five job names across the workflow files are required status checks in the "Protect main branchs"
+# ruleset: Test, Analysis, R8 and Release here, Changelog in changelog.yml. A required check that
+# never reports blocks every merge into main. The Release job fails a PR whose workflows no longer
+# provide a required name or whose triggers carry a path filter, but only an admin can edit the
+# ruleset (Settings > Rules): take a name off it before renaming or removing the job, and put the new
+# name on after the merge.
 
 on:
   pull_request:
@@ -24,7 +25,7 @@ permissions:
 jobs:
   # Unit tests for every module, the skipped-test gate, and the dependency-level modular split.
   test:
-    name: test
+    name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -104,7 +105,7 @@ jobs:
   # (the Gradle daemon and build outputs carry over between steps). Each tool is its own step and
   # the later ones still run after an earlier failure, so a red job names the tool in its step list.
   analysis:
-    name: analysis
+    name: Analysis
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -203,7 +204,7 @@ jobs:
   # consumer-rules.pro keep rules. The shrunk app is not RUN in CI, so runtime behaviour under R8
   # stays unverified here.
   r8:
-    name: r8
+    name: R8
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -253,12 +254,15 @@ jobs:
           path: '**/build/outputs/mapping/**'
           if-no-files-found: warn
 
-  # Release PR gate. When the published version changes, every file that carries it must agree and
-  # the version must be new, because a Maven Central release can never be changed or deleted. Runs
-  # on every PR and passes at once when rain-sdk is unchanged: a required check that a path filter
-  # skips never reports, and a check that never reports blocks the merge.
-  release-readiness:
-    name: release-readiness
+  # Release: everything that has to be right before a version can ship, checked on every PR.
+  # The workflow files lint, every check the ruleset requires exists as a job in this tree, and no
+  # trigger carries a path filter, so a small edit cannot leave the pipeline unable to merge or
+  # release. When the published version changes, the release files must agree and the version must
+  # be unpublished, because a Maven Central release can never be changed or deleted. On a PR that
+  # changes none of this the job passes at once: a required check that a path filter skips never
+  # reports, and a check that never reports blocks the merge.
+  release:
+    name: Release
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -266,6 +270,48 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # Syntax, expressions and action inputs of every workflow file; a broken file would otherwise
+      # surface as checks that never report. Binary pinned by version and checksum. shellcheck stays
+      # off until the existing run: scripts have been cleaned up for it.
+      - name: Workflow files lint (actionlint)
+        env:
+          VERSION: 1.7.12
+          SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          curl -fsSL -o actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/actionlint_${VERSION}_linux_amd64.tar.gz"
+          echo "${SHA256}  actionlint.tar.gz" | sha256sum -c -
+          tar -xzf actionlint.tar.gz actionlint
+          ./actionlint -color -shellcheck=
+
+      # The ruleset lists check names; a job renamed or removed here without updating it blocks every
+      # merge, and a path filter on a trigger skips the run on some PRs, with the same effect.
+      - name: Required checks match the workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          required=$(gh api "repos/${GITHUB_REPOSITORY}/rules/branches/main" \
+            --jq '[.[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context] | .[]')
+          jobs=$(ruby -ryaml -e 'Dir[".github/workflows/*.yml"].sort.each { |f| YAML.load_file(f)["jobs"].each { |id, j| puts(j["name"] || id) } }')
+          echo "required: $(tr '\n' ',' <<< "$required" | sed 's/,$//')"
+          echo "jobs:     $(tr '\n' ',' <<< "$jobs" | sed 's/,$//')"
+          fail=0
+          while IFS= read -r name; do
+            [ -z "$name" ] && continue
+            if ! grep -qxF "$name" <<< "$jobs"; then
+              echo "::error::the ruleset requires a check named '$name' but no job in .github/workflows has that name; take it off the ruleset (Settings > Rules) before merging, or restore the job"
+              fail=1
+            fi
+          done <<< "$required"
+          ruby -ryaml -e '
+            bad = Dir[".github/workflows/*.yml"].flat_map do |f|
+              y = YAML.load_file(f); on = y["on"] || y[true]
+              next [] unless on.is_a?(Hash)
+              on.select { |ev, v| v.is_a?(Hash) && (v.key?("paths") || v.key?("paths-ignore")) }.keys.map { |ev| "#{f}: #{ev}" }
+            end
+            bad.each { |b| puts "::error::#{b} has a path filter; a PR the filter skips gets no run and no check, which blocks its merge" }
+            exit 1 unless bad.empty?' || fail=1
+          exit $fail
 
       - name: Compare the published version with the base branch
         id: version

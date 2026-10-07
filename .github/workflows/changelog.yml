@@ -1,12 +1,13 @@
-name: Changelog
+name: CI
 
 # Every change a host can notice ships with its release note, written while the change is fresh.
 # Its own workflow, because it must re-run when the skip-changelog label is added or removed, and
 # label events on ci.yml would re-run the whole matrix (or let a skipped job pass a required check).
 #
-# The job name `changelog` is a required status check in the "Protect main branchs" ruleset. A
-# required check that never reports blocks every merge into main, so rename the job only after
-# taking its name off the ruleset (Settings > Rules), and never add `paths` filters to the trigger.
+# The job name `Changelog` is a required status check in the "Protect main branchs" ruleset; the
+# Release job in ci.yml fails a PR that renames it without the ruleset, and only an admin can edit
+# the ruleset (Settings > Rules). Never add `paths` filters to the trigger. The workflow is named CI
+# like ci.yml so the PR page lists this check beside the others.
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
@@ -20,7 +21,7 @@ concurrency:
 
 jobs:
   changelog:
-    name: changelog
+    name: Changelog
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
