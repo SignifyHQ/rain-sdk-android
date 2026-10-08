@@ -107,14 +107,14 @@ internal object TurnkeySendFailures {
     /**
      * The error for a send whose activity the vendor's client lost (a 5xx answer to the submit, a poll
      * read that failed, a lost or undecodable answer; see `TurnkeyManager.sendOutcome`): the fate is
-     * unknown, so it is a [RainError.ProviderError] whose cause carries the vendor's message as
-     * [Throwable.vendorMessage] renders it, and nothing else. The vendor exception stays out of the
-     * cause chain, so no layer reads an HTTP status off it and retries the send.
+     * unknown, so it is a [RainError.TransactionOutcomeUnknown] (`RAIN_305`) whose message carries the
+     * vendor's failure as [Throwable.vendorMessage] renders it, and nothing else. The vendor exception
+     * stays out of the cause chain, so no layer reads an HTTP status off it and retries the send. It
+     * has its own code so a host can tell it from a [RainError.ProviderError], which on this module's
+     * send paths means the send settled as failed or was refused and nothing moved.
      */
-    fun unknownFate(failure: Throwable): RainError = RainError.ProviderError(
-        IllegalStateException(
-            "Wallet backend did not return the send activity; the send may still land: ${failure.vendorMessage()}"
-        )
+    fun unknownFate(failure: Throwable): RainError.TransactionOutcomeUnknown = RainError.TransactionOutcomeUnknown(
+        "Wallet backend did not return the send activity; the send may still land: ${failure.vendorMessage()}"
     )
 
     /** A structured error naming anything: the backend attaches one only when the send failed. */

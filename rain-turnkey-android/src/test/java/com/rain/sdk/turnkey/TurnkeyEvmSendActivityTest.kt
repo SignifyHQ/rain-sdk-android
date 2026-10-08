@@ -189,7 +189,7 @@ class TurnkeyEvmSendActivityTest {
         }
         val provider = makeProvider(turnkey)
 
-        val ex = assertThrows(RainError.ProviderError::class.java) {
+        val ex = assertThrows(RainError.TransactionOutcomeUnknown::class.java) {
             runBlocking { provider.sendOnMainnet() }
         }
 
@@ -211,7 +211,7 @@ class TurnkeyEvmSendActivityTest {
         }
         val provider = makeProvider(turnkey)
 
-        val ex = assertThrows(RainError.ProviderError::class.java) {
+        val ex = assertThrows(RainError.TransactionOutcomeUnknown::class.java) {
             runBlocking { provider.sendOnMainnet() }
         }
 

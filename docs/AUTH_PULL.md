@@ -284,6 +284,7 @@ provider is asked for one thing: the wallet address to read the allowance *for*,
 | `RAIN_104` | `RainError.ChainNotSupported` | Turnkey and the Rain wallet: the chain is outside the wallet backend's broadcast coverage. Thrown before any signature or network call. |
 | `RAIN_301` | `RainError.NetworkError` | A network failure on the RPC read or on a provider's pre-flight simulation. Retryable; nothing was signed or broadcast. |
 | `RAIN_302` | `RainError.TransactionPending` | Confirmation window (`statusId` = transaction hash) or Portal UserOperation scan (`statusId` = UserOperation hash) expired. Not confirmed yet — re-read the allowance, don't re-approve. |
+| `RAIN_305` | `RainError.TransactionOutcomeUnknown` | Turnkey and the Rain wallet: the approval was handed to the wallet backend and its answer was then lost (a 5xx, a transport failure, an unreadable answer), so the SDK cannot say whether it was broadcast and has no hash to confirm with. Not a settled failure: re-read the allowance before approving again. |
 | `RAIN_401` | `RainError.UserRejected` | The user declined the signature in the wallet UI. |
 | `RAIN_402` | `RainError.InsufficientFunds` | Not enough native gas to submit the approval (self-paid providers; a sponsored Turnkey approval needs none). |
 | `RAIN_403` | `RainError.TransactionSimulationFailed` | Preflight simulation reverted (providers that simulate), or `confirmTokenAllowance` found a mined receipt that reverted. |

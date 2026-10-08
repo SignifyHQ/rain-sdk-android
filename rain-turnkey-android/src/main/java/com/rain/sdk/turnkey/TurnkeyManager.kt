@@ -1081,8 +1081,8 @@ internal class TurnkeyManager(
      * acceptance are settled ones, an activity Turnkey itself failed or rejected before it broadcast
      * anything, or a send status Turnkey reports as failed; both leave the money where it was. One
      * residue stays: when the vendor's client lost the activity (see [sendOutcome]), the host sees
-     * [RainError.ProviderError] with the fate unknown, built without the vendor's exception so
-     * nothing retries the send.
+     * [RainError.TransactionOutcomeUnknown], built without the vendor's exception so nothing
+     * retries the send.
      */
     internal suspend fun submitSolanaTransaction(
         chainId: Int,

@@ -358,17 +358,31 @@ class TurnkeySendFailuresTest {
     }
 
     @Test
-    fun `an unknown-fate send is a ProviderError that carries the vendor's message but not its exception`() {
+    fun `an unknown-fate send is a TransactionOutcomeUnknown that carries the vendor's message but not its exception`() {
         val vendor = RuntimeException("HTTP error from /public/v1/query/get_activity: 401")
 
         val error = TurnkeySendFailures.unknownFate(vendor)
 
-        assertThat(error).isInstanceOf(RainError.ProviderError::class.java)
-        assertThat(error.cause).isInstanceOf(IllegalStateException::class.java)
-        assertThat(error.cause?.cause).isNull()
-        assertThat(error.cause?.message).contains("HTTP error from /public/v1/query/get_activity: 401")
-        assertThat(error.cause?.message).contains("the send may still land")
+        assertThat(error).isInstanceOf(RainError.TransactionOutcomeUnknown::class.java)
+        assertThat(error.code).isEqualTo("RAIN_305")
+        assertThat(error.cause).isNull()
+        assertThat(error.message).contains("HTTP error from /public/v1/query/get_activity: 401")
+        assertThat(error.message).contains("the send may still land")
         assertThat(TurnkeyErrorMapping.turnkeyHttpStatus(error)).isNull()
+    }
+
+    /** The two endings a host must tell apart carry different codes, not only different messages. */
+    @Test
+    fun `an unknown-fate send and a settled activity failure carry different codes`() {
+        val failed = solanaActivity(V1ActivityStatus.ACTIVITY_STATUS_FAILED, "policy engine denied the request")
+        val gateway = RuntimeException("HTTP error calling ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2 request\nError: {}\nCode: 504")
+
+        val settled = TurnkeySendFailures.activityFailure(failed, "fallback")!!
+        val unknown = TurnkeySendFailures.unknownFate(gateway)
+
+        assertThat(settled).isInstanceOf(RainError.ProviderError::class.java)
+        assertThat(settled.code).isEqualTo("RAIN_501")
+        assertThat(unknown.code).isEqualTo("RAIN_305")
     }
 
     @Test
@@ -379,9 +393,9 @@ class TurnkeySendFailuresTest {
 
         val error = TurnkeySendFailures.unknownFate(decode)
 
-        assertThat(error.cause?.message).contains("Unexpected JSON token at offset 12")
-        assertThat(error.cause?.message).doesNotContain("JSON input")
-        assertThat(error.cause?.message).doesNotContain("act-secret")
+        assertThat(error.message).contains("Unexpected JSON token at offset 12")
+        assertThat(error.message).doesNotContain("JSON input")
+        assertThat(error.message).doesNotContain("act-secret")
         assertThat(RuntimeException().vendorMessage()).isEqualTo("RuntimeException")
         assertThat(RuntimeException("x".repeat(400)).vendorMessage()).hasLength(TurnkeySendFailures.MAX_VENDOR_MESSAGE_LENGTH)
     }
@@ -395,8 +409,8 @@ class TurnkeySendFailuresTest {
 
         val error = TurnkeySendFailures.unknownFate(gateway)
 
-        assertThat(error.cause?.message).contains("ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2: 504")
-        assertThat(error.cause?.message).doesNotContain("gateway-body-7f3a")
+        assertThat(error.message).contains("ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2: 504")
+        assertThat(error.message).doesNotContain("gateway-body-7f3a")
         assertThat(TurnkeyErrorMapping.turnkeyHttpStatus(error)).isNull()
     }
 

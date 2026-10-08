@@ -6,6 +6,18 @@ Notable changes to the Rain Android SDK, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `RAIN_305` `RainError.TransactionOutcomeUnknown`: a send through `rain-turnkey-android` or
+  `rain-wallet-android`, EVM or Solana, that the wallet backend may have accepted before its answer
+  was lost (a 5xx answer to the submit, a failed poll read, a transport failure, an answer that did
+  not decode). The SDK has no activity id to resume from, so the error says the send may still land
+  and names the backend's failure; read history before sending again. In 5.0.0-beta.1 that case was
+  `RAIN_501`, the code a send the backend settled as failed carries too, so a host could not tell a
+  send it may retry from one it must not. `RAIN_501` from one of these sends now means the send
+  settled as failed or was refused, and nothing moved. See
+  [TURNKEY_SUPPORT.md](docs/TURNKEY_SUPPORT.md#after-a-send-is-accepted).
+
 ### Fixed
 
 - Sends and collateral withdrawals refuse an EVM address written in mixed case whose EIP-55

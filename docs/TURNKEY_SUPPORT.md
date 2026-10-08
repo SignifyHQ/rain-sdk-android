@@ -273,8 +273,10 @@ id, and it matches `uniqueId` on the activity-log history row for the send. An a
 the submit is a refusal: nothing was executed, the send fails as any refused request does, and a 401
 there is refreshed and retried once. Any other failure after the submit (a 5xx answer, a poll read
 that failed, a lost or undecodable answer) leaves the activity with Turnkey and its id unknown to the
-adapter, so the send surfaces as a `ProviderError` that says the send may still land and names the
-vendor's failure. That error is not retry-safe; read history before sending again.
+adapter, so the send surfaces as `TransactionOutcomeUnknown` (`RAIN_305`), which says the send may
+still land and names the vendor's failure. That error is not retry-safe; read history before sending
+again. A `ProviderError` (`RAIN_501`) from one of these sends is a settled failure or a refusal:
+nothing moved.
 
 ## Solana notes
 
@@ -477,8 +479,8 @@ What every wallet call does:
 3. **Refresh-on-401** — a call rejected with HTTP 401 / `InvalidSession` is refreshed and
    retried exactly once. A 401 on the request itself means Turnkey rejected it before executing
    anything, so this is safe for sends too. A 401 inside the wallet backend's own poll after a send
-   was accepted is kept inside the send on both chains and surfaces as the unknown-fate
-   `ProviderError` described under [After a send is accepted](#after-a-send-is-accepted); it never
+   was accepted is kept inside the send on both chains and surfaces as `TransactionOutcomeUnknown`
+   (`RAIN_305`), described under [After a send is accepted](#after-a-send-is-accepted); it never
    re-runs the submit. A second 401 surfaces as `RainError.TokenExpired`.
 4. **Transient backoff** — idempotent reads (balances, history, transaction-status polls) and
    key export retry HTTP 5xx/429/408 and network I/O failures with exponential backoff; a retried

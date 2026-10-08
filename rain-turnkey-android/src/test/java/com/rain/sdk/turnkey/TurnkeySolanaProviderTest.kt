@@ -740,14 +740,14 @@ class TurnkeySolanaProviderTest {
 
     /**
      * A raw failure from Turnkey's send is not a [RainError] and not a refusal of the submit, so it may
-     * have followed acceptance and lost the activity: the host sees a `ProviderError` with the send's
-     * fate unknown, built around the vendor's message but not its exception, so no layer reads a status
-     * off it and retries. Core's withdrawal wrapper sees
-     * `ProviderError`, not the `InternalError` it puts around anything unmapped. Pins the Solana half
-     * of the error boundary that `withdrawCollateral` relies on for its send.
+     * have followed acceptance and lost the activity: the host sees `TransactionOutcomeUnknown`
+     * (`RAIN_305`), built around the vendor's message but not its exception, so no layer reads a status
+     * off it and retries. Core's withdrawal wrapper sees that `RainError`, not the `InternalError` it
+     * puts around anything unmapped. Pins the Solana half of the error boundary that
+     * `withdrawCollateral` relies on for its send.
      */
     @Test
-    fun `sendSolanaTransaction maps a raw send failure to ProviderError before it leaves the adapter`() {
+    fun `sendSolanaTransaction maps a raw send failure to TransactionOutcomeUnknown before it leaves the adapter`() {
         val raw = RuntimeException("node refused the transaction")
         val client = MockTurnkeyClient().apply { solSendTransactionError = raw }
         val provider = makeProvider(client = client)
@@ -756,13 +756,12 @@ class TurnkeySolanaProviderTest {
             recentBlockhash = MockTurnkey.DEFAULT_SOLANA_ADDRESS
         )
 
-        val ex = assertThrows(RainError.ProviderError::class.java) {
+        val ex = assertThrows(RainError.TransactionOutcomeUnknown::class.java) {
             runBlocking { provider.sendSolanaTransaction(devnet, unsigned) }
         }
 
         assertThat(ex.message).contains("node refused the transaction")
-        assertThat(ex.cause).isNotSameInstanceAs(raw)
-        assertThat(ex.cause?.cause).isNull()
+        assertThat(ex.cause).isNull()
         assertThat(client.solSendTransactionCalls).hasSize(1)
         // Nothing is read back: the vendor's client lost the activity, and the activity log is not consulted.
         assertThat(client.getActivitiesCalls).isEmpty()
@@ -1027,7 +1026,7 @@ class TurnkeySolanaProviderTest {
         }
         val provider = makeProvider(client = client)
 
-        val ex = assertThrows(RainError.ProviderError::class.java) {
+        val ex = assertThrows(RainError.TransactionOutcomeUnknown::class.java) {
             runBlocking { provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5")) }
         }
 
@@ -1050,7 +1049,7 @@ class TurnkeySolanaProviderTest {
         }
         val provider = makeProvider(client = client)
 
-        val ex = assertThrows(RainError.ProviderError::class.java) {
+        val ex = assertThrows(RainError.TransactionOutcomeUnknown::class.java) {
             runBlocking { provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5")) }
         }
 
@@ -1069,7 +1068,7 @@ class TurnkeySolanaProviderTest {
         }
         val provider = makeProvider(client = client)
 
-        val ex = assertThrows(RainError.ProviderError::class.java) {
+        val ex = assertThrows(RainError.TransactionOutcomeUnknown::class.java) {
             runBlocking { provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5")) }
         }
 
@@ -1243,7 +1242,7 @@ class TurnkeySolanaProviderTest {
         }
         val provider = makeProvider(client = client)
 
-        val ex = assertThrows(RainError.ProviderError::class.java) {
+        val ex = assertThrows(RainError.TransactionOutcomeUnknown::class.java) {
             runBlocking { provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5")) }
         }
 
@@ -1269,7 +1268,7 @@ class TurnkeySolanaProviderTest {
         val turnkey = MockTurnkey(wallets = listOf(MockTurnkey.walletWithEthAndSolana()), turnkeyClient = client)
         val provider = makeProvider(client = client, turnkey = turnkey)
 
-        val ex = assertThrows(RainError.ProviderError::class.java) {
+        val ex = assertThrows(RainError.TransactionOutcomeUnknown::class.java) {
             runBlocking { provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5")) }
         }
 
