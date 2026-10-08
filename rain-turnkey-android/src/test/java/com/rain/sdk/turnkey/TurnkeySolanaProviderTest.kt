@@ -1309,6 +1309,57 @@ class TurnkeySolanaProviderTest {
         assertThat(posted.timestampMs!!.toLong()).isGreaterThan(0L)
     }
 
+    /**
+     * The vendor's client throws `StamperNotInitialized` before it builds the request when it has no
+     * session stamper (a logout landing between the coordinator's session check and its client read).
+     * Nothing left the device, so the send is a provider failure, not one of unknown fate.
+     */
+    @Test
+    fun `sendNativeToken on solana reports a client without a session stamper as a provider failure`() {
+        stubBlockhash()
+        val client = MockTurnkeyClient().apply {
+            solSendTransactionError = TurnkeyHttpError.StamperNotInitialized()
+        }
+        val provider = makeProvider(client = client)
+
+        val ex = assertThrows(RainError.ProviderError::class.java) {
+            runBlocking { provider.sendNativeToken(devnet, MockTurnkey.DEFAULT_SOLANA_RECIPIENT, BigDecimal("0.5")) }
+        }
+
+        assertThat(ex.message).doesNotContain("may still land")
+        assertThat(client.solSendTransactionCalls).hasSize(1)
+        assertThat(client.getActivitiesCalls).isEmpty()
+    }
+
+    /** An activity Turnkey failed or rejected broadcast nothing, so the activity-log history leaves it out; a pending one stays. */
+    @Test
+    fun `getTransactions on solana leaves out a send the backend failed or rejected`(): Unit = runBlocking {
+        fun activity(id: String, status: com.turnkey.types.V1ActivityStatus, statusId: String?) = MockTurnkey.makeSolanaActivity(
+            id = id,
+            signWith = MockTurnkey.DEFAULT_SOLANA_ADDRESS,
+            caip2 = devnetCaip2,
+            unsignedTransaction = "00",
+            sendTransactionStatusId = statusId,
+            shape = MockTurnkey.SolanaSendShape.V2,
+            status = status,
+            failureMessage = "policy engine denied the request".takeIf { status != com.turnkey.types.V1ActivityStatus.ACTIVITY_STATUS_COMPLETED }
+        )
+        val client = MockTurnkeyClient(
+            mockActivities = listOf(
+                activity("act-sent", com.turnkey.types.V1ActivityStatus.ACTIVITY_STATUS_COMPLETED, "status-sent"),
+                activity("act-rejected", com.turnkey.types.V1ActivityStatus.ACTIVITY_STATUS_REJECTED, null),
+                activity("act-failed", com.turnkey.types.V1ActivityStatus.ACTIVITY_STATUS_FAILED, null),
+                activity("act-pending", com.turnkey.types.V1ActivityStatus.ACTIVITY_STATUS_PENDING, null)
+            )
+        )
+        val provider = makeProvider(client = client)
+
+        val rows = provider.getTransactions(devnet, limit = 10)
+
+        assertThat(rows.map { it.uniqueId }).containsExactly("act-sent", "act-pending")
+        assertThat(rows.single { it.uniqueId == "act-pending" }.hash).isEqualTo("act-pending")
+    }
+
     @Test
     fun `sendNativeToken on solana rejects sub-lamport precision before contacting anything`() {
         val client = MockTurnkeyClient()

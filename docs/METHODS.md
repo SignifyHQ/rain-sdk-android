@@ -314,10 +314,12 @@ accounts are supported; the wallet must be the account's owner.
   `WithdrawalRevertedByNetwork` (the transaction hash rides on `transactionId`, and in the cause's message, once included), and a
   failed status without them is `ProviderError`. On Solana, a recipient
   without a token account costs the owner rent, checked up front (`InsufficientFunds`). A raw
-  provider failure during the Solana wallet-address read or send passes through the adapter's
-  session coordinator on Turnkey and Privy and arrives as its mapping: `ProviderError` (`RAIN_501`), `Unauthorized`
-  (`RAIN_202`) for a Turnkey 403, or a code the shared prose rules assign. One that nothing mapped
-  floors at `InternalError` (`RAIN_502`).
+  provider failure during the Solana wallet-address read, or a refusal of the send itself, passes
+  through the adapter's session coordinator on Turnkey and Privy and arrives as its mapping:
+  `ProviderError` (`RAIN_501`), `Unauthorized` (`RAIN_202`) for a Turnkey 403, or a code the shared
+  prose rules assign. One that nothing mapped floors at `InternalError` (`RAIN_502`). On Turnkey and
+  the Rain wallet, a failure after the send was submitted is `TransactionOutcomeUnknown` (`RAIN_305`),
+  never a re-submit; see the Errors table.
 - **Suspend:** Yes
 
 | Parameter | Type | Description |

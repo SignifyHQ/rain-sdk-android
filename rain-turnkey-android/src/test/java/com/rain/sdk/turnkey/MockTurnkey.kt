@@ -913,7 +913,8 @@ internal class MockTurnkey(
             path: String,
             type: V1ActivityType,
             status: V1ActivityStatus,
-            failureMessage: String? = null
+            failureMessage: String? = null,
+            intent: V1Intent = V1Intent()
         ): TurnkeyHttpError.ActivityNotCompleted = TurnkeyHttpError.ActivityNotCompleted(
             V1Activity(
                 canApprove = false,
@@ -922,7 +923,7 @@ internal class MockTurnkey(
                 failure = failureMessage?.let { RpcStatus(message = it) },
                 fingerprint = "fingerprint",
                 id = UUID.randomUUID().toString(),
-                intent = V1Intent(),
+                intent = intent,
                 organizationId = DEFAULT_ORG_ID,
                 result = V1Result(),
                 status = status,

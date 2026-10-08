@@ -379,10 +379,19 @@ internal class TurnkeySessionCoordinator(
     /**
      * Warning, not error: reads on fallback paths land here in normal operation, and the RainError
      * itself is what the host acts on. A RainError raised inside the block is our own verdict and
-     * needs no vendor log.
+     * needs no vendor log. A vendor HTTP failure carries the response body in its message and the
+     * typed client's `ActivityNotCompleted` prints the whole activity from `toString()`, so neither
+     * reaches the log as a throwable: the line carries the wrapper's class and the sanitized text,
+     * the same text the mapper's exit hands the host (`withoutResponseBody`).
      */
     private fun logUnmappedFailure(e: Exception) {
-        if (e !is RainError) Timber.w(e, "Rain SDK: wallet backend call failed")
+        if (e is RainError) return
+        val vendor = e.causeChain().firstOrNull { it.carriesVendorData() }
+        if (vendor == null) {
+            Timber.w(e, "Rain SDK: wallet backend call failed")
+        } else {
+            Timber.w("Rain SDK: wallet backend call failed: %s: %s", e.javaClass.simpleName, vendor.sanitizedForHost().message)
+        }
     }
 
     private fun isAuthFailure(e: Throwable): Boolean = e.causeChain().any { t ->

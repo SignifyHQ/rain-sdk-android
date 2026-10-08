@@ -684,7 +684,12 @@ internal class TurnkeyManager(
         return if (epoch == PENDING_ROW_EPOCH) timestamp else iso8601(epoch)
     }
 
-    /** Activity-log history, used when the indexed query is unavailable. Sends only, no receives. */
+    /**
+     * Activity-log history, used when the indexed query is unavailable. Sends only, no receives, and
+     * an activity Turnkey failed or rejected broadcast nothing, so it is left out: a listed send was
+     * broadcast or is still executing, which is what a host reconciling a send of unknown fate reads
+     * the list for.
+     */
     internal suspend fun getEvmTransactionsFromActivities(
         chainId: Int,
         limit: Int?,
@@ -704,6 +709,7 @@ internal class TurnkeyManager(
 
         val drafts = activities.activities.mapNotNull { activity ->
             val intent = activity.intent.ethSendTransactionIntent ?: return@mapNotNull null
+            if (activity.status.neverBroadcast()) return@mapNotNull null
             val txChainId = chainIdFromCaip2(intent.caip2)
             if (txChainId != chainId) return@mapNotNull null
 
@@ -752,7 +758,8 @@ internal class TurnkeyManager(
 
     /**
      * Solana activity-log history, used when the indexed query is unavailable. Shows only
-     * transactions this wallet sent through Turnkey (no receives). A send is recorded under
+     * transactions this wallet sent through Turnkey (no receives); an activity Turnkey failed or
+     * rejected broadcast nothing and is left out, as on the EVM path. A send is recorded under
      * `ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2`, the type the SDK posts, or under
      * `ACTIVITY_TYPE_SOL_SEND_TRANSACTION`, the type earlier builds posted, so both are listed and
      * either intent and result shape is read. Turnkey's Solana activity carries only the hex
@@ -780,6 +787,7 @@ internal class TurnkeyManager(
 
         val drafts = activities.activities.mapNotNull { activity ->
             val intent = activity.intent.solanaSend() ?: return@mapNotNull null
+            if (activity.status.neverBroadcast()) return@mapNotNull null
             if (intent.caip2 != caip2) return@mapNotNull null
 
             val transfer = SolanaTransactionDecoder.decode(intent.unsignedTransaction)
@@ -1151,9 +1159,11 @@ internal class TurnkeyManager(
      * client returns the activity once it completed with a result of the method's shape and, since
      * `com.turnkey:http` 2.2.0, throws `TurnkeyHttpError.ActivityNotCompleted` carrying the activity
      * otherwise (still pending after its poll, failed, rejected, or completed in another shape); both
-     * are the [SendOutcome.Activity] the caller classifies. A cancellation, a [RainError] and a
-     * refusal of the submit itself (an answer below 500, given before anything was executed; a 401
-     * there is the one the coordinator refreshes and retries, safely) leave as themselves. Everything
+     * are the [SendOutcome.Activity] the caller classifies. A cancellation, a [RainError], the typed
+     * client's `StamperNotInitialized` (thrown before any request when a logout left the client
+     * without a session stamper) and a refusal of the submit itself (an answer below 500, given before
+     * anything was executed; a 401 there is the one the coordinator refreshes and retries, safely)
+     * leave as themselves ([TurnkeySendFailures.leavesTheSendAsItself]). Everything
      * else arrived after Turnkey may have accepted the activity and lost it: a 5xx answer to the
      * submit (a gateway can fail after the activity was created), a poll read that failed (a 401
      * there must never re-run the block, which would be a second send), a transport failure (the
@@ -1214,6 +1224,10 @@ internal class TurnkeyManager(
 
     private fun V1ActivityStatus.stillExecuting(): Boolean =
         this == V1ActivityStatus.ACTIVITY_STATUS_CREATED || this == V1ActivityStatus.ACTIVITY_STATUS_PENDING
+
+    /** FAILED and REJECTED: Turnkey settled the activity without broadcasting anything, so nothing of it is on chain. */
+    private fun V1ActivityStatus.neverBroadcast(): Boolean =
+        this == V1ActivityStatus.ACTIVITY_STATUS_FAILED || this == V1ActivityStatus.ACTIVITY_STATUS_REJECTED
 
     /** Seconds with the nanosecond fraction, the key the history rows sort by as well. */
     private fun Externaldatav1Timestamp.epochSeconds(): Double =

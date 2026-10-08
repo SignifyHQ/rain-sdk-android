@@ -37,13 +37,13 @@ class TurnkeyEvmSendActivityTest {
         if (::rpc.isInitialized) rpc.shutdown()
     }
 
-    private fun makeProvider(turnkey: MockTurnkey): TurnkeyWalletProvider = turnkeyWalletProvider(
+    private fun makeProvider(turnkey: MockTurnkey, sponsorGas: Boolean = false): TurnkeyWalletProvider = turnkeyWalletProvider(
         turnkey = turnkey,
         rpcEndpoints = mapOf(1 to rpc.urlFor(1)),
         httpClient = OkHttpClient(),
         // No production polling delay, so the wait-budget tests run in milliseconds.
         pollingIntervalMs = 0L,
-        sponsorGas = false
+        sponsorGas = sponsorGas
     )
 
     /** Stubs the three JSON-RPC calls made when building a Turnkey send-transaction body. */
@@ -261,5 +261,151 @@ class TurnkeyEvmSendActivityTest {
         assertThat(turnkey.refreshSessionCallCount).isEqualTo(1)
         assertThat(client.ethSendTransactionCalls).hasSize(2)
         assertThat(client.sendTransactionStatusCalls.single().sendTransactionStatusId).isEqualTo("status-after-refresh")
+    }
+
+    /**
+     * A sponsored body carries the gas-station nonce Turnkey's one-transaction-per-request guarantee
+     * rests on. The retry after a 401 refusal rebuilds the body, so the nonce is fetched again and the
+     * second submit carries the fresh one.
+     */
+    @Test
+    @Suppress("TooGenericExceptionThrown") // the vendor's own refusal is a bare RuntimeException
+    fun `a sponsored send refetches the gas station nonce when the submit is refused with 401`(): Unit = runBlocking {
+        stubSendTransactionRPCs()
+        val expectedHash = "0x" + "c".repeat(64)
+        val turnkey = MockTurnkey()
+        var submits = 0
+        val client = (turnkey.turnkeyClient as MockTurnkeyClient).apply {
+            mockGasStationNonce = "7"
+            ethSendActivity = { input ->
+                submits++
+                if (submits == 1) {
+                    mockGasStationNonce = "8"
+                    throw RuntimeException("HTTP error calling ACTIVITY_TYPE_ETH_SEND_TRANSACTION request\nError: {}\nCode: 401")
+                }
+                MockTurnkey.makeActivity(
+                    id = "act-sponsored-retry",
+                    from = input.from,
+                    to = input.to,
+                    caip2 = input.caip2,
+                    value = input.value,
+                    data = input.data,
+                    sendTransactionStatusId = "status-sponsored-retry"
+                )
+            }
+            sendTransactionStatusQueue = mutableListOf(MockTurnkeyClient.StatusFixture.broadcasted(expectedHash))
+        }
+        turnkey.onRefreshSession = { turnkey.session = MockTurnkey.defaultSession() }
+        val provider = makeProvider(turnkey, sponsorGas = true)
+
+        val txHash = provider.sendOnMainnet()
+
+        assertThat(txHash).isEqualTo(expectedHash)
+        assertThat(client.getNoncesCalls).hasSize(2)
+        assertThat(client.ethSendTransactionCalls.map { it.gasStationNonce }).containsExactly("7", "8").inOrder()
+    }
+
+    /** The sponsored body is the product default; the activity rules are the same for it. */
+    @Test
+    fun `a sponsored send ends pending on the activity id when the activity has not settled`() {
+        stubSendTransactionRPCs()
+        val turnkey = MockTurnkey()
+        val client = (turnkey.turnkeyClient as MockTurnkeyClient).apply {
+            notCompletedAfterSubmit(id = "act-sponsored-pending", status = V1ActivityStatus.ACTIVITY_STATUS_PENDING)
+        }
+        val provider = makeProvider(turnkey, sponsorGas = true)
+
+        val ex = assertThrows(RainError.TransactionPending::class.java) {
+            runBlocking { provider.sendOnMainnet() }
+        }
+
+        assertThat(ex.statusId).isEqualTo("act-sponsored-pending")
+        assertThat(client.getNoncesCalls).hasSize(1)
+        assertThat(client.ethSendTransactionCalls.single().gasStationNonce).isEqualTo("7")
+        assertThat(client.getActivityCalls).hasSize(TurnkeyManager.SEND_ACTIVITY_POLL_ATTEMPTS)
+    }
+
+    @Test
+    fun `a sponsored send reports a rejected activity with the backend's reason`() {
+        stubSendTransactionRPCs()
+        val turnkey = MockTurnkey()
+        val client = (turnkey.turnkeyClient as MockTurnkeyClient).apply {
+            notCompletedAfterSubmit(
+                id = "act-sponsored-rejected",
+                status = V1ActivityStatus.ACTIVITY_STATUS_REJECTED,
+                failureMessage = "policy engine denied the request"
+            )
+        }
+        val provider = makeProvider(turnkey, sponsorGas = true)
+
+        val ex = assertThrows(RainError.ProviderError::class.java) {
+            runBlocking { provider.sendOnMainnet() }
+        }
+
+        assertThat(ex.message).contains("policy engine denied the request")
+        assertThat(client.sendTransactionStatusCalls).isEmpty()
+    }
+
+    /** An activity waiting for a person (consensus) is not waited on: pending at once, on the activity id. */
+    @Test
+    fun `sendTransaction does not wait for an activity that needs consensus`() {
+        stubSendTransactionRPCs()
+        val turnkey = MockTurnkey()
+        val client = (turnkey.turnkeyClient as MockTurnkeyClient).apply {
+            notCompletedAfterSubmit(id = "act-evm-consensus", status = V1ActivityStatus.ACTIVITY_STATUS_CONSENSUS_NEEDED)
+        }
+        val provider = makeProvider(turnkey)
+
+        val ex = assertThrows(RainError.TransactionPending::class.java) {
+            runBlocking { provider.sendOnMainnet() }
+        }
+
+        assertThat(ex.statusId).isEqualTo("act-evm-consensus")
+        assertThat(client.getActivityCalls).isEmpty()
+    }
+
+    /** A failed read during the wait ends the wait, not the send: the last activity read is what gets classified. */
+    @Test
+    @Suppress("TooGenericExceptionThrown") // the vendor's own query failure is a bare RuntimeException
+    fun `sendTransaction ends the wait on a failed activity read and reports the send pending`() {
+        stubSendTransactionRPCs()
+        val turnkey = MockTurnkey()
+        val client = (turnkey.turnkeyClient as MockTurnkeyClient).apply {
+            notCompletedAfterSubmit(id = "act-evm-read-failed", status = V1ActivityStatus.ACTIVITY_STATUS_PENDING)
+            // A 404 is not a transient status, so the coordinator's read does not retry it.
+            getActivityError = RuntimeException("HTTP error from /public/v1/query/get_activity: 404")
+        }
+        val provider = makeProvider(turnkey)
+
+        val ex = assertThrows(RainError.TransactionPending::class.java) {
+            runBlocking { provider.sendOnMainnet() }
+        }
+
+        assertThat(ex.statusId).isEqualTo("act-evm-read-failed")
+        assertThat(client.getActivityCalls).hasSize(1)
+        assertThat(client.ethSendTransactionCalls).hasSize(1)
+    }
+
+    /**
+     * The vendor's client throws `StamperNotInitialized` before it builds the request when it has no
+     * session stamper (a logout landing between the coordinator's session check and its client read).
+     * Nothing left the device, so the send is a provider failure, not one of unknown fate.
+     */
+    @Test
+    fun `sendTransaction reports a client without a session stamper as a provider failure, not a send of unknown fate`() {
+        stubSendTransactionRPCs()
+        val turnkey = MockTurnkey()
+        val client = (turnkey.turnkeyClient as MockTurnkeyClient).apply {
+            ethSendTransactionError = TurnkeyHttpError.StamperNotInitialized()
+        }
+        val provider = makeProvider(turnkey)
+
+        val ex = assertThrows(RainError.ProviderError::class.java) {
+            runBlocking { provider.sendOnMainnet() }
+        }
+
+        assertThat(ex.message).doesNotContain("may still land")
+        assertThat(client.ethSendTransactionCalls).hasSize(1)
+        assertThat(client.sendTransactionStatusCalls).isEmpty()
     }
 }

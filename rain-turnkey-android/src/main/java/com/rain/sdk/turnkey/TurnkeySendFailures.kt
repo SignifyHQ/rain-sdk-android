@@ -1,6 +1,7 @@
 package com.rain.sdk.turnkey
 
 import com.rain.sdk.error.RainError
+import com.turnkey.http.utils.TurnkeyHttpError
 import com.turnkey.types.TGetSendTransactionStatusResponse
 import com.turnkey.types.V1Activity
 import com.turnkey.types.V1ActivityStatus
@@ -97,12 +98,17 @@ internal object TurnkeySendFailures {
 
     /**
      * True for a send failure that says nothing was executed and so leaves the write as itself for the
-     * session coordinator to classify: a [RainError] already decided, or a refusal of the submit (a 401
-     * there is the one refresh-and-retry is safe on). Everything else may follow acceptance, a transport
-     * failure included: the vendor's poll raises the same exception types after an accepted submit, so
-     * nothing in such an exception says which phase threw it.
+     * session coordinator to classify: a [RainError] already decided, the typed client's
+     * `StamperNotInitialized`, which its `activity()` throws before it builds the request when the
+     * client it was handed has no session stamper (a logout landing between the coordinator's session
+     * check and its client read), or a refusal of the submit (a 401 there is the one refresh-and-retry
+     * is safe on). Everything else may follow acceptance, a transport failure included: the vendor's
+     * poll raises the same exception types after an accepted submit, so nothing in such an exception
+     * says which phase threw it, and a connection failure is no exception, since OkHttp's retry on
+     * connection failure can already have sent the request on a pooled connection.
      */
-    fun leavesTheSendAsItself(e: Exception): Boolean = e is RainError || isSubmitRefusal(e)
+    fun leavesTheSendAsItself(e: Exception): Boolean =
+        e is RainError || e is TurnkeyHttpError.StamperNotInitialized || isSubmitRefusal(e)
 
     /**
      * The error for a send whose activity the vendor's client lost (a 5xx answer to the submit, a poll

@@ -249,7 +249,7 @@ After the Turnkey-backed `client` is resolved, every wallet operation routes thr
 | `client.getTokenBalances(chainId)` | `TurnkeyClient.getWalletAddressBalances` (CAIP-19) on supported chains; Multicall3 / parallel `eth_call` otherwise |
 | `client.sendNative(...)` / `client.sendToken(...)` | `TurnkeyClient.ethSendTransaction`, the activity rules under [After a send is accepted](#after-a-send-is-accepted), then `getSendTransactionStatus` polling. Only on Turnkey's managed-broadcast chains — other chains (Avalanche, Celo, ZKsync, Plasma, Ink) are read-only and sends throw `RAIN_104` up front. By default (`sponsorGas = true`), every EVM send (transfers, withdrawals, approvals, raw sends) is sponsored by Turnkey Gas Station (minimal payload carrying Turnkey's gas-station nonce for replay protection; fee estimates quote what the wallet would pay itself), and Solana network fees are sponsored too (a zero-SOL sender skips the fee check and dry run; rent for a new recipient token account is a separate Turnkey toggle and stays with the sender). `TurnkeyConfig(sponsorGas = false)` returns to self-paid sends, and is required on a Turnkey organization without sponsorship enabled. Monad caveat: Turnkey sponsors through EIP-7702 delegation and Monad reverts any delegated-account transaction that would leave the balance under 10 MON, so a sponsored native MON send from a small wallet fails on chain even when the estimate succeeds (token sends are unaffected). |
 | `client.withdrawCollateral(...)` | EVM: `TurnkeyContext.signRawPayload` (EIP-712) + `ethSendTransaction`. Solana: core composes the withdrawal, skipping its self-paid dry run while the adapter sponsors the fee, then `solSendTransaction` (see [Solana notes](#solana-notes)). Either chain: a chain outside Turnkey's coverage is refused with `RAIN_104` before anything is read or signed (`prepareWithdrawal` is not refused, because it never broadcasts), and a status carrying decoded revert details (`error.revertChain` or `error.eth.revertChain`, whether the transaction failed before inclusion or was included and reverted, or a Solana `InstructionError` or the runtime's `Program <id> failed` log line) surfaces as `WithdrawalRevertedByNetwork`, the same as a failed dry run, with the transaction hash on `transactionId` (and in the cause's message) once included; a failed status without them (a broadcast, policy or blockhash failure) is `ProviderError`, and a Solana fee or rent shortfall is `InsufficientFunds`. |
-| `client.getTransactions(...)` | `TurnkeyClient.listEthTransactionHistory`, the indexed history (receives and externally submitted transactions included, EVM addresses in EIP-55 form), when the transaction history feature is enabled for the organization; otherwise `TurnkeyClient.getActivities` filtered to `ACTIVITY_TYPE_ETH_SEND_TRANSACTION`, sends only. The fallback runs only when Turnkey refuses the indexed query (HTTP 403 for an organization without the feature, logged once per provider); a dead session, a transport failure or a page that could not be decoded surfaces as its own error. |
+| `client.getTransactions(...)` | `TurnkeyClient.listEthTransactionHistory`, the indexed history (receives and externally submitted transactions included, EVM addresses in EIP-55 form), when the transaction history feature is enabled for the organization; otherwise `TurnkeyClient.getActivities` filtered to `ACTIVITY_TYPE_ETH_SEND_TRANSACTION`, sends only, with the activities Turnkey failed or rejected left out, since nothing was broadcast. The fallback runs only when Turnkey refuses the indexed query (HTTP 403 for an organization without the feature, logged once per provider); a dead session, a transport failure or a page that could not be decoded surfaces as its own error. |
 | `client.estimateGas(...)` | RPC `eth_estimateGas` + `eth_gasPrice` on every chain. On a sponsored chain the quote is what the wallet would pay itself; a sponsor pays instead and its own cost is not quoted |
 
 On Solana chain ids the same methods route to `TurnkeyClient.solSendTransaction` /
@@ -274,9 +274,10 @@ the submit is a refusal: nothing was executed, the send fails as any refused req
 there is refreshed and retried once. Any other failure after the submit (a 5xx answer, a poll read
 that failed, a lost or undecodable answer) leaves the activity with Turnkey and its id unknown to the
 adapter, so the send surfaces as `TransactionOutcomeUnknown` (`RAIN_305`), which says the send may
-still land and names the vendor's failure. That error is not retry-safe; read history before sending
-again. A `ProviderError` (`RAIN_501`) from one of these sends is a settled failure or a refusal:
-nothing moved.
+still land and names the vendor's failure. That error is not retry-safe; read history or the balance
+before sending again. The activity-log history leaves out sends Turnkey failed or rejected, so a
+listed send was broadcast or is still executing. A `ProviderError` (`RAIN_501`) from one of these
+sends is a settled failure or a refusal: nothing moved.
 
 ## Solana notes
 
@@ -311,7 +312,8 @@ is read-only and a send there throws `RAIN_104`. The broadcast chain list is und
   signature. Otherwise from the activity log, sends only, whichever of the two activity types Turnkey
   recorded the send under (`ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2`, which the SDK posts, or
   `ACTIVITY_TYPE_SOL_SEND_TRANSACTION`), where the row's hash is the Turnkey status id (the activity
-  id when the send recorded none), not an explorer-resolvable signature.
+  id when the send recorded none), not an explorer-resolvable signature. An activity Turnkey failed
+  or rejected broadcast nothing and is left out.
 - **The send request.** The broadcast is Turnkey's `sol_send_transaction` activity through the
   vendor client's `solSendTransaction`, posted as `ACTIVITY_TYPE_SOL_SEND_TRANSACTION_V2` with
   `signWiths` since `com.turnkey:http` 2.1.1; 2.1.0 posted the V1 type with that body and Turnkey
@@ -392,7 +394,7 @@ session when Turnkey refuses to refresh it, see
 
 ## Error handling
 
-Turnkey-specific errors are mapped into the standard `RainError` hierarchy. Whichever vendor wrapper carries a Turnkey HTTP failure and whichever row below produces the error, a `ProviderError` or `InternalError` reaches the host with the call and the status only, as `HTTP error from <path or activity>: <status>`; the response body never does.
+Turnkey-specific errors are mapped into the standard `RainError` hierarchy. Whichever vendor wrapper carries a Turnkey HTTP failure and whichever row below produces the error, a `ProviderError` or `InternalError` reaches the host with the call and the status only, as `HTTP error from <path or activity>: <status>`; the response body never does. An activity the Kotlin SDK's client could not complete (its `TurnkeyHttpError.ActivityNotCompleted`, since `com.turnkey:http` 2.2.0) reaches the host the same way as the activity's id, type, status and Turnkey's reason, never the activity itself, whose intent echoes the request.
 
 | Turnkey error | Mapped to |
 |---------------|-----------|
@@ -401,13 +403,15 @@ Turnkey-specific errors are mapped into the standard `RainError` hierarchy. Whic
 | `TurnkeyKotlinError.FailedToInitOtp`, any auth-proxy HTTP status (managed mode) | `RainError.ProviderError` (`RAIN_501`): the code request failed. No session exists while a code is requested, so a 401 or 403 here is not `TokenExpired` or `Unauthorized`. The reason (the channel not enabled on the proxy configuration, an undeliverable number, a rate limit) is in the response body the Kotlin SDK drops, so only the status reaches the message. Request the code again or check the configuration |
 | The auth-proxy account lookup inside `confirmContactVerification`, any HTTP status (managed mode) | `RainError.ProviderError` (`RAIN_501`): no session stamps the lookup, so a 401 or 403 there is not `TokenExpired` or `Unauthorized`. The lookup's answer, another account signs in with the contact, is `RainError.Unauthorized` (`RAIN_202`) and comes from the response, not from an HTTP status |
 | `TurnkeyKotlinError.FailedToLoginWithPasskey` / `FailedToSignUpWithPasskey`, `TurnkeyPasskeyError`, `TurnkeyStamperError` (managed passkey flows) | By the decisive cause in the chain. A Credential Manager cancellation, a `NoCredentialException` or a `NotAllowedError` DOM error whose message says cancelled: `RainError.UserRejected` (`RAIN_401`), the current session untouched. A `SecurityError` or `DataError` DOM error: `RainError.InvalidConfig` (`RAIN_102`), the association file, the fingerprint or the domain does not match this build, or the file lacks the site's own statement (see [Passkeys](#passkeys)); current Play services builds report that check as `DataError` (their code 50152), older ones as `SecurityError`. Any auth-proxy or Turnkey API HTTP status inside a passkey login or sign-up: `RainError.ProviderError` (`RAIN_501`), because no session exists yet, so it is never `RAIN_201` or `RAIN_202`; the body is discarded as for the code flow. A missing passkey provider (`*ProviderConfigurationException`) or any other Credential Manager exception: `RAIN_501`. A nested `KeyAlreadyExists` or `InvalidResponse`: `RainError.InternalError` (`RAIN_502`) |
-| Turnkey API HTTP 401 | `RainError.TokenExpired` |
+| Turnkey API HTTP 401, outside a send's own poll | `RainError.TokenExpired` |
 | Turnkey API HTTP 403 | `RainError.Unauthorized` |
 | `TurnkeyKotlinError.FailedToExportWallet`, and the checks the adapter runs around an export | [Key export errors](#key-export-errors) below: one table, in the order the checks run |
 | Config / setup errors (`MissingRpId`, which managed mode cannot raise, since the SDK hands the domain to the backend configuration up front and refuses the flow with `RAIN_102` when none is configured; `MissingConfigParam`, `ClientNotInitialized`, `InvalidParameter`, `InvalidResponse`, `InvalidMessage`, `InvalidRefreshTTL`, `OAuthStateMismatch`, `KeyAlreadyExists`, `KeyNotFound`) | `RainError.InternalError` |
 | Wrapper errors whose underlying cause is a user cancellation | `RainError.UserRejected` |
 | A failed `getSendTransactionStatus` after a send | `RainError.WithdrawalRevertedByNetwork` (withdrawals) or `RainError.TransactionSimulationFailed` (transfers) with decoded revert details, `RainError.InsufficientFunds` for a Solana fee or rent shortfall, `RainError.ProviderError` otherwise; see the `withdrawCollateral` row in the mapping table above |
-| Anything else | `RainError.ProviderError` |
+| A send whose answer was lost after the submit: a 5xx answer, a failed poll read (a 401 there included), a transport failure, an answer that did not decode | `RainError.TransactionOutcomeUnknown` (`RAIN_305`), never a re-submit; see [After a send is accepted](#after-a-send-is-accepted) |
+| `TurnkeyHttpError.ActivityNotCompleted` on any other submit, an activity still pending after the client's poll, needing consensus, failed or rejected: the contact attach, `addPasskey`, account provisioning | `RainError.ProviderError` (`RAIN_501`) carrying the activity's id, type, status and Turnkey's reason, never the activity; the key export has its own table |
+| Anything else, outside a send's submit | `RainError.ProviderError` |
 
 The Turnkey Kotlin SDK throws a plain `RuntimeException` for HTTP failures and carries the status
 only inside the message, so the adapter parses the status out of the message.

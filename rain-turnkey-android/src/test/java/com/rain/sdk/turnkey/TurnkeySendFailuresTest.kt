@@ -353,6 +353,8 @@ class TurnkeySendFailuresTest {
         assertThat(TurnkeySendFailures.isSubmitRefusal(pending)).isFalse()
         assertThat(TurnkeySendFailures.leavesTheSendAsItself(pending)).isFalse()
         assertThat(TurnkeySendFailures.leavesTheSendAsItself(rejected)).isFalse()
+        // Thrown by the vendor before any request when the client has no session stamper: nothing was sent.
+        assertThat(TurnkeySendFailures.leavesTheSendAsItself(TurnkeyHttpError.StamperNotInitialized())).isTrue()
         assertThat(TurnkeyErrorMapping.turnkeyHttpStatus(rejected)).isNull()
         assertThat(TurnkeySendFailures.activityFailure(rejected.activity, "f")!!.cause?.message).isEqualTo("denied")
     }
