@@ -332,14 +332,15 @@ internal class TurnkeyWalletProvider(
 
     /**
      * True when the SDK has an RPC endpoint for [chainId] to read the registry from. Without one the
-     * backend's rows are the whole list, said once per chain at info level: `getTokenBalances` on a
-     * chain the host never configured is the host's decision, not a failure to warn about per poll.
+     * list comes from the backend alone (or, on the feature gate, fails with `RAIN_102`, see
+     * [evmBalancesWithRegistry]), said once per chain at info level: `getTokenBalances` on a chain
+     * the host never configured is the host's decision, not a failure to warn about per poll.
      */
     private fun registryReadable(chainId: Int): Boolean {
         if (manager.hasRpcEndpoint(chainId)) return true
         if (registryReadReported.add(chainId)) {
             Timber.i(
-                "Rain SDK: no RPC endpoint for chainId=%d; the balance list holds the wallet backend's rows only",
+                "Rain SDK: no RPC endpoint for chainId=%d; the registry is not read and the balance list comes from the wallet backend alone",
                 chainId
             )
         }
@@ -377,7 +378,7 @@ internal class TurnkeyWalletProvider(
         Timber.w(
             failure,
             "Rain SDK: registry and registered tokens not read from the chain for chainId=%d (%s); " +
-                "the balance list holds the wallet backend's rows only",
+                "the balance list comes from the wallet backend alone",
             chainId,
             if (failure == null) "no answer within $registryReadTimeoutMs ms" else "read failed"
         )

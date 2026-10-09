@@ -254,6 +254,28 @@ class TurnkeyWalletProviderRoutingTest {
     }
 
     @Test
+    fun `on the feature gate a registry batch that gave up is read again strictly, and that failure surfaces`() {
+        val chainReader = MockChainReader(balancesError = RainError.NetworkError("rpc down"))
+        val turnkey = MockTurnkey()
+        val client = turnkey.turnkeyClient as MockTurnkeyClient
+        client.walletAddressBalancesError = MockTurnkey.httpError(BALANCES_PATH, 403)
+        val provider = refusingProvider(turnkey, chainReader)
+
+        val entries = capturingLogs {
+            // The batch alongside the backend call gives up; the gate is found; the chain is the only
+            // source, so it is read again the strict way and its failure is the answer, not an empty list.
+            assertThrows(RainError.NetworkError::class.java) { runBlocking { provider.getBalances(chainId = 1) } }
+            // With the gate known, no batch is started: one strict read, same failure.
+            assertThrows(RainError.NetworkError::class.java) { runBlocking { provider.getBalances(chainId = 1) } }
+        }
+
+        assertThat(chainReader.balancesCalls).hasSize(3)
+        assertThat(client.walletAddressBalanceCalls).hasSize(1)
+        assertThat(entries.filter { it.second.contains("not read from the chain for chainId=1 (read failed)") }).hasSize(1)
+        assertThat(entries.filter { it.second.contains("balance service is not enabled") }).hasSize(1)
+    }
+
+    @Test
     fun `a 5xx from the balance service is retried, then the chain answers the native read and the list surfaces`() {
         val chainReader = MockChainReader()
         val turnkey = MockTurnkey()
