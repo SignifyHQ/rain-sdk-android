@@ -28,6 +28,18 @@ Notable changes to the Rain Android SDK, newest first. The format follows
 - Solana sends and collateral withdrawals through `rain-turnkey-android` and `rain-wallet-android`
   reach the chain: the wallet backend's client is `com.turnkey:sdk-kotlin` 2.0.2 with
   `com.turnkey:http` 2.1.1, which post the activity type the request body requires.
+- `getBalance(chainId, Token.Native)`, `getTokenBalances` and `getAllBalances` through
+  `rain-turnkey-android` read the chain when the wallet backend refuses its balance service with
+  HTTP 403, an organization without the balance feature, the way `getTransactions` already falls
+  back to the activity log: the gate is logged once per provider, after which the provider reads the
+  chain without asking the backend again. The native balance also falls back on any other refused
+  status, retried first when transient and logged as a warning each time, because the chain gives
+  the same number; the token list does not, because the backend and the registry each list tokens
+  the other lacks, so such a status surfaces as before for the host to retry. Before, on a Turnkey
+  organization without the feature, every such read on Ethereum, Base, Polygon and their test
+  networks failed with `RAIN_202`, and `getAllBalances` listed nothing for those chains. The chain
+  read lists the SDK's built-in tokens and those passed to `registerTokens`. `rain-wallet-android`
+  shares the code path; Rain's organization has the feature.
 - The SDK clears a Rain wallet or Turnkey session revoked by a login on another device as soon as
   the wallet backend refuses to refresh it: inside any wallet call that refreshes (with
   `autoRefresh` on) and inside `refreshSession()`. `hasActiveSession()`, `currentAuthState()` and
@@ -116,6 +128,13 @@ Rain plans to fix each of these in a later beta.
   Rain USD.
   `getBalance(chainId, Token.Contract(address))` reads a single token from the chain and works
   for any token.
+- On a Turnkey organization without the wallet backend's balance feature, `getBalance(chainId,
+  Token.Native)` and `getTokenBalances` through `rain-turnkey-android` fail with `RAIN_202`
+  (`Unauthorized`, "HTTP 403") on Ethereum, Base, Polygon and their test networks, and
+  `getAllBalances` lists nothing for those chains; nothing falls back to the chain.
+  `getBalance(chainId, Token.Contract(address))` reads the chain and works. Rain's own organization
+  has the feature, so `rain-wallet-android` is not affected. The fix is listed under Unreleased
+  above.
 - At launch with a saved session, `RainProvider.authState` and `sessionState`, and
   `TurnkeyProvider.sessionState`, can emit `Unauthenticated` for a few milliseconds between
   `Loading` and the live session. An app that opens its login screen on that `Unauthenticated`
