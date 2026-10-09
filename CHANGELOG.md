@@ -6,6 +6,13 @@ Notable changes to the Rain Android SDK, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Rain USD (`0x6122C5964D39416C3F34475d00Ceb37f50700314`) and rUSD
+  (`0x10b5Be494C2962A7B318aFB63f0Ee30b959D000b`), the two collateral tokens Rain's sandbox mints on
+  Base Sepolia, in the built-in token registry, with 6 decimals each. A `registerTokens` entry for
+  either address is ignored from now on, as for every built-in token.
+
 ### Fixed
 
 - Sends and collateral withdrawals refuse an EVM address written in mixed case whose EIP-55
@@ -46,6 +53,18 @@ Notable changes to the Rain Android SDK, newest first. The format follows
   `5.0.0-beta.1` the attach succeeded and replaced the signed-in account's contact with one that
   kept opening the other account. The attach still replaces an existing contact of the same kind
   instead of adding a second one; see Known issues under `5.0.0-beta.1`.
+- `getTokenBalances` and `getAllBalances` through `rain-turnkey-android` and `rain-wallet-android`
+  list every token in the SDK's built-in registry or passed to `registerTokens` that the wallet holds
+  on Ethereum, Base, Polygon and their test networks: one chain read per call runs alongside the
+  wallet backend's balance service call and fills in the tokens the service left out. That service
+  reports only the assets it catalogues, so a sandbox collateral token such as Rain USD on Base
+  Sepolia never appeared. The chain read needs an RPC endpoint for the chain; without one, or when it
+  fails or takes longer than five seconds, the list holds the service's rows, said once per chain in
+  the log. The `getTokenBalances` section of [METHODS.md](docs/METHODS.md) has the details.
+- Cancelling a coroutine that waits on an RPC read (balances, token metadata, allowances, receipts)
+  cancels the HTTP call; before, the call ran to its answer or its 10-second timeout first. An RPC
+  that answers with an `error` that is not an object fails as `RainError.InternalError` instead of
+  a JSON exception.
 
 ### Changed
 
@@ -115,7 +134,10 @@ Rain plans to fix each of these in a later beta.
   lists every token the wallet holds. On Base Sepolia, for example, the Rain wallet leaves out
   Rain USD.
   `getBalance(chainId, Token.Contract(address))` reads a single token from the chain and works
-  for any token.
+  for any token. The Unreleased entry above adds the registry and registered tokens on Ethereum,
+  Base, Polygon and their test networks for the Turnkey provider and the Rain wallet; any other
+  token is listed only if the wallet backend reports it, as the `getTokenBalances` section of
+  [METHODS.md](docs/METHODS.md) describes.
 - At launch with a saved session, `RainProvider.authState` and `sessionState`, and
   `TurnkeyProvider.sessionState`, can emit `Unauthenticated` for a few milliseconds between
   `Loading` and the live session. An app that opens its login screen on that `Unauthenticated`
