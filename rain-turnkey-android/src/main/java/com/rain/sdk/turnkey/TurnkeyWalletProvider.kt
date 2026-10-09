@@ -17,9 +17,13 @@ import com.rain.sdk.provider.ProviderId
 import com.rain.sdk.provider.WalletProvider
 import com.rain.sdk.utils.EthereumConverter
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import java.math.BigDecimal
 import java.math.BigInteger
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -31,10 +35,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  * call belongs to the manager, the way `PortalWalletProvider` sits over `PortalManager`.
  *
  * Balance reads route through Turnkey's `get_wallet_address_balances` when the chain is in
- * [TurnkeyBroadcastChains.BALANCE_API_CHAIN_IDS] and the organization has the balance feature;
- * everything else falls through to the injected [ChainReader] (parallel `eth_call` + Multicall3
- * where deployed), a refused backend read included: on the feature gate for both reads, on any
- * other refused status for the native balance only (see [backendBalancesOrNull]).
+ * [TurnkeyBroadcastChains.BALANCE_API_CHAIN_IDS] and the organization has the balance feature, and the
+ * token list adds, from the injected [ChainReader], the registry and host-registered tokens that answer
+ * left out; everything else falls through to the [ChainReader] alone (parallel `eth_call` + Multicall3
+ * where deployed), a refused backend read included: on the feature gate for both reads, on any other
+ * refused status for the native balance only (see [backendBalancesOrNull]).
  */
 internal class TurnkeyWalletProvider(
     private val manager: TurnkeyManager,
@@ -42,6 +47,7 @@ internal class TurnkeyWalletProvider(
     private val solanaChainReader: ChainReader,
     private val solanaTransferComposer: SolanaTransferComposer,
     private val tokenStore: TokenMetadataStore,
+    private val registryReadTimeoutMs: Long = REGISTRY_READ_TIMEOUT_MS,
 ) : WalletProvider {
 
     override val id: ProviderId get() = ProviderId.TURNKEY
@@ -71,6 +77,13 @@ internal class TurnkeyWalletProvider(
         if (SolanaChains.isSolanaChain(chainId)) solanaChainReader else chainReader
 
     internal companion object {
+        /**
+         * How long a balance list waits for the registry read that runs alongside the wallet
+         * backend's call: long enough for a healthy RPC round trip, well under the JSON-RPC client's
+         * 10-second call timeout, so a dead RPC delays a balance poll by at most this much.
+         */
+        const val REGISTRY_READ_TIMEOUT_MS = 5_000L
+
         /**
          * The capabilities a Turnkey provider advertises for a given [sponsorGas] setting. The one
          * source for both the [TurnkeyProvider] descriptor (what hosts see through
@@ -281,8 +294,93 @@ internal class TurnkeyWalletProvider(
                 ?: balancesFromNode(chainId, walletAddress)
         }
 
-        return backendBalancesOrNull(gateOnly = true) { manager.evmBalances(chainId, walletAddress, tokenStore) }
-            ?: balancesFromNode(chainId, walletAddress)
+        return evmBalancesWithRegistry(chainId, walletAddress)
+    }
+
+    /**
+     * The wallet backend's balance list plus the registry and host-registered tokens it left out,
+     * read from the chain. The backend answers only for the assets it catalogues, so a token outside
+     * that catalogue (Rain's sandbox collateral token on Base Sepolia, for one) would never reach the
+     * list, however the host registered it. The chain batch runs concurrently with the backend call,
+     * so the list waits for the slower of the two, the chain read for at most [registryReadTimeoutMs],
+     * and a backend failure cancels the chain read. Where both answer for a token the backend's row
+     * wins, zero rows are dropped, as on every other path, and a chain with nothing registered, or no
+     * RPC endpoint, is not read.
+     *
+     * When the backend refuses the read on the feature gate (see [backendBalancesOrNull]) the chain is
+     * the only source and answers the way it does on a chain the backend never covered: the batch
+     * already in flight is used when it answered, a batch that gave up is repeated as a strict read
+     * whose failure surfaces, and once the gate is known the backend is not asked and no batch is
+     * started alongside it.
+     */
+    private suspend fun evmBalancesWithRegistry(chainId: Int, walletAddress: String): List<Balance> = coroutineScope {
+        if (balanceServiceRefused.get()) return@coroutineScope balancesFromNode(chainId, walletAddress)
+        val registered = tokenStore.registeredTokens(chainId)
+        val fromChain = registered.takeIf { it.isNotEmpty() && registryReadable(chainId) }
+            ?.let { tokens -> async { registeredTokensFromChain(chainId, walletAddress, tokens) } }
+        val listed = backendBalancesOrNull(gateOnly = true) { manager.evmBalances(chainId, walletAddress, tokenStore) }
+            ?: return@coroutineScope fromChain?.await()?.droppingZeroTokens() ?: balancesFromNode(chainId, walletAddress)
+        if (fromChain == null) return@coroutineScope listed
+        val listedTokens = listed.mapTo(HashSet()) { it.token }
+        listed + fromChain.await().orEmpty().filter { balance ->
+            balance.token is Token.Contract && balance.token !in listedTokens && balance.rawAmount > BigInteger.ZERO
+        }
+    }
+
+    /** Chains whose registry read has been reported once, so a dead RPC or a missing endpoint does not log per poll. */
+    private val registryReadReported: MutableSet<Int> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * True when the SDK has an RPC endpoint for [chainId] to read the registry from. Without one the
+     * backend's rows are the whole list, said once per chain at info level: `getTokenBalances` on a
+     * chain the host never configured is the host's decision, not a failure to warn about per poll.
+     */
+    private fun registryReadable(chainId: Int): Boolean {
+        if (manager.hasRpcEndpoint(chainId)) return true
+        if (registryReadReported.add(chainId)) {
+            Timber.i(
+                "Rain SDK: no RPC endpoint for chainId=%d; the balance list holds the wallet backend's rows only",
+                chainId
+            )
+        }
+        return false
+    }
+
+    /**
+     * The registry and host-registered tokens' balances from the chain, in one batch, best effort: a
+     * read that fails for any reason but cancellation, or that outlasts [registryReadTimeoutMs],
+     * answers null, so it contributes nothing, and is reported once per chain, the way the chain
+     * reader treats a token whose `balanceOf` reverts. The backend's rows are read regardless, and a host polling balances
+     * through a rate-limited public RPC would otherwise lose a whole chain from `getAllBalances`.
+     */
+    @Suppress("TooGenericExceptionCaught") // best effort: cancellation is rethrown first, everything else is reported
+    private suspend fun registeredTokensFromChain(
+        chainId: Int,
+        walletAddress: String,
+        tokens: List<TokenInfo>
+    ): List<Balance>? = try {
+        withTimeoutOrNull(registryReadTimeoutMs) { chainReaderFor(chainId).getBalances(chainId, walletAddress, tokens) }
+            ?: run {
+                reportRegistryRead(chainId, failure = null)
+                null
+            }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        reportRegistryRead(chainId, e)
+        null
+    }
+
+    /** One warning per chain and provider for a registry read that failed ([failure]) or timed out (null). */
+    private fun reportRegistryRead(chainId: Int, failure: Exception?) {
+        if (!registryReadReported.add(chainId)) return
+        Timber.w(
+            failure,
+            "Rain SDK: registry and registered tokens not read from the chain for chainId=%d (%s); " +
+                "the balance list holds the wallet backend's rows only",
+            chainId,
+            if (failure == null) "no answer within $registryReadTimeoutMs ms" else "read failed"
+        )
     }
 
     /**
@@ -312,12 +410,12 @@ internal class TurnkeyWalletProvider(
      * node reports, named from host registrations so a mint no indexer covers is not a bare address.
      * Zero balances are dropped, matching every other path.
      */
-    private suspend fun balancesFromNode(chainId: Int, walletAddress: String): List<Balance> {
-        val all = chainReaderFor(chainId).getBalances(chainId, walletAddress, tokenStore.registeredTokens(chainId))
-        return all.filter { balance ->
-            balance.token is Token.Native || balance.rawAmount > BigInteger.ZERO
-        }
-    }
+    private suspend fun balancesFromNode(chainId: Int, walletAddress: String): List<Balance> =
+        chainReaderFor(chainId).getBalances(chainId, walletAddress, tokenStore.registeredTokens(chainId)).droppingZeroTokens()
+
+    /** The chain reader's rows without the zero token balances: native stays, a token at zero goes, as on every path. */
+    private fun List<Balance>.droppingZeroTokens(): List<Balance> =
+        filter { balance -> balance.token is Token.Native || balance.rawAmount > BigInteger.ZERO }
 
     /**
      * Set when the wallet backend refused its balance service with HTTP 403, the feature gate. From

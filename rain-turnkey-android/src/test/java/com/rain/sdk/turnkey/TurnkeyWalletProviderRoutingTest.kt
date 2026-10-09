@@ -171,7 +171,7 @@ class TurnkeyWalletProviderRoutingTest {
     }
 
     @Test
-    fun `a Turnkey balances failure on a supported chain propagates and never reaches the ChainReader`() {
+    fun `a Turnkey balances failure that is not a refusal surfaces as ProviderError`() {
         val chainReader = MockChainReader()
         val turnkey = MockTurnkey()
         (turnkey.turnkeyClient as MockTurnkeyClient).walletAddressBalancesError =
@@ -192,11 +192,12 @@ class TurnkeyWalletProviderRoutingTest {
         }
 
         // A failure that is not a refusal by the backend (no HTTP status in it) is reported, not
-        // papered over with a node read; the refusal cases follow below.
+        // papered over with a node read; the refusal cases follow below. The native read has no chain
+        // leg; the list's registry read runs alongside the backend call and is cancelled when that
+        // fails, so whether it reached the reader is scheduling, not contract, and not asserted.
         assertThat(single).isInstanceOf(RainError.ProviderError::class.java)
         assertThat(all).isInstanceOf(RainError.ProviderError::class.java)
         assertThat(chainReader.balanceCalls).isEmpty()
-        assertThat(chainReader.balancesCalls).isEmpty()
     }
 
     // ---------- a backend that refuses its balance service ----------
