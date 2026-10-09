@@ -68,9 +68,10 @@ Notable changes to the Rain Android SDK, newest first. The format follows
 - `getTokenBalances` and `getAllBalances` through `rain-turnkey-android` and `rain-wallet-android`
   list every token in the SDK's built-in registry or passed to `registerTokens` that the wallet holds
   on Ethereum, Base, Polygon and their test networks: one chain read per call runs alongside the
-  wallet backend's balance service call and fills in the tokens the service left out. That service
-  reports only the assets it catalogues, so a sandbox collateral token such as Rain USD on Base
-  Sepolia never appeared. The chain read needs an RPC endpoint for the chain; without one, or when it
+  wallet backend's balance service call, or alone on an organization whose backend refuses that
+  service (the entry above), and fills in the tokens the service left out. That service reports
+  only the assets it catalogues, so a sandbox collateral token such as Rain USD on Base Sepolia
+  never appeared. The chain read needs an RPC endpoint for the chain; without one, or when it
   fails or takes longer than five seconds, the list holds the service's rows, said once per chain in
   the log. The `getTokenBalances` section of [METHODS.md](docs/METHODS.md) has the details.
 - Cancelling a coroutine that waits on an RPC read (balances, token metadata, allowances, receipts)
