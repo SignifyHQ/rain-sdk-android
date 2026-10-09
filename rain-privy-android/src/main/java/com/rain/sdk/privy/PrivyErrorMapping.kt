@@ -3,8 +3,14 @@ package com.rain.sdk.privy
 import com.rain.sdk.error.RainError
 import com.rain.sdk.internal.error.VendorErrorClassifier
 import io.privy.auth.AuthenticationException
+import io.privy.network.ApiResult
+import io.privy.network.NoNetworkException
 import io.privy.network.PrivyApiException
 import io.privy.wallet.EmbeddedWalletException
+import java.io.IOException
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.UnknownHostException
 
 /**
  * Classifies Privy vendor exceptions into specific [RainError] cases at the adapter boundary:
@@ -12,6 +18,8 @@ import io.privy.wallet.EmbeddedWalletException
  * - user cancellation / rejection maps to [RainError.UserRejected]
  * - "insufficient funds / balance / lamports" node messages map to [RainError.InsufficientFunds]
  * - missing wallet / failed wallet creation maps to [RainError.WalletUnavailable]
+ * - a request that got no answer from the network maps to [RainError.NetworkError] when the host
+ *   may safely retry it, see [map]
  * - any other Privy exception maps to [RainError.ProviderError]
  *
  * The Privy Kotlin SDK carries no structured reason codes on its exceptions
@@ -21,27 +29,88 @@ import io.privy.wallet.EmbeddedWalletException
  *
  * Non-Privy exceptions return `null` from [mapOrNull] and keep bubbling raw inside the adapter.
  * [map], which [PrivySessionCoordinator] applies to everything that leaves the adapter, reads them
- * by the shared prose rules and floors at [RainError.ProviderError], so a user rejection or funds
- * shortfall in a node message still classifies rather than hiding behind a generic error.
+ * for a network failure and then by the shared prose rules, and floors at
+ * [RainError.ProviderError], so a user rejection or funds shortfall in a node message still
+ * classifies rather than hiding behind a generic error.
  */
 internal object PrivyErrorMapping {
 
     /**
-     * The total mapping for every failure that leaves the adapter: a [RainError] passes through,
-     * a Privy exception maps by type via [mapOrNull], and anything else is read by the shared
-     * prose rules before flooring at [RainError.ProviderError].
+     * The total mapping for every failure that leaves the adapter. A [RainError] passes through;
+     * a Privy exception maps by type via [mapOrNull]; a request that got no answer from the network
+     * maps to [RainError.NetworkError], the code hosts read as "retry, nothing was signed or
+     * broadcast"; anything else is read by the shared prose rules before flooring at
+     * [RainError.ProviderError].
+     *
+     * [idempotent] says whether the call that failed can be repeated without a second effect: a
+     * read or a session refresh can, a send cannot. On an idempotent call every transport failure
+     * is a [RainError.NetworkError] ([isNetworkFailure]). On a send only a failure that provably
+     * happened before the request left the device is ([neverReachedPrivy]): Privy signs and
+     * broadcasts a send inside the one request that carried it, so a timeout or a reset after it
+     * left may follow a broadcast, and a host that retried on `RAIN_301` would send twice. Those
+     * stay [RainError.ProviderError], an unknown fate, and so does a send the HTTP client resent
+     * after such a failure and then could not connect for.
      */
-    fun map(e: Throwable): RainError =
+    fun map(e: Throwable, idempotent: Boolean): RainError =
         e as? RainError
             ?: mapOrNull(e)
+            ?: mapNetworkOrNull(e, idempotent)
             ?: VendorErrorClassifier.fromVendorError(e)
             ?: RainError.ProviderError(e)
 
+    /**
+     * The typed mapping of a Privy exception, or null for anything else. A status-less
+     * [PrivyApiException], the shape the vendor gives a request that got no answer, returns null
+     * too: only the call site knows whether that request may have left the device, so [map]
+     * decides with its `idempotent` argument.
+     */
     fun mapOrNull(e: Throwable): RainError? = when (e) {
         is AuthenticationException -> mapAuthenticationException(e)
         is EmbeddedWalletException -> mapEmbeddedWalletException(e)
         is PrivyApiException -> mapApiException(e)
         else -> null
+    }
+
+    /**
+     * Whether [e], or a cause of it, is a request that never reached Privy or got no answer. The
+     * vendor (privy-core 0.15.0) reports those two ways: a device it can confirm offline is refused
+     * before the request, as [NoNetworkException] on wallet calls and as a [PrivyApiException]
+     * with no HTTP status and `ApiResult.Error.NoNetworkError`'s one `Throwable` as its cause on
+     * API calls (`toResult` passes it through); a transport failure is the [IOException] the HTTP
+     * client threw, bare or as the cause of a status-less [PrivyApiException]
+     * (`ApiResult.Error.GenericError`). An
+     * HTTP answer is not a network failure, whatever the client threw underneath it, so the walk
+     * stops at a [PrivyApiException] that carries a status. Only a 4xx carries one: the vendor's
+     * `requestCatching` keeps the status of ktor's `ClientRequestException` and reports a 3xx, a
+     * 5xx and every other exception status-less, with that exception as the cause, which is not
+     * an [IOException] for an answered request.
+     */
+    fun isNetworkFailure(e: Throwable): Boolean = networkVerdict(e)?.isNoAnswer() == true
+
+    /**
+     * Whether [e] is a network failure that provably happened before the request left the device:
+     * the vendor's confirmed-offline refusal, no DNS answer, no route, a refused connection or a
+     * connect timeout, with nothing else behind it. A timeout or a reset after the request left is
+     * a network failure too, but its fate is unknown, so it is not one of these. Nor is a connect
+     * failure that followed one: the HTTP client (ktor over OkHttp, `retryOnConnectionFailure` on)
+     * resends a request after a recoverable send-time failure such as a connection reset and, when
+     * the retry then fails to connect, throws that last failure with the earlier ones attached as
+     * suppressed, so every suppressed failure on the chain has to be a before-request one too.
+     * Safe to retry on any call.
+     */
+    fun neverReachedPrivy(e: Throwable): Boolean {
+        val verdict = networkVerdict(e) ?: return false
+        return verdict.isBeforeRequest() &&
+            e.causeChain().flatMap { it.suppressed.asSequence() }.all { it.isBeforeRequest() }
+    }
+
+    /** The first element of the cause chain that settles the network question, or null. */
+    private fun networkVerdict(e: Throwable): Throwable? =
+        e.causeChain().firstOrNull { it.isHttpAnswer() || it.isNoAnswer() }
+
+    private fun mapNetworkOrNull(e: Throwable, idempotent: Boolean): RainError? {
+        val retryable = if (idempotent) isNetworkFailure(e) else neverReachedPrivy(e)
+        return if (retryable) RainError.NetworkError(e.message, e) else null
     }
 
     private fun mapAuthenticationException(e: AuthenticationException): RainError {
@@ -85,8 +154,44 @@ internal object PrivyErrorMapping {
         }
     }
 
-    private fun mapApiException(e: PrivyApiException): RainError = when (e.statusCode) {
+    /**
+     * An HTTP answer from Privy's API, or a request that got none, which the vendor reports through
+     * the same type with no status. 401 and 403 are the session; another status is a provider
+     * failure; no status is left to [map], which knows whether the request may have left.
+     */
+    private fun mapApiException(e: PrivyApiException): RainError? = when (e.statusCode) {
+        null -> null
         401, 403 -> RainError.TokenExpired()
         else -> RainError.ProviderError(e)
     }
 }
+
+private fun Throwable.isHttpAnswer(): Boolean = this is PrivyApiException && statusCode != null
+
+private fun Throwable.isNoAnswer(): Boolean =
+    this is NoNetworkException ||
+        this is IOException ||
+        this is RainError.NetworkError ||
+        isVendorOfflineAnswer()
+
+/**
+ * The vendor's confirmed-offline answer to an API call: `ApiResult.Error.NoNetworkError` through
+ * `toResult()`, which passes that data object's one `Throwable` as the cause, so the identity
+ * check survives a rewording of either message.
+ */
+private fun Throwable.isVendorOfflineAnswer(): Boolean =
+    this is PrivyApiException && cause === ApiResult.Error.NoNetworkError.exception
+
+/**
+ * The failures the HTTP client raises before any byte of the request has left the device. ktor's
+ * connect-timeout exception extends [ConnectException], so it is covered.
+ */
+private val BEFORE_REQUEST_FAILURES = listOf(
+    NoNetworkException::class,
+    UnknownHostException::class,
+    NoRouteToHostException::class,
+    ConnectException::class,
+)
+
+private fun Throwable.isBeforeRequest(): Boolean =
+    BEFORE_REQUEST_FAILURES.any { it.isInstance(this) } || isVendorOfflineAnswer()

@@ -181,10 +181,16 @@ Each adapter is a `ProviderDescriptor` that owns its vendor SDK as a private dep
 | `PrivyProvider(PrivyConfig(privy, walletAddress?, sessionPolicy?, onSessionExpired?))` | `rain-privy-android` | `privy: Privy`, `walletAddress: String?`, `sessionPolicy: PrivySessionPolicy`, `onSessionExpired: (() -> Unit)?` | Privy embedded-wallet signer (EVM + Solana). Advertises `EXPORT`, `RECOVERY`, `MULTI_CHAIN`.|
 
 Every adapter also exposes its session on the descriptor: `sessionState` (a flow of the adapter's session
-state), `currentSessionState()`, `suspend fun refreshSession()` (a forced refresh; `RAIN_201` when the session
-cannot be refreshed; on the Turnkey provider and the Rain wallet a refresh the backend refused also clears the
-stored session, see [Session expiry, refresh, and retry](TURNKEY_SUPPORT.md#session-expiry-refresh-and-retry)) and `close()` (stops the session watcher so a discarded provider never fires
-`onSessionExpired`; `RainSdk.close()` calls it for every registered descriptor). `PortalProvider` adds
+state), `currentSessionState()`, `suspend fun refreshSession()` (a forced refresh; `RAIN_201`, with
+`onSessionExpired` fired, when the session cannot be refreshed; on the Turnkey provider and the Rain wallet a
+refresh the backend refused also clears the stored session, see
+[Session expiry, refresh, and retry](TURNKEY_SUPPORT.md#session-expiry-refresh-and-retry); on `PrivyProvider`
+it means a refresh Privy refuses or drops the session on, while a refresh that got no answer from the network
+throws `RAIN_301`, a session the vendor restored without a network answer is verified with it first and throws
+`RAIN_301` only if that still fails, and any other failure with the session still in place throws what it was,
+`RAIN_501` at the floor, with the hook silent; `5.0.0-beta.1` behaves differently, see the
+[CHANGELOG](../CHANGELOG.md) known issue) and `close()` (stops the session watcher so a discarded provider
+never fires `onSessionExpired`; `RainSdk.close()` calls it for every registered descriptor). `PortalProvider` adds
 `suspend fun updateSessionToken(sessionToken)`, which installs a new Portal session token on the running
 client; its `refreshSession()` and `updateSessionToken()` throw `RainError.SdkNotInitialized` (`RAIN_101`)
 before the provider was resolved.

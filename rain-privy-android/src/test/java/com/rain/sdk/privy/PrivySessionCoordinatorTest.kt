@@ -8,8 +8,10 @@ import io.mockk.mockk
 import io.privy.auth.AuthState
 import io.privy.auth.AuthenticationException
 import io.privy.auth.PrivyUser
+import io.privy.network.ApiResult
 import io.privy.network.NoNetworkException
 import io.privy.network.PrivyApiException
+import io.privy.network.toResult
 import io.privy.sdk.Privy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -23,6 +25,8 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
 
 class PrivySessionCoordinatorTest {
 
@@ -37,6 +41,7 @@ class PrivySessionCoordinatorTest {
     ): Privy {
         val privy = mockk<Privy>()
         every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
         coEvery { privy.getUser() } returns user
         return privy
     }
@@ -56,6 +61,21 @@ class PrivySessionCoordinatorTest {
     private fun apiException(status: Int?) =
         PrivyApiException(status, null, "api failure", RuntimeException("api failure"))
 
+    /** The vendor's confirmed-offline answer to an API call, built the way its `toResult()` builds it. */
+    private fun offlineRefusal(): Throwable =
+        checkNotNull(ApiResult.Error.NoNetworkError.toResult().exceptionOrNull())
+
+    /** A transport failure the vendor wrapped: `ConnectException` to auth.privy.io (QA, 2026-10-02). */
+    private fun wrappedTransportFailure() = PrivyApiException(
+        null,
+        null,
+        "Something went wrong",
+        ConnectException("No route to host"),
+    )
+
+    /** The answer to a request that left the device never came back: an unknown fate on a send. */
+    private fun lostAnswer() = PrivyApiException(null, null, "Something went wrong", SocketTimeoutException("timeout"))
+
     // ---------- auth-state guard ----------
 
     @Test
@@ -63,6 +83,7 @@ class PrivySessionCoordinatorTest {
         val auth = MutableStateFlow<AuthState>(AuthState.Unauthenticated)
         val privy = mockk<Privy>()
         every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
         var blockRuns = 0
         val coordinator = coordinator(privy)
 
@@ -77,6 +98,7 @@ class PrivySessionCoordinatorTest {
         val auth = MutableStateFlow<AuthState>(AuthState.Unauthenticated)
         val privy = mockk<Privy>()
         every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
         var hookCalls = 0
         val coordinator = coordinator(privy, onSessionExpired = { hookCalls++ })
 
@@ -193,7 +215,7 @@ class PrivySessionCoordinatorTest {
     }
 
     @Test
-    fun `transient failures beyond maxTransientRetries surface as ProviderError carrying the cause`() {
+    fun `transient failures beyond maxTransientRetries surface as NetworkError carrying the cause`() {
         val user = mockk<PrivyUser>()
         val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
         val privy = authenticatedPrivy(auth, user)
@@ -205,7 +227,7 @@ class PrivySessionCoordinatorTest {
         )
         var attempts = 0
 
-        val thrown = assertThrows(RainError.ProviderError::class.java) {
+        val thrown = assertThrows(RainError.NetworkError::class.java) {
             runBlocking {
                 coordinator.executeRead<String> {
                     attempts++
@@ -235,7 +257,7 @@ class PrivySessionCoordinatorTest {
             delayRecorder = delays,
         )
 
-        val thrown = assertThrows(RainError.ProviderError::class.java) {
+        val thrown = assertThrows(RainError.NetworkError::class.java) {
             runBlocking { coordinator.executeRead<String> { throw NoNetworkException } }
         }
         assertThat(thrown.cause).isSameInstanceAs(NoNetworkException)
@@ -250,7 +272,7 @@ class PrivySessionCoordinatorTest {
         var attempts = 0
         val coordinator = coordinator(privy)
 
-        val thrown = assertThrows(RainError.ProviderError::class.java) {
+        val thrown = assertThrows(RainError.NetworkError::class.java) {
             runBlocking {
                 coordinator.executeWrite<String> {
                     attempts++
@@ -260,6 +282,145 @@ class PrivySessionCoordinatorTest {
         }
         assertThat(thrown.cause).isSameInstanceAs(NoNetworkException)
         assertThat(attempts).isEqualTo(1)
+    }
+
+    @Test
+    fun `a transport failure after a send left the device is ProviderError, never a retry hint`() {
+        // Privy signs and broadcasts inside the request, so a lost answer may follow a broadcast:
+        // RAIN_301 would invite a host to send twice.
+        val user = mockk<PrivyUser>()
+        val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
+        val privy = authenticatedPrivy(auth, user)
+        var attempts = 0
+        val coordinator = coordinator(privy)
+        val failure = lostAnswer()
+
+        val thrown = assertThrows(RainError.ProviderError::class.java) {
+            runBlocking {
+                coordinator.executeWrite<String> {
+                    attempts++
+                    throw failure
+                }
+            }
+        }
+        assertThat(thrown.cause).isSameInstanceAs(failure)
+        assertThat(attempts).isEqualTo(1)
+    }
+
+    @Test
+    fun `a failure before a send left the device is NetworkError`() {
+        val user = mockk<PrivyUser>()
+        val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
+        val privy = authenticatedPrivy(auth, user)
+        val coordinator = coordinator(privy)
+
+        for (failure in listOf(wrappedTransportFailure(), offlineRefusal())) {
+            val thrown = assertThrows(RainError.NetworkError::class.java) {
+                runBlocking { coordinator.executeWrite<String> { throw failure } }
+            }
+            assertThat(thrown.cause).isSameInstanceAs(failure)
+        }
+    }
+
+    @Test
+    fun `a lost answer on a read is retried and leaves as NetworkError`() {
+        val user = mockk<PrivyUser>()
+        val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
+        val privy = authenticatedPrivy(auth, user)
+        val delays = RecordingDelay()
+        val coordinator = coordinator(privy, policy = PrivySessionPolicy(maxTransientRetries = 2), delayRecorder = delays)
+        var attempts = 0
+
+        assertThrows(RainError.NetworkError::class.java) {
+            runBlocking {
+                coordinator.executeRead<String> {
+                    attempts++
+                    throw lostAnswer()
+                }
+            }
+        }
+        assertThat(attempts).isEqualTo(3)
+        assertThat(delays.delays).hasSize(2)
+    }
+
+    @Test
+    fun `a call whose failure left the vendor without a session is a death, on a send too`() {
+        // The vendor logs out on a 4xx to the token refresh it runs inside a wallet call; that
+        // failure arrives as neither an auth failure nor a transient one.
+        val user = mockk<PrivyUser>()
+        val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
+        val privy = authenticatedPrivy(auth, user)
+        var hookCalls = 0
+        val coordinator = coordinator(privy, onSessionExpired = { hookCalls++ })
+
+        assertThrows(RainError.TokenExpired::class.java) {
+            runBlocking {
+                coordinator.executeWrite<String> {
+                    auth.value = AuthState.Unauthenticated
+                    throw apiException(400)
+                }
+            }
+        }
+        assertThat(hookCalls).isEqualTo(1)
+    }
+
+    @Test
+    fun `a read on an unverified session asks the vendor to verify on every attempt`() {
+        val user = mockk<PrivyUser>()
+        val auth = MutableStateFlow<AuthState>(mockk<AuthState.AuthenticatedUnverified>())
+        val privy = mockk<Privy>()
+        every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
+        var verifications = 0
+        coEvery { privy.onNetworkRestored() } coAnswers {
+            verifications++
+            if (verifications == 2) auth.value = AuthState.Authenticated(user)
+        }
+        val delays = RecordingDelay()
+        val coordinator = coordinator(privy, delayRecorder = delays)
+
+        val resolved = runBlocking { coordinator.executeRead { coordinator.requireUser() } }
+
+        assertThat(resolved).isSameInstanceAs(user)
+        assertThat(verifications).isEqualTo(2)
+        assertThat(delays.delays).containsExactly(500L).inOrder()
+    }
+
+    @Test
+    fun `a cancellation the vendor wrapped leaves a guarded call as itself`() {
+        val user = mockk<PrivyUser>()
+        val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
+        var hookCalls = 0
+        val coordinator = coordinator(authenticatedPrivy(auth, user), onSessionExpired = { hookCalls++ })
+        val cancel = kotlinx.coroutines.CancellationException("caller went away")
+        val wrapped = PrivyApiException(null, null, "Something went wrong", cancel)
+
+        val thrown = assertThrows(kotlinx.coroutines.CancellationException::class.java) {
+            runBlocking { coordinator.executeWrite<String> { throw wrapped } }
+        }
+        assertThat(thrown).isSameInstanceAs(cancel)
+        assertThat(hookCalls).isEqualTo(0)
+    }
+
+    @Test
+    fun `the vendor's confirmed-offline answer on a read is retried like a bare network failure`() = runBlocking {
+        val user = mockk<PrivyUser>()
+        val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
+        val privy = authenticatedPrivy(auth, user)
+        val delays = RecordingDelay()
+        val coordinator = coordinator(privy, delayRecorder = delays)
+        var failures = 1
+
+        val result = coordinator.executeRead {
+            if (failures > 0) {
+                failures--
+                throw offlineRefusal()
+            }
+            "ok"
+        }
+
+        assertThat(result).isEqualTo("ok")
+        assertThat(delays.delays).containsExactly(500L).inOrder()
     }
 
     @Test
@@ -351,34 +512,6 @@ class PrivySessionCoordinatorTest {
         }
     }
 
-    // ---------- manual refresh ----------
-
-    @Test
-    fun `refreshNow refreshes through the Privy user`() = runBlocking {
-        val user = mockk<PrivyUser>()
-        coEvery { user.refresh() } returns Result.success(Unit)
-        val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
-        val privy = authenticatedPrivy(auth, user)
-        val coordinator = coordinator(privy)
-
-        coordinator.refreshNow()
-    }
-
-    @Test
-    fun `refreshNow surfaces TokenExpired and fires the hook when the refresh fails`() {
-        val user = mockk<PrivyUser>()
-        coEvery { user.refresh() } returns Result.failure(AuthenticationException("expired"))
-        val auth = MutableStateFlow<AuthState>(AuthState.Authenticated(user))
-        val privy = authenticatedPrivy(auth, user)
-        var hookCalls = 0
-        val coordinator = coordinator(privy, onSessionExpired = { hookCalls++ })
-
-        assertThrows(RainError.TokenExpired::class.java) {
-            runBlocking { coordinator.refreshNow() }
-        }
-        assertThat(hookCalls).isEqualTo(1)
-    }
-
     // ---------- session state ----------
 
     @Test
@@ -387,6 +520,7 @@ class PrivySessionCoordinatorTest {
         val auth = MutableStateFlow<AuthState>(AuthState.NotReady)
         val privy = mockk<Privy>()
         every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
         val coordinator = coordinator(privy)
 
         assertThat(coordinator.currentState()).isEqualTo(PrivySessionState.Loading)
@@ -492,6 +626,7 @@ class PrivySessionCoordinatorTest {
         val auth = MutableStateFlow<AuthState>(AuthState.NotReady)
         val privy = mockk<Privy>()
         every { privy.authState } returns auth
+        coEvery { privy.getAuthState() } answers { auth.value }
         var hookCalls = 0
         val coordinator = PrivySessionCoordinator(
             privy = privy,
