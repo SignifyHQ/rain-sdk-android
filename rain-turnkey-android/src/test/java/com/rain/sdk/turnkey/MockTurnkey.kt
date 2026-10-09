@@ -156,6 +156,9 @@ internal class MockTurnkeyClient(
     /** When set, [getWalletAddressBalances] throws this instead of producing a response. */
     var walletAddressBalancesError: Exception? = null
 
+    /** When set, [getWalletAddressBalances] suspends on it after recording the call, so a test can cancel mid-read. */
+    var walletAddressBalancesGate: CompletableDeferred<Unit>? = null
+
     /** When set, [ethSendTransaction] throws this instead of producing a response. */
     var ethSendTransactionError: Exception? = null
 
@@ -235,6 +238,7 @@ internal class MockTurnkeyClient(
         input: TGetWalletAddressBalancesBody
     ): TGetWalletAddressBalancesResponse {
         walletAddressBalanceCalls += input
+        walletAddressBalancesGate?.await()
         walletAddressBalancesError?.let { throw it }
         return TGetWalletAddressBalancesResponse(balances = mockBalances)
     }
